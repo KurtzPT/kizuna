@@ -1,0 +1,95 @@
+# Weekly check for a new Go release. When go.dev has a newer minor version than
+# go.mod (e.g. 1.27 while go.mod says 1.26), this bumps both places that pin it,
+# the go line in go.mod and ARG GO_VERSION in the Dockerfile, and opens a pull
+# request against dev (it ships to main with the next release). Patch releases
+# need nothing: CI and the image build always use the newest patch of the
+# pinned minor.
+#
+# Scheduled runs use the copy of this file on the default branch (main), so a
+# change here only takes effect once it's released to main.
+#
+# A pull request opened with GITHUB_TOKEN doesn't start other workflows, so the
+# job runs ci and docker on the branch itself; their checks show up on the PR.
+# Needs: Settings -> Actions -> General -> "Allow GitHub Actions to create and
+# approve pull requests".
+name: go-update
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: go-update
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: dev
+
+      - name: compare versions
+        id: v
+        run: |
+          current=$(awk '$1 == "go" {print $2}' go.mod)
+          # newest stable release first, e.g. go1.27.1 -> 1.27
+          latest=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' \
+            | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')
+          if ! [[ $latest =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::couldn't read the latest Go version from go.dev (got '$latest')"
+            exit 1
+          fi
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          echo "go.mod: $current, go.dev: $latest"
+          if [ "$newest" = "$current" ]; then
+            echo "up to date"
+          else
+            echo "new=$latest" >> "$GITHUB_OUTPUT"
+            echo "current=$current" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: skip if a pull request is already open
+        id: open
+        if: steps.v.outputs.new
+        run: |
+          branch="go-update/go-${{ steps.v.outputs.new }}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "a pull request for $branch is already open"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: bump go.mod and Dockerfile, open a pull request
+        if: steps.v.outputs.new && !steps.open.outputs.exists
+        env:
+          NEW: ${{ steps.v.outputs.new }}
+          CURRENT: ${{ steps.v.outputs.current }}
+          BRANCH: ${{ steps.open.outputs.branch }}
+        run: |
+          sed -i -E "s/^go [0-9.]+$/go $NEW/" go.mod
+          sed -i -E "s/^ARG GO_VERSION=.*/ARG GO_VERSION=$NEW/" Dockerfile
+          git diff --exit-code --quiet && { echo "::error::nothing changed"; exit 1; }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -am "Go $NEW"
+          git push --force origin "$BRANCH"
+
+          gh pr create --head "$BRANCH" --base dev --label dependencies \
+            --title "Go $NEW" \
+            --body "Go $NEW is out ([release notes](https://go.dev/doc/go$NEW)). Bumps the \`go\` line in \`go.mod\` and \`ARG GO_VERSION\` in the \`Dockerfile\` from $CURRENT to $NEW.
+
+          Opened by the weekly \`go-update\` workflow. The \`ci\` and \`docker\` checks were started on this branch by hand; if \`docker\` fails because the \`golang:$NEW-alpine\` image isn't published yet, re-run it later."
+
+          gh workflow run ci.yml --ref "$BRANCH"
+          gh workflow run docker.yml --ref "$BRANCH"

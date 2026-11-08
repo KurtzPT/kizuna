@@ -1,0 +1,49 @@
+name: 🐳 Kizuna won't start, or Plex can't reach it
+description: Startup errors, health check failing, Plex can't add the provider, a source rejecting its key, AniDB bans… (crashes while running → "Something else")
+title: "[running] <what happens>"
+labels: ["bug", "running"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you did, what you expected, what you got (error messages word for word).
+    validations:
+      required: true
+
+  - type: textarea
+    id: health
+    attributes:
+      label: Health check, from the machine or container that runs Plex
+      description: "`curl -v http://<kizuna-host>:32600/health`"
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: startup
+    attributes:
+      label: Kizuna's log from startup
+      description: |
+        The first lines after a restart, up to `ready`, plus any `WARN` or `ERROR` since:
+        `docker logs kizuna 2>&1 | head -40` and `docker logs kizuna 2>&1 | grep -E 'level=(WARN|ERROR)' | tail -40`
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: compose
+    attributes:
+      label: How you run it
+      description: Your `compose.yml` service (or `docker run` command) with the keys replaced by `set`.
+      render: yaml
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "Kizuna 1.2.3 (image tag) · Plex Media Server 1.43.0 · Docker 27 on Unraid 7"
+    validations:
+      required: true

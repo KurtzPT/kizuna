@@ -1,0 +1,22 @@
+# local settings and data
+.env
+data/
+
+# build output
+*.exe
+/kizuna
+
+# Go test leftovers
+*.test
+*.out
+coverage.*
+
+# migration script dry runs (MIGRATION.md saves them as plan.txt)
+plan.txt
+
+# editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

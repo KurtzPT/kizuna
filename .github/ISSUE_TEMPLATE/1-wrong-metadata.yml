@@ -1,0 +1,140 @@
+name: 📺 Wrong match or metadata
+description: A show matched the wrong anime, didn't match, or has a wrong title, summary, episode, artwork…
+title: "[metadata] <show name>: <what's wrong>"
+labels: ["bug", "metadata"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! One show per issue, please. The more of the boxes below you fill in, the faster it can
+        be reproduced and fixed. Logs and names may contain file paths: remove anything you don't want public.
+        API keys and Plex tokens are already shown as `***` in Kizuna's logs.
+
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What's wrong?
+      multiple: true
+      options:
+        - Matched the wrong show (remake, sequel, other anime)
+        - Didn't match at all
+        - Wrong or missing show title / summary / genres / cast / dates
+        - Wrong or missing episode titles
+        - Episodes in the wrong season or with the wrong number
+        - Wrong or missing artwork / episode thumbnails
+        - Openings, endings or specials wrong
+        - Something else
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Provider URL (mode)
+      options:
+        - /anidb
+        - /tvdb
+        - /auto
+    validations:
+      required: true
+
+  - type: input
+    id: folder
+    attributes:
+      label: Show folder name, exactly as on disk
+      placeholder: "Hunter x Hunter (2011) [anidb-8550]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Some of its file names, exactly as on disk
+      description: |
+        A few episode files, plus any affected special, opening or ending. On Linux:
+        `ls "/path/to/Anime/<show folder>" | head -20`
+      render: text
+      placeholder: |
+        Hunter x Hunter - 001.mkv
+        Hunter x Hunter - 148.mkv
+        NCOP1.mkv
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: The right show (with its AniDB / TVDB link if you know it), title, season, number…
+      placeholder: "Should be https://anidb.net/anime/8550 and episode 12 should be titled …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What you got in Plex
+      description: A screenshot is welcome too. *Get Info → View XML* in Plex shows the item's GUID, e.g. `tv.plex.agents.custom.kizuna.anidb://show/anidb-123`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log for this show
+      description: |
+        1. Set `LOG_LEVEL=debug` and restart Kizuna.
+        2. In Plex, **Refresh Metadata** on the show (or *Fix Match* if it didn't match).
+        3. Paste the lines for it from `logs/kizuna.log` in the data folder, for example:
+           `grep -iE 'anidb-8550|tvdb-123|Hunter x Hunter' /change/me/logs/kizuna.log | tail -100`
+
+        The most useful lines are `match`, `show built`, `show fields: source used`, `episode pairing`,
+        `episode titles: source used`, and any `WARN` or `ERROR`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: replay
+    attributes:
+      label: "Optional: Kizuna's answer, replayed"
+      description: |
+        This sends Kizuna the same match Plex does and shows what comes back. Use your folder name, file path and mode:
+        ```
+        curl -s -X POST http://<host>:32600/anidb/library/metadata/matches \
+          -d '{"type":2,"title":"Hunter x Hunter","year":2011,"filename":"Anime/Hunter x Hunter (2011) [anidb-8550]/Hunter x Hunter - 001.mkv"}'
+        ```
+        For an episode problem, also the episode itself (show key from the answer above, season, episode):
+        ```
+        curl -s http://<host>:32600/anidb/library/metadata/anidb-8550-s1-e12
+        ```
+      render: json
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you changed
+      description: |
+        Every environment variable you set except the keys (just say *set* / *not set* for those).
+        `docker inspect kizuna --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -vE 'KEY|PIN|CLIENT_ID'`
+      render: shell
+      placeholder: |
+        ANIDB_CLIENT=set  TVDB_API_KEY=set  TMDB_API_KEY=not set  MAL_CLIENT_ID=not set
+        TITLE_LANGS=en,x-jat
+        EPISODE_TITLES=anidb,tvdb,tmdb
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Kizuna: `curl http://<host>:32600/health`. Plex: Settings → General."
+      placeholder: 'Kizuna {"status":"ok","version":"1.2.3"} · Plex Media Server 1.43.0'
+    validations:
+      required: true
+
+  - type: textarea
+    id: mapping
+    attributes:
+      label: "Optional: your anime-list-custom.xml entry for this show"
+      description: Only if you have one.
+      render: xml

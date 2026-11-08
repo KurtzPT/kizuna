@@ -1,0 +1,28 @@
+# Weekly pull requests for outdated GitHub Actions and the distroless runtime
+# image. The golang build image is skipped: its version follows go.mod (see the
+# Dockerfile), so a Go upgrade is a go.mod change. Kizuna has no Go module
+# dependencies outside the standard library, so there is nothing else to watch.
+#
+# Version updates go to dev and ship with the next release. Security updates
+# can't be redirected: GitHub always opens them against the default branch
+# (main), so treat one like a hotfix (see CONTRIBUTING.md).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: golang
+    labels: ["dependencies"]

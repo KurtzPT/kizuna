@@ -1,0 +1,12 @@
+# Store every text file with LF line endings, whatever the editor or OS
+# (Go, Markdown, YAML and the bash script all expect LF).
+* text=auto eol=lf
+
+# The migration script must run on Linux/macOS as is.
+*.sh text eol=lf
+
+# Never touch binary files.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

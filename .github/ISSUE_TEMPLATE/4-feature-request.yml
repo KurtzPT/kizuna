@@ -1,0 +1,25 @@
+name: ✨ Idea or feature request
+description: Something Kizuna could do, or do better.
+title: "[idea] <short summary>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem, not the solution yet. *"My library has … and I'd like Plex to show …"*
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could Kizuna help?
+      description: A setting, a new source, a change in the migration script…
+
+  - type: textarea
+    id: example
+    attributes:
+      label: An example show
+      description: A real show where this matters, with its AniDB / TVDB links and folder name.
+      placeholder: "https://anidb.net/anime/8550 · folder: Hunter x Hunter (2011) [anidb-8550]"

@@ -1,0 +1,90 @@
+name: 🛠️ Migration script misread my files
+description: kizuna-migrate.sh planned a wrong .plexmatch hint, skipped files it should handle, or failed.
+title: "[migration] <what it did wrong>"
+labels: ["bug", "migration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Anime libraries are named in thousands of ways, so examples from yours are what makes the script better.
+        Please paste **dry-run** output (no `-a`). If you already applied a plan, `kizuna-migrate.sh -U <library>`
+        removes its hints again.
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Script mode
+      options:
+        - "-m anidb"
+        - "-m tvdb"
+        - "-m auto"
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: The exact command you ran
+      placeholder: "./scripts/kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime"
+    validations:
+      required: true
+
+  - type: textarea
+    id: tree
+    attributes:
+      label: The show's folder and files, exactly as on disk
+      description: |
+        One or two affected shows, and any `.plexmatch` file of yours in them. On Linux:
+        `cd /mnt/media/Anime && find "<show folder>" -type f | sort | head -60`
+        `find "<show folder>" -name .plexmatch -exec sh -c 'echo "== $1"; cat "$1"' _ {} \;`
+      render: text
+      placeholder: |
+        Attack on Titan [tvdb3-267440]/Attack on Titan - 01.mkv
+        Attack on Titan [tvdb3-267440]/Attack on Titan - 26.mkv
+        Attack on Titan [tvdb3-267440]/NCOP1a.mkv
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Dry-run output for those shows
+      description: |
+        The planned hints and every `WARNING` line for them:
+        `./scripts/kizuna-migrate.sh -m <mode> /mnt/media/Anime > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: The hint each file should have had
+      description: For the wrong lines, the episode number you expected, and why if it's not obvious (e.g. *AniDB lists Opening 1b as C3*).
+      render: text
+      placeholder: |
+        ep: SP103: NCOP2.mkv   (AniDB has Opening 1a, 1b, 2)
+    validations:
+      required: true
+
+  - type: textarea
+    id: kizuna
+    attributes:
+      label: "tvdb / auto mode, or openings & endings: Kizuna's view of the show"
+      description: |
+        The script asks Kizuna for seasons and opening/ending numbers. Replace the folder, file and key:
+        ```
+        curl -s -X POST http://<host>:32600/auto/library/metadata/matches \
+          -d '{"type":2,"title":"<show folder>","filename":"Anime/<show folder>/<one file>","manual":1}'
+        curl -s -H 'X-Plex-Container-Size: 1000' http://<host>:32600/auto/library/metadata/<key>-s0/children
+        ```
+      render: json
+
+  - type: input
+    id: env
+    attributes:
+      label: System
+      description: "OS, bash version (`bash --version | head -1`), and Kizuna's version (`curl http://<host>:32600/health`)."
+      placeholder: "Debian 12 · GNU bash 5.2.15 · Kizuna 1.2.3"
+    validations:
+      required: true
