@@ -427,6 +427,7 @@ When they're wrong or incomplete, write your own correction in **`anime-list-cus
 | `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` = TheTVDB's absolute order; `0` = TheTVDB's specials. **Always set it when `tvdbid` is a number**: left out, it counts as `0` |
 | `episodeoffset` | AniDB episode 1 is TVDB episode `1 + offset` in that season (default `0`) |
 | `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show · TheMovieDb movie · IMDb id (`tt…`) |
+| `tmdbseason` · `tmdboffset` | the same as `defaulttvdbseason` · `episodeoffset`, for the `tmdbtv` show, whose seasons often differ from TheTVDB's. Used by `/anidb` shows for TheMovieDb's episode titles, directors and writers. Left out, TheMovieDb is paired at the TVDB season and number |
 
 > [!WARNING]
 > An entry **replaces** that AniDB id's whole entry from both lists, including the MyAnimeList, AniList, Kitsu and
@@ -446,7 +447,8 @@ says otherwise for specific episodes:
 | Attribute | Values |
 |---|---|
 | `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; credits `C1` is 101, `C2` 102…, trailers `T1` 201…, other `O1` 401…, as Anime-Lists numbers them. Plex shows endings from 151, but here they keep their C number) |
-| `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order. A `<mapping>` without it (only `tmdbseason`) is for TheMovieDb and doesn't move TVDB episodes |
+| `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order |
+| `tmdbseason` | the same for TheMovieDb (`tmdbtv`). A `<mapping>` has `tvdbseason`, `tmdbseason` or both, and only moves the episodes of the site(s) it names; the pairs, `start`, `end` and `offset` work the same for both |
 
 | Written | Means |
 |---|---|

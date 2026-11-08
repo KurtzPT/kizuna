@@ -19,10 +19,12 @@ import (
 // Every episode collects one title per source it can be paired with (Ep.titles),
 // and EPISODE_TITLES picks the first that is a real title. Pairing goes through
 // the mapping: Anime-Lists' per-episode exceptions first, else the entry's TVDB
-// season and episode offset. TheMovieDb is paired at the same season and number
-// as TheTVDB (most anime are numbered alike on both).
+// season and episode offset. In /anidb, TheMovieDb is paired the same way by its
+// own season, offset and exceptions (tmdbseason…), since its seasons often
+// differ from TheTVDB's; an entry without them gets TheTVDB's season and
+// number. In /tvdb, TheMovieDb is paired at TheTVDB's season and number.
 
-// spot is a place on a TVDB-numbered series: season (-1 = absolute order) and
+// spot is a place on a TVDB or TMDB series: season (-1 = absolute order) and
 // episode number.
 type spot struct{ season, number int }
 
@@ -50,6 +52,14 @@ func (x episodeIndex) at(sp spot) (sources.Episode, bool) {
 	}
 	e, ok := x.bySpot[sp]
 	return e, ok
+}
+
+// of finds an episode at the place at gives it on this list.
+func (x episodeIndex) of(ep *Ep, at func(*Ep) (spot, bool)) (sources.Episode, bool) {
+	if sp, ok := at(ep); ok {
+		return x.at(sp)
+	}
+	return sources.Episode{}, false
 }
 
 // seriesEpisodes returns a TVDB or TMDB series' episodes, absolute numbers
@@ -93,6 +103,24 @@ func (p *Provider) tvdbSpot(e mapping.Entry, season, index int) (spot, bool) {
 	return spot{s, n}, ok
 }
 
+// tmdbSpot is tvdbSpot for the entry's TheMovieDb show, placed by the
+// mapping's TMDB season, offset and exceptions (see
+// mapping.Entry.TMDBEpisode), with the same rules for unlisted specials and
+// later entries. An entry without a TMDB season gets TheTVDB's spot.
+func (p *Provider) tmdbSpot(e mapping.Entry, season, index int) (spot, bool) {
+	listed := e.HasTMDBException(season, index)
+	switch {
+	case !listed && !e.TMDBMapped:
+		return p.tvdbSpot(e, season, index)
+	case !listed && season == 0 && (e.TMDBSeason == 0 || !p.lists.StartsTMDBShow(e.AID)):
+		return spot{}, false
+	case !listed && e.TMDBSeason == -1 && e.TMDBOffset == 0 && !p.lists.StartsTMDBShow(e.AID):
+		return spot{}, false
+	}
+	s, n, ok := e.TMDBEpisode(season, index)
+	return spot{s, n}, ok
+}
+
 // --- /anidb ----------------------------------------------------------------
 
 // fillEpisodes pairs an /anidb show's episodes with its TVDB (and TMDB)
@@ -119,11 +147,29 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	}
 	wg.Wait()
 
-	paired := 0
+	tvAt := func(ep *Ep) (spot, bool) {
+		if ep.Season != 0 && ep.Season != 1 {
+			return spot{}, false
+		}
+		return p.tvdbSpot(entry, ep.Season, ep.mapIndex())
+	}
+	tmAt := func(ep *Ep) (spot, bool) {
+		if ep.Season != 0 && ep.Season != 1 {
+			return spot{}, false
+		}
+		return p.tmdbSpot(entry, ep.Season, ep.mapIndex())
+	}
+	paired, pairedTMDB := 0, 0
 	for _, season := range []int{1, 0} {
 		for i := range s.Episodes[season] {
 			ep := &s.Episodes[season][i]
-			sp, ok := p.tvdbSpot(entry, season, ep.mapIndex())
+			if sp, ok := tmAt(ep); ok {
+				if e, ok := tm.at(sp); ok {
+					pairedTMDB++
+					ep.setTitle("tmdb", e.Title)
+				}
+			}
+			sp, ok := tvAt(ep)
 			if !ok {
 				continue
 			}
@@ -139,19 +185,12 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 					}
 				}
 			}
-			if e, ok := tm.at(sp); ok {
-				ep.setTitle("tmdb", e.Title)
-			}
 		}
 	}
 	slog.Debug("episode pairing", "root", s.Root, "tvdb", entry.TVDB, "season", entry.TVDBSeason, "offset", entry.TVDBOffset,
-		"exceptions", len(entry.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired)
-	crewOK := p.episodeCrew(ctx, s, tv, tm, func(ep *Ep) (spot, bool) {
-		if ep.Season != 0 && ep.Season != 1 {
-			return spot{}, false
-		}
-		return p.tvdbSpot(entry, ep.Season, ep.mapIndex())
-	})
+		"exceptions", len(entry.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
+		"tmdb", entry.TMDBTV, "tmdb_mapped", entry.TMDBMapped, "paired_tmdb", pairedTMDB)
+	crewOK := p.episodeCrew(ctx, s, tv, tm, tvAt, tmAt)
 	return tvOK && tmOK && crewOK
 }
 
@@ -246,43 +285,42 @@ func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, tvdbID, tmdbID 
 		tm, ok = p.seriesEpisodes(ctx, "tmdb", tmdbID)
 		ready = ready && ok
 	}
-	crewOK := p.episodeCrew(ctx, s, tv, tm, func(ep *Ep) (spot, bool) { return ep.listed, true })
+	listed := func(ep *Ep) (spot, bool) { return ep.listed, true }
+	crewOK := p.episodeCrew(ctx, s, tv, tm, listed, listed)
 	return ready && crewOK
 }
 
 // episodeCrew sets each episode's directors and writers: TheTVDB's, else
-// TheMovieDb's (per field). at gives an episode's place on TheTVDB's list
-// (TheMovieDb is paired at the same place). A TheTVDB v4 list has no crew:
-// it's in one record per episode (EpisodeCrew). Returns false while some of
-// those are still being fetched.
-func (p *Provider) episodeCrew(ctx context.Context, s *Show, tv, tm episodeIndex, at func(*Ep) (spot, bool)) bool {
+// TheMovieDb's (per field). tvAt and tmAt give an episode's place on each
+// list. A TheTVDB v4 list has no crew: it's in one record per episode
+// (EpisodeCrew). Returns false while some of those are still being fetched.
+func (p *Provider) episodeCrew(ctx context.Context, s *Show, tv, tm episodeIndex, tvAt, tmAt func(*Ep) (spot, bool)) bool {
 	var ids []int
 	s.eachEpisode(func(ep *Ep) {
-		if sp, ok := at(ep); ok {
-			if e, ok := tv.at(sp); ok && e.ID > 0 {
-				ids = append(ids, e.ID)
-			}
+		if e, ok := tv.of(ep, tvAt); ok && e.ID > 0 {
+			ids = append(ids, e.ID)
 		}
 	})
 	crew, pending := p.tvdb.EpisodeCrew(ctx, ids)
 	s.eachEpisode(func(ep *Ep) {
-		sp, ok := at(ep)
-		if !ok {
+		te, tvOK := tv.of(ep, tvAt)
+		me, tmOK := tm.of(ep, tmAt)
+		if !tvOK && !tmOK {
 			return
 		}
 		var d, w []string
-		if e, ok := tv.at(sp); ok {
-			d, w = e.Directors, e.Writers
-			if c, ok := crew[e.ID]; ok {
+		if tvOK {
+			d, w = te.Directors, te.Writers
+			if c, ok := crew[te.ID]; ok {
 				d, w = c.Directors, c.Writers
 			}
 		}
-		if e, ok := tm.at(sp); ok {
+		if tmOK {
 			if len(d) == 0 {
-				d = e.Directors
+				d = me.Directors
 			}
 			if len(w) == 0 {
-				w = e.Writers
+				w = me.Writers
 			}
 		}
 		ep.Directors, ep.Writers = d, w

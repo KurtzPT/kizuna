@@ -3,7 +3,7 @@
 // MAPPING_SOURCES; a later list only fills ids the earlier ones lack:
 //
 //	animelists  Anime-Lists anime-list-master.xml: TVDB/TMDB/IMDb ids plus
-//	            TVDB season, episode offset and per-episode exceptions
+//	            TVDB and TMDB season, episode offset and per-episode exceptions
 //	fribb       Fribb/anime-lists anime-list-mini.json: Anime-Lists merged with
 //	            anime-offline-database (MAL, AniList, Kitsu, ANN ids) and ids looked
 //	            up on TMDB (many extra IMDb/TMDB ids)
@@ -44,6 +44,8 @@ type Entry struct {
 	TVDBSeason int // defaulttvdbseason; -1 = "a" (absolute)
 	TVDBOffset int // episodeoffset
 	TMDBTV     int
+	TMDBSeason int // tmdbseason; -1 = "a" (absolute). Only when TMDBMapped
+	TMDBOffset int // tmdboffset
 	TMDBMovie  int
 	IMDB       string
 	MAL        int
@@ -57,6 +59,15 @@ type Entry struct {
 	// episode and every later one) or no start and end at all (the offset
 	// applies to the whole AniDB season). Checked after Episodes.
 	Ranges []EpisodeRange
+	// TMDBMapped: the list gives a TMDB season, so TheMovieDb is placed by
+	// TMDBSeason, TMDBOffset and the TMDB exceptions below. Without it only
+	// those exceptions are known (the provider pairs TheMovieDb like TheTVDB).
+	TMDBMapped bool
+	// TMDBEpisodes, TMDBRanges: Episodes and Ranges for TheMovieDb
+	// (<mapping tmdbseason="…">); their TVDB* fields hold TheMovieDb's
+	// season and number.
+	TMDBEpisodes []EpisodeMap
+	TMDBRanges   []EpisodeRange
 
 	// noTVDB: Anime-Lists says this entry has no TVDB series on purpose
 	// (tvdbid="movie", "OVA"...), so a fallback list must not add one.
@@ -93,40 +104,63 @@ func (r EpisodeRange) covers(anidbSeason, ep int) bool {
 // position (no series, an unlisted credit or trailer, or an exception saying
 // "none").
 func (e Entry) TVDBEpisode(anidbSeason, ep int) (season, number int, ok bool) {
-	for _, m := range e.Episodes {
+	if s, n, listed := exception(e.Episodes, e.Ranges, anidbSeason, ep); listed {
+		return s, n, n > 0
+	}
+	return defaultEpisode(e.TVDB > 0, e.TVDBSeason, e.TVDBOffset, anidbSeason, ep)
+}
+
+// TMDBEpisode is TVDBEpisode for the entry's TheMovieDb show (tmdbseason,
+// tmdboffset and the TMDB <mapping>s), whose seasons can differ from
+// TheTVDB's. Without a TMDB season (TMDBMapped false) only the TMDB
+// exceptions place an episode.
+func (e Entry) TMDBEpisode(anidbSeason, ep int) (season, number int, ok bool) {
+	if s, n, listed := exception(e.TMDBEpisodes, e.TMDBRanges, anidbSeason, ep); listed {
+		return s, n, n > 0
+	}
+	return defaultEpisode(e.TMDBTV > 0 && e.TMDBMapped, e.TMDBSeason, e.TMDBOffset, anidbSeason, ep)
+}
+
+// exception finds an AniDB episode in an entry's exceptions: single episodes
+// first, then open ranges.
+func exception(eps []EpisodeMap, ranges []EpisodeRange, anidbSeason, ep int) (season, number int, listed bool) {
+	for _, m := range eps {
 		if m.AniDBSeason == anidbSeason && m.AniDBEp == ep {
-			return m.TVDBSeason, m.TVDBEp, m.TVDBEp > 0
+			return m.TVDBSeason, m.TVDBEp, true
 		}
 	}
-	for _, r := range e.Ranges {
+	for _, r := range ranges {
 		if r.covers(anidbSeason, ep) {
-			return r.TVDBSeason, ep + r.Offset, ep+r.Offset > 0
+			return r.TVDBSeason, ep + r.Offset, true
 		}
 	}
+	return 0, 0, false
+}
+
+// defaultEpisode places an episode no exception lists: regular N is N +
+// offset of the default season, special SN is special N.
+func defaultEpisode(known bool, defSeason, offset, anidbSeason, ep int) (season, number int, ok bool) {
 	switch {
-	case e.TVDB == 0:
+	case !known:
 		return 0, 0, false
 	case anidbSeason == 0:
 		return 0, ep, ep >= 1 && ep < 100
-	case anidbSeason != 1 || ep+e.TVDBOffset <= 0:
+	case anidbSeason != 1 || ep+offset <= 0:
 		return 0, 0, false
 	}
-	return e.TVDBSeason, ep + e.TVDBOffset, true
+	return defSeason, ep + offset, true
 }
 
 // HasException reports whether the entry lists this AniDB episode itself.
 func (e Entry) HasException(anidbSeason, ep int) bool {
-	for _, m := range e.Episodes {
-		if m.AniDBSeason == anidbSeason && m.AniDBEp == ep {
-			return true
-		}
-	}
-	for _, r := range e.Ranges {
-		if r.covers(anidbSeason, ep) {
-			return true
-		}
-	}
-	return false
+	_, _, listed := exception(e.Episodes, e.Ranges, anidbSeason, ep)
+	return listed
+}
+
+// HasTMDBException is HasException for TheMovieDb.
+func (e Entry) HasTMDBException(anidbSeason, ep int) bool {
+	_, _, listed := exception(e.TMDBEpisodes, e.TMDBRanges, anidbSeason, ep)
+	return listed
 }
 
 // Lists holds the merged mapping in memory.
@@ -246,7 +280,11 @@ func merge(dst, src map[int]Entry) (added, filled int) {
 				changed = true
 			}
 		}
-		fill(&d.TMDBTV, s.TMDBTV)
+		if d.TMDBTV == 0 && s.TMDBTV > 0 { // as for TVDB: season, offset and exceptions go with the id
+			d.TMDBTV, d.TMDBMapped, d.TMDBSeason, d.TMDBOffset = s.TMDBTV, s.TMDBMapped, s.TMDBSeason, s.TMDBOffset
+			d.TMDBEpisodes, d.TMDBRanges = s.TMDBEpisodes, s.TMDBRanges
+			changed = true
+		}
 		fill(&d.TMDBMovie, s.TMDBMovie)
 		fill(&d.MAL, s.MAL)
 		fill(&d.AniList, s.AniList)
@@ -326,11 +364,14 @@ func parseAnimeLists(data []byte) (map[int]Entry, error) {
 			Season string `xml:"defaulttvdbseason,attr"`
 			Offset string `xml:"episodeoffset,attr"`
 			TMDBTV string `xml:"tmdbtv,attr"`
+			TMDBSn string `xml:"tmdbseason,attr"`
+			TMDBOf string `xml:"tmdboffset,attr"`
 			TMDB   string `xml:"tmdbid,attr"`
 			IMDB   string `xml:"imdbid,attr"`
 			Maps   []struct {
 				AniDBSeason string `xml:"anidbseason,attr"`
 				TVDBSeason  string `xml:"tvdbseason,attr"`
+				TMDBSeason  string `xml:"tmdbseason,attr"`
 				Start       string `xml:"start,attr"`
 				End         string `xml:"end,attr"`
 				Offset      string `xml:"offset,attr"`
@@ -347,37 +388,40 @@ func parseAnimeLists(data []byte) (map[int]Entry, error) {
 		if aid == 0 {
 			continue
 		}
-		season := atoi(a.Season)
-		if a.Season == "a" {
-			season = -1
-		}
 		tvdb := strings.TrimSpace(a.TVDB)
-		e := Entry{AID: aid, TVDB: atoi(tvdb), TVDBSeason: season, TVDBOffset: atoi(a.Offset),
-			TMDBTV: atoi(a.TMDBTV), TMDBMovie: atoi(first(a.TMDB)), IMDB: first(a.IMDB)}
+		e := Entry{AID: aid, TVDB: atoi(tvdb), TVDBSeason: listSeason(a.Season), TVDBOffset: atoi(a.Offset),
+			TMDBTV: atoi(a.TMDBTV), TMDBMapped: strings.TrimSpace(a.TMDBSn) != "", TMDBSeason: listSeason(a.TMDBSn),
+			TMDBOffset: atoi(a.TMDBOf), TMDBMovie: atoi(first(a.TMDB)), IMDB: first(a.IMDB)}
 		e.noTVDB = e.TVDB == 0 && tvdb != "" && !strings.EqualFold(tvdb, "unknown")
 		if !strings.HasPrefix(e.IMDB, "tt") {
 			e.IMDB = ""
 		}
+		// A <mapping> is for TheTVDB (tvdbseason), TheMovieDb (tmdbseason) or both.
 		for _, m := range a.Maps {
-			if strings.TrimSpace(m.TVDBSeason) == "" { // a TheMovieDb mapping (tmdbseason="…"): not about TheTVDB
-				continue
+			if strings.TrimSpace(m.TVDBSeason) != "" {
+				e.Episodes, e.Ranges = appendMapping(e.Episodes, e.Ranges, atoi(m.AniDBSeason), listSeason(m.TVDBSeason),
+					m.Pairs, m.Start, m.End, m.Offset)
 			}
-			e.Episodes, e.Ranges = appendMapping(e.Episodes, e.Ranges, atoi(m.AniDBSeason), tvdbSeason(m.TVDBSeason),
-				m.Pairs, m.Start, m.End, m.Offset)
+			if strings.TrimSpace(m.TMDBSeason) != "" {
+				e.TMDBEpisodes, e.TMDBRanges = appendMapping(e.TMDBEpisodes, e.TMDBRanges, atoi(m.AniDBSeason), listSeason(m.TMDBSeason),
+					m.Pairs, m.Start, m.End, m.Offset)
+			}
 		}
 		out[aid] = e
 	}
 	return out, nil
 }
 
-func tvdbSeason(s string) int {
+// listSeason reads a TVDB or TMDB season attribute ("a" = absolute: -1).
+func listSeason(s string) int {
 	if strings.TrimSpace(s) == "a" {
 		return -1
 	}
 	return atoi(s)
 }
 
-// appendMapping reads one <mapping>: explicit ";1-3;2-4+5;3-0;" pairs (AniDB
+// appendMapping reads one <mapping>, for TheTVDB or TheMovieDb (tvdbSeason is
+// then the TMDB season): explicit ";1-3;2-4+5;3-0;" pairs (AniDB
 // episode - TVDB episode; "+" = several TVDB episodes, the first is used;
 // 0 = none), and/or a start..end range shifted by offset. Explicit pairs
 // come first, so they win over a range that covers the same episode.
@@ -387,6 +431,7 @@ func tvdbSeason(s string) int {
 // 101–199, trailers 201–299… are separate kinds of episodes.
 func appendMapping(out []EpisodeMap, ranges []EpisodeRange, anidbSeason, tvdbSeason int, pairs, start, end, offset string) ([]EpisodeMap, []EpisodeRange) {
 	listed := map[int]bool{}
+	var explicit []EpisodeMap
 	for _, p := range strings.Split(pairs, ";") {
 		a, t, ok := strings.Cut(strings.TrimSpace(p), "-")
 		if !ok {
@@ -394,10 +439,13 @@ func appendMapping(out []EpisodeMap, ranges []EpisodeRange, anidbSeason, tvdbSea
 		}
 		t, _, _ = strings.Cut(t, "+")
 		if n := atoi(a); n > 0 {
-			out = append([]EpisodeMap{{anidbSeason, n, tvdbSeason, atoi(t)}}, out...)
+			explicit = append(explicit, EpisodeMap{anidbSeason, n, tvdbSeason, atoi(t)})
 			listed[n] = true
 		}
 	}
+	// Kept in order: an AniDB episode listed twice (";1-1;1-2;", two
+	// episodes on the other site) gets the first, as with "+".
+	out = append(explicit, out...)
 	from, to, shift := atoi(start), atoi(end), atoi(offset)
 	switch {
 	case strings.TrimSpace(start) == "" && strings.TrimSpace(end) == "":
@@ -453,9 +501,11 @@ func parseFribb(data []byte) (map[int]Entry, error) {
 		} `json:"themoviedb_id"`
 		Season *struct {
 			TVDB *int `json:"tvdb"`
+			TMDB *int `json:"tmdb"`
 		} `json:"season"`
 		Offset struct {
 			TVDB int `json:"tvdb"`
+			TMDB int `json:"tmdb"`
 		} `json:"episode_offset"`
 	}
 	if err := json.Unmarshal(data, &list); err != nil {
@@ -466,13 +516,18 @@ func parseFribb(data []byte) (map[int]Entry, error) {
 		if a.AID == 0 { // anime without an AniDB id are of no use here
 			continue
 		}
-		e := Entry{AID: a.AID, TVDB: a.TVDB, TVDBOffset: a.Offset.TVDB, TMDBTV: a.TMDB.TV,
+		e := Entry{AID: a.AID, TVDB: a.TVDB, TVDBOffset: a.Offset.TVDB, TMDBTV: a.TMDB.TV, TMDBOffset: a.Offset.TMDB,
 			MAL: a.MAL, AniList: a.AniList, Kitsu: a.Kitsu, ANN: a.ANN}
 		// Fribb drops Anime-Lists' absolute marker ("a"): a TVDB id without a
 		// season is an absolute-order entry.
 		e.TVDBSeason = -1
 		if a.Season != nil && a.Season.TVDB != nil {
 			e.TVDBSeason = *a.Season.TVDB
+		}
+		// A TMDB id without a season stays unmapped rather than absolute: it
+		// is Anime-Lists' "a", but also every TMDB id Fribb looked up itself.
+		if a.Season != nil && a.Season.TMDB != nil {
+			e.TMDBMapped, e.TMDBSeason = true, *a.Season.TMDB
 		}
 		if len(a.TMDB.Movie) > 0 {
 			e.TMDBMovie = a.TMDB.Movie[0]
@@ -509,10 +564,26 @@ func (l *Lists) AIDsForTVDB(tvdb int) []int {
 // FirstAID returns the AniDB entry that starts a TVDB series: season 1 (or
 // absolute) with no offset, else the lowest id mapped to it. 0 if none.
 func (l *Lists) FirstAID(tvdb int) int {
-	aids := l.aids("tvdb", strconv.Itoa(tvdb))
+	return l.firstAID("tvdb", tvdb, func(e Entry) bool {
+		return (e.TVDBSeason == 1 || e.TVDBSeason == -1) && e.TVDBOffset == 0
+	})
+}
+
+// StartsTMDBShow reports whether an AniDB entry is the first one of its
+// TheMovieDb show, picked like FirstAID by its TMDB season and offset.
+func (l *Lists) StartsTMDBShow(aid int) bool {
+	e := l.ByAID(aid)
+	return e.TMDBTV > 0 && l.firstAID("tmdb", e.TMDBTV, func(e Entry) bool {
+		return e.TMDBMapped && (e.TMDBSeason == 1 || e.TMDBSeason == -1) && e.TMDBOffset == 0
+	}) == aid
+}
+
+// firstAID returns the first entry mapped to a source id that starts it,
+// else the lowest one (0 if none).
+func (l *Lists) firstAID(source string, id int, starts func(Entry) bool) int {
+	aids := l.aids(source, strconv.Itoa(id))
 	for _, aid := range aids {
-		e := l.ByAID(aid)
-		if (e.TVDBSeason == 1 || e.TVDBSeason == -1) && e.TVDBOffset == 0 {
+		if starts(l.ByAID(aid)) {
 			return aid
 		}
 	}

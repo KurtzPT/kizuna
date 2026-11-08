@@ -230,6 +230,42 @@ func TestCreditsUseAnimeListsNumbers(t *testing.T) {
 	}
 }
 
+// /anidb pairs TheMovieDb by the mapping's TMDB season, offset and
+// exceptions, not at TheTVDB's spot (like Re:Zero's 2nd season: TVDB S2,
+// TMDB S1 from episode 27). Titles and crew come from the right TMDB episode.
+func TestAniDBPairsTMDBByItsOwnSeasons(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 2,
+		TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1,
+		TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, TVDBSeason: 2, TVDBEp: 1}}}})
+	s, err := p.buildShow(context.Background(), "anidb-100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		index                 int
+		tvdb, tmdb, directors string
+		writers               string
+	}{
+		// TVDB S2E1 (no crew record), TMDB S1E2 by the offset
+		{1, "TVDB Three", "TMDB Two", "TMDB Director 2", "TMDB Writer"},
+		// no TVDB S2E2; TMDB S2E1 by the exception
+		{2, "", "TMDB Three", "TMDB Director 3", ""},
+	}
+	for _, c := range cases {
+		ep := s.Episode(1, c.index)
+		if ep == nil {
+			t.Fatalf("S01E%02d missing", c.index)
+		}
+		if ep.titles["tvdb"] != c.tvdb || ep.titles["tmdb"] != c.tmdb {
+			t.Errorf("S01E%02d titles %v, want tvdb %q tmdb %q", c.index, ep.titles, c.tvdb, c.tmdb)
+		}
+		if d, w := strings.Join(ep.Directors, ","), strings.Join(ep.Writers, ","); d != c.directors || w != c.writers {
+			t.Errorf("S01E%02d directors %q writers %q, want %q %q", c.index, d, w, c.directors, c.writers)
+		}
+	}
+}
+
 // A partial episode list is used, but the show is rebuilt soon instead of
 // being kept for an hour with episodes missing.
 func TestPartialEpisodeListIsIncomplete(t *testing.T) {

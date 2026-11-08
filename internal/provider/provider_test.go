@@ -158,6 +158,45 @@ func TestTVDBSpotSpecials(t *testing.T) {
 	}
 }
 
+// TheMovieDb gets its own spot when the mapping has a TMDB season, with
+// TheTVDB's rules for unlisted specials and later entries; otherwise
+// TheTVDB's spot (Re:Zero: TVDB S2 is TMDB S1 from episode 27).
+func TestTMDBSpot(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		11370: {AID: 11370, TVDB: 305089, TVDBSeason: 1, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 1},
+		14792: {AID: 14792, TVDB: 305089, TVDBSeason: 2, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 26},
+		13430: {AID: 13430, TVDB: 305089, TVDBSeason: 0, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 0,
+			TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 2, TVDBSeason: 0, TVDBEp: 5}}},
+		16000: {AID: 16000, TVDB: 305089, TVDBSeason: 3, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: -1},
+		500:   {AID: 500, TVDB: 900, TVDBSeason: 2, TVDBOffset: 3, TMDBTV: 901},
+		600:   {AID: 600, TMDBTV: 902, TMDBMapped: true, TMDBSeason: 2},
+	})
+	p := &Provider{lists: l}
+	cases := []struct {
+		aid, season, index int
+		want               spot
+		ok                 bool
+	}{
+		{11370, 0, 1, spot{0, 1}, true},  // first entry: S1 -> S00E01
+		{14792, 1, 1, spot{1, 27}, true}, // TMDB's own season and offset
+		{14792, 0, 1, spot{}, false},     // later entry: would be the first entry's special
+		{13430, 1, 1, spot{0, 1}, true},  // lives in TMDB season 0
+		{13430, 0, 1, spot{}, false},     // so its unlisted specials have no number
+		{13430, 0, 2, spot{0, 5}, true},  // an exception always wins
+		{16000, 1, 1, spot{}, false},     // absolute from 1 on a later entry
+		{500, 1, 1, spot{2, 4}, true},    // no TMDB season: TheTVDB's spot
+		{600, 1, 3, spot{2, 3}, true},    // TMDB only
+		{600, 0, 1, spot{0, 1}, true},    // the show's only entry starts it, as on TheTVDB
+	}
+	for _, c := range cases {
+		got, ok := p.tmdbSpot(l.ByAID(c.aid), c.season, c.index)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
+		}
+	}
+}
+
 func TestEpisodeTitlePick(t *testing.T) {
 	ep := &Ep{anyTitle: "Daiichiwa"}
 	ep.setTitle("anidb", "Episode 1") // AniDB's placeholder: doesn't count

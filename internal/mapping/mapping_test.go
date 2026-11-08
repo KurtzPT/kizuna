@@ -113,6 +113,117 @@ func TestEpisodeExceptions(t *testing.T) {
 	}
 }
 
+// TheMovieDb is placed by its own season, offset and <mapping>s, which can
+// differ from TheTVDB's (real Anime-Lists entries, trimmed).
+func TestTMDBEpisode(t *testing.T) {
+	list, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="69" tvdbid="81797" defaulttvdbseason="a" episodeoffset="" tmdbtv="37854" tmdbseason="a" tmdboffset="" tmdbid="" imdbid="">
+  <name>One Piece</name>
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0">;1-27;2-3;6-0;</mapping>
+    <mapping anidbseason="1" tmdbseason="1" start="1" end="61" offset="0"/>
+    <mapping anidbseason="1" tmdbseason="2" start="62" end="77" offset="-61"/>
+    <mapping anidbseason="1" tmdbseason="22" start="1089" end="1155" offset="-1088"/>
+    <mapping anidbseason="1" tvdbseason="1" start="1" end="8" offset="0"/>
+    <mapping anidbseason="1" tvdbseason="5" start="61" end="69" offset="-60"/>
+  </mapping-list>
+</anime>
+<anime anidbid="4880" tvdbid="79824" defaulttvdbseason="a" episodeoffset="" tmdbtv="31910" tmdbseason="a" tmdboffset="" tmdbid="" imdbid="">
+  <name>Naruto Shippuuden</name>
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0" tmdbseason="0">;1-0;</mapping>
+    <mapping anidbseason="1" tmdbseason="10" start="197" end="221" offset="-196"/>
+    <mapping anidbseason="1" tmdbseason="11" start="222" end="242" offset="-221"/>
+    <mapping anidbseason="1" tvdbseason="1" tmdbseason="1" start="1" end="32" offset="0"/>
+    <mapping anidbseason="1" tvdbseason="10" start="197" end="222" offset="-196"/>
+    <mapping anidbseason="1" tvdbseason="11" start="223" end="242" offset="-222"/>
+  </mapping-list>
+</anime>
+<anime anidbid="377" tvdbid="75113" defaulttvdbseason="a" episodeoffset="" tmdbtv="34163" tmdbseason="1" tmdboffset="" tmdbid="" imdbid="">
+  <name>Urusei Yatsura</name>
+  <mapping-list>
+    <mapping anidbseason="1" tmdbseason="1" offset="23">;1-1;1-2;2-3;2-4;22-43;22-44;23-45;46-70;</mapping>
+    <mapping anidbseason="1" tvdbseason="1" start="1" end="54"/>
+  </mapping-list>
+</anime>
+<anime anidbid="11370" tvdbid="305089" defaulttvdbseason="1" episodeoffset="" tmdbtv="65942" tmdbseason="1" tmdboffset="" tmdbid="" imdbid=""/>
+<anime anidbid="14792" tvdbid="305089" defaulttvdbseason="2" episodeoffset="" tmdbtv="65942" tmdbseason="1" tmdboffset="26" tmdbid="" imdbid=""/>
+<anime anidbid="13430" tvdbid="305089" defaulttvdbseason="0" episodeoffset="" tmdbtv="65942" tmdbseason="0" tmdboffset="" tmdbid="" imdbid=""/>
+<anime anidbid="23" tvdbid="76885" defaulttvdbseason="1" episodeoffset="" tmdbtv="" tmdbseason="" tmdbid="" imdbid=""/>
+</anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type c struct {
+		aid, as, ep, s, n int
+		ok                bool
+	}
+	for _, x := range []c{
+		// One Piece: TMDB seasons from its own ranges, not TheTVDB's
+		{69, 1, 1, 1, 1, true}, {69, 1, 61, 1, 61, true}, {69, 1, 62, 2, 1, true}, {69, 1, 1100, 22, 12, true},
+		{69, 1, 1200, -1, 1200, true}, // no TMDB range: tmdbseason="a"
+		{69, 0, 1, 0, 1, true},        // TVDB's special pairs don't apply
+		// Naruto Shippuuden: rows with both seasons count for TheMovieDb too
+		{4880, 1, 5, 1, 5, true}, {4880, 1, 222, 11, 1, true}, {4880, 1, 221, 10, 25, true}, {4880, 0, 1, 0, 0, false},
+		// Urusei Yatsura: an episode listed twice gets its first; the offset covers the rest
+		{377, 1, 1, 1, 1, true}, {377, 1, 2, 1, 3, true}, {377, 1, 23, 1, 45, true}, {377, 1, 46, 1, 70, true}, {377, 1, 30, 1, 53, true},
+		// Re:Zero 2nd season: TVDB S2, TMDB S1 from episode 27
+		{14792, 1, 1, 1, 27, true},
+		{13430, 1, 1, 0, 1, true},
+		{23, 1, 1, 0, 0, false}, // no TMDB show
+	} {
+		s, n, ok := list[x.aid].TMDBEpisode(x.as, x.ep)
+		if ok != x.ok || (ok && (s != x.s || n != x.n)) {
+			t.Errorf("aid %d AniDB %d/%d: got TMDB S%d E%d ok=%v, want S%d E%d ok=%v", x.aid, x.as, x.ep, s, n, ok, x.s, x.n, x.ok)
+		}
+	}
+	// TheTVDB is unchanged by the TMDB fields and rows.
+	if s, n, ok := list[4880].TVDBEpisode(1, 222); !ok || s != 10 || n != 26 {
+		t.Errorf("4880 TVDB: got S%d E%d ok=%v, want S10 E26", s, n, ok)
+	}
+	if s, n, ok := list[14792].TVDBEpisode(1, 1); !ok || s != 2 || n != 1 {
+		t.Errorf("14792 TVDB: got S%d E%d ok=%v, want S2 E1", s, n, ok)
+	}
+	if !list[69].TMDBMapped || list[23].TMDBMapped || !list[4880].HasTMDBException(0, 1) || list[69].HasTMDBException(0, 1) {
+		t.Error("TMDBMapped / HasTMDBException")
+	}
+
+	// The first entry of the TMDB show: season 1 or absolute, no offset.
+	l := &Lists{}
+	l.set(list)
+	for aid, want := range map[int]bool{69: true, 11370: true, 14792: false, 13430: false, 23: false} {
+		if got := l.StartsTMDBShow(aid); got != want {
+			t.Errorf("StartsTMDBShow(%d) = %v, want %v", aid, got, want)
+		}
+	}
+
+	// Fribb's TMDB season and offset; without a season, no TMDB placement.
+	fr, err := parseFribb([]byte(`[
+  {"anidb_id": 14792, "tvdb_id": 305089, "themoviedb_id": {"tv": 65942}, "season": {"tvdb": 2, "tmdb": 1}, "episode_offset": {"tmdb": 26}},
+  {"anidb_id": 69, "tvdb_id": 81797, "themoviedb_id": {"tv": 37854}},
+  {"anidb_id": 70, "themoviedb_id": {"tv": 99}}
+]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := fr[14792]; !e.TMDBMapped || e.TMDBSeason != 1 || e.TMDBOffset != 26 {
+		t.Errorf("Fribb 14792: %+v", e)
+	}
+	if fr[69].TMDBMapped {
+		t.Error("Fribb 69 (no TMDB season) must stay unmapped")
+	}
+	// merge carries the TMDB placement with a missing TMDB id, and never
+	// mixes it into an entry that has its own.
+	dst := map[int]Entry{14792: {AID: 14792}, 69: list[69]}
+	merge(dst, fr)
+	if e := dst[14792]; e.TMDBTV != 65942 || !e.TMDBMapped || e.TMDBSeason != 1 || e.TMDBOffset != 26 {
+		t.Errorf("merge 14792: %+v", e)
+	}
+	if e := dst[69]; !e.TMDBMapped || e.TMDBSeason != -1 || len(e.TMDBRanges)+len(e.TMDBEpisodes) == 0 {
+		t.Errorf("merge 69: %+v", e)
+	}
+}
+
 // Real Anime-Lists entries (trimmed) that use the less common <mapping>
 // forms: TheMovieDb mappings, ranges without an end, offsets without a
 // range, and credits numbered C1 = 101.
