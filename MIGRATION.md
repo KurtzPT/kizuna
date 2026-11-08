@@ -44,8 +44,8 @@ number differently from Kizuna. Your files, subtitles and torrents stay untouche
 | `tvdb2`, `tvdb4`–`tvdb6`, `anidb2`–`anidb4`, `tmdb`, `imdb` | – | – | ❌ | – | not supported |
 
 For the ❌ modes the folder tag still finds the right show, but Kizuna numbers episodes its own way, so files numbered
-for those orders won't line up. The script doesn't warn about them: it plans `[anidb2-…]` like `[anidb-…]` and
-`[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
+for those orders won't line up. The script warns about each such folder, and plans `[anidb2-…]` like `[anidb-…]`
+and `[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
 
 > [!IMPORTANT]
 > **Plain HAMA `tvdb` shows need the `[tvdb-…]` tag** (no digit after `tvdb`). That tag is the only way the script
@@ -330,7 +330,7 @@ tells you the name to give the folder:
 
 ```text
 WARNING: …/Cowboy Bebop: anidb.id says [anidb-23], but Plex never reads .id files. Rename the folder to
-"Cowboy Bebop [anidb-23]" before switching the library (the hints below assume that tag)
+"Cowboy Bebop [anidb-23]" before switching the library (the hints above assume that tag)
 ```
 
 - **Rename those folders before step 4**, or Kizuna matches them by title. The hints stay valid after the rename.

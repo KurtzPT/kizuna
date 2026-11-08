@@ -323,9 +323,20 @@ read_id_file() {
 		ID_FILE_TAG="[$src-$id]" used=$base
 	done
 	if [[ -n $used ]]; then
-		warn "$dir: $used says $ID_FILE_TAG, but Plex never reads .id files. Rename the folder to \"$(basename "$dir") $ID_FILE_TAG\" before switching the library (the hints below assume that tag)"
+		warn "$dir: $used says $ID_FILE_TAG, but Plex never reads .id files. Rename the folder to \"$(basename "$dir") $ID_FILE_TAG\" before switching the library (the hints above assume that tag)"
 		if [[ -n $others ]]; then warn "$dir: also has$others; used $used"; fi
 	fi
+}
+
+# unsupported_order prints the first id tag in $1 when it names one of HAMA's
+# numbering orders Kizuna doesn't support ([anidb2-N], [tvdb2-N], [tvdb4-N]...).
+# The tag still finds the show, but its episodes follow Kizuna's numbering.
+unsupported_order() {
+	local tag=""
+	shopt -s nocasematch
+	if [[ $1 =~ $ID_TAG ]]; then tag=${BASH_REMATCH[0]}; fi
+	if [[ $tag =~ ^.(anidb[0-9]|tvdb[0-24-9])- ]]; then echo "$tag"; fi
+	shopt -u nocasematch
 }
 
 # dir_season prints the season Plex's scanner gives the show-relative folder
@@ -549,7 +560,7 @@ hint() {
 }
 
 plan_show() {
-	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter
+	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
 	local relative=0 se rs re pe
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
 	for sub in "$dir"/*/; do
@@ -569,6 +580,10 @@ plan_show() {
 		warn "$dir/$PLEXMATCH: \"season: $ROOT_SEASON\" puts every file without a hint of its own in season $ROOT_SEASON"
 	fi
 	read_id_file "$dir"
+	order=$(unsupported_order "$(basename "$dir")${ID_FILE_TAG:+ $ID_FILE_TAG}")
+	if [[ -n $order ]]; then
+		warn "$dir: $order is a HAMA numbering order Kizuna doesn't support: the tag finds the show, but its episodes follow Kizuna's numbering, not that order. Check this show's hints against your files"
+	fi
 	mapfile -t videos < <(list_videos "$dir")
 	SHOW_VARIANTS=""
 	shopt -s nocasematch

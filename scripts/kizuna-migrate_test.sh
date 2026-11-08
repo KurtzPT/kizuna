@@ -171,11 +171,16 @@ check "failed write: exit status" "$status" "1"
 check_contains "failed write: says so" "$err" "can't write $dir/fail/.plexmatch"
 check "failed write: old file whole" "$(cat "$dir/fail/.plexmatch")" $'title: Keep Me\nep: 1: x.mkv'
 
+for c in "Show [tvdb4-81797]|[tvdb4-81797]" "Show {anidb2-23}|{anidb2-23}" "Show [tvdb3-81797]|" 	"Show [tvdb-81797]|" "Show [anidb-23] [tvdb4-81797]|" "Show (2004)|"; do
+	name=${c%%|*} want=${c#*|}
+	check "unsupported_order \"$name\"" "$(unsupported_order "$name")" "$want"
+done
+
 # --- whole runs (anidb mode, Kizuna not reachable) -------------------------------
 
 lib=$WORK/library
 show="$lib/Show [anidb-1]"
-mkdir -p "$show" "$lib/Movie" "$lib/.hidden"
+mkdir -p "$show" "$lib/Movie" "$lib/.hidden" "$lib/Other [anidb2-5]"
 for f in "Show - 01.mkv" "Show - 02.mkv" "Show - SP1.mkv" "Show - SP2.mkv" "Show - SP3.mkv" "Show - PV.mkv" \
 	"Show - NCOP1.mkv" "notes.txt"; do
 	: >"$show/$f"
@@ -193,6 +198,7 @@ check_contains "dry run: movie" "$out" "+ ep: S01E01: Movie (2010).mkv"
 check_contains "dry run: NCOP stays an extra" "$out" "Plex's scanner makes files with \"NCOP1\" in the name"
 check_contains "dry run: SPxx hint warned" "$out" "its hint \"ep: SP02\" makes Plex leave the file out"
 check_contains "dry run: other hint kept" "$out" "kept its hint \"ep: S00E05\"; Kizuna's numbering is S00E03"
+check_contains "dry run: unsupported HAMA order" "$out" "[anidb2-5] is a HAMA numbering order Kizuna doesn't support"
 check_contains "dry run: summary" "$out" "2 .plexmatch files to write, 3 hints in all, 2 files already have a hint"
 check "dry run writes nothing" "$(bytes "$show/.plexmatch")" "$original"
 check "dry run: no new .plexmatch" "$(ls -A "$lib/Movie")" "Movie (2010).mkv"
