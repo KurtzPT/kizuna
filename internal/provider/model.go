@@ -280,12 +280,13 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 	// Episode titles and the show-level fields touch different parts of s:
 	// fetch both at once.
+	b := newTVDBBuild(tvdbID, tmdbID, listSrc, a, eps)
 	var titlesReady, crewReady bool
 	wg.Go(func() {
 		var pr tvdbPairing
-		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, tvdbID, tmdbID, listSrc, a)
+		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
 		p.pickEpisodeTitles(s)
-		crewReady = p.tvdbEpisodeCrew(ctx, s, tvdbID, tmdbID, listSrc, eps, pr)
+		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
 	sourcesOK := p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
 	wg.Wait()

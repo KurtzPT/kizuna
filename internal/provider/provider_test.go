@@ -191,7 +191,7 @@ func TestTVDBSpotSpecials(t *testing.T) {
 		{7670, 0, 1, spot{0, 9}, true}, // an exception always wins
 	}
 	for _, c := range cases {
-		got, ok := p.tvdbSpot(l.ByAID(c.aid), c.season, c.index)
+		got, ok := p.spotsOf(l.ByAID(c.aid)).at("tvdb", c.season, c.index)
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
 		}
@@ -234,7 +234,7 @@ func TestTMDBSpot(t *testing.T) {
 		{600, 0, 1, spot{0, 1}, true},    // the show's only entry starts it, as on TheTVDB
 	}
 	for _, c := range cases {
-		got, ok := p.tmdbSpot(l.ByAID(c.aid), c.season, c.index)
+		got, ok := p.spotsOf(l.ByAID(c.aid)).at("tmdb", c.season, c.index)
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
 		}
@@ -306,7 +306,7 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}}
 	s.eachEpisode(func(ep *Ep) { ep.setTitle("tvdb", fmt.Sprintf("TVDB S%dE%d", ep.listed.season, ep.listed.number)) })
 
-	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, 500, 0, "tvdb", first); !ready {
+	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, newTVDBBuild(500, 0, "tvdb", first, nil)); !ready {
 		t.Error("no AniDB client: nothing can be fetched, so nothing to wait for")
 	}
 	p.pickEpisodeTitles(s)
@@ -320,5 +320,69 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	p.pickEpisodeTitles(s)
 	if got := s.Episodes[1][0].Title; got != "Hajimari" {
 		t.Errorf("anidb only: got %q, want the romaji title", got)
+	}
+}
+
+// The /tvdb pairing walk places each entry on both sites, either of which
+// can hold the episode list: an entry of another TMDB show has no place on
+// this show's TMDB list, and an entry without a TMDB season is placed on
+// TheMovieDb like on TheTVDB.
+func TestTVDBPairingPerSite(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	if err := os.MkdirAll(filepath.Join(dir, "anidb", "anime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, aid := range []int{200, 300} {
+		xml := fmt.Sprintf(`<anime id="%d"><type>TV Series</type><enddate>2010-01-01</enddate><episodes>
+  <episode><epno type="1">1</epno><title xml:lang="en">Entry %d</title></episode></episodes></anime>`, aid, aid)
+		if err := os.WriteFile(filepath.Join(dir, "anidb", "anime", fmt.Sprintf("%d.xml", aid)), []byte(xml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 77, Season: 1, Offset: 1, Mapped: true}},
+		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
+			TMDB: mapping.Placement{ID: 88, Season: 1, Mapped: true}}, // another TMDB show
+		300: {AID: 300, TVDB: mapping.Placement{ID: 500, Season: 3, Mapped: true},
+			TMDB: mapping.Placement{ID: 77, Season: 9}}, // no TMDB season: placed like on TheTVDB
+	})
+	p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "", "1")}
+	p.cfg.EpisodeLangs = []string{"en"}
+	first := &sources.AniDBAnime{AID: 100, Episodes: []sources.AniDBEpisode{
+		{Season: 1, Index: 1, Titles: []anidb.Title{{Lang: "en", Text: "Entry 100"}}}}}
+
+	cases := []struct {
+		list   string
+		titles map[spot]string
+		other  map[spot]spot
+	}{
+		{"tvdb",
+			map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"},
+			map[spot]spot{{1, 1}: {1, 2}, {3, 1}: {3, 1}}}, // 200 has no place on TMDB 77
+		{"tmdb",
+			map[spot]string{{1, 2}: "Entry 100", {3, 1}: "Entry 300"}, // 200 isn't on this list
+			map[spot]spot{{1, 2}: {1, 1}, {3, 1}: {3, 1}}},
+	}
+	for _, c := range cases {
+		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, c.list, first, nil))
+		if !ready {
+			t.Errorf("%s list: every entry is cached, want ready", c.list)
+		}
+		if len(pr.titles) != len(c.titles) || len(pr.other) != len(c.other) {
+			t.Errorf("%s list: titles %v other %v, want %v %v", c.list, pr.titles, pr.other, c.titles, c.other)
+		}
+		for sp, w := range c.titles {
+			if got := pr.titles[sp].title; got != w {
+				t.Errorf("%s list: title at %v = %q, want %q", c.list, sp, got, w)
+			}
+		}
+		for sp, w := range c.other {
+			if got, ok := pr.other[sp]; !ok || got != w {
+				t.Errorf("%s list: other site's spot for %v = %v (%v), want %v", c.list, sp, got, ok, w)
+			}
+		}
 	}
 }
