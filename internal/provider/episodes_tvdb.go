@@ -16,7 +16,14 @@ import (
 // is AniDB episode 9, TMDB S2E1 is episode 62).
 type tvdbPairing struct {
 	titles map[spot]anidbTitles
-	other  map[spot]spot
+	other  map[spot]otherPlace
+}
+
+// otherPlace is an episode's place on the other site. on is false when the
+// mapping puts its AniDB entry on another show there: it pairs with nothing.
+type otherPlace struct {
+	at spot
+	on bool
 }
 
 type anidbTitles struct{ title, any string }
@@ -31,15 +38,16 @@ func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
 	return v, ok
 }
 
-// otherAt: an episode's place on the other site, through AniDB. Without an
-// AniDB counterpart (not cached yet, or a TheTVDB-only extra), a regular
-// episode goes by its absolute number, which doesn't depend on how either
-// site splits seasons (an absolute number the other site doesn't have pairs
-// with nothing). A special has no absolute number: it keeps its number in
-// season 0, as unlisted specials do everywhere else.
+// otherAt: an episode's place on the other site, through AniDB. An episode
+// whose AniDB entry is on another show there has none. Without an AniDB
+// counterpart (not cached yet, or a TheTVDB-only extra), a regular episode
+// goes by its absolute number, which doesn't depend on how either site
+// splits seasons (an absolute number the other site doesn't have pairs with
+// nothing). A special has no absolute number: it keeps its number in season
+// 0, as unlisted specials do everywhere else.
 func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
-	if sp, ok := atListed(pr.other, ep); ok {
-		return sp, true
+	if o, ok := atListed(pr.other, ep); ok {
+		return o.at, o.on
 	}
 	if ep.Season > 0 {
 		return spot{-1, ep.Index}, true
@@ -82,7 +90,8 @@ func (b *tvdbBuild) fetchable(p *Provider, site string) bool {
 
 // onShow reports whether an entry has a place on the show on a site. Every
 // entry walked is on the TVDB series; an entry of another TMDB show has no
-// place on this one.
+// place on this one. So with the list from TheMovieDb, such an entry has no
+// episodes on the list, and the other site (TheTVDB) always has it.
 func (b *tvdbBuild) onShow(site string, e mapping.Entry) bool {
 	return site != "tmdb" || e.TMDB.ID == 0 || e.TMDB.ID == b.tmdbID
 }
@@ -91,7 +100,7 @@ func (b *tvdbBuild) onShow(site string, e mapping.Entry) bool {
 // fetched. Other entries come from the cache; missing ones are fetched in the
 // background for the next build, and ready is false meanwhile.
 func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
-	pr = tvdbPairing{map[spot]anidbTitles{}, map[spot]spot{}}
+	pr = tvdbPairing{map[spot]anidbTitles{}, map[spot]otherPlace{}}
 	ready = true
 	firstAID := p.lists.FirstAID(b.tvdbID)
 	for _, aid := range p.lists.AIDsForTVDB(b.tvdbID) {
@@ -116,10 +125,13 @@ func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
 			if _, taken := pr.titles[sp]; !taken { // first entry wins
 				pr.titles[sp] = anidbTitles{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false)}
 			}
-			if _, taken := pr.other[sp]; !taken && otherOK {
-				if o, ok := es.at(b.other, ae.Season, ae.ListIndex()); ok {
-					pr.other[sp] = o
-				}
+			if _, taken := pr.other[sp]; taken {
+				continue
+			}
+			if !otherOK { // on another show there: no pairing, not the absolute-number fallback
+				pr.other[sp] = otherPlace{}
+			} else if o, ok := es.at(b.other, ae.Season, ae.ListIndex()); ok {
+				pr.other[sp] = otherPlace{o, true}
 			}
 		}
 	}

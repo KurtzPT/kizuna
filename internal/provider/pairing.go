@@ -19,8 +19,9 @@ import (
 // differ from TheTVDB's; an entry without them gets TheTVDB's season and
 // number. In /tvdb, the other site (TheMovieDb, or TheTVDB when the list came
 // from TheMovieDb) is paired through AniDB: the place on the list gives the
-// AniDB episode, and the mapping gives its place on the other site; without
-// an AniDB counterpart, by absolute number (tvdbPairing.otherAt).
+// AniDB episode, and the mapping gives its place on the other site (none
+// when the entry is on another TMDB show); without an AniDB counterpart, by
+// absolute number (tvdbPairing.otherAt).
 
 // spot is a place on a TVDB or TMDB series: season (-1 = absolute order) and
 // episode number.

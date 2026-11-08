@@ -528,3 +528,62 @@ func TestRejectedTVDBKeyIsRemembered(t *testing.T) {
 		t.Errorf("TVDB login tried %d times, want 1", n)
 	}
 }
+
+// In /tvdb, an episode whose AniDB entry the mapping puts on another TMDB
+// show has no TheMovieDb pairing, even when this show has an episode at its
+// absolute number. An episode the mapping can't answer for (its AniDB entry
+// isn't cached yet) still goes by absolute number.
+func TestTVDBEpisodeOnOtherTMDBShowIsNotPaired(t *testing.T) {
+	second := `<anime id="200"><type>TV Series</type><enddate>2010-01-01</enddate><episodes>
+<episode><epno type="1">1</epno><title xml:lang="en">Second Start</title></episode></episodes></anime>`
+	for name, c := range map[string]struct {
+		cached           bool
+		title, directors string // TMDB title and directors of TVDB S2E1 (absolute 3)
+	}{
+		"on another TMDB show": {true, "", ""},
+		"not cached yet":       {false, "TMDB Three", "TMDB Director 3"},
+	} {
+		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			switch {
+			case path == "api.anidb.net/httpapi" && q["aid"][0] == "200":
+				if !c.cached {
+					return 500, ""
+				}
+				return 200, second
+			case path == "api.themoviedb.org/3/tv/77/season/1":
+				return 200, `{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
+					{"episode_number":3,"name":"TMDB Three","crew":[{"job":"Director","name":"TMDB Director 3"}]}]}`
+			case path == "api.themoviedb.org/3/tv/77/season/2":
+				return 200, `{"episodes":[]}`
+			}
+			return testSeries(path, q)
+		}})
+		p.cfg.EpisodeTitles = []string{"tmdb", "tvdb", "anidb"}
+		p.lists.SetForTest(map[int]mapping.Entry{
+			100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+			200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true}, TMDB: mapping.Placement{ID: 88, Mapped: true, Season: 1}},
+		})
+		if c.cached {
+			if _, err := p.anidb.Anime(context.Background(), 200); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s, err := p.buildShow(context.Background(), "tvdb-500")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ep := s.Episode(2, 3)
+		if ep == nil {
+			t.Fatalf("%s: S02E03 missing", name)
+		}
+		if ep.titles["tmdb"] != c.title {
+			t.Errorf("%s: S02E03 TMDB title %q, want %q", name, ep.titles["tmdb"], c.title)
+		}
+		if d := strings.Join(ep.Directors, ","); d != c.directors {
+			t.Errorf("%s: S02E03 directors %q, want %q", name, d, c.directors)
+		}
+		if c.cached && ep.Title != "TVDB Three" {
+			t.Errorf("%s: S02E03 title %q, want TheTVDB's", name, ep.Title)
+		}
+	}
+}

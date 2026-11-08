@@ -357,14 +357,15 @@ func TestTVDBPairingPerSite(t *testing.T) {
 	cases := []struct {
 		list   string
 		titles map[spot]string
-		other  map[spot]spot
+		other  map[spot]otherPlace
 	}{
 		{"tvdb",
 			map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"},
-			map[spot]spot{{1, 1}: {1, 2}, {3, 1}: {3, 1}}}, // 200 has no place on TMDB 77
+			// 200 is on another TMDB show: no pairing, not the absolute-number fallback
+			map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}, {3, 1}: {spot{3, 1}, true}}},
 		{"tmdb",
 			map[spot]string{{1, 2}: "Entry 100", {3, 1}: "Entry 300"}, // 200 isn't on this list
-			map[spot]spot{{1, 2}: {1, 1}, {3, 1}: {3, 1}}},
+			map[spot]otherPlace{{1, 2}: {spot{1, 1}, true}, {3, 1}: {spot{3, 1}, true}}},
 	}
 	for _, c := range cases {
 		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, c.list, first, nil))
