@@ -25,7 +25,7 @@ services:
       # TVDB_LEGACY_API_KEY: "<key>"  # a legacy (v3) key: used when TVDB_API_KEY is empty or rejected
       TMDB_API_KEY: "<tmdb-api-key>"
 
-      # --- MyAnimeList (fallback summary/poster; "" to disable) ---
+      # --- MyAnimeList (summary, poster, genres, studio, rating, date; "" to disable) ---
       # Create a client at myanimelist.net/apiconfig; only the Client ID is used
       MAL_CLIENT_ID: "<mal-client-id>"
 
@@ -39,7 +39,7 @@ services:
       # EPISODE_LANGS: "en,x-jat"     # AniDB episode title languages
       # EPISODE_TITLES: "anidb,tvdb,tmdb"  # episode titles, both modes; first real title wins
       # MIN_SCORE: "80"              # lowest auto-match score (0-100)
-      # AUTO_DEFAULT: "anidb"        # /auto provider: rules for shows without an [anidb-N] / [tvdb-N] tag
+      # AUTO_DEFAULT: "anidb"        # /auto provider: rules for shows without an [anidb-N] / [tvdb-N] tag or GUID
 
       # --- sources per field: first = default, the rest are fallbacks in order ---
       # anidb, tvdb, tmdb, mal, ann (Anime News Network, no key); "none" turns a field off.
@@ -49,7 +49,7 @@ services:
       # BACKGROUND_SOURCES: "tvdb,tmdb"
       # LOGO_SOURCES: "tvdb,tmdb"
       # EPISODE_SOURCES: "tvdb,tmdb"   # /tvdb mode episode list
-      # EPISODE_FILL_SOURCES: "tvdb"  # /anidb mode: episode thumbnails (+ summaries, dates AniDB lacks); "none" = off
+      # EPISODE_FILL_SOURCES: "tvdb"  # /anidb mode: episode thumbnails (+ summaries, dates, runtimes AniDB lacks); "none" = off
       # In /anidb mode, tvdb/tmdb are only used for these on a series' first AniDB entry:
       # GENRE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
       # CAST_SOURCES: "anidb,tvdb,tmdb,ann"
