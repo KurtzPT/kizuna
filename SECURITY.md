@@ -47,6 +47,12 @@ Update with:
 docker compose pull && docker compose up -d
 ```
 
+Check that an image was built by Kizuna's own workflow from this repository (needs the [GitHub CLI](https://cli.github.com)):
+
+```bash
+gh attestation verify oci://ghcr.io/kurtzpt/kizuna:latest -R KurtzPT/kizuna
+```
+
 ## 🛡️ How Kizuna is protected
 
 Plex can't send credentials to a custom metadata provider, so Kizuna can't ask for a login. Instead it limits who
@@ -60,6 +66,7 @@ may talk to it, and what it exposes:
 | **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml` |
 | **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](README.md#-anidb-fair-use) |
 | **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |
+| **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, check below |
 
 How the two access checks work, and how to change them: [SETUP.md → Access](SETUP.md#%EF%B8%8F-access).
 
