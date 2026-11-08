@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"kizuna/internal/fetch"
 	"kizuna/internal/sources"
 )
 
@@ -35,67 +36,83 @@ type text struct{ title, summary string }
 
 func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, tvdb, tmdb int, movie, series bool) *showSources {
 	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series}
-	ss.tvdbDetails.f = func() sources.Details {
+	ss.tvdbDetails.f = func() (sources.Details, error) {
 		if tvdb == 0 || !p.tvdb.Enabled() {
-			return sources.Details{}
+			return sources.Details{}, nil
 		}
 		return p.tvdb.Details(ctx, tvdb)
 	}
-	ss.tmdbDetails.f = func() sources.Details {
+	ss.tmdbDetails.f = func() (sources.Details, error) {
 		if tmdb == 0 || !p.tmdb.Enabled() {
-			return sources.Details{}
+			return sources.Details{}, nil
 		}
 		return p.tmdb.Details(ctx, tmdb, movie)
 	}
-	ss.tvdbText.f = func() text {
+	ss.tvdbText.f = func() (text, error) {
 		if tvdb == 0 || !p.tvdb.Enabled() {
-			return text{}
+			return text{}, nil
 		}
-		n, o := p.tvdb.Overview(ctx, tvdb)
-		return text{n, o}
+		n, o, err := p.tvdb.Overview(ctx, tvdb)
+		return text{n, o}, err
 	}
-	ss.tmdbText.f = func() text {
+	ss.tmdbText.f = func() (text, error) {
 		if tmdb == 0 || !p.tmdb.Enabled() {
-			return text{}
+			return text{}, nil
 		}
-		n, o := p.tmdb.Text(ctx, tmdb, movie)
-		return text{n, o}
+		n, o, err := p.tmdb.Text(ctx, tmdb, movie)
+		return text{n, o}, err
 	}
-	ss.tvdbArt.f = func() sources.Art {
+	ss.tvdbArt.f = func() (sources.Art, error) {
 		if tvdb == 0 || !p.tvdb.Enabled() {
-			return sources.Art{}
+			return sources.Art{}, nil
 		}
 		return p.tvdb.Art(ctx, tvdb)
 	}
-	ss.tmdbArt.f = func() sources.Art {
+	ss.tmdbArt.f = func() (sources.Art, error) {
 		if tmdb == 0 || !p.tmdb.Enabled() {
-			return sources.Art{}
+			return sources.Art{}, nil
 		}
 		return p.tmdb.Art(ctx, tmdb, movie)
 	}
-	ss.ann.f = func() sources.ANNAnime {
+	ss.ann.f = func() (sources.ANNAnime, error) {
 		id := p.lists.ByAID(aid).ANN // mapping, for when AniDB has no ANN link or no details
 		if a != nil && len(a.ANNIDs) > 0 {
 			id = a.ANNIDs[0]
 		}
 		if id == 0 {
-			return sources.ANNAnime{}
+			return sources.ANNAnime{}, nil
 		}
-		n, _ := p.ann.Anime(ctx, id)
-		return n
+		return p.ann.Anime(ctx, id)
 	}
-	ss.mal.f = func() sources.MALAnime {
+	ss.mal.f = func() (sources.MALAnime, error) {
 		id := p.lists.ByAID(aid).MAL // mapping, for when AniDB has no MAL link or no details
 		if a != nil && len(a.MALIDs) > 0 {
 			id = a.MALIDs[0]
 		}
-		if id == 0 {
-			return sources.MALAnime{}
+		if id == 0 || !p.mal.Enabled() {
+			return sources.MALAnime{}, nil
 		}
-		m, _ := p.mal.Anime(ctx, id)
-		return m
+		return p.mal.Anime(ctx, id)
 	}
 	return ss
+}
+
+// failed names the sources fill fetched that failed. A source that doesn't
+// have the show (404) or isn't configured hasn't failed.
+func (ss *showSources) failed() []string {
+	var out []string
+	for _, l := range []struct {
+		name string
+		lazy interface{ failed() bool }
+	}{
+		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
+		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"mal", &ss.mal}, {"ann", &ss.ann},
+	} {
+		if l.lazy.failed() {
+			out = append(out, l.name)
+		}
+	}
+	return out
 }
 
 func (ss *showSources) title(src string) string {
@@ -195,8 +212,10 @@ func (ss *showSources) pickDetails(order []string, has func(sources.Details) boo
 
 // fill sets every source-selectable field from the configured source orders.
 // A value already on s is kept only when no source has one. At debug, one
-// line per show says which source supplied each field ("-" = none).
-func (ss *showSources) fill(s *Show) {
+// line per show says which source supplied each field ("-" = none). Returns
+// false when a source it asked failed (an error or the build's time running
+// out), so the show is rebuilt soon instead of being kept an hour without it.
+func (ss *showSources) fill(s *Show) bool {
 	cfg := ss.p.cfg
 	ss.warm()
 	used := []any{"root", s.Root, "first_entry", ss.series}
@@ -244,6 +263,11 @@ func (ss *showSources) fill(s *Show) {
 	s.Art.Logos, src = images(cfg.LogoSources, all, func(src string) []string { return ss.art(src).Logos })
 	note("logos", src)
 	slog.Debug("show fields: source used", used...)
+	if failed := ss.failed(); len(failed) > 0 {
+		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
+		return false
+	}
+	return true
 }
 
 // warm fetches, in parallel, everything fill will ask for whatever the
@@ -325,14 +349,19 @@ func images(order []string, all bool, get func(src string) []string) ([]string, 
 // lazy computes f once, on first use; safe for concurrent callers.
 type lazy[T any] struct {
 	once sync.Once
-	f    func() T
+	f    func() (T, error)
 	v    T
+	err  error
 }
 
 func (l *lazy[T]) get() T {
-	l.once.Do(func() { l.v = l.f() })
+	l.once.Do(func() { l.v, l.err = l.f() })
 	return l.v
 }
+
+// failed: f ran and failed, other than with a 404. Call it only after the
+// get calls are done.
+func (l *lazy[T]) failed() bool { return l.err != nil && !fetch.IsNotFound(l.err) }
 
 // uniqueCast drops repeated cast entries (same person, same character, as
 // sources sometimes list them twice), keeping the first one's place and the

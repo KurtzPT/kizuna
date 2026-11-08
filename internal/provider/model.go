@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"kizuna/internal/anidb"
+	"kizuna/internal/fetch"
 	"kizuna/internal/sources"
 )
 
@@ -34,7 +35,8 @@ type Show struct {
 	Art           sources.Art
 	Episodes      map[int][]Ep // season -> episodes sorted by index
 	// Complete: false when something was missing (AniDB details, a failed or
-	// partial TVDB/TMDB episode list): the model is cached briefly and rebuilt.
+	// partial TVDB/TMDB episode list, a failed show-level source, the build's
+	// time running out): the model is cached briefly and rebuilt.
 	Complete bool
 	// Placeholders: the episode list is unknown (an /anidb show built without
 	// AniDB details), so any S01/S00 episode Plex asks for is a bare
@@ -143,10 +145,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if a != nil && !a.IsMovie() {
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
-	p.newSources(ctx, aid, a, entry.TVDB, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
+	sourcesOK := p.newSources(ctx, aid, a, entry.TVDB, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
 	wg.Wait()
-	if !episodesOK {
-		s.Complete = false // thumbnails or titles missing: rebuild soon
+	if !episodesOK || !sourcesOK {
+		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
 	}
 	p.pickEpisodeTitles(s)
 	if s.OriginalTitle == s.Title {
@@ -196,11 +198,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	entry := p.lists.ByAID(aid)
 	// The TMDB show: from the mapping, else looked up on TMDB while the
 	// TVDB episode list downloads.
-	tmdbShow := sync.OnceValue(func() int {
+	tmdbShow := sync.OnceValues(func() (int, error) {
 		if entry.TMDBTV == 0 && p.tmdb.Enabled() {
 			return p.tmdb.TVFromTVDB(ctx, tvdbID)
 		}
-		return entry.TMDBTV
+		return entry.TMDBTV, nil
 	})
 	go tmdbShow()
 
@@ -225,8 +227,10 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		switch {
 		case src == "tvdb" && p.tvdb.Enabled():
 			eps, epsErr = p.tvdb.Episodes(ctx, tvdbID)
-		case src == "tmdb" && tmdbShow() > 0:
-			eps, epsErr = p.tmdb.Episodes(ctx, tmdbShow())
+		case src == "tmdb":
+			if id, _ := tmdbShow(); id > 0 {
+				eps, epsErr = p.tmdb.Episodes(ctx, id)
+			}
 		}
 		if len(eps) > 0 {
 			listSrc = src
@@ -234,7 +238,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		}
 	}
 	wg.Wait()
-	tmdbID := tmdbShow()
+	tmdbID, findErr := tmdbShow()
+	if findErr != nil && !fetch.IsNotFound(findErr) {
+		s.Complete = false // the TMDB lookup failed: rebuild soon
+		slog.Info("TMDB show for the TVDB id not available; rebuilt in 2 min", "root", s.Root, "err", findErr)
+	}
 	if errors.Is(epsErr, sources.ErrIncomplete) {
 		s.Complete = false // part of the episode list is missing: rebuild soon
 		slog.Info("episode list incomplete; using what came back, rebuilt in 2 min", "root", s.Root, "err", epsErr)
@@ -279,10 +287,10 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, tvdbID, tmdbID, listSrc, eps, pr)
 	})
-	p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
+	sourcesOK := p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
 	wg.Wait()
-	if !titlesReady || !crewReady {
-		s.Complete = false // other AniDB entries or episode crew still being fetched: rebuild soon
+	if !titlesReady || !crewReady || !sourcesOK {
+		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
 	}
 	s.Title = firstOf(s.Title, fmt.Sprintf("TVDB %d", tvdbID))
 	if s.OriginalTitle == s.Title {

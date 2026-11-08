@@ -103,12 +103,14 @@ func TestTVDBLegacyKey(t *testing.T) {
 		t.Errorf("special %+v", e)
 	}
 
-	if name, ov := tv.Overview(ctx, 9); name != "Show" || ov != "About it." {
-		t.Errorf("overview %q %q", name, ov)
+	if name, ov, err := tv.Overview(ctx, 9); name != "Show" || ov != "About it." || err != nil {
+		t.Errorf("overview %q %q %v", name, ov, err)
 	}
 
-	d := tv.Details(ctx, 9)
+	d, err := tv.Details(ctx, 9)
 	switch {
+	case err != nil:
+		t.Errorf("details: %v", err)
 	case d.Date != "2023-09-29" || len(d.Genres) != 2:
 		t.Errorf("date %q genres %v", d.Date, d.Genres)
 	case d.Rating([]string{"US"}) != "TV-14":
@@ -117,7 +119,10 @@ func TestTVDBLegacyKey(t *testing.T) {
 		t.Errorf("cast %+v", d.Cast)
 	}
 
-	a := tv.Art(ctx, 9)
+	a, err := tv.Art(ctx, 9)
+	if err != nil {
+		t.Errorf("art: %v", err)
+	}
 	const banners = "https://artworks.thetvdb.com/banners/v4/series/9/"
 	wantPosters := []string{banners + "posters/main.jpg", banners + "posters/high.jpg", banners + "posters/low.jpg"}
 	if strings.Join(a.Posters, " ") != strings.Join(wantPosters, " ") {
@@ -197,7 +202,7 @@ func TestTVDBV4KeyWins(t *testing.T) {
 	if tv.API() != "v4" {
 		t.Fatalf("API %q, want v4", tv.API())
 	}
-	if name, _ := tv.Overview(context.Background(), 9); name != "Show v4" {
+	if name, _, _ := tv.Overview(context.Background(), 9); name != "Show v4" {
 		t.Errorf("name %q", name)
 	}
 	for _, u := range n.asked {
@@ -237,7 +242,7 @@ func TestTVDBFallsBackToLegacyKey(t *testing.T) {
 		t.Fatalf("before the first call: API %q, want v4", tv.API())
 	}
 	for range 3 {
-		if name, _ := tv.Overview(context.Background(), 9); name != "Show v3" {
+		if name, _, _ := tv.Overview(context.Background(), 9); name != "Show v3" {
 			t.Fatalf("name %q, want the legacy API's", name)
 		}
 	}
@@ -259,7 +264,7 @@ func TestTVDBNoFallbackOnServerError(t *testing.T) {
 		"api4.thetvdb.com/v4/login": `503 {}`,
 		v3 + "/login":               `{"token":"t3"}`,
 	}, "v4key", "", "legacy")
-	tv.Overview(context.Background(), 9)
+	_, _, _ = tv.Overview(context.Background(), 9)
 	if tv.API() != "v4" {
 		t.Errorf("API %q, want v4", tv.API())
 	}

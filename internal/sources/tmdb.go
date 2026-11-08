@@ -42,17 +42,17 @@ func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Durati
 }
 
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).
-func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) int {
+func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	var r struct {
 		TV []struct {
 			ID int `json:"id"`
 		} `json:"tv_results"`
 	}
-	_ = t.get(ctx, fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb), 30*24*time.Hour, &r)
+	err := t.get(ctx, fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb), 30*24*time.Hour, &r)
 	if len(r.TV) == 0 {
-		return 0
+		return 0, err
 	}
-	return r.TV[0].ID
+	return r.TV[0].ID, err
 }
 
 // Show is the part of a TMDB TV show we use.
@@ -71,22 +71,22 @@ func (t *TMDB) TV(ctx context.Context, id int) (Show, error) {
 }
 
 // Text returns the English title and overview of a TV show or a movie.
-func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview string) {
+func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview string, err error) {
 	if !movie {
-		s, _ := t.TV(ctx, id)
-		return s.Name, s.Overview
+		s, err := t.TV(ctx, id)
+		return s.Name, s.Overview, err
 	}
 	var m struct {
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
 	}
-	_ = t.get(ctx, fmt.Sprintf("/movie/%d", id), "&language=en-US", fmt.Sprintf("tmdb/movie-%d.json", id), 7*24*time.Hour, &m)
-	return m.Title, m.Overview
+	err = t.get(ctx, fmt.Sprintf("/movie/%d", id), "&language=en-US", fmt.Sprintf("tmdb/movie-%d.json", id), 7*24*time.Hour, &m)
+	return m.Title, m.Overview, err
 }
 
 // Details returns genres, people, studio, content rating (US preferred) and
 // first air / release date of a TV show or a movie, in one request.
-func (t *TMDB) Details(ctx context.Context, id int, movie bool) Details {
+func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error) {
 	type person struct {
 		Name    string `json:"name"`
 		Profile string `json:"profile_path"`
@@ -138,8 +138,11 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) Details {
 	if movie {
 		path, extra, key = fmt.Sprintf("/movie/%d", id), "credits,release_dates", fmt.Sprintf("tmdb/movie-%d-details.json", id)
 	}
-	if id == 0 || t.get(ctx, path, "&language=en-US&append_to_response="+extra, key, 7*24*time.Hour, &r) != nil {
-		return Details{}
+	if id == 0 {
+		return Details{}, nil
+	}
+	if err := t.get(ctx, path, "&language=en-US&append_to_response="+extra, key, 7*24*time.Hour, &r); err != nil {
+		return Details{}, err
 	}
 	d := Details{Date: r.FirstAir}
 	if movie {
@@ -198,7 +201,7 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) Details {
 			d.addRating(x.Country, rd.Cert)
 		}
 	}
-	return d
+	return d, nil
 }
 
 // Episodes returns all episodes of a TMDB show (seasons fetched in parallel).
@@ -272,7 +275,7 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 
 // Art returns images of a TV show (movie=false) or a movie (movie=true),
 // English or textless first, as TMDB orders them by votes.
-func (t *TMDB) Art(ctx context.Context, id int, movie bool) Art {
+func (t *TMDB) Art(ctx context.Context, id int, movie bool) (Art, error) {
 	kind := "tv"
 	if movie {
 		kind = "movie"
@@ -288,9 +291,12 @@ func (t *TMDB) Art(ctx context.Context, id int, movie bool) Art {
 			FilePath string `json:"file_path"`
 		} `json:"logos"`
 	}
-	if id == 0 || t.get(ctx, fmt.Sprintf("/%s/%d/images", kind, id), "&include_image_language=en,ja,null",
-		fmt.Sprintf("tmdb/%s-%d-images.json", kind, id), 7*24*time.Hour, &r) != nil {
-		return Art{}
+	if id == 0 {
+		return Art{}, nil
+	}
+	if err := t.get(ctx, fmt.Sprintf("/%s/%d/images", kind, id), "&include_image_language=en,ja,null",
+		fmt.Sprintf("tmdb/%s-%d-images.json", kind, id), 7*24*time.Hour, &r); err != nil {
+		return Art{}, err
 	}
 	var a Art
 	for _, p := range r.Posters {
@@ -302,5 +308,5 @@ func (t *TMDB) Art(ctx context.Context, id int, movie bool) Art {
 	for _, p := range r.Logos {
 		a.Logos = append(a.Logos, tmdbImg+p.FilePath)
 	}
-	return a
+	return a, nil
 }

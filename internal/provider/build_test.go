@@ -453,6 +453,53 @@ func TestPartialEpisodeListIsIncomplete(t *testing.T) {
 	}
 }
 
+// A show-level source that fails (or runs out of the build's time) leaves
+// the show incomplete, so it's rebuilt in 2 minutes instead of being kept an
+// hour without posters or details. A source without the show (404), or one
+// that isn't configured, is nothing to wait for.
+func TestFailedShowSourceIsIncomplete(t *testing.T) {
+	failing := func(fail string, code int, wait time.Duration) func(string, map[string][]string) (int, string) {
+		return func(path string, q map[string][]string) (int, string) {
+			if path+"?"+strings.Join(q["append_to_response"], "") == fail {
+				time.Sleep(wait)
+				return code, `{}`
+			}
+			return testSeries(path, q)
+		}
+	}
+	cases := []struct {
+		name     string
+		answer   func(string, map[string][]string) (int, string)
+		timeout  time.Duration
+		complete bool
+	}{
+		{"tmdb art 500", failing("api.themoviedb.org/3/tv/77/images?", 500, 0), 0, false},
+		{"tmdb details 503", failing("api.themoviedb.org/3/tv/77?aggregate_credits,content_ratings", 503, 0), 0, false},
+		{"out of time", failing("api.themoviedb.org/3/tv/77/images?", 200, 1500*time.Millisecond), time.Second, false},
+		{"404 and MAL not configured", failing("api.themoviedb.org/3/tv/77/images?", 404, 0), 0, true},
+	}
+	for _, c := range cases {
+		for _, root := range []string{"tvdb-500", "anidb-100"} {
+			p := newTestProvider(t, &fakeNet{answer: c.answer})
+			p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77, MAL: 5}})
+			p.cfg.PosterSources = []string{"mal", "tmdb", "tvdb"}
+			ctx := context.Background()
+			if c.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, c.timeout)
+				defer cancel()
+			}
+			s, err := p.buildShow(ctx, root)
+			if err != nil {
+				t.Fatalf("%s %s: %v", c.name, root, err)
+			}
+			if s.Complete != c.complete {
+				t.Errorf("%s %s: complete %v, want %v", c.name, root, s.Complete, c.complete)
+			}
+		}
+	}
+}
+
 // A rejected TVDB key is tried once, not once per TVDB call.
 func TestRejectedTVDBKeyIsRemembered(t *testing.T) {
 	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {

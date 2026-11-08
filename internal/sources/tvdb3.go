@@ -93,15 +93,17 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 	return out, partial
 }
 
-func (t *TVDB) overview3(ctx context.Context, id int) (name, overview string) {
-	s, _ := t.series3(ctx, id)
-	return s.Name, s.Overview
+func (t *TVDB) overview3(ctx context.Context, id int) (name, overview string, err error) {
+	s, err := t.series3(ctx, id)
+	return s.Name, s.Overview, err
 }
 
-func (t *TVDB) details3(ctx context.Context, id int) Details {
+// details3 returns the series' details, with the actors list's error when
+// only that failed.
+func (t *TVDB) details3(ctx context.Context, id int) (Details, error) {
 	s, err := t.series3(ctx, id)
 	if err != nil {
-		return Details{}
+		return Details{}, err
 	}
 	d := Details{Date: s.FirstAired, Genres: s.Genres}
 	d.addRating("US", s.Rating)
@@ -113,21 +115,23 @@ func (t *TVDB) details3(ctx context.Context, id int) Details {
 			Sort  int    `json:"sortOrder"`
 		} `json:"data"`
 	}
-	if t.get(ctx, true, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), 7*24*time.Hour, &r) == nil {
-		sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Sort < r.Data[j].Sort })
-		for _, a := range r.Data {
-			d.Cast = append(d.Cast, Person{Name: a.Name, Role: a.Role, Photo: artURL(a.Image)})
-		}
+	if err = t.get(ctx, true, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), 7*24*time.Hour, &r); fetch.IsNotFound(err) {
+		err = nil // no actors
 	}
-	return d
+	sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Sort < r.Data[j].Sort })
+	for _, a := range r.Data {
+		d.Cast = append(d.Cast, Person{Name: a.Name, Role: a.Role, Photo: artURL(a.Image)})
+	}
+	return d, err
 }
 
 // art3 returns posters and backgrounds (v3 has no clear logos): the series'
-// own pick first, then the rest by rating.
-func (t *TVDB) art3(ctx context.Context, id int) Art {
+// own pick first, then the rest by rating, with an image list's error when
+// only that failed.
+func (t *TVDB) art3(ctx context.Context, id int) (Art, error) {
 	s, err := t.series3(ctx, id)
 	if err != nil {
-		return Art{}
+		return Art{}, err
 	}
 	images := func(keyType, main string) []string {
 		var r struct {
@@ -143,7 +147,10 @@ func (t *TVDB) art3(ctx context.Context, id int) Art {
 			out = append(out, artURL(main))
 		}
 		path := fmt.Sprintf("/series/%d/images/query?keyType=%s", id, keyType)
-		if t.get(ctx, true, path, fmt.Sprintf("%d/%s.json", id, keyType), 7*24*time.Hour, &r) != nil {
+		if e := t.get(ctx, true, path, fmt.Sprintf("%d/%s.json", id, keyType), 7*24*time.Hour, &r); e != nil {
+			if !fetch.IsNotFound(e) { // 404: no images of this type
+				err = e
+			}
 			return out
 		}
 		sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Ratings.Average > r.Data[j].Ratings.Average })
@@ -154,5 +161,6 @@ func (t *TVDB) art3(ctx context.Context, id int) Art {
 		}
 		return out
 	}
-	return Art{Posters: images("poster", s.Poster), Backgrounds: images("fanart", s.Fanart)}
+	a := Art{Posters: images("poster", s.Poster), Backgrounds: images("fanart", s.Fanart)}
+	return a, err
 }

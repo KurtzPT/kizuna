@@ -448,7 +448,7 @@ func (t *TVDB) queueCrew(ids []int) {
 }
 
 // Overview returns the English series name and summary.
-func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string) {
+func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err error) {
 	if t.useLegacy(ctx) {
 		return t.overview3(ctx, id)
 	}
@@ -458,13 +458,13 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string) {
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	_ = t.get(ctx, false, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id), 7*24*time.Hour, &r)
-	return r.Data.Name, r.Data.Overview
+	err = t.get(ctx, false, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id), 7*24*time.Hour, &r)
+	return r.Data.Name, r.Data.Overview, err
 }
 
 // Details returns genres, people, studio, content rating and first air date
 // from the extended series record.
-func (t *TVDB) Details(ctx context.Context, id int) Details {
+func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
 	if t.useLegacy(ctx) {
 		return t.details3(ctx, id)
 	}
@@ -492,7 +492,7 @@ func (t *TVDB) Details(ctx context.Context, id int) Details {
 		} `json:"data"`
 	}
 	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
-		return Details{}
+		return Details{}, err
 	}
 	d := Details{Date: r.Data.FirstAired}
 	for _, g := range r.Data.Genres {
@@ -520,11 +520,11 @@ func (t *TVDB) Details(ctx context.Context, id int) Details {
 	for _, c := range r.Data.Ratings {
 		d.addRating(alpha2(c.Country), c.Name)
 	}
-	return d
+	return d, nil
 }
 
 // Art returns posters, backgrounds and clear logos, highest score first.
-func (t *TVDB) Art(ctx context.Context, id int) Art {
+func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	if t.useLegacy(ctx) {
 		return t.art3(ctx, id)
 	}
@@ -539,7 +539,7 @@ func (t *TVDB) Art(ctx context.Context, id int) Art {
 		} `json:"data"`
 	}
 	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), fmt.Sprintf("%d/artworks.json", id), 7*24*time.Hour, &r); err != nil {
-		return Art{}
+		return Art{}, err
 	}
 	arts := r.Data.Artworks
 	sort.SliceStable(arts, func(i, j int) bool { return arts[i].Score > arts[j].Score })
@@ -556,7 +556,7 @@ func (t *TVDB) Art(ctx context.Context, id int) Art {
 			}
 		}
 	}
-	return a
+	return a, nil
 }
 
 func artURL(p string) string {

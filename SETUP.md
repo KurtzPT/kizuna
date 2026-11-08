@@ -381,7 +381,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily (every 5 min until the first download succeeds); an unchanged list isn't downloaded again |
-| Built shows (in memory) | 1 hour (2 min when AniDB details were missing) |
+| Built shows (in memory) | 1 hour (2 min when something was missing: AniDB details, part of an episode list, a source that failed or ran out of time, or a later AniDB entry or episode crew still being fetched) |
 
 ### 📝 Logging
 

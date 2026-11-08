@@ -33,10 +33,14 @@ func TestImagesAllAndFirst(t *testing.T) {
 }
 
 func TestSeriesGuard(t *testing.T) {
-	series := func() sources.Details { return sources.Details{Genres: []string{"series"}, Date: "2004-01-01"} }
+	series := func() (sources.Details, error) {
+		return sources.Details{Genres: []string{"series"}, Date: "2004-01-01"}, nil
+	}
 	ss := &showSources{tvdb: 1, tmdb: 2}
 	ss.tvdbDetails.f, ss.tmdbDetails.f = series, series
-	ss.mal.f = func() sources.MALAnime { return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}} }
+	ss.mal.f = func() (sources.MALAnime, error) {
+		return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}}, nil
+	}
 	order := []string{"tvdb", "tmdb", "mal"}
 	has := func(d sources.Details) bool { return len(d.Genres) > 0 }
 
@@ -61,7 +65,7 @@ func TestANNFallback(t *testing.T) {
 	ann := sources.ANNAnime{ID: 13, Title: "Cowboy Bebop", Summary: "Bounty hunters.",
 		Details: sources.Details{Genres: []string{"Drama"}}}
 	ss := &showSources{p: &Provider{cfg: cfg}}
-	ss.ann.f = func() sources.ANNAnime { return ann }
+	ss.ann.f = func() (sources.ANNAnime, error) { return ann, nil }
 	s := &Show{}
 	ss.fill(s)
 	// ANN's text is used unchanged (its credit is in the README and code only).

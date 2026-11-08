@@ -92,8 +92,8 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 		access: access, shows: map[string]cachedShow{}, builds: map[string]*build{}}
 }
 
-// showTTL: how long a built model is served from memory (shorter when AniDB
-// details were missing, so they are retried soon).
+// showTTL: how long a built model is served from memory (shorter when
+// something was missing, see Show.Complete, so it is retried soon).
 func showTTL(s *Show) time.Duration {
 	if s.Complete {
 		return time.Hour
@@ -194,6 +194,11 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		s, err = p.buildAniDB(ctx, id)
 	} else {
 		s, err = p.buildTVDB(ctx, id)
+	}
+	if s != nil && ctx.Err() != nil {
+		// Out of time: some source may have been skipped without saying so.
+		s.Complete = false
+		slog.Info("show build ran out of time; using what came back, rebuilt in 2 min", "root", root)
 	}
 	return s, err
 }
