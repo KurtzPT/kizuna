@@ -226,6 +226,11 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 					Air      string `json:"air_date"`
 					Still    string `json:"still_path"`
 					Runtime  int    `json:"runtime"`
+					Crew     []struct {
+						Job        string `json:"job"`
+						Department string `json:"department"`
+						Name       string `json:"name"`
+					} `json:"crew"`
 				} `json:"episodes"`
 			}
 			key := fmt.Sprintf("tmdb/tv-%d-s%d.json", id, season)
@@ -243,6 +248,15 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 				if e.Still != "" {
 					ep.Thumb = tmdbImg + e.Still
 				}
+				for _, c := range e.Crew {
+					switch {
+					case c.Job == "Director":
+						ep.Directors = append(ep.Directors, c.Name)
+					case c.Department == "Writing":
+						ep.Writers = append(ep.Writers, c.Name)
+					}
+				}
+				ep.Directors, ep.Writers = people(ep.Directors), people(ep.Writers)
 				out = append(out, ep)
 			}
 		}(s.Number)

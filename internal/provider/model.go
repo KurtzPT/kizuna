@@ -50,6 +50,8 @@ type Ep struct {
 	Date          string
 	Thumb         string
 	Minutes       int
+	Directors     []string // TheTVDB's, else TheMovieDb's (episodeCrew)
+	Writers       []string
 
 	titles   map[string]string // source -> its title for this episode
 	anyTitle string            // AniDB title in any language: last resort
@@ -263,15 +265,16 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 	// Episode titles and the show-level fields touch different parts of s:
 	// fetch both at once.
-	var titlesReady bool
+	var titlesReady, crewReady bool
 	wg.Go(func() {
 		titlesReady = p.tvdbEpisodeTitles(ctx, s, tvdbID, tmdbID, listSrc, a)
 		p.pickEpisodeTitles(s)
+		crewReady = p.tvdbEpisodeCrew(ctx, s, tvdbID, tmdbID, listSrc, eps)
 	})
 	p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
 	wg.Wait()
-	if !titlesReady {
-		s.Complete = false // other AniDB entries still being fetched: rebuild soon
+	if !titlesReady || !crewReady {
+		s.Complete = false // other AniDB entries or episode crew still being fetched: rebuild soon
 	}
 	s.Title = firstOf(s.Title, fmt.Sprintf("TVDB %d", tvdbID))
 	if s.OriginalTitle == s.Title {

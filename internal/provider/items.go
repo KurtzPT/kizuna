@@ -127,6 +127,12 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 	if len(s.Art.Posters) > 0 {
 		it.GrandparentThumb = s.Art.Posters[0]
 	}
+	for _, d := range e.Directors {
+		it.Director = append(it.Director, Tag{d})
+	}
+	for _, w := range e.Writers {
+		it.Writer = append(it.Writer, Tag{w})
+	}
 	if e.Thumb != "" {
 		it.Thumb = e.Thumb
 		it.Image = []Image{{Type: "snapshot", URL: e.Thumb, Alt: title}}

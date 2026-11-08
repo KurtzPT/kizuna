@@ -15,7 +15,8 @@ import (
 // (TVDB_LEGACY_API_KEY). It's used when there's no v4 key, or once TheTVDB
 // rejects the v4 key. Compared with
 // v4 it has no clear logos, no studios and no series-level directors or
-// writers, and episodes carry no runtime of their own (the series' is used).
+// writers (episodes have theirs), and episodes carry no runtime of their own
+// (the series' is used).
 
 const tvdb3API = "https://api.thetvdb.com"
 
@@ -41,13 +42,15 @@ func (t *TVDB) series3(ctx context.Context, id int) (series3, error) {
 
 func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 	type ep struct {
-		Season   *int   `json:"airedSeason"`
-		Number   *int   `json:"airedEpisodeNumber"`
-		Absolute *int   `json:"absoluteNumber"`
-		Name     string `json:"episodeName"`
-		Overview string `json:"overview"`
-		Aired    string `json:"firstAired"`
-		Image    string `json:"filename"`
+		Season    *int     `json:"airedSeason"`
+		Number    *int     `json:"airedEpisodeNumber"`
+		Absolute  *int     `json:"absoluteNumber"`
+		Name      string   `json:"episodeName"`
+		Overview  string   `json:"overview"`
+		Aired     string   `json:"firstAired"`
+		Image     string   `json:"filename"`
+		Directors []string `json:"directors"`
+		Writers   []string `json:"writers"`
 	}
 	s, _ := t.series3(ctx, id) // only for the runtime
 	minutes, _ := strconv.Atoi(s.Runtime)
@@ -79,7 +82,8 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 				abs = *e.Absolute
 			}
 			out = append(out, Episode{Season: *e.Season, Number: *e.Number, Absolute: abs, Title: e.Name,
-				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: minutes})
+				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: minutes,
+				Directors: people(e.Directors), Writers: people(e.Writers)})
 		}
 		if r.Links.Next == nil {
 			break

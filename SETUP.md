@@ -64,6 +64,7 @@ Without an AniDB client, shows still match by title (from AniDB's offline title 
 | Episode list (`/tvdb`) | | ⭐ | ✅ | | |
 | Episode titles | ⭐ | ✅ | ✅ | | |
 | Episode thumbnails (`/anidb`) | | ⭐ | | | |
+| Episode directors, writers | | ⭐ | ✅ | | |
 
 <sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key
 (`TVDB_LEGACY_API_KEY`): ¹ none, ² US rating only, ³ backgrounds only, no logos</sub>
@@ -210,7 +211,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `ANIDB_CLIENTVER` | `1` | The client version you registered |
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
 | `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB answers `pin required` without it |
-| `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or as a fallback when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives episodes, thumbnails, posters, backgrounds, cast, genres and the US content rating, but no clear logos, studio, directors or writers. TheTVDB may switch the v3 API off at any time |
+| `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or as a fallback when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives episodes (with their directors and writers), thumbnails, posters, backgrounds, cast, genres and the US content rating, but no clear logos, studio, or show directors and writers. TheTVDB may switch the v3 API off at any time |
 | `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork and logos, and `/tvdb` episodes when there's no TVDB key |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
 
@@ -247,7 +248,7 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
 | `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
 | `CAST_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
-| `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Directors and writers, both from the same source |
+| `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | The show's directors and writers, both from the same source. Episodes get their own: see below |
 | `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
 | `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | First aired / release date |
 | `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
@@ -255,6 +256,11 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 
 In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
 date they're only used on the series' first AniDB entry (a TheMovieDb movie is always its own entry).
+
+**Episode directors and writers** come from TheTVDB, else TheMovieDb (each field on its own), in both modes; AniDB has
+none per episode. With a v4 TheTVDB key they're in one record per episode: Kizuna fetches them for up to 8 seconds
+while building a show and the rest in the background, so on a long show's first scan some episodes may still lack
+them. Refresh the show's metadata a few minutes later to fill them in. The legacy key gets them with the episode list.
 
 **Artwork**
 
@@ -682,7 +688,7 @@ and Plex tokens are always shown as `***`.
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
 | `source rejected the request: check its API key / client id` | That key or client id is wrong or expired |
 | `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or `pin required`: set `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min |
-| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
+| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or show crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
 
 **Still stuck?** [Open an issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the form that fits:
 

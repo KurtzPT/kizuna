@@ -24,6 +24,21 @@ type Episode struct {
 	Aired    string // YYYY-MM-DD
 	Thumb    string // full URL
 	Minutes  int
+	ID       int // TheTVDB v4 episode id, for EpisodeCrew (0 from other lists)
+	// Directors and writers: TheTVDB v3 and TheMovieDb lists carry them; a
+	// TheTVDB v4 list doesn't (see EpisodeCrew).
+	Directors, Writers []string
+}
+
+// people trims names and drops empty and repeated ones.
+func people(names []string) []string {
+	var out []string
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			out = appendNew(out, n)
+		}
+	}
+	return out
 }
 
 // Art is a list of image URLs per Plex image type, best first.

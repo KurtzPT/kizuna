@@ -98,12 +98,13 @@ func (p *Provider) tvdbSpot(e mapping.Entry, season, index int) (spot, bool) {
 // fillEpisodes pairs an /anidb show's episodes with its TVDB (and TMDB)
 // series. TheTVDB gives the thumbnail, which AniDB never has, plus the
 // summary, air date and runtime where AniDB has none (EPISODE_FILL_SOURCES).
-// Both give a title for EPISODE_TITLES. Returns false when a list it needed
-// failed or came back partial.
+// Both give a title for EPISODE_TITLES, and directors and writers (AniDB has
+// none per episode). Returns false when a list it needed failed or came back
+// partial, or episode crew is still being fetched.
 func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry) bool {
 	fill := slices.Contains(p.cfg.EpisodeFillSources, "tvdb")
-	wantTVDB := (fill || slices.Contains(p.cfg.EpisodeTitles, "tvdb")) && p.tvdb.Enabled() && entry.TVDB > 0
-	wantTMDB := slices.Contains(p.cfg.EpisodeTitles, "tmdb") && p.tmdb.Enabled() && entry.TMDBTV > 0
+	wantTVDB := p.tvdb.Enabled() && entry.TVDB > 0
+	wantTMDB := p.tmdb.Enabled() && entry.TMDBTV > 0
 	if !wantTVDB && !wantTMDB {
 		return true
 	}
@@ -145,7 +146,13 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	}
 	slog.Debug("episode pairing", "root", s.Root, "tvdb", entry.TVDB, "season", entry.TVDBSeason, "offset", entry.TVDBOffset,
 		"exceptions", len(entry.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired)
-	return tvOK && tmOK
+	crewOK := p.episodeCrew(ctx, s, tv, tm, func(ep *Ep) (spot, bool) {
+		if ep.Season != 0 && ep.Season != 1 {
+			return spot{}, false
+		}
+		return p.tvdbSpot(entry, ep.Season, ep.Index)
+	})
+	return tvOK && tmOK && crewOK
 }
 
 // --- /tvdb -----------------------------------------------------------------
@@ -215,6 +222,72 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, tvdbID, tmdbI
 		}
 	})
 	return ready
+}
+
+// tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes from
+// its episode list (eps, absolute numbers filled in) and the other of
+// TVDB/TMDB, paired by season and number like the titles. Returns false when
+// the other list failed or episode crew is still being fetched.
+func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, tvdbID, tmdbID int, listSrc string, eps []sources.Episode) bool {
+	own := indexEpisodes(eps)
+	var tv, tm episodeIndex
+	ready := true
+	switch {
+	case listSrc == "tvdb":
+		tv = own
+	case p.tvdb.Enabled():
+		tv, ready = p.seriesEpisodes(ctx, "tvdb", tvdbID)
+	}
+	switch {
+	case listSrc == "tmdb":
+		tm = own
+	case p.tmdb.Enabled() && tmdbID > 0:
+		var ok bool
+		tm, ok = p.seriesEpisodes(ctx, "tmdb", tmdbID)
+		ready = ready && ok
+	}
+	crewOK := p.episodeCrew(ctx, s, tv, tm, func(ep *Ep) (spot, bool) { return ep.listed, true })
+	return ready && crewOK
+}
+
+// episodeCrew sets each episode's directors and writers: TheTVDB's, else
+// TheMovieDb's (per field). at gives an episode's place on TheTVDB's list
+// (TheMovieDb is paired at the same place). A TheTVDB v4 list has no crew:
+// it's in one record per episode (EpisodeCrew). Returns false while some of
+// those are still being fetched.
+func (p *Provider) episodeCrew(ctx context.Context, s *Show, tv, tm episodeIndex, at func(*Ep) (spot, bool)) bool {
+	var ids []int
+	s.eachEpisode(func(ep *Ep) {
+		if sp, ok := at(ep); ok {
+			if e, ok := tv.at(sp); ok && e.ID > 0 {
+				ids = append(ids, e.ID)
+			}
+		}
+	})
+	crew, pending := p.tvdb.EpisodeCrew(ctx, ids)
+	s.eachEpisode(func(ep *Ep) {
+		sp, ok := at(ep)
+		if !ok {
+			return
+		}
+		var d, w []string
+		if e, ok := tv.at(sp); ok {
+			d, w = e.Directors, e.Writers
+			if c, ok := crew[e.ID]; ok {
+				d, w = c.Directors, c.Writers
+			}
+		}
+		if e, ok := tm.at(sp); ok {
+			if len(d) == 0 {
+				d = e.Directors
+			}
+			if len(w) == 0 {
+				w = e.Writers
+			}
+		}
+		ep.Directors, ep.Writers = d, w
+	})
+	return !pending
 }
 
 // --- picking ---------------------------------------------------------------

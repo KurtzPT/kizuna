@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kizuna/internal/fetch"
 )
@@ -62,7 +63,8 @@ func TestTVDBLegacyKey(t *testing.T) {
 			"poster":"v4/series/9/posters/main.jpg","fanart":"v4/series/9/backgrounds/main.jpg"}}`,
 		v3 + "/series/9/episodes?page=1": `{"links":{"next":2},"data":[
 			{"airedSeason":1,"airedEpisodeNumber":2,"absoluteNumber":2,"episodeName":"Two","firstAired":"2023-10-06","filename":"v4/episode/2/screencap/a.jpg"},
-			{"airedSeason":1,"airedEpisodeNumber":1,"absoluteNumber":1,"episodeName":"One","overview":"First.","firstAired":"2023-09-29"}]}`,
+			{"airedSeason":1,"airedEpisodeNumber":1,"absoluteNumber":1,"episodeName":"One","overview":"First.","firstAired":"2023-09-29",
+				"directors":["Dir A"," ","Dir A"],"writers":["Writer A","Writer B"]}]}`,
 		v3 + "/series/9/episodes?page=2": `{"links":{"next":null},"data":[
 			{"airedSeason":0,"airedEpisodeNumber":1,"absoluteNumber":null,"episodeName":"Special"},
 			{"airedSeason":null,"airedEpisodeNumber":5,"episodeName":"unplaced"}]}`,
@@ -87,6 +89,12 @@ func TestTVDBLegacyKey(t *testing.T) {
 	}
 	if e := eps[0]; e.Season != 1 || e.Number != 1 || e.Absolute != 1 || e.Title != "One" || e.Summary != "First." || e.Minutes != 25 {
 		t.Errorf("first episode %+v", e)
+	}
+	if e := eps[0]; strings.Join(e.Directors, ",") != "Dir A" || strings.Join(e.Writers, ",") != "Writer A,Writer B" {
+		t.Errorf("crew: directors %q writers %q", e.Directors, e.Writers)
+	}
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2}); crew != nil || pending {
+		t.Errorf("legacy key: EpisodeCrew %v %v, want nothing (v3 lists carry the crew)", crew, pending)
 	}
 	if e := eps[1]; e.Thumb != "https://artworks.thetvdb.com/banners/v4/episode/2/screencap/a.jpg" {
 		t.Errorf("thumb %q", e.Thumb)
@@ -135,6 +143,48 @@ func TestTVDBLegacyKey(t *testing.T) {
 	}
 	if logins != 1 {
 		t.Errorf("%d v3 logins, want 1", logins)
+	}
+}
+
+// v4 episode crew: records past the time budget are fetched in the
+// background (pending), and the next call has them from the cache.
+func TestTVDBEpisodeCrewBackground(t *testing.T) {
+	const v4 = "api4.thetvdb.com/v4"
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login": `{"data":{"token":"t4"}}`,
+		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D2","peopleType":"Director","sort":2},
+			{"personName":"D1","peopleType":"Director","sort":1},{"personName":"W","peopleType":"Writer"}]}}`,
+		v4 + "/episodes/2/extended": `{"data":{"characters":[]}}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	old := crewBudget
+	crewBudget = 0 // everything goes to the background
+	defer func() { crewBudget = old }()
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3, 1}); !pending || len(crew) != 0 {
+		t.Fatalf("over budget: crew %v pending %v, want none and pending", crew, pending)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		tv.crewMu.Lock()
+		left := len(tv.crewQueued)
+		tv.crewMu.Unlock()
+		if left == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background queue never drained")
+		}
+	}
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	if pending || strings.Join(crew[1].Directors, ",") != "D1,D2" || strings.Join(crew[1].Writers, ",") != "W" {
+		t.Errorf("after the background: crew %+v pending %v", crew, pending)
+	}
+	if _, ok := crew[3]; ok {
+		t.Error("episode 3 has no record (404): want no crew")
+	}
+	for _, u := range []string{v4 + "/episodes/1/extended", v4 + "/episodes/3/extended"} {
+		if c := n.count(u); c != 1 {
+			t.Errorf("%s asked %d times, want 1 (cached / failure remembered)", u, c)
+		}
 	}
 }
 
