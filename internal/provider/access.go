@@ -114,6 +114,29 @@ func (a Access) clientAllowed(remoteAddr string) bool {
 	return false
 }
 
+// fromSelf reports whether a request came from the machine (or container)
+// Kizuna runs on, over one of its own addresses: the connection's remote IP
+// is the IP it arrived on. Docker's health check with LISTEN=<ip> connects
+// this way, not over loopback. A remote client can't make such a
+// connection: the answers to a faked source address would never reach it.
+func fromSelf(r *http.Request) bool {
+	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return false
+	}
+	lhost, _, err := net.SplitHostPort(local.String())
+	if err != nil {
+		return false
+	}
+	rhost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	l, err1 := netip.ParseAddr(lhost)
+	rm, err2 := netip.ParseAddr(rhost)
+	return err1 == nil && err2 == nil && l.Unmap().WithZone("") == rm.Unmap().WithZone("")
+}
+
 // hostAllowed reports whether a request's Host header names Kizuna in a way
 // a DNS rebinding page can't: an IP address, localhost, a one-word name
 // (a container name such as "kizuna"), a local suffix, or ALLOWED_HOSTS.
@@ -167,7 +190,9 @@ func (p *Provider) guard(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if !p.access.clientAllowed(r.RemoteAddr) {
+		// /health only says ok, starting or degraded: the machine itself may
+		// always ask, over any of its addresses (Docker's health check).
+		if !p.access.clientAllowed(r.RemoteAddr) && !(r.URL.Path == "/health" && fromSelf(r)) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 			warnOnce("ip "+ip, "refused a request from an address outside ALLOW_FROM; if it's yours, add it to ALLOW_FROM",
 				"client", ip, "url", r.URL.Path)

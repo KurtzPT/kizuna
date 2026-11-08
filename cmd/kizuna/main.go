@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -188,12 +189,24 @@ func portInUse(err error) bool {
 	return strings.Contains(s, "address already in use") || strings.Contains(s, "only one usage of each socket address")
 }
 
-func health(cfg config.Config) int {
-	addr := cfg.Listen
-	if strings.HasPrefix(addr, ":") {
-		addr = "127.0.0.1" + addr
+// healthURL is where the health check asks: 127.0.0.1 when Kizuna listens
+// on every address (":32600", "0.0.0.0", or "[::]", which takes IPv4 too;
+// a container may have no IPv6 loopback), else the one address it listens
+// on (LISTEN=<ip>), which /health answers from the machine itself whatever
+// ALLOW_FROM says.
+func healthURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen + "/health"
 	}
-	resp, err := (&http.Client{Timeout: 4 * time.Second}).Get("http://" + addr + "/health")
+	if ip, err := netip.ParseAddr(host); host == "" || (err == nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/health"
+}
+
+func health(cfg config.Config) int {
+	resp, err := (&http.Client{Timeout: 4 * time.Second}).Get(healthURL(cfg.Listen))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kizuna health:", err)
 		return 1

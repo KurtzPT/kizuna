@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -101,6 +103,39 @@ func TestGuardRefuses(t *testing.T) {
 		}
 		if w.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Error("nosniff header missing")
+		}
+	}
+}
+
+// With LISTEN=<ip> the health check connects from the machine's own address,
+// not loopback: /health answers it whatever ALLOW_FROM says, every other
+// route still refuses it, and another machine still gets a 403.
+func TestHealthFromOwnAddress(t *testing.T) {
+	access, _ := ParseAccess([]string{"192.168.1.20"}, nil) // only the Plex server
+	p := &Provider{access: access}
+	h := p.guard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	own := &net.TCPAddr{IP: net.ParseIP("192.168.1.5"), Port: 32600}
+	for _, c := range []struct {
+		path, remote string
+		local        net.Addr
+		want         int
+	}{
+		{"/health", "192.168.1.5:40000", own, http.StatusOK},
+		{"/health", "[::ffff:192.168.1.5]:40000", own, http.StatusOK},
+		{"/anidb/library/metadata/anidb-1", "192.168.1.5:40000", own, http.StatusForbidden},
+		{"/health", "192.168.1.7:40000", own, http.StatusForbidden}, // another machine on the LAN
+		{"/health", "192.168.1.5:40000", nil, http.StatusForbidden}, // connection address unknown
+		{"/health", "192.168.1.20:40000", own, http.StatusOK},       // the allowed client, as before
+	} {
+		r := httptest.NewRequest(http.MethodGet, c.path, nil)
+		if c.local != nil {
+			r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, c.local))
+		}
+		r.RemoteAddr, r.Host = c.remote, "192.168.1.5:32600"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.want {
+			t.Errorf("%s from %s: got %d, want %d", c.path, c.remote, w.Code, c.want)
 		}
 	}
 }
