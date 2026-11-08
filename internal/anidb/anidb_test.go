@@ -63,3 +63,19 @@ func TestSearchYearPicksRemake(t *testing.T) {
 		}
 	}
 }
+
+func TestTitleApostrophes(t *testing.T) {
+	titles := []Title{
+		{Type: "main", Lang: "x-jat", Text: "Sousou no Frieren"},
+		{Type: "official", Lang: "en", Text: "The Journey`s End"},
+	}
+	if got := FindTitle(titles, []string{"en"}, false); got != "The Journey's End" {
+		t.Errorf("FindTitle: %q", got)
+	}
+	if got := PickTitle([]Title{{Type: "syn", Lang: "en", Text: "Kino`s Journey"}}, []string{"ja"}, true); got != "Kino's Journey" {
+		t.Errorf("PickTitle fallback: %q", got)
+	}
+	if got := CleanSummary("It`s over."); got != "It's over." {
+		t.Errorf("CleanSummary: %q", got)
+	}
+}

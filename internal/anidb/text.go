@@ -20,8 +20,13 @@ var typeRank = map[string]int{"main": 1, "official": 2, "kana": 3, "card": 4, "s
 // FindTitle returns the best title for a language priority list, or "" if
 // no listed language has one: the first language with a title wins; "main"
 // means AniDB's main title; "short" titles are never used. With
-// officialOnly, only main and official titles count (no synonyms).
+// officialOnly, only main and official titles count (no synonyms). AniDB's
+// backtick apostrophes come back as plain ones ("Journey`s" -> "Journey's").
 func FindTitle(titles []Title, langs []string, officialOnly bool) string {
+	return apostrophes(findTitle(titles, langs, officialOnly))
+}
+
+func findTitle(titles []Title, langs []string, officialOnly bool) string {
 	best := map[string]Title{}
 	main := ""
 	for _, t := range titles {
@@ -54,16 +59,19 @@ func PickTitle(titles []Title, langs []string, officialOnly bool) string {
 	}
 	for _, t := range titles {
 		if t.Type == "main" && t.Text != "" {
-			return t.Text
+			return apostrophes(t.Text)
 		}
 	}
 	for _, t := range titles { // anything at all
 		if t.Text != "" {
-			return t.Text
+			return apostrophes(t.Text)
 		}
 	}
 	return ""
 }
+
+// apostrophes turns AniDB's backtick apostrophes into plain ones.
+func apostrophes(s string) string { return strings.ReplaceAll(s, "`", "'") }
 
 func rank(typ string) int {
 	if r, ok := typeRank[typ]; ok {
@@ -117,7 +125,7 @@ func CleanSummary(s string) string {
 	s = reNoteLines.ReplaceAllString(s, "")
 	s = reSource.ReplaceAllString(s, "")
 	s = reBlank.ReplaceAllString(s, "\n\n")
-	return strings.TrimSpace(strings.ReplaceAll(s, "`", "'"))
+	return strings.TrimSpace(apostrophes(s))
 }
 
 // similarity scores two normalized titles 0..97 (exact matches score higher
