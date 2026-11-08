@@ -448,7 +448,9 @@ kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] -a LIBRARY   write it
 
 What the script guarantees:
 
-- It only writes files named `.plexmatch` in show folders, and keeps your lines, line endings, owner and permissions.
+- It only writes files named `.plexmatch` in show folders, and keeps your lines, line endings and permissions. Each one
+  is written next to the old one (`.plexmatch.kizuna-tmp`) and then moved over it, so an interrupted run leaves the old
+  file whole. The new file belongs to the user running the script: run it as the files' owner (or as root) to keep it.
 - It looks at every folder in `LIBRARY` as a show, skipping hidden ones, and every video below it except in `extras/`.
 - Running it twice changes nothing. Running it after adding episodes only adds their hints.
 - It never changes or removes an `ep:` line, its own included: that's done by hand.

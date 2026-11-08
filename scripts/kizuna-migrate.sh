@@ -722,9 +722,11 @@ finish_show() {
 }
 
 # add_hints appends the ep: lines in $2 to the .plexmatch $1, in the file's own
-# line endings. The lines already there stay as they are.
+# line endings. The lines already there stay as they are. The new file is
+# written next to it first and then moved over it, so an interrupted run or a
+# full disk leaves the old file whole.
 add_hints() {
-	local pm=$1 new=$2 line nl eol=$'\n' out=""
+	local pm=$1 new=$2 tmp=$1.kizuna-tmp line nl eol=$'\n' out=""
 	if [[ -f $pm ]]; then
 		while true; do # bash keeps each line as it is, \r included
 			if IFS= read -r line; then nl=$'\n'; elif [[ -n $line ]]; then nl=""; else break; fi
@@ -735,7 +737,12 @@ add_hints() {
 	fi
 	if [[ -n $out && $out != *$'\n' ]]; then out+=$eol; fi
 	while IFS= read -r line; do out+=$line$eol; done <<<"${new%$'\n'}"
-	printf '%s' "$out" >"$pm" # in place: keeps an existing file's owner and permissions
+	# a copy of the old file first, for its permissions (and owner, as root)
+	if [[ -f $pm ]]; then cp -p "$pm" "$tmp" 2>/dev/null || :; fi
+	if ! printf '%s' "$out" >"$tmp" || ! mv -f "$tmp" "$pm"; then
+		rm -f "$tmp"
+		die "can't write $pm (full disk? permissions?): it was left as it was"
+	fi
 }
 
 # --- main --------------------------------------------------------------------
