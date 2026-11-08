@@ -73,18 +73,19 @@ func main() {
 	}
 }
 
-// setup creates every source and loads the two lists matching depends on.
-// It returns TheTVDB too, for the ready line.
-func setup(ctx context.Context, cfg config.Config) (*provider.Provider, *sources.TVDB) {
+// setup creates every source. keepLoaded loads the two lists matching
+// depends on, calls firstDone after the first load, and keeps them fresh
+// until ctx ends. It returns TheTVDB too, for the ready line.
+func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *sources.TVDB, keepLoaded func(firstDone func())) {
 	f := fetch.New(filepath.Join(cfg.DataDir, "cache"))
 	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget)
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
 	ad := sources.NewAniDB(f, cfg.DataDir, cfg.AniDBClient, cfg.AniDBClientVer)
-	tvdb := sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin, cfg.TVDBLegacyKey)
+	tvdb = sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin, cfg.TVDBLegacyKey)
 	if cfg.TVDBKey != "" && cfg.TVDBLegacyKey != "" {
 		slog.Info("TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; the legacy key takes over (with a warning) if TheTVDB rejects it")
 	}
-	p := provider.New(cfg, titles, ad, lists, tvdb,
+	p = provider.New(cfg, titles, ad, lists, tvdb,
 		sources.NewTMDB(f, cfg.TMDBKey), sources.NewMAL(f, cfg.MALClientID), sources.NewANN(f))
 	load := func() {
 		if err := titles.Load(ctx, f); err != nil {
@@ -94,11 +95,12 @@ func setup(ctx context.Context, cfg config.Config) (*provider.Provider, *sources
 			slog.Error("anime mapping", "err", err)
 		}
 	}
-	load()
 	// Both lists refresh daily. Until both have loaded once (first start
 	// without a network: no cached copy to fall back on, so nothing matches)
 	// they are retried every 5 minutes instead.
-	go func() {
+	keepLoaded = func(firstDone func()) {
+		load()
+		firstDone()
 		for {
 			wait := 24 * time.Hour
 			if !titles.Ready() || !lists.Ready() {
@@ -113,8 +115,8 @@ func setup(ctx context.Context, cfg config.Config) (*provider.Provider, *sources
 				load()
 			}
 		}
-	}()
-	return p, tvdb
+	}
+	return p, tvdb, keepLoaded
 }
 
 func serve(cfg config.Config) error {
@@ -127,14 +129,14 @@ func serve(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	p, tvdb := setup(ctx, cfg)
-	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
-		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
-		"titles", cfg.TitleSources, "summaries", cfg.SummarySources, "posters", cfg.PosterSources,
-		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
-		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,
-		"rating", cfg.RatingSources, "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", cfg.DateSources,
-		"episode_fill", cfg.EpisodeFillSources, "episode_titles", cfg.EpisodeTitles, "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20)
+	p, tvdb, keepLoaded := setup(ctx, cfg)
+	// Serve while the lists load, so /health answers "starting" (and Plex's
+	// requests wait for the load) instead of the port hanging until then.
+	loaded := p.Loading()
+	go keepLoaded(func() {
+		loaded()
+		logReady(cfg, ln, tvdb, start)
+	})
 
 	srv := &http.Server{Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
@@ -148,6 +150,17 @@ func serve(cfg config.Config) error {
 		return err
 	}
 	return nil
+}
+
+// logReady logs the settings in effect once the first list load is over.
+func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time) {
+	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
+		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
+		"titles", cfg.TitleSources, "summaries", cfg.SummarySources, "posters", cfg.PosterSources,
+		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
+		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,
+		"rating", cfg.RatingSources, "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", cfg.DateSources,
+		"episode_fill", cfg.EpisodeFillSources, "episode_titles", cfg.EpisodeTitles, "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20)
 }
 
 // listen opens the address Kizuna serves on. A port that another program

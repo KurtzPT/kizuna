@@ -36,9 +36,9 @@ func (p *Provider) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", p.health)
 	mux.HandleFunc("GET /{mode}", p.withMode(p.describe))
-	mux.HandleFunc("POST /{mode}/library/metadata/matches", p.withMode(p.match))
-	mux.HandleFunc("GET /{mode}/library/metadata/{key}", p.withMode(p.metadata))
-	mux.HandleFunc("GET /{mode}/library/metadata/{key}/{sub}", p.withMode(p.metadata))
+	mux.HandleFunc("POST /{mode}/library/metadata/matches", p.withMode(p.waitLoaded(p.match)))
+	mux.HandleFunc("GET /{mode}/library/metadata/{key}", p.withMode(p.waitLoaded(p.metadata)))
+	mux.HandleFunc("GET /{mode}/library/metadata/{key}/{sub}", p.withMode(p.waitLoaded(p.metadata)))
 	return p.guard(mux)
 }
 
@@ -76,19 +76,43 @@ func (r *recorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// waitLoaded holds a request until the first list load is over: before it,
+// nothing matches and shows are built without their ids, and Plex would keep
+// what it got. A load that outlasts requestTimeout gets a 503 "starting",
+// which Plex treats as a failed request, not as an answer.
+func (p *Provider) waitLoaded(h modeHandler) modeHandler {
+	return func(w http.ResponseWriter, r *http.Request, mode Mode) {
+		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+		defer cancel()
+		select {
+		case <-p.loaded:
+			h(w, r, mode)
+		case <-ctx.Done():
+			writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "starting", Version: Version})
+		}
+	}
+}
+
 type healthAnswer struct {
 	Status  string   `json:"status"` // ok, starting, degraded
 	Missing []string `json:"missing,omitempty"`
 	Version string   `json:"version"`
 }
 
-// health answers 503 until matching can work: "starting" while the title
-// list isn't loaded, "degraded" while the id mapping isn't (titles still
-// match, but TVDB tags and /tvdb mode find nothing), so Docker marks the
-// container unhealthy instead of hiding a half-working provider.
+// health answers 503 until matching can work: "starting" during the first
+// list load and while the title list isn't loaded, "degraded" while the id
+// mapping isn't (titles still match, but TVDB tags and /tvdb mode find
+// nothing), so Docker marks the container unhealthy instead of hiding a
+// half-working provider.
 func (p *Provider) health(w http.ResponseWriter, _ *http.Request) {
+	loading := true
+	select {
+	case <-p.loaded:
+		loading = false
+	default:
+	}
 	switch {
-	case !p.titles.Ready():
+	case loading || !p.titles.Ready():
 		writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "starting", Version: Version})
 	case !p.lists.Ready():
 		writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "degraded", Missing: []string{"mapping"}, Version: Version})

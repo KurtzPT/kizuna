@@ -121,7 +121,7 @@ curl http://<kizuna-host>:32600/health
 | Answer | Means |
 |---|---|
 | `{"status":"ok","version":"..."}` | ready |
-| `{"status":"starting","version":"..."}` (HTTP 503) | still downloading the AniDB title list, first start only |
+| `{"status":"starting","version":"..."}` (HTTP 503) | loading the lists: a few seconds from the cache, longer on the first start while they download. Plex's requests wait for it (up to 25 s, then a 503) |
 | `{"status":"degraded","missing":["mapping"],"version":"..."}` (HTTP 503) | titles match, but the id mapping lists didn't download: TVDB tags and `/tvdb` mode find nothing beyond your `anime-list-custom.xml` entries. Docker shows the container `unhealthy` |
 | `403` with `ALLOW_FROM` or `ALLOWED_HOSTS` | Kizuna refused the caller: see [access](#%EF%B8%8F-access) |
 | no answer | wrong address, or a firewall: see [troubleshooting](#-troubleshooting) |

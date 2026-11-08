@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,4 +99,51 @@ func TestHealthNeedsMapping(t *testing.T) {
 	check(503, "degraded", "mapping")
 	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
 	check(200, "ok")
+}
+
+// While the first list load runs, /health answers "starting" even when a
+// list is already there (a cached copy), and Plex's requests wait for the
+// load instead of being answered without the lists. A request that gives up
+// first gets a 503, not an answer Plex would keep.
+func TestRequestsWaitForFirstLoad(t *testing.T) {
+	titles, lists := &anidb.Titles{}, &mapping.Lists{}
+	titles.SetForTest(map[int][]anidb.Title{1: {{Type: "main", Text: "A"}}})
+	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
+	p := New(config.Config{}, titles, nil, lists, nil, nil, nil, nil)
+	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
+	done := p.Loading()
+	get := func(ctx context.Context, path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(ctx, "GET", path, nil)
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		p.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := get(context.Background(), "/health"); rec.Code != 503 || !strings.Contains(rec.Body.String(), `"starting"`) {
+		t.Errorf("health while loading: %d %s, want 503 starting", rec.Code, rec.Body)
+	}
+	gaveUp, cancel := context.WithCancel(context.Background())
+	cancel()
+	if rec := get(gaveUp, "/anidb/library/metadata/anidb-1"); rec.Code != 503 {
+		t.Errorf("request given up while loading: %d %s, want 503", rec.Code, rec.Body)
+	}
+	answered := make(chan int, 1)
+	go func() { answered <- get(context.Background(), "/anidb/library/metadata/anidb-1").Code }()
+	select {
+	case code := <-answered:
+		t.Fatalf("answered %d before the first load was over", code)
+	case <-time.After(50 * time.Millisecond):
+	}
+	done()
+	select {
+	case code := <-answered:
+		if code != 200 {
+			t.Errorf("after the load: HTTP %d, want 200", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("request still waiting after the load")
+	}
+	if rec := get(context.Background(), "/health"); rec.Code != 200 {
+		t.Errorf("health after the load: %d %s, want 200 ok", rec.Code, rec.Body)
+	}
 }

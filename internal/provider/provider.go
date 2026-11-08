@@ -61,6 +61,8 @@ type Provider struct {
 
 	access Access // ALLOW_FROM / ALLOWED_HOSTS
 
+	loaded chan struct{} // closed once the first list load is over (see Loading)
+
 	mu       sync.Mutex
 	shows    map[string]cachedShow // root -> built model
 	builds   map[string]*build     // root -> build in progress (dedupes Plex's request bursts)
@@ -88,8 +90,20 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	if access.AnyClient {
 		slog.Warn("ALLOW_FROM=any: every address may use Kizuna; keep its port off the internet")
 	}
+	loaded := make(chan struct{})
+	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
-		access: access, shows: map[string]cachedShow{}, builds: map[string]*build{}}
+		access: access, loaded: loaded, shows: map[string]cachedShow{}, builds: map[string]*build{}}
+}
+
+// Loading marks the lists as still loading for the first time: /health
+// answers "starting", and matches and metadata requests wait for the load
+// (see waitLoaded). Call it before serving; call done when the first load
+// is over, whether or not the lists loaded.
+func (p *Provider) Loading() (done func()) {
+	loaded := make(chan struct{})
+	p.loaded = loaded
+	return sync.OnceFunc(func() { close(loaded) })
 }
 
 // showTTL: how long a built model is served from memory (shorter when
