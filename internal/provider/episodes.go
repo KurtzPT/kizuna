@@ -24,7 +24,8 @@ import (
 // differ from TheTVDB's; an entry without them gets TheTVDB's season and
 // number. In /tvdb, the other site (TheMovieDb, or TheTVDB when the list came
 // from TheMovieDb) is paired through AniDB: the place on the list gives the
-// AniDB episode, and the mapping gives its place on the other site.
+// AniDB episode, and the mapping gives its place on the other site; without
+// an AniDB counterpart, by absolute number (tvdbPairing.otherAt).
 
 // spot is a place on a TVDB or TMDB series: season (-1 = absolute order) and
 // episode number.
@@ -220,12 +221,18 @@ func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
 	return v, ok
 }
 
-// otherAt: an episode's place on the other site, through AniDB; without an
-// AniDB counterpart (not cached yet, or a TheTVDB-only extra), the same
-// season and number as on the list.
+// otherAt: an episode's place on the other site, through AniDB. Without an
+// AniDB counterpart (not cached yet, or a TheTVDB-only extra), a regular
+// episode goes by its absolute number, which doesn't depend on how either
+// site splits seasons (an absolute number the other site doesn't have pairs
+// with nothing). A special has no absolute number: it keeps its number in
+// season 0, as unlisted specials do everywhere else.
 func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
 	if sp, ok := atListed(pr.other, ep); ok {
 		return sp, true
+	}
+	if ep.Season > 0 {
+		return spot{-1, ep.Index}, true
 	}
 	return ep.listed, true
 }

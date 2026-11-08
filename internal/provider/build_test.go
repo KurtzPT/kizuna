@@ -269,8 +269,8 @@ func TestAniDBPairsTMDBByItsOwnSeasons(t *testing.T) {
 
 // /tvdb pairs TheMovieDb through AniDB, not at TheTVDB's season and number
 // (One Piece: TVDB S2E1 is AniDB episode 9, TMDB S2E1 is episode 62). An
-// episode without an AniDB counterpart keeps TheTVDB's season and number,
-// and so does one whose AniDB entry isn't cached yet, until the rebuild.
+// episode without an AniDB counterpart is paired by absolute number, and so
+// is one whose AniDB entry isn't cached yet, until the rebuild.
 func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 	second := `<anime id="200"><type>TV Series</type><enddate>2010-01-01</enddate><episodes>
 <episode><epno type="1">1</epno><title xml:lang="en">Second Start</title></episode></episodes></anime>`
@@ -317,7 +317,7 @@ func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 	check("first build", s, []want{
 		{1, 1, "TMDB Two", "TVDB Director", "TVDB Writer"},
 		{1, 2, "TMDB Three", "TVDB Director 2", ""}, // TMDB S2E1 has no writer
-		{2, 3, "TMDB Three", "TMDB Director 3", ""}, // AniDB 200 not cached: TheTVDB's S2E1
+		{2, 3, "TMDB Three", "TMDB Director 3", ""}, // AniDB 200 not cached: absolute 3
 		{0, 1, "", "", ""}, // no AniDB counterpart, no TMDB S00E01
 	})
 
@@ -336,6 +336,51 @@ func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 		t.Error("every AniDB entry cached: want a complete show")
 	}
 	check("rebuild", s, []want{{2, 3, "TMDB One", "TMDB Director", ""}})
+}
+
+// In /tvdb, an episode without an AniDB counterpart is paired with the other
+// site by absolute number, not by the list's season and number, which the
+// other site may split differently: TVDB S2E1 (absolute 3) is TMDB S1E3
+// here, not TMDB S2E1. An absolute number the other site doesn't have pairs
+// with nothing.
+func TestTVDBUnpairedEpisodeGoesByAbsoluteNumber(t *testing.T) {
+	wrong := `{"episodes":[{"episode_number":1,"name":"TMDB S2E1 (wrong)","crew":[{"job":"Director","name":"Wrong Director"}]}]}`
+	cases := map[string]struct {
+		season1   string // TMDB seasons 1 and 2
+		title     string // TMDB title of TVDB S2E1
+		directors string
+	}{
+		"other split": {`{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
+			{"episode_number":3,"name":"TMDB Three (right)","crew":[{"job":"Director","name":"Right Director"}]}]}`,
+			"TMDB Three (right)", "Right Director"},
+		"no absolute 3 on TMDB": {`{"episodes":[{"episode_number":1,"name":"TMDB One"}]}`, "", ""},
+	}
+	for name, c := range cases {
+		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			switch path {
+			case "api.themoviedb.org/3/tv/77/season/1":
+				return 200, c.season1
+			case "api.themoviedb.org/3/tv/77/season/2":
+				return 200, wrong
+			}
+			return testSeries(path, q)
+		}})
+		p.cfg.EpisodeTitles = []string{"tmdb", "tvdb", "anidb"}
+		s, err := p.buildShow(context.Background(), "tvdb-500")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ep := s.Episode(2, 3)
+		if ep == nil {
+			t.Fatalf("%s: S02E03 missing", name)
+		}
+		if ep.titles["tmdb"] != c.title {
+			t.Errorf("%s: S02E03 TMDB title %q, want %q", name, ep.titles["tmdb"], c.title)
+		}
+		if d := strings.Join(ep.Directors, ","); d != c.directors {
+			t.Errorf("%s: S02E03 directors %q, want %q", name, d, c.directors)
+		}
+	}
 }
 
 // With the episode list from TheMovieDb (no usable TVDB key), AniDB titles
