@@ -12,6 +12,7 @@ import (
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/fetch"
+	"kizuna/internal/mapping"
 	"kizuna/internal/sources"
 )
 
@@ -114,13 +115,15 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	entry := p.lists.ByAID(aid)
+	tmdbID, movie := entry.TMDB.ID, false
+	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
+		tmdbID, movie = entry.TMDBMovie, true
+	}
 	if entry.TVDB.ID > 0 && (a == nil || !a.IsMovie()) {
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
-	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
-		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", entry.TMDBMovie))
-	} else if entry.TMDB.ID > 0 {
-		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", entry.TMDB.ID))
+	if tmdbID > 0 {
+		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", tmdbID))
 	}
 	if strings.HasPrefix(entry.IMDB, "tt") {
 		s.Guids = append(s.Guids, "imdb://"+entry.IMDB)
@@ -144,10 +147,6 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 
-	tmdbID, movie := entry.TMDB.ID, false
-	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
-		tmdbID, movie = entry.TMDBMovie, true
-	}
 	var wg sync.WaitGroup
 	episodesOK := true
 	if a != nil && !a.IsMovie() {
@@ -204,47 +203,20 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		Guids: []string{fmt.Sprintf("tvdb://%d", tvdbID)}}
 	aid := p.lists.FirstAID(tvdbID)
 	entry := p.lists.ByAID(aid)
-	// The TMDB show: from the mapping, else looked up on TMDB while the
-	// TVDB episode list downloads.
-	tmdbShow := sync.OnceValues(func() (int, error) {
-		if entry.TMDB.ID == 0 && p.tmdb.Enabled() {
-			return p.tmdb.TVFromTVDB(ctx, tvdbID)
-		}
-		return entry.TMDB.ID, nil
-	})
-	go tmdbShow()
+	tmdbShow := p.tmdbShowOf(ctx, tvdbID, entry)
+	go tmdbShow() // looked up while the episode list downloads
 
-	var (
-		wg      sync.WaitGroup
-		a       *sources.AniDBAnime
-		eps     []sources.Episode
-		epsErr  error
-		listSrc string // source of the episode list
-	)
+	var wg sync.WaitGroup
+	var a *sources.AniDBAnime
 	if aid > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			var err error
 			if a, err = p.anidb.Anime(ctx, aid); a == nil {
 				slog.Info("AniDB details not available; using titles and other sources, retried in 2 min", "aid", aid, "why", err)
 			}
-		}()
+		})
 	}
-	for _, src := range p.cfg.EpisodeSources { // first source with an episode list wins
-		switch {
-		case src == "tvdb" && p.tvdb.Enabled():
-			eps, epsErr = p.tvdb.Episodes(ctx, tvdbID)
-		case src == "tmdb":
-			if id, _ := tmdbShow(); id > 0 {
-				eps, epsErr = p.tmdb.Episodes(ctx, id)
-			}
-		}
-		if len(eps) > 0 {
-			listSrc = src
-			break
-		}
-	}
+	eps, listSrc, epsErr := p.pickEpisodeList(ctx, tvdbID, tmdbShow)
 	wg.Wait()
 	tmdbID, findErr := tmdbShow()
 	if findErr != nil && !fetch.IsNotFound(findErr) {
@@ -267,28 +239,75 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 
 	sources.FillAbsolute(eps)
-	for _, e := range eps {
-		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
-			Thumb: e.Thumb, Minutes: e.Minutes, listed: spot{e.Season, e.Number}}
-		if e.Season == 0 {
-			ep.Index = e.Number
-		}
-		ep.setTitle(listSrc, e.Title)
-		s.Episodes[ep.Season] = append(s.Episodes[ep.Season], ep)
-	}
-	for n := range s.Episodes {
-		sort.Slice(s.Episodes[n], func(i, j int) bool { return s.Episodes[n][i].Index < s.Episodes[n][j].Index })
-	}
-
+	b := newTVDBBuild(tvdbID, tmdbID, listSrc, a, eps)
+	episodesFromList(s, b)
 	if a != nil {
 		s.OriginalTitle = p.originalTitle(a.Titles)
 		p.fillFromAniDB(s, a)
 	} else if len(p.titles.Of(aid)) > 0 {
 		s.Complete = false
 	}
-	// Episode titles and the show-level fields touch different parts of s:
-	// fetch both at once.
-	b := newTVDBBuild(tvdbID, tmdbID, listSrc, a, eps)
+	if !p.enrichTVDB(ctx, s, b, aid) {
+		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
+	}
+	finishTVDB(s, b)
+	return s, nil
+}
+
+// tmdbShowOf returns, once, a /tvdb show's TMDB show: from the mapping, else
+// looked up on TMDB.
+func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Entry) func() (int, error) {
+	return sync.OnceValues(func() (int, error) {
+		if entry.TMDB.ID == 0 && p.tmdb.Enabled() {
+			return p.tmdb.TVFromTVDB(ctx, tvdbID)
+		}
+		return entry.TMDB.ID, nil
+	})
+}
+
+// pickEpisodeList returns the episode list of the first EPISODE_SOURCES
+// source that has one, and that source ("" when none has; err is then the
+// last source's error).
+func (p *Provider) pickEpisodeList(ctx context.Context, tvdbID int, tmdbShow func() (int, error)) (eps []sources.Episode, src string, err error) {
+	for _, src := range p.cfg.EpisodeSources {
+		switch {
+		case src == "tvdb" && p.tvdb.Enabled():
+			eps, err = p.tvdb.Episodes(ctx, tvdbID)
+		case src == "tmdb":
+			if id, _ := tmdbShow(); id > 0 {
+				eps, err = p.tmdb.Episodes(ctx, id)
+			}
+		}
+		if len(eps) > 0 {
+			return eps, src, err
+		}
+	}
+	return eps, "", err
+}
+
+// episodesFromList adds the episode list's episodes to s, at their season
+// and absolute number (specials at their number), with the list's title.
+func episodesFromList(s *Show, b *tvdbBuild) {
+	for _, e := range b.eps {
+		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
+			Thumb: e.Thumb, Minutes: e.Minutes, listed: spot{e.Season, e.Number}}
+		if e.Season == 0 {
+			ep.Index = e.Number
+		}
+		ep.setTitle(b.list, e.Title)
+		s.Episodes[ep.Season] = append(s.Episodes[ep.Season], ep)
+	}
+	for n := range s.Episodes {
+		sort.Slice(s.Episodes[n], func(i, j int) bool { return s.Episodes[n][i].Index < s.Episodes[n][j].Index })
+	}
+}
+
+// enrichTVDB adds the episode titles and crew and the show-level fields
+// (aid: the series' first AniDB entry). They touch different parts of s, so
+// both are fetched at once. Returns false while other AniDB entries or
+// episode crew are still being fetched, or when a source failed.
+func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid int) bool {
+	var wg sync.WaitGroup
 	var titlesReady, crewReady bool
 	wg.Go(func() {
 		var pr tvdbPairing
@@ -296,24 +315,26 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
-	sourcesOK := p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
+	sourcesOK := p.newSources(ctx, aid, b.first, b.tvdbID, b.tmdbID, false, true).fill(s)
 	wg.Wait()
-	if !titlesReady || !crewReady || !sourcesOK {
-		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
-	}
-	s.Title = firstOf(s.Title, fmt.Sprintf("TVDB %d", tvdbID))
+	return titlesReady && crewReady && sourcesOK
+}
+
+// finishTVDB fills what no source gave: a title, and the first regular
+// episode's air date as the show's.
+func finishTVDB(s *Show, b *tvdbBuild) {
+	s.Title = firstOf(s.Title, fmt.Sprintf("TVDB %d", b.tvdbID))
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
 	}
 	if s.Date == "" {
-		for _, e := range eps {
+		for _, e := range b.eps {
 			if e.Season > 0 && e.Aired != "" {
 				s.Date = e.Aired
 				break
 			}
 		}
 	}
-	return s, nil
 }
 
 func firstOf(values ...string) string {
