@@ -241,6 +241,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 |---|---|
 | Matching never calls the API | it searches the daily title list |
 | One call every 4 s, at most 200 a day | AniDB's limits |
+| Plex's calls go first | background fetches (other entries of a `/tvdb` show) wait behind them, still 4 s apart, and stop at 150 calls a day |
 | Every answer is cached | 6 days while airing and for 60 days after the end, then 180 days |
 | A failed anime waits 24 h | before it's asked again |
 | Backoff after errors | 30 s → 2 min → 15 min → 1 h → 6 h → 24 h |

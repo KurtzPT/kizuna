@@ -160,7 +160,9 @@ func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
 
 // Prefetch fetches an entry in the background, within the fair use rules
 // and only while fewer than anidbBackgroundLimit calls were made in 24 h.
-// It returns at once; the entry is in the cache for the next show build.
+// Its API call waits behind every call Plex is waiting for (a foreground
+// one), keeping the same 4 s gap. It returns at once; the entry is in the
+// cache for the next show build.
 func (c *AniDB) Prefetch(aid int) {
 	if c.client == "" {
 		return
@@ -218,7 +220,7 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 	var parsed *AniDBAnime
 	data, err := c.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, aid), Key: key,
 		Validate: func(b []byte) (err error) { parsed, err = c.validate(b); return err },
-		NoStale:  true, Quiet: true, Done: func(err error) { c.result(aid, err) }})
+		NoStale:  true, Quiet: true, Background: background, Done: func(err error) { c.result(aid, err) }})
 	if err != nil {
 		if a != nil {
 			return a, nil

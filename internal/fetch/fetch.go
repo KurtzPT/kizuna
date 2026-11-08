@@ -41,15 +41,10 @@ type Client struct {
 }
 
 type call struct {
-	done chan struct{}
-	data []byte
-	err  error
-}
-
-type hostLimit struct {
-	mu   sync.Mutex
-	gap  time.Duration
-	next time.Time
+	done   chan struct{}
+	data   []byte
+	err    error
+	ticket *ticket // its place in the host's queue (nil = host not throttled)
 }
 
 // Request describes one download.
@@ -74,6 +69,10 @@ type Request struct {
 	// changed (If-None-Match with the ETag saved next to it) instead of
 	// downloading it again. For big lists that rarely change. Needs Key.
 	Revalidate bool
+	// Background: nobody waits for the answer now (an AniDB prefetch). On a
+	// throttled host it waits behind every foreground request; a foreground
+	// caller that joins its download moves it up.
+	Background bool
 }
 
 func New(cacheDir string) *Client {
@@ -99,7 +98,7 @@ func (c *Client) SetTransport(rt http.RoundTripper) { c.http.Transport = rt }
 // Throttle makes requests to host wait at least gap between each other.
 func (c *Client) Throttle(host string, gap time.Duration) {
 	c.mu.Lock()
-	c.limits[host] = &hostLimit{gap: gap}
+	c.limits[host] = newHostLimit(gap)
 	c.mu.Unlock()
 }
 
@@ -150,11 +149,14 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	}
 	c.mu.Lock()
 	cl, running := c.inflight[id]
+	if running && !r.Background {
+		cl.ticket.promote()
+	}
 	if !running {
-		cl = &call{done: make(chan struct{})}
+		cl = &call{done: make(chan struct{}), ticket: c.enqueue(r)}
 		c.inflight[id] = cl
 		go func() {
-			cl.data, cl.err = c.fetch(r)
+			cl.data, cl.err = c.fetch(r, cl.ticket)
 			if r.Done != nil {
 				r.Done(cl.err)
 			}
@@ -173,9 +175,9 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	}
 }
 
-func (c *Client) fetch(r Request) ([]byte, error) {
+func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 	start := time.Now()
-	data, status, waited, err := c.do(r)
+	data, status, waited, err := c.do(r, t)
 	took := time.Since(start) - waited
 	attrs := []any{"method", cmp.Or(r.Method, http.MethodGet), "url", Redact(r.URL), "status", status,
 		"bytes", len(data), "took", took.Round(time.Millisecond), "throttled", waited.Round(time.Millisecond)}
@@ -193,12 +195,8 @@ func (c *Client) fetch(r Request) ([]byte, error) {
 	return data, err
 }
 
-func (c *Client) do(r Request) (data []byte, status int, waited time.Duration, err error) {
-	u, err := url.Parse(r.URL)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	waited = c.wait(u.Host)
+func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.Duration, err error) {
+	waited = t.wait()
 
 	method := cmp.Or(r.Method, http.MethodGet)
 	req, err := http.NewRequest(method, r.URL, bytes.NewReader(r.Body))
@@ -282,26 +280,17 @@ func (c *Client) revalidation(r Request) ([]byte, string) {
 	return data, string(bytes.TrimSpace(tag))
 }
 
-// wait blocks until host's throttle allows the next request and returns
-// how long it waited.
-func (c *Client) wait(host string) time.Duration {
-	c.mu.Lock()
-	l := c.limits[host]
-	c.mu.Unlock()
-	if l == nil {
-		return 0
+// enqueue queues r on its host's throttle; nil when the host has none.
+// Needs c.mu.
+func (c *Client) enqueue(r Request) *ticket {
+	u, err := url.Parse(r.URL)
+	if err != nil {
+		return nil // http.NewRequest reports it
 	}
-	l.mu.Lock()
-	now := time.Now()
-	at := l.next
-	if at.Before(now) {
-		at = now
+	if l := c.limits[u.Host]; l != nil {
+		return l.enqueue(r.Background)
 	}
-	l.next = at.Add(l.gap)
-	l.mu.Unlock()
-	d := time.Until(at)
-	time.Sleep(d)
-	return max(d, 0)
+	return nil
 }
 
 // store writes a cache file and reports whether it did.

@@ -28,7 +28,7 @@ func TestRedact(t *testing.T) {
 // A network error repeats the whole URL in its message: it must be redacted too.
 func TestNetworkErrorRedacted(t *testing.T) {
 	c := New(t.TempDir())
-	_, _, _, err := c.do(Request{URL: "http://127.0.0.1:1/x?api_key=SECRET&client=MYCLIENT"})
+	_, _, _, err := c.do(Request{URL: "http://127.0.0.1:1/x?api_key=SECRET&client=MYCLIENT"}, nil)
 	if err == nil {
 		t.Fatal("expected a connection error")
 	}
