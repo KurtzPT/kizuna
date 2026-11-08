@@ -87,7 +87,7 @@ without publishing anything.
 | | Rule | Why |
 |---|---|---|
 | 🪶 | **Standard library only.** No new modules in `go.mod` | one static binary, a ~10 MB image, nothing to audit |
-| 🤝 | **Don't touch the AniDB fair-use limits** in `internal/sources/anidb.go` | they're fixed on purpose: breaking them gets users' IPs banned |
+| 🤝 | **Don't touch the AniDB fair-use limits** in `internal/sources/anidb_fairuse.go` | they're fixed on purpose: breaking them gets users' IPs banned |
 | 🌐 | **Every outside request goes through `internal/fetch`** | one place for caching, throttling, redaction and disk cleanup |
 | 🔒 | **Never log or return a secret.** New keys or tokens must be redacted by `fetch.Redact` | logs get pasted into public issues |
 | 🛡️ | **Keep the access checks** (`ALLOW_FROM`, `ALLOWED_HOSTS`) on every route | Kizuna has no login, see [SECURITY.md](SECURITY.md) |
