@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -220,7 +221,7 @@ func (ss *showSources) fill(s *Show) bool {
 	ss.warm()
 	used := []any{"root", s.Root, "first_entry", ss.series}
 	note := func(field, src string) {
-		used = append(used, field, cmpOr(src, "-"))
+		used = append(used, field, cmp.Or(src, "-"))
 	}
 
 	title, src := pick(cfg.TitleSources, ss.title)
@@ -302,13 +303,6 @@ func (ss *showSources) warm() {
 		wg.Go(job)
 	}
 	wg.Wait()
-}
-
-func cmpOr(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 // pick returns the first non-empty value in source order, and its source.

@@ -53,7 +53,6 @@ type AniDBAnime struct {
 	Titles      []anidb.Title
 	Description string
 	Picture     string // full URL
-	Rating      string // permanent rating, e.g. "8.12"
 	Genres      []string
 	Creators    []AniDBCreator
 	Characters  []AniDBCharacter
@@ -469,7 +468,6 @@ type anidbXML struct {
 	Titles      []anidb.Title `xml:"titles>title"`
 	Description string        `xml:"description"`
 	Picture     string        `xml:"picture"`
-	Permanent   string        `xml:"ratings>permanent"`
 	Creators    []struct {
 		Type string `xml:"type,attr"`
 		Name string `xml:",chardata"`
@@ -508,7 +506,7 @@ func parseAniDB(data []byte) (*AniDBAnime, error) {
 		return nil, err
 	}
 	a := &AniDBAnime{AID: x.ID, Type: x.Type, Restricted: x.Restricted, StartDate: x.StartDate, EndDate: x.EndDate,
-		Titles: x.Titles, Description: anidb.CleanSummary(x.Description), Rating: x.Permanent}
+		Titles: x.Titles, Description: anidb.CleanSummary(x.Description)}
 	if x.Picture != "" {
 		a.Picture = anidbPicture + x.Picture
 	}

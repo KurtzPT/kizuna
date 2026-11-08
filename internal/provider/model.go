@@ -22,7 +22,6 @@ type Show struct {
 	Root          string // rating key of the show: "anidb-123" or "tvdb-456"
 	Title         string
 	OriginalTitle string
-	SortTitle     string
 	Summary       string
 	Date          string // YYYY-MM-DD
 	Studio        string

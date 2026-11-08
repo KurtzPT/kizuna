@@ -46,13 +46,6 @@ type Art struct {
 	Posters, Backgrounds, Logos []string
 }
 
-// Add appends b's images after a's.
-func (a *Art) Add(b Art) {
-	a.Posters = append(a.Posters, b.Posters...)
-	a.Backgrounds = append(a.Backgrounds, b.Backgrounds...)
-	a.Logos = append(a.Logos, b.Logos...)
-}
-
 // FillAbsolute numbers regular episodes 1..n across seasons in aired order
 // when the source has no absolute number of its own. This is exactly the
 // "tvdb" mode rule: the first episode of season 2 is (last episode of season 1)+1.

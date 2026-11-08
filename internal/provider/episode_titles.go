@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"cmp"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -18,7 +19,7 @@ func (p *Provider) pickEpisodeTitles(s *Show) {
 	s.eachEpisode(func(ep *Ep) {
 		var src string
 		ep.Title, src = episodeTitle(ep, p.cfg.EpisodeTitles)
-		used[cmpOr(src, "-")]++
+		used[cmp.Or(src, "-")]++
 	})
 	attrs := []any{"root", s.Root, "order", p.cfg.EpisodeTitles}
 	for _, src := range append(slices.Clone(p.cfg.EpisodeTitles), "-") {

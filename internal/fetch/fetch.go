@@ -7,6 +7,7 @@ package fetch
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -176,7 +177,7 @@ func (c *Client) fetch(r Request) ([]byte, error) {
 	start := time.Now()
 	data, status, waited, err := c.do(r)
 	took := time.Since(start) - waited
-	attrs := []any{"method", cmp(r.Method, http.MethodGet), "url", Redact(r.URL), "status", status,
+	attrs := []any{"method", cmp.Or(r.Method, http.MethodGet), "url", Redact(r.URL), "status", status,
 		"bytes", len(data), "took", took.Round(time.Millisecond), "throttled", waited.Round(time.Millisecond)}
 	var se *StatusError
 	switch {
@@ -199,7 +200,7 @@ func (c *Client) do(r Request) (data []byte, status int, waited time.Duration, e
 	}
 	waited = c.wait(u.Host)
 
-	method := cmp(r.Method, http.MethodGet)
+	method := cmp.Or(r.Method, http.MethodGet)
 	req, err := http.NewRequest(method, r.URL, bytes.NewReader(r.Body))
 	if err != nil {
 		return nil, 0, waited, err
@@ -279,13 +280,6 @@ func (c *Client) revalidation(r Request) ([]byte, string) {
 		return nil, ""
 	}
 	return data, string(bytes.TrimSpace(tag))
-}
-
-func cmp(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 // wait blocks until host's throttle allows the next request and returns

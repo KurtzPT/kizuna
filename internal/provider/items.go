@@ -22,7 +22,7 @@ func base(mode Mode, typ, rk, title string) Item {
 
 func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
 	it := base(mode, "show", s.Root, s.Title)
-	it.OriginalTitle, it.TitleSort, it.Summary = s.OriginalTitle, s.SortTitle, s.Summary
+	it.OriginalTitle, it.Summary = s.OriginalTitle, s.Summary
 	it.Studio, it.ContentRating, it.Duration = s.Studio, s.ContentRating, s.Minutes*60000
 	setDate(&it, s.Date)
 	for _, g := range s.Genres {

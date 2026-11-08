@@ -31,7 +31,6 @@ func (m *MAL) Enabled() bool { return m.clientID != "" }
 type MALAnime struct {
 	Synopsis string
 	Poster   string
-	Score    float64
 	Details  Details // genres, studio, content rating, start date (no people in the API)
 }
 
@@ -43,8 +42,7 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 		return MALAnime{}, fmt.Errorf("mal: no client id")
 	}
 	var r struct {
-		Synopsis string  `json:"synopsis"`
-		Mean     float64 `json:"mean"`
+		Synopsis string `json:"synopsis"`
 		Picture  struct {
 			Large  string `json:"large"`
 			Medium string `json:"medium"`
@@ -83,5 +81,5 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 	if len(r.Studios) > 0 {
 		d.Studio = r.Studios[0].Name
 	}
-	return MALAnime{Synopsis: syn, Poster: poster, Score: r.Mean, Details: d}, nil
+	return MALAnime{Synopsis: syn, Poster: poster, Details: d}, nil
 }

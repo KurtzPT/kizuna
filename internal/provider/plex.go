@@ -26,7 +26,6 @@ type Item struct {
 	Score     int    `json:"score,omitempty"` // match confidence (Fix Match list)
 
 	OriginalTitle         string `json:"originalTitle,omitempty"`
-	TitleSort             string `json:"titleSort,omitempty"`
 	Summary               string `json:"summary,omitempty"`
 	Year                  int    `json:"year,omitempty"`
 	OriginallyAvailableAt string `json:"originallyAvailableAt,omitempty"`

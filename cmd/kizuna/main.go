@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -72,20 +73,9 @@ func main() {
 	}
 }
 
-// tvdbAPI names the TheTVDB API the keys select, for the ready line: the v4
-// key wins over the legacy (v3) one.
-func tvdbAPI(cfg config.Config) string {
-	switch {
-	case cfg.TVDBKey != "":
-		return "v4"
-	case cfg.TVDBLegacyKey != "":
-		return "v3"
-	}
-	return "off"
-}
-
 // setup creates every source and loads the two lists matching depends on.
-func setup(ctx context.Context, cfg config.Config) *provider.Provider {
+// It returns TheTVDB too, for the ready line.
+func setup(ctx context.Context, cfg config.Config) (*provider.Provider, *sources.TVDB) {
 	f := fetch.New(filepath.Join(cfg.DataDir, "cache"))
 	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget)
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
@@ -124,7 +114,7 @@ func setup(ctx context.Context, cfg config.Config) *provider.Provider {
 			}
 		}
 	}()
-	return p
+	return p, tvdb
 }
 
 func serve(cfg config.Config) error {
@@ -137,9 +127,9 @@ func serve(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	p := setup(ctx, cfg)
+	p, tvdb := setup(ctx, cfg)
 	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
-		"tvdb", tvdbAPI(cfg), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
+		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
 		"titles", cfg.TitleSources, "summaries", cfg.SummarySources, "posters", cfg.PosterSources,
 		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
 		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,
