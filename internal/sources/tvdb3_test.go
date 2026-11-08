@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -270,5 +271,79 @@ func TestTVDBNoFallbackOnServerError(t *testing.T) {
 	}
 	if c := n.count(v3 + "/login"); c != 0 {
 		t.Errorf("v3 login tried %d times, want 0", c)
+	}
+}
+
+// slowLogin holds every TVDB login until release is closed.
+type slowLogin struct {
+	*tvdbNet
+	started chan struct{} // gets one value per login that reached the network
+	release chan struct{}
+}
+
+func (s slowLogin) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/login") {
+		s.started <- struct{}{}
+		<-s.release
+	}
+	return s.tvdbNet.RoundTrip(r)
+}
+
+// A login waiting on the network blocks nobody else: a call answered from
+// the cache goes ahead, callers that need a token share the one login, and
+// one that gives up while waiting returns at once.
+func TestTVDBLoginDoesNotBlock(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := slowLogin{&tvdbNet{answers: map[string]string{
+		"api4.thetvdb.com/v4/login":                     `{"data":{"token":"t4"}}`,
+		"api4.thetvdb.com/v4/series/9/translations/eng": `{"data":{"name":"Show 9"}}`,
+		"api4.thetvdb.com/v4/series/8/translations/eng": `{"data":{"name":"Show 8"}}`,
+	}}, make(chan struct{}, 10), make(chan struct{})}
+	f.SetTransport(n)
+	if err := fetch.WriteFile(filepath.Join(dir, "tvdb", "7", "eng.json"), []byte(`{"data":{"name":"Cached 7"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	tv := NewTVDB(f, "v4key", "", "legacy") // both keys: every call checks the v4 key first
+
+	names := make(chan string, 2)
+	for _, id := range []int{9, 8} {
+		go func() {
+			name, _, err := tv.Overview(context.Background(), id)
+			if err != nil {
+				t.Error(err)
+			}
+			names <- name
+		}()
+	}
+	<-n.started // the login is now waiting on the network
+
+	cached := make(chan string, 1)
+	go func() { name, _, _ := tv.Overview(context.Background(), 7); cached <- name }()
+	select {
+	case name := <-cached:
+		if name != "Cached 7" {
+			t.Errorf("cached call: %q", name)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a call answered from the cache waited for the login")
+	}
+
+	gaveUp, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, _, err := tv.login(gaveUp); err == nil {
+		t.Error("login with a given-up ctx: want an error")
+	}
+
+	close(n.release)
+	got := map[string]bool{<-names: true, <-names: true}
+	if !got["Show 9"] || !got["Show 8"] {
+		t.Errorf("names %v, want both shows", got)
+	}
+	if c := n.count("api4.thetvdb.com/v4/login"); c != 1 {
+		t.Errorf("v4 login sent %d times, want 1 shared by every caller", c)
+	}
+	if tv.API() != "v4" {
+		t.Errorf("API %q, want v4", tv.API())
 	}
 }

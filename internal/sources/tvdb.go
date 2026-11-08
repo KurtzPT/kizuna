@@ -29,6 +29,8 @@ type TVDB struct {
 	legacy  bool // using the legacy key (v3 API)
 	token   string
 	tokenAt time.Time
+	// loggingIn: closed when the login under way ends (nil = none).
+	loggingIn chan struct{}
 	// A failed login is remembered until loginRetry, so a wrong key costs
 	// one request and one log line, not one per TVDB call of a library scan.
 	loginErr   error
@@ -80,8 +82,14 @@ func (t *TVDB) isLegacy() bool {
 // useLegacy says which API a call should use. With both keys, it first makes
 // sure the v4 key still works (a login, normally the remembered token), so a
 // rejected v4 key switches to the legacy one before the call picks its API.
+// While a login is under way it doesn't wait: a call answered from the cache
+// needs no token, and one that does waits in get, which notices a switch
+// (errTVDBSwitched).
 func (t *TVDB) useLegacy(ctx context.Context) bool {
-	if t.key != "" && t.legacyKey != "" && !t.isLegacy() {
+	t.mu.Lock()
+	check := t.key != "" && t.legacyKey != "" && !t.legacy && t.loggingIn == nil
+	t.mu.Unlock()
+	if check {
 		_, _, _ = t.login(ctx)
 	}
 	return t.isLegacy()
@@ -112,71 +120,105 @@ func rejected(err error) bool {
 
 // login returns a bearer token and whether it's for the legacy (v3) API. A
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
-// 20 hours).
+// 20 hours). t.mu is never held over the network: one login runs at a time,
+// and callers that need a token meanwhile wait for it (or for their ctx).
 func (t *TVDB) login(ctx context.Context) (string, bool, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	for {
+		t.mu.Lock()
 		life := 7 * 24 * time.Hour
 		if t.legacy {
 			life = 20 * time.Hour
 		}
-		if t.token != "" && time.Since(t.tokenAt) < life {
-			return t.token, t.legacy, nil
+		token, legacy, retryErr := t.token, t.legacy, t.loginErr
+		switch {
+		case token != "" && time.Since(t.tokenAt) < life:
+			t.mu.Unlock()
+			return token, legacy, nil
+		case time.Now().Before(t.loginRetry):
+			t.mu.Unlock()
+			return "", legacy, retryErr
 		}
-		if time.Now().Before(t.loginRetry) {
-			return "", t.legacy, t.loginErr
-		}
-		creds := map[string]string{"apikey": t.key, "pin": t.pin}
-		if t.legacy {
-			creds = map[string]string{"apikey": t.legacyKey}
-		}
-		body, _ := json.Marshal(creds)
-		data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(t.legacy) + "/login", Method: "POST", Body: body, Quiet: true})
-		var r struct {
-			Token string `json:"token"` // v3
-			Data  struct {
-				Token string `json:"token"` // v4
-			} `json:"data"`
-		}
-		token := ""
-		if err == nil {
-			if json.Unmarshal(data, &r) == nil {
-				token = cmp.Or(r.Data.Token, r.Token)
-			}
-			if token == "" {
-				err = errors.New("no token in the answer")
+		if running := t.loggingIn; running != nil {
+			t.mu.Unlock()
+			select {
+			case <-running:
+				continue // its outcome is in t now
+			case <-ctx.Done():
+				return "", legacy, fmt.Errorf("tvdb login: %w", ctx.Err())
 			}
 		}
-		if err == nil {
-			t.token, t.tokenAt, t.loginErr, t.loginRetry = token, time.Now(), nil, time.Time{}
-			return t.token, t.legacy, nil
+		done := make(chan struct{})
+		t.loggingIn = done
+		t.mu.Unlock()
+
+		token, err := t.requestToken(ctx, legacy)
+
+		t.mu.Lock()
+		t.loggingIn = nil
+		close(done)
+		again := t.loginDone(ctx, legacy, token, err)
+		t.mu.Unlock()
+		if !again {
+			return token, legacy, err
 		}
-		err = fmt.Errorf("tvdb login: %w", err)
-		if ctx.Err() != nil { // the caller gave up: says nothing about TVDB
-			return "", t.legacy, err
-		}
-		if !rejected(err) {
-			t.loginErr, t.loginRetry = err, time.Now().Add(tvdbLoginPause)
-			slog.Warn("TVDB login failed; TVDB is skipped until the next try", "retry_in", tvdbLoginPause, "err", err)
-			return "", t.legacy, err
-		}
-		if !t.legacy && t.legacyKey != "" {
-			slog.Warn("TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY (legacy v3 API) until the next restart; "+
-				"TVDB gives no clear logos, studio or show directors and writers this way. Check TVDB_API_KEY (and TVDB_PIN for subscriber keys)",
-				"err", err)
-			t.legacy, t.token = true, ""
-			continue // log in with the legacy key now
-		}
-		hint := "check TVDB_API_KEY (and TVDB_PIN for subscriber keys)"
-		if t.legacy {
-			hint = "check TVDB_LEGACY_API_KEY"
-		}
-		t.loginErr, t.loginRetry = err, time.Now().Add(tvdbBadKeyPause)
-		slog.Error("TVDB rejected the API key: "+hint+"; TVDB is skipped until the next try",
-			"legacy", t.legacy, "retry_in", tvdbBadKeyPause, "err", err)
-		return "", t.legacy, err
 	}
+}
+
+// requestToken logs in with the v4 or the legacy key.
+func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
+	creds := map[string]string{"apikey": t.key, "pin": t.pin}
+	if legacy {
+		creds = map[string]string{"apikey": t.legacyKey}
+	}
+	body, _ := json.Marshal(creds)
+	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + "/login", Method: "POST", Body: body, Quiet: true})
+	if err != nil {
+		return "", fmt.Errorf("tvdb login: %w", err)
+	}
+	var r struct {
+		Token string `json:"token"` // v3
+		Data  struct {
+			Token string `json:"token"` // v4
+		} `json:"data"`
+	}
+	if json.Unmarshal(data, &r) == nil {
+		if token := cmp.Or(r.Data.Token, r.Token); token != "" {
+			return token, nil
+		}
+	}
+	return "", errors.New("tvdb login: no token in the answer")
+}
+
+// loginDone records a login's outcome and reports whether to log in again
+// (the v4 key was rejected: the legacy key takes over). Needs t.mu.
+func (t *TVDB) loginDone(ctx context.Context, legacy bool, token string, err error) (again bool) {
+	if err == nil {
+		t.token, t.tokenAt, t.loginErr, t.loginRetry = token, time.Now(), nil, time.Time{}
+		return false
+	}
+	if ctx.Err() != nil { // the caller gave up: says nothing about TVDB
+		return false
+	}
+	if !rejected(err) {
+		t.loginErr, t.loginRetry = err, time.Now().Add(tvdbLoginPause)
+		slog.Warn("TVDB login failed; TVDB is skipped until the next try", "retry_in", tvdbLoginPause, "err", err)
+		return false
+	}
+	if !legacy && t.legacyKey != "" {
+		slog.Warn("TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY (legacy v3 API) until the next restart; "+
+			"TVDB gives no clear logos, studio or show directors and writers this way. Check TVDB_API_KEY (and TVDB_PIN for subscriber keys)",
+			"err", err)
+		t.legacy, t.token = true, ""
+		return true // log in with the legacy key now
+	}
+	hint := "check TVDB_API_KEY (and TVDB_PIN for subscriber keys)"
+	if legacy {
+		hint = "check TVDB_LEGACY_API_KEY"
+	}
+	t.loginErr, t.loginRetry = err, time.Now().Add(tvdbBadKeyPause)
+	slog.Error("TVDB rejected the API key: "+hint+"; TVDB is skipped until the next try",
+		"legacy", legacy, "retry_in", tvdbBadKeyPause, "err", err)
+	return false
 }
 
 // errTVDBSwitched: the client fell back to the legacy key while a v4 call
