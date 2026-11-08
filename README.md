@@ -1,6 +1,8 @@
 <div align="center">
 
-# 絆 Kizuna
+<img src="assets/logo.png" alt="Kizuna logo: the kanji 絆" width="160">
+
+# Kizuna
 
 **An anime metadata provider for Plex that keeps your absolute episode numbers.**
 

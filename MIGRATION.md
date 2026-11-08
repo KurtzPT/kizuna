@@ -1,6 +1,8 @@
 <div align="center">
 
-# 絆 Kizuna · Migrating from HAMA
+<a href="README.md"><img src="assets/logo.png" alt="Kizuna logo" width="72"></a>
+
+# Kizuna · Migrating from HAMA
 
 **Move a HAMA + Absolute Series Scanner library to Kizuna without renaming a single file.**
 

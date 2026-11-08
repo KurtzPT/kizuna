@@ -1,6 +1,8 @@
 <div align="center">
 
-# 絆 Kizuna · Contributing
+<a href="README.md"><img src="assets/logo.png" alt="Kizuna logo" width="72"></a>
+
+# Kizuna · Contributing
 
 **Bug reports, mapping fixes, code and docs are all welcome.**
 

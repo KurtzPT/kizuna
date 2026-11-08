@@ -1,6 +1,8 @@
 <div align="center">
 
-# 絆 Kizuna · Security
+<a href="README.md"><img src="assets/logo.png" alt="Kizuna logo" width="72"></a>
+
+# Kizuna · Security
 
 [📮 Report](#-reporting-a-vulnerability) &nbsp;·&nbsp; [🎯 What counts](#-what-counts-as-a-vulnerability) &nbsp;·&nbsp; [📦 Versions](#-supported-versions) &nbsp;·&nbsp; [🛡️ How Kizuna is protected](#%EF%B8%8F-how-kizuna-is-protected)
 

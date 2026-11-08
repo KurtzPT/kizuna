@@ -1,6 +1,8 @@
 <div align="center">
 
-# 絆 Kizuna · Setup
+<a href="README.md"><img src="assets/logo.png" alt="Kizuna logo" width="72"></a>
+
+# Kizuna · Setup
 
 **From zero to a matched anime library in four steps.**
 
