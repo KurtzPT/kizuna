@@ -246,8 +246,9 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 | Backoff after errors | 30 s → 2 min → 15 min → 1 h → 6 h → 24 h |
 | A ban pauses all calls for 24 h | more traffic would only extend it |
 
-The state survives restarts (`anidb-state.json` in the data folder). While AniDB can't be asked, shows use cached
-AniDB data, then the other sources.
+The state survives restarts (`anidb-state.json` in the data folder, replaced whole on every save). If that file can't
+be read, Kizuna can't know whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the
+file was last written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
 
 ---
 

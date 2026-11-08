@@ -139,9 +139,7 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 		statePath: filepath.Join(dataDir, "anidb-state.json"), memo: map[int]anidbMemo{}, queued: map[int]bool{}, calling: map[int]bool{},
 		failWhy: map[int]string{}, told: map[int]time.Time{}}
 	f.Throttle("api.anidb.net:9001", anidbGap)
-	if b, err := os.ReadFile(c.statePath); err == nil {
-		_ = json.Unmarshal(b, &c.state)
-	}
+	c.load()
 	if c.state.Failed == nil {
 		c.state.Failed = map[int]time.Time{}
 	}
@@ -415,11 +413,40 @@ func (c *AniDB) result(aid int, err error) {
 	c.save()
 }
 
-// save writes the ban/limit state; caller holds c.mu.
+// load reads the ban/limit state saved by an earlier run. A state file that
+// exists but can't be read may have held a ban or a full day of calls, and
+// whatever it held ended at most 24 h after it was last written (a ban, the
+// calls counted, a failed anime, the longest backoff). So the API waits
+// until then, instead of starting with a clean slate that could get the IP
+// banned.
+func (c *AniDB) load() {
+	b, err := os.ReadFile(c.statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err == nil {
+		if err = json.Unmarshal(b, &c.state); err == nil {
+			return
+		}
+	}
+	written := time.Now()
+	if fi, serr := os.Stat(c.statePath); serr == nil && fi.ModTime().Before(written) {
+		written = fi.ModTime()
+	}
+	c.state.BannedUntil, c.state.Sent, c.state.Failed = time.Time{}, nil, nil
+	c.state.Failures, c.state.RetryAt = 0, written.Add(anidbBanPause)
+	slog.Warn("AniDB state file unreadable: the ban and the calls of the last 24 h are unknown, so AniDB isn't asked until "+
+		"24 h after the file was last written (cache only until then)", "file", c.statePath,
+		"retry_at", c.state.RetryAt.Format(time.RFC3339), "err", err)
+}
+
+// save writes the ban/limit state; caller holds c.mu. The write is atomic,
+// so a crash or a full disk leaves the last state, not a cut-off file.
 func (c *AniDB) save() {
 	b, _ := json.Marshal(c.state)
-	_ = os.MkdirAll(filepath.Dir(c.statePath), 0o755)
-	_ = os.WriteFile(c.statePath, b, 0o644)
+	if err := fetch.WriteFile(c.statePath, b); err != nil {
+		slog.Warn("AniDB state not saved; a restart now would forget the latest calls", "file", c.statePath, "err", err)
+	}
 }
 
 // anidbTTL: finished long ago -> rarely changes; airing -> refresh weekly.

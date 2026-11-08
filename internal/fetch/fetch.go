@@ -312,22 +312,40 @@ func (c *Client) wait(host string) time.Duration {
 
 // store writes a cache file and reports whether it did.
 func (c *Client) store(key string, data []byte) bool {
-	p := c.path(key)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		slog.Warn("cache dir", "err", err)
-		return false
-	}
-	tmp := p + ".tmp"
-	err := os.WriteFile(tmp, data, 0o644)
-	if err == nil {
-		err = os.Rename(tmp, p)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
+	if err := WriteFile(c.path(key), data); err != nil {
 		slog.Warn("cache write failed", "key", key, "err", err)
 		return false
 	}
 	return true
+}
+
+// WriteFile replaces path with data atomically: a reader (or the next start,
+// after a crash or with a full disk) sees the old file or the new one, never
+// half of it. The data goes to path+".tmp" in the same folder first, which
+// one writer at a time may use.
+func WriteFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err // nothing of ours to clean up
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync() // on disk before the rename makes it the file
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 // Touch marks a cached file as fresh again (used when a source is down on

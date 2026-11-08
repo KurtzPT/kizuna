@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,6 +110,47 @@ func TestAniDBBackoff(t *testing.T) {
 	c.state.RetryAt = time.Time{} // backoff over
 	if _, err := c.Anime(ctx, 2); err != nil || c.state.Failures != 0 {
 		t.Fatalf("success must reset the backoff: failures=%d err=%v", c.state.Failures, err)
+	}
+}
+
+// A state file that exists but doesn't parse (a write cut off by a crash or a
+// full disk, under the old non-atomic save) may have held a ban or a full
+// day of calls: AniDB isn't asked until 24 h after it was last written, and
+// that pause survives the next save and restart.
+func TestAniDBUnreadableStateWaits(t *testing.T) {
+	for _, age := range []time.Duration{0, 20 * time.Hour, 30 * time.Hour} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "anidb-state.json")
+		if err := os.WriteFile(path, []byte(`{"banned_until":"2026-11-0`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		written := time.Now().Add(-age)
+		if err := os.Chtimes(path, written, written); err != nil {
+			t.Fatal(err)
+		}
+		c := NewAniDB(fetch.New(dir), dir, "test", "1")
+		want := written.Add(24 * time.Hour)
+		if d := c.state.RetryAt.Sub(want); d < -time.Second || d > time.Second {
+			t.Errorf("written %v ago: retry at %v, want %v", age, c.state.RetryAt, want)
+		}
+		ok, why := c.allowed(1, false)
+		if ok != (age >= 24*time.Hour) {
+			t.Errorf("written %v ago: allowed %v (%s)", age, ok, why)
+		}
+		if age >= 24*time.Hour {
+			continue
+		}
+		c.mu.Lock()
+		c.save()
+		c.mu.Unlock()
+		if again := NewAniDB(fetch.New(dir), dir, "test", "1"); !again.state.RetryAt.Equal(c.state.RetryAt) {
+			t.Errorf("written %v ago: after a save and restart, retry at %v, want %v", age, again.state.RetryAt, c.state.RetryAt)
+		}
+	}
+	// No state file yet (first start): nothing to wait for.
+	dir := t.TempDir()
+	if ok, why := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(1, false); !ok {
+		t.Errorf("first start: not allowed (%s)", why)
 	}
 }
 

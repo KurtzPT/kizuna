@@ -37,6 +37,41 @@ func TestNetworkErrorRedacted(t *testing.T) {
 	}
 }
 
+// WriteFile replaces a file whole or not at all: a write that fails leaves
+// the old content, and a good one leaves no temporary file behind.
+func TestWriteFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	if err := WriteFile(path, []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path+".tmp", 0o755); err != nil { // the temporary file can't be written
+		t.Fatal(err)
+	}
+	if err := WriteFile(path, []byte("new")); err == nil {
+		t.Error("want an error when the temporary file can't be written")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "old" {
+		t.Errorf("after a failed write: %q, want the old content", b)
+	}
+	if fi, err := os.Stat(path + ".tmp"); err != nil || !fi.IsDir() {
+		t.Errorf("what was at the temporary path must be left alone: %v", err)
+	}
+
+	path = filepath.Join(t.TempDir(), "sub", "state.json") // the folder is created
+	for _, data := range []string{"old", "new"} {
+		if err := WriteFile(path, []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b, _ := os.ReadFile(path); string(b) != "new" {
+		t.Errorf("after a write: %q", b)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("temporary file left behind: %v", err)
+	}
+}
+
 func TestPruneOldestCheapFirst(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
