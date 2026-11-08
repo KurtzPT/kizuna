@@ -36,8 +36,9 @@ func TestKeyRe(t *testing.T) {
 func TestMatchByOtherIDs(t *testing.T) {
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		69:  {AID: 69, TVDB: 81797, TVDBSeason: -1, TMDBTV: 37854, IMDB: "tt0388629", MAL: 21, AniList: 21},
-		100: {AID: 100, TVDB: 81797, TVDBSeason: 2, MAL: 99},
+		69: {AID: 69, TVDB: mapping.Placement{ID: 81797, Season: -1, Mapped: true},
+			TMDB: mapping.Placement{ID: 37854}, IMDB: "tt0388629", MAL: 21, AniList: 21},
+		100: {AID: 100, TVDB: mapping.Placement{ID: 81797, Season: 2, Mapped: true}, MAL: 99},
 	})
 	p := &Provider{lists: l}
 	anidbMode, tvdbMode := Modes["anidb"], Modes["tvdb"]
@@ -69,8 +70,8 @@ func TestMatchByOtherIDs(t *testing.T) {
 func TestMatchTMDBMovieOrTV(t *testing.T) {
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77},
-		101: {AID: 101, TVDB: 500, TVDBSeason: 2, TMDBTV: 77},
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+		101: {AID: 101, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
 		200: {AID: 200, TMDBMovie: 77},
 		300: {AID: 300, TMDBMovie: 88},
 	})
@@ -133,8 +134,8 @@ func TestPruneShowsKeepsFresh(t *testing.T) {
 func TestAutoModePerFolder(t *testing.T) {
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		69:  {AID: 69, TVDB: 81797, TVDBSeason: -1, MAL: 21},
-		100: {AID: 100, TVDB: 81797, TVDBSeason: 2},
+		69:  {AID: 69, TVDB: mapping.Placement{ID: 81797, Season: -1, Mapped: true}, MAL: 21},
+		100: {AID: 100, TVDB: mapping.Placement{ID: 81797, Season: 2, Mapped: true}},
 		500: {AID: 500, MAL: 500}, // a movie: no TVDB series
 	})
 	auto := Modes["auto"]
@@ -168,10 +169,12 @@ func TestAutoModePerFolder(t *testing.T) {
 func TestTVDBSpotSpecials(t *testing.T) {
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		4196: {AID: 4196, TVDB: 79796, TVDBSeason: 1},
-		4197: {AID: 4197, TVDB: 79796, TVDBSeason: 2},
-		7669: {AID: 7669, TVDB: 79796, TVDBSeason: 0, Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 1, TVDBSeason: 0, TVDBEp: 2}}},
-		7670: {AID: 7670, TVDB: 79796, TVDBSeason: 0, Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 1, TVDBSeason: 0, TVDBEp: 9}}},
+		4196: {AID: 4196, TVDB: mapping.Placement{ID: 79796, Season: 1, Mapped: true}},
+		4197: {AID: 4197, TVDB: mapping.Placement{ID: 79796, Season: 2, Mapped: true}},
+		7669: {AID: 7669, TVDB: mapping.Placement{ID: 79796, Season: 0,
+			Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 1, Season: 0, Ep: 2}}, Mapped: true}},
+		7670: {AID: 7670, TVDB: mapping.Placement{ID: 79796, Season: 0,
+			Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 1, Season: 0, Ep: 9}}, Mapped: true}},
 	})
 	p := &Provider{lists: l}
 	cases := []struct {
@@ -201,13 +204,17 @@ func TestTVDBSpotSpecials(t *testing.T) {
 func TestTMDBSpot(t *testing.T) {
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		11370: {AID: 11370, TVDB: 305089, TVDBSeason: 1, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 1},
-		14792: {AID: 14792, TVDB: 305089, TVDBSeason: 2, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 26},
-		13430: {AID: 13430, TVDB: 305089, TVDBSeason: 0, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: 0,
-			TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 2, TVDBSeason: 0, TVDBEp: 5}}},
-		16000: {AID: 16000, TVDB: 305089, TVDBSeason: 3, TMDBTV: 65942, TMDBMapped: true, TMDBSeason: -1},
-		500:   {AID: 500, TVDB: 900, TVDBSeason: 2, TVDBOffset: 3, TMDBTV: 901},
-		600:   {AID: 600, TMDBTV: 902, TMDBMapped: true, TMDBSeason: 2},
+		11370: {AID: 11370, TVDB: mapping.Placement{ID: 305089, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 65942, Mapped: true, Season: 1}},
+		14792: {AID: 14792, TVDB: mapping.Placement{ID: 305089, Season: 2, Mapped: true},
+			TMDB: mapping.Placement{ID: 65942, Mapped: true, Season: 1, Offset: 26}},
+		13430: {AID: 13430, TVDB: mapping.Placement{ID: 305089, Season: 0, Mapped: true},
+			TMDB: mapping.Placement{ID: 65942, Mapped: true, Season: 0,
+				Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 2, Season: 0, Ep: 5}}}},
+		16000: {AID: 16000, TVDB: mapping.Placement{ID: 305089, Season: 3, Mapped: true},
+			TMDB: mapping.Placement{ID: 65942, Mapped: true, Season: -1}},
+		500: {AID: 500, TVDB: mapping.Placement{ID: 900, Season: 2, Offset: 3, Mapped: true}, TMDB: mapping.Placement{ID: 901}},
+		600: {AID: 600, TMDB: mapping.Placement{ID: 902, Mapped: true, Season: 2}},
 	})
 	p := &Provider{lists: l}
 	cases := []struct {
@@ -281,9 +288,10 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}
 	l := &mapping.Lists{}
 	l.SetForTest(map[int]mapping.Entry{
-		100: {AID: 100, TVDB: 500, TVDBSeason: 1},
-		200: {AID: 200, TVDB: 500, TVDBSeason: 2, Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 3, TVDBSeason: 0, TVDBEp: 1}}},
-		300: {AID: 300, TVDB: 500, TVDBSeason: 3}, // never fetched
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}},
+		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2,
+			Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 3, Season: 0, Ep: 1}}, Mapped: true}},
+		300: {AID: 300, TVDB: mapping.Placement{ID: 500, Season: 3, Mapped: true}}, // never fetched
 	})
 	p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "", "1"), tvdb: sources.NewTVDB(f, "", "", ""), tmdb: sources.NewTMDB(f, "")}
 	p.cfg.EpisodeTitles, p.cfg.EpisodeLangs = []string{"anidb", "tvdb"}, []string{"en"}

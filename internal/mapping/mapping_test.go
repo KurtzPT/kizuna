@@ -5,16 +5,69 @@ import "testing"
 func TestStartsSeries(t *testing.T) {
 	l := &Lists{}
 	l.SetForTest(map[int]Entry{
-		1: {AID: 1, TVDB: 100, TVDBSeason: 1},
-		2: {AID: 2, TVDB: 100, TVDBSeason: 2},
-		3: {AID: 3, TMDBTV: 500},
-		4: {AID: 4, TMDBTV: 600},
-		5: {AID: 5, TMDBTV: 600},
+		1: {AID: 1, TVDB: Placement{ID: 100, Season: 1, Mapped: true}},
+		2: {AID: 2, TVDB: Placement{ID: 100, Season: 2, Mapped: true}},
+		3: {AID: 3, TMDB: Placement{ID: 500}},
+		4: {AID: 4, TMDB: Placement{ID: 600}},
+		5: {AID: 5, TMDB: Placement{ID: 600}},
 	})
 	for aid, want := range map[int]bool{1: true, 2: false, 3: true, 4: false, 9: false} {
 		if got := l.StartsSeries(aid); got != want {
 			t.Errorf("aid %d: got %v, want %v", aid, got, want)
 		}
+	}
+}
+
+// StartsShow picks the first entry of a series the same way on both sites,
+// but a TheMovieDb placement without a TMDB season (not Mapped) never starts
+// its show by itself: the lowest id does, as when no entry starts it.
+func TestStartsShow(t *testing.T) {
+	l := &Lists{}
+	l.SetForTest(map[int]Entry{
+		1: {AID: 1, TVDB: Placement{ID: 100, Season: 2, Mapped: true}, TMDB: Placement{ID: 500, Season: 1}},
+		2: {AID: 2, TVDB: Placement{ID: 100, Season: 1, Mapped: true}, TMDB: Placement{ID: 500, Season: 1}},
+		3: {AID: 3, TMDB: Placement{ID: 600, Season: 2, Mapped: true}},
+		4: {AID: 4, TMDB: Placement{ID: 600, Season: -1, Mapped: true}},
+	})
+	for _, c := range []struct {
+		site string
+		aid  int
+		want bool
+	}{
+		{"tvdb", 1, false}, {"tvdb", 2, true}, // season 1 wins over the lower id
+		{"tmdb", 1, true}, {"tmdb", 2, false}, // unmapped: the lowest id
+		{"tmdb", 3, false}, {"tmdb", 4, true}, // absolute without offset starts it
+		{"tvdb", 3, false}, // no TVDB series
+		{"anidb", 1, false},
+	} {
+		if got := l.StartsShow(c.site, c.aid); got != c.want {
+			t.Errorf("StartsShow(%s, %d) = %v, want %v", c.site, c.aid, got, c.want)
+		}
+	}
+	if l.FirstAID(100) != 2 {
+		t.Errorf("FirstAID(100) = %d, want 2", l.FirstAID(100))
+	}
+}
+
+// A TheTVDB placement places episodes by its season and offset; a
+// TheMovieDb one only when Mapped, else only by its exceptions.
+func TestPlacementMapped(t *testing.T) {
+	ex := []EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, Season: 3, Ep: 7}}
+	mapped := Placement{ID: 1, Season: 2, Offset: 5, Mapped: true, Episodes: ex}
+	unmapped := Placement{ID: 1, Season: 2, Offset: 5, Episodes: ex}
+	if s, n, ok := mapped.Episode(1, 1); !ok || s != 2 || n != 6 {
+		t.Errorf("mapped 1: got S%d E%d ok=%v, want S2 E6", s, n, ok)
+	}
+	if _, _, ok := unmapped.Episode(1, 1); ok {
+		t.Error("unmapped: an unlisted episode has no place")
+	}
+	for _, pl := range []Placement{mapped, unmapped} {
+		if s, n, ok := pl.Episode(1, 2); !ok || s != 3 || n != 7 {
+			t.Errorf("exception: got S%d E%d ok=%v, want S3 E7", s, n, ok)
+		}
+	}
+	if _, _, ok := (Placement{Season: 1, Mapped: true}).Episode(1, 1); ok {
+		t.Error("no series id: no place")
 	}
 }
 
@@ -41,16 +94,16 @@ func TestMergeFillsOnlyMissing(t *testing.T) {
 		t.Errorf("added %d, want 1 (aid 9; entries without an AniDB id are skipped)", added)
 	}
 	op := entries[69]
-	if op.TVDB != 81797 || op.TVDBSeason != -1 || op.MAL != 21 || op.IMDB != "tt0388629" || op.TMDBTV != 37854 {
+	if op.TVDB.ID != 81797 || op.TVDB.Season != -1 || op.MAL != 21 || op.IMDB != "tt0388629" || op.TMDB.ID != 37854 {
 		t.Errorf("69: first list must win, fallback fills gaps: %+v", op)
 	}
-	if m := entries[7]; m.TVDB != 0 || m.TMDBMovie != 128 || m.MAL != 164 {
+	if m := entries[7]; m.TVDB.ID != 0 || m.TMDBMovie != 128 || m.MAL != 164 {
 		t.Errorf("7: explicit tvdbid=movie must not get a TVDB id: %+v", m)
 	}
-	if u := entries[8]; u.TVDB != 77777 || u.TVDBSeason != 2 || u.TVDBOffset != 12 {
+	if u := entries[8]; u.TVDB.ID != 77777 || u.TVDB.Season != 2 || u.TVDB.Offset != 12 {
 		t.Errorf("8: unknown TVDB id should be filled with its season/offset: %+v", u)
 	}
-	if n := entries[9]; n.TVDBSeason != -1 || n.AniList != 5 {
+	if n := entries[9]; n.TVDB.Season != -1 || n.AniList != 5 {
 		t.Errorf("9: Fribb entry without season is absolute: %+v", n)
 	}
 
@@ -97,18 +150,18 @@ func TestEpisodeExceptions(t *testing.T) {
 		{0, 101, 0, 0, false}, // unlisted opening: no TVDB number
 	}
 	for _, c := range cases {
-		s, n, ok := e.TVDBEpisode(c.season, c.ep)
+		s, n, ok := e.TVDB.Episode(c.season, c.ep)
 		if ok != c.ok || (ok && (s != c.wantSeason || n != c.wantEp)) {
 			t.Errorf("AniDB %d/%d: got S%d E%d ok=%v, want S%d E%d ok=%v", c.season, c.ep, s, n, ok, c.wantSeason, c.wantEp, c.ok)
 		}
 	}
-	if s, n, ok := list[11].TVDBEpisode(1, 1); !ok || s != -1 || n != 27 {
+	if s, n, ok := list[11].TVDB.Episode(1, 1); !ok || s != -1 || n != 27 {
 		t.Errorf("absolute entry: got S%d E%d ok=%v, want absolute 27", s, n, ok)
 	}
 	// a later list fills a missing TVDB id together with its exceptions
 	dst := map[int]Entry{10: {AID: 10}}
 	merge(dst, list)
-	if len(dst[10].Episodes) == 0 || dst[10].TVDB != 500 {
+	if len(dst[10].TVDB.Episodes) == 0 || dst[10].TVDB.ID != 500 {
 		t.Errorf("merge: %+v", dst[10])
 	}
 }
@@ -172,28 +225,28 @@ func TestTMDBEpisode(t *testing.T) {
 		{13430, 1, 1, 0, 1, true},
 		{23, 1, 1, 0, 0, false}, // no TMDB show
 	} {
-		s, n, ok := list[x.aid].TMDBEpisode(x.as, x.ep)
+		s, n, ok := list[x.aid].TMDB.Episode(x.as, x.ep)
 		if ok != x.ok || (ok && (s != x.s || n != x.n)) {
 			t.Errorf("aid %d AniDB %d/%d: got TMDB S%d E%d ok=%v, want S%d E%d ok=%v", x.aid, x.as, x.ep, s, n, ok, x.s, x.n, x.ok)
 		}
 	}
 	// TheTVDB is unchanged by the TMDB fields and rows.
-	if s, n, ok := list[4880].TVDBEpisode(1, 222); !ok || s != 10 || n != 26 {
+	if s, n, ok := list[4880].TVDB.Episode(1, 222); !ok || s != 10 || n != 26 {
 		t.Errorf("4880 TVDB: got S%d E%d ok=%v, want S10 E26", s, n, ok)
 	}
-	if s, n, ok := list[14792].TVDBEpisode(1, 1); !ok || s != 2 || n != 1 {
+	if s, n, ok := list[14792].TVDB.Episode(1, 1); !ok || s != 2 || n != 1 {
 		t.Errorf("14792 TVDB: got S%d E%d ok=%v, want S2 E1", s, n, ok)
 	}
-	if !list[69].TMDBMapped || list[23].TMDBMapped || !list[4880].HasTMDBException(0, 1) || list[69].HasTMDBException(0, 1) {
-		t.Error("TMDBMapped / HasTMDBException")
+	if !list[69].TMDB.Mapped || list[23].TMDB.Mapped || !list[4880].TMDB.HasException(0, 1) || list[69].TMDB.HasException(0, 1) {
+		t.Error("TMDB.Mapped / TMDB.HasException")
 	}
 
 	// The first entry of the TMDB show: season 1 or absolute, no offset.
 	l := &Lists{}
 	l.SetForTest(list)
 	for aid, want := range map[int]bool{69: true, 11370: true, 14792: false, 13430: false, 23: false} {
-		if got := l.StartsTMDBShow(aid); got != want {
-			t.Errorf("StartsTMDBShow(%d) = %v, want %v", aid, got, want)
+		if got := l.StartsShow("tmdb", aid); got != want {
+			t.Errorf("StartsShow(tmdb, %d) = %v, want %v", aid, got, want)
 		}
 	}
 
@@ -206,20 +259,20 @@ func TestTMDBEpisode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := fr[14792]; !e.TMDBMapped || e.TMDBSeason != 1 || e.TMDBOffset != 26 {
+	if e := fr[14792]; !e.TMDB.Mapped || e.TMDB.Season != 1 || e.TMDB.Offset != 26 {
 		t.Errorf("Fribb 14792: %+v", e)
 	}
-	if fr[69].TMDBMapped {
+	if fr[69].TMDB.Mapped {
 		t.Error("Fribb 69 (no TMDB season) must stay unmapped")
 	}
 	// merge carries the TMDB placement with a missing TMDB id, and never
 	// mixes it into an entry that has its own.
 	dst := map[int]Entry{14792: {AID: 14792}, 69: list[69]}
 	merge(dst, fr)
-	if e := dst[14792]; e.TMDBTV != 65942 || !e.TMDBMapped || e.TMDBSeason != 1 || e.TMDBOffset != 26 {
+	if e := dst[14792]; e.TMDB.ID != 65942 || !e.TMDB.Mapped || e.TMDB.Season != 1 || e.TMDB.Offset != 26 {
 		t.Errorf("merge 14792: %+v", e)
 	}
-	if e := dst[69]; !e.TMDBMapped || e.TMDBSeason != -1 || len(e.TMDBRanges)+len(e.TMDBEpisodes) == 0 {
+	if e := dst[69]; !e.TMDB.Mapped || e.TMDB.Season != -1 || len(e.TMDB.Ranges)+len(e.TMDB.Episodes) == 0 {
 		t.Errorf("merge 69: %+v", e)
 	}
 }
@@ -295,17 +348,17 @@ func TestAnimeListsMappingForms(t *testing.T) {
 		// credits C1..C3 = 101..103, trailer T1 = 201, other O1 = 401
 		{1431, 0, 102, 0, 4, true}, {1431, 0, 201, 0, 1, true}, {1431, 0, 401, 0, 2, true},
 	} {
-		s, n, ok := list[x.aid].TVDBEpisode(x.as, x.ep)
+		s, n, ok := list[x.aid].TVDB.Episode(x.as, x.ep)
 		if ok != x.ok || (ok && (s != x.s || n != x.n)) {
 			t.Errorf("aid %d AniDB %d/%d: got S%d E%d ok=%v, want S%d E%d ok=%v", x.aid, x.as, x.ep, s, n, ok, x.s, x.n, x.ok)
 		}
 	}
-	if !list[9304].HasException(0, 3) || list[9304].HasException(1, 3) {
+	if !list[9304].TVDB.HasException(0, 3) || list[9304].TVDB.HasException(1, 3) {
 		t.Error("an offset-only mapping lists every episode of its AniDB season, and only those")
 	}
 	dst := map[int]Entry{9304: {AID: 9304}}
 	merge(dst, list)
-	if len(dst[9304].Ranges) != 1 {
+	if len(dst[9304].TVDB.Ranges) != 1 {
 		t.Errorf("merge must carry the open ranges with the TVDB id: %+v", dst[9304])
 	}
 }

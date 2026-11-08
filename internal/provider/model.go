@@ -106,13 +106,13 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	entry := p.lists.ByAID(aid)
-	if entry.TVDB > 0 && (a == nil || !a.IsMovie()) {
-		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB))
+	if entry.TVDB.ID > 0 && (a == nil || !a.IsMovie()) {
+		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
 	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
 		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", entry.TMDBMovie))
-	} else if entry.TMDBTV > 0 {
-		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", entry.TMDBTV))
+	} else if entry.TMDB.ID > 0 {
+		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", entry.TMDB.ID))
 	}
 	if strings.HasPrefix(entry.IMDB, "tt") {
 		s.Guids = append(s.Guids, "imdb://"+entry.IMDB)
@@ -136,7 +136,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 
-	tmdbID, movie := entry.TMDBTV, false
+	tmdbID, movie := entry.TMDB.ID, false
 	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
 		tmdbID, movie = entry.TMDBMovie, true
 	}
@@ -145,7 +145,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if a != nil && !a.IsMovie() {
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
-	sourcesOK := p.newSources(ctx, aid, a, entry.TVDB, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
+	sourcesOK := p.newSources(ctx, aid, a, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
 	wg.Wait()
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
@@ -199,10 +199,10 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	// The TMDB show: from the mapping, else looked up on TMDB while the
 	// TVDB episode list downloads.
 	tmdbShow := sync.OnceValues(func() (int, error) {
-		if entry.TMDBTV == 0 && p.tmdb.Enabled() {
+		if entry.TMDB.ID == 0 && p.tmdb.Enabled() {
 			return p.tmdb.TVFromTVDB(ctx, tvdbID)
 		}
-		return entry.TMDBTV, nil
+		return entry.TMDB.ID, nil
 	})
 	go tmdbShow()
 

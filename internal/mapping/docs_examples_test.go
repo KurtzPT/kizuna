@@ -47,13 +47,13 @@ func TestSetupDocExamples(t *testing.T) {
 		{10, 1, 5, 1, 5, true},
 		{11, 1, 3, 0, 3, true}, // defaulttvdbseason left out: counts as 0 (specials), as the doc warns
 	} {
-		s, n, ok := list[x.aid].TVDBEpisode(x.as, x.ep)
+		s, n, ok := list[x.aid].TVDB.Episode(x.as, x.ep)
 		if ok != x.ok || (ok && (s != x.s || n != x.n)) {
 			t.Errorf("aid %d AniDB %d/%d: got S%d E%d ok=%v, want S%d E%d ok=%v", x.aid, x.as, x.ep, s, n, ok, x.s, x.n, x.ok)
 		}
 	}
-	if e := list[9]; e.TVDB != 0 || !e.noTVDB || e.TMDBMovie != 98765 || e.IMDB != "tt1234567" {
+	if e := list[9]; e.TVDB.ID != 0 || !e.noTVDB || e.TMDBMovie != 98765 || e.IMDB != "tt1234567" {
 		t.Errorf("movie: %+v", e)
 	}
-	t.Logf("example 5 stores %d exception episodes", len(list[5].Episodes))
+	t.Logf("example 5 stores %d exception episodes", len(list[5].TVDB.Episodes))
 }

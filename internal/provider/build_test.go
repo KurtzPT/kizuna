@@ -100,7 +100,8 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	titles := &anidb.Titles{}
 	titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
 	lists := &mapping.Lists{}
-	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77}})
+	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+		TMDB: mapping.Placement{ID: 77}}})
 	cfg := config.Load()
 	return New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
 		sources.NewTVDB(f, "key", "", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
@@ -217,8 +218,10 @@ func TestCreditsUseAnimeListsNumbers(t *testing.T) {
 		}
 		return testSeries(path, q)
 	}})
-	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77,
-		Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 102, TVDBSeason: 0, TVDBEp: 1}}}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100,
+		TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true,
+			Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 102, Season: 0, Ep: 1}}},
+		TMDB: mapping.Placement{ID: 77}}})
 	s, err := p.buildShow(context.Background(), "anidb-100")
 	if err != nil {
 		t.Fatal(err)
@@ -236,9 +239,9 @@ func TestCreditsUseAnimeListsNumbers(t *testing.T) {
 // TMDB S1 from episode 27). Titles and crew come from the right TMDB episode.
 func TestAniDBPairsTMDBByItsOwnSeasons(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
-	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 2,
-		TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1,
-		TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, TVDBSeason: 2, TVDBEp: 1}}}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
+		TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1, Offset: 1,
+			Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, Season: 2, Ep: 1}}}}})
 	s, err := p.buildShow(context.Background(), "anidb-100")
 	if err != nil {
 		t.Fatal(err)
@@ -283,10 +286,12 @@ func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 	p := newTestProvider(t, net)
 	p.lists.SetForTest(map[int]mapping.Entry{
 		// AniDB 1 = TVDB S1E1 = TMDB S1E2; AniDB 2 = TVDB S1E2 = TMDB S2E1
-		100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1,
-			TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, TVDBSeason: 2, TVDBEp: 1}}},
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1, Offset: 1,
+				Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, Season: 2, Ep: 1}}}},
 		// AniDB 200 ep 1 = TVDB S2E1 = TMDB S1E1, not cached at first
-		200: {AID: 200, TVDB: 500, TVDBSeason: 2, TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1},
+		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
+			TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1}},
 	})
 	type want struct {
 		season, index        int
@@ -392,8 +397,8 @@ func TestTMDBListPairsAniDBByTMDBSeasons(t *testing.T) {
 		}
 		return testSeries(path, q)
 	}})
-	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1,
-		TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+		TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1, Offset: 1}}})
 	s, err := p.buildShow(context.Background(), "tvdb-500")
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +486,8 @@ func TestFailedShowSourceIsIncomplete(t *testing.T) {
 	for _, c := range cases {
 		for _, root := range []string{"tvdb-500", "anidb-100"} {
 			p := newTestProvider(t, &fakeNet{answer: c.answer})
-			p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77, MAL: 5}})
+			p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+				TMDB: mapping.Placement{ID: 77}, MAL: 5}})
 			p.cfg.PosterSources = []string{"mal", "tmdb", "tvdb"}
 			ctx := context.Background()
 			if c.timeout > 0 {

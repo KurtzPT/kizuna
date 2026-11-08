@@ -51,7 +51,7 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 	if reflect.ValueOf(l.byAID).UnsafePointer() != first {
 		t.Error("unchanged list was parsed and merged again")
 	}
-	if l.ByAID(1).TVDB != 100 {
+	if l.ByAID(1).TVDB.ID != 100 {
 		t.Fatalf("entry 1: %+v", l.ByAID(1))
 	}
 
@@ -61,7 +61,7 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 	}
 	expire()
 	load()
-	if l.ByAID(1).TVDB != 200 {
+	if l.ByAID(1).TVDB.ID != 200 {
 		t.Fatalf("custom file changed, but the mapping was kept: %+v", l.ByAID(1))
 	}
 }
@@ -89,7 +89,7 @@ func TestLoadCustomWithoutLists(t *testing.T) {
 	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err == nil {
 		t.Error("no list loaded: want an error to log")
 	}
-	if l.ByAID(1).TVDB != 200 || l.AIDFor("tvdb", "200") != 1 {
+	if l.ByAID(1).TVDB.ID != 200 || l.AIDFor("tvdb", "200") != 1 {
 		t.Errorf("custom entry not applied without a list: %+v", l.ByAID(1))
 	}
 	if l.Ready() {
@@ -100,7 +100,7 @@ func TestLoadCustomWithoutLists(t *testing.T) {
 	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
 		t.Fatal(err)
 	}
-	if !l.Ready() || l.ByAID(1).TVDB != 200 {
+	if !l.Ready() || l.ByAID(1).TVDB.ID != 200 {
 		t.Errorf("after the list loaded: ready %v, entry 1 %+v (custom wins)", l.Ready(), l.ByAID(1))
 	}
 }

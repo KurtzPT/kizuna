@@ -230,7 +230,7 @@ func (p *Provider) aidFor(source, id, title string, year int) int {
 	n, _ := strconv.Atoi(id)
 	for _, m := range p.titles.Search(title, year, 20) {
 		switch e := p.lists.ByAID(m.AID); {
-		case e.TMDBTV == n:
+		case e.TMDB.ID == n:
 			return tv
 		case e.TMDBMovie == n:
 			slog.Debug("match: TMDB id is a TV show and a movie; the title search found the movie", "id", id, "aid", m.AID)
@@ -248,8 +248,8 @@ func (p *Provider) aidFor(source, id, title string, year int) int {
 func (p *Provider) rootFor(mode Mode, source string, id int) string {
 	switch {
 	case source == "anidb" && mode.TVDB:
-		if e := p.lists.ByAID(id); e.TVDB > 0 {
-			return fmt.Sprintf("tvdb-%d", e.TVDB)
+		if e := p.lists.ByAID(id); e.TVDB.ID > 0 {
+			return fmt.Sprintf("tvdb-%d", e.TVDB.ID)
 		}
 		return fmt.Sprintf("anidb-%d", id)
 	case source == "anidb":

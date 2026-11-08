@@ -89,20 +89,20 @@ func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x ep
 // of entry e sits on its TVDB series (openings, endings, trailers… only
 // through a mapping exception: see mapping.Entry.TVDBEpisode).
 func (p *Provider) tvdbSpot(e mapping.Entry, season, index int) (spot, bool) {
-	if season == 0 && !e.HasException(season, index) && (e.TVDBSeason == 0 || !p.lists.StartsSeries(e.AID)) {
+	if season == 0 && !e.TVDB.HasException(season, index) && (e.TVDB.Season == 0 || !p.lists.StartsSeries(e.AID)) {
 		// An unlisted special is the TVDB special with the same number only
 		// on the entry that starts the series. A later entry's S1 would land
 		// on the first entry's S00E01, and an entry whose own episodes live
 		// in TVDB season 0 (OVAs, movies) shares its numbers with them.
 		return spot{}, false
 	}
-	if !e.HasException(season, index) && e.TVDBSeason == -1 && e.TVDBOffset == 0 && !p.lists.StartsSeries(e.AID) {
+	if !e.TVDB.HasException(season, index) && e.TVDB.Season == -1 && e.TVDB.Offset == 0 && !p.lists.StartsSeries(e.AID) {
 		// "absolute from episode 1" on a later entry of the series: the
 		// mapping has no real position for it (a Fribb entry without season
 		// info), so it would get the first season's episodes
 		return spot{}, false
 	}
-	s, n, ok := e.TVDBEpisode(season, index)
+	s, n, ok := e.TVDB.Episode(season, index)
 	return spot{s, n}, ok
 }
 
@@ -111,16 +111,16 @@ func (p *Provider) tvdbSpot(e mapping.Entry, season, index int) (spot, bool) {
 // mapping.Entry.TMDBEpisode), with the same rules for unlisted specials and
 // later entries. An entry without a TMDB season gets TheTVDB's spot.
 func (p *Provider) tmdbSpot(e mapping.Entry, season, index int) (spot, bool) {
-	listed := e.HasTMDBException(season, index)
+	listed := e.TMDB.HasException(season, index)
 	switch {
-	case !listed && !e.TMDBMapped:
+	case !listed && !e.TMDB.Mapped:
 		return p.tvdbSpot(e, season, index)
-	case !listed && season == 0 && (e.TMDBSeason == 0 || !p.lists.StartsTMDBShow(e.AID)):
+	case !listed && season == 0 && (e.TMDB.Season == 0 || !p.lists.StartsShow("tmdb", e.AID)):
 		return spot{}, false
-	case !listed && e.TMDBSeason == -1 && e.TMDBOffset == 0 && !p.lists.StartsTMDBShow(e.AID):
+	case !listed && e.TMDB.Season == -1 && e.TMDB.Offset == 0 && !p.lists.StartsShow("tmdb", e.AID):
 		return spot{}, false
 	}
-	s, n, ok := e.TMDBEpisode(season, index)
+	s, n, ok := e.TMDB.Episode(season, index)
 	return spot{s, n}, ok
 }
 
@@ -134,8 +134,8 @@ func (p *Provider) tmdbSpot(e mapping.Entry, season, index int) (spot, bool) {
 // partial, or episode crew is still being fetched.
 func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry) bool {
 	fill := slices.Contains(p.cfg.EpisodeFillSources, "tvdb")
-	wantTVDB := p.tvdb.Enabled() && entry.TVDB > 0
-	wantTMDB := p.tmdb.Enabled() && entry.TMDBTV > 0
+	wantTVDB := p.tvdb.Enabled() && entry.TVDB.ID > 0
+	wantTMDB := p.tmdb.Enabled() && entry.TMDB.ID > 0
 	if !wantTVDB && !wantTMDB {
 		return true
 	}
@@ -143,10 +143,10 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	tvOK, tmOK := true, true
 	var wg sync.WaitGroup
 	if wantTVDB {
-		wg.Go(func() { tv, tvOK = p.seriesEpisodes(ctx, "tvdb", entry.TVDB) })
+		wg.Go(func() { tv, tvOK = p.seriesEpisodes(ctx, "tvdb", entry.TVDB.ID) })
 	}
 	if wantTMDB {
-		wg.Go(func() { tm, tmOK = p.seriesEpisodes(ctx, "tmdb", entry.TMDBTV) })
+		wg.Go(func() { tm, tmOK = p.seriesEpisodes(ctx, "tmdb", entry.TMDB.ID) })
 	}
 	wg.Wait()
 
@@ -190,9 +190,9 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			}
 		}
 	}
-	slog.Debug("episode pairing", "root", s.Root, "tvdb", entry.TVDB, "season", entry.TVDBSeason, "offset", entry.TVDBOffset,
-		"exceptions", len(entry.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
-		"tmdb", entry.TMDBTV, "tmdb_mapped", entry.TMDBMapped, "paired_tmdb", pairedTMDB)
+	slog.Debug("episode pairing", "root", s.Root, "tvdb", entry.TVDB.ID, "season", entry.TVDB.Season, "offset", entry.TVDB.Offset,
+		"exceptions", len(entry.TVDB.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
+		"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB)
 	crewOK := p.episodeCrew(ctx, s, tv, tm, tvAt, tmAt)
 	return tvOK && tmOK && crewOK
 }
@@ -245,7 +245,7 @@ func (p *Provider) tvdbPairing(tvdbID, tmdbID int, listSrc string, first *source
 	pr = tvdbPairing{map[spot]anidbTitles{}, map[spot]spot{}}
 	ready = true
 	// an entry of another TMDB show has no place on this one
-	onTMDB := func(e mapping.Entry) bool { return e.TMDBTV == 0 || e.TMDBTV == tmdbID }
+	onTMDB := func(e mapping.Entry) bool { return e.TMDB.ID == 0 || e.TMDB.ID == tmdbID }
 	listSpot, otherSpot := p.tvdbSpot, p.tmdbSpot
 	listOK, otherOK := func(mapping.Entry) bool { return true }, onTMDB
 	if listSrc == "tmdb" {
