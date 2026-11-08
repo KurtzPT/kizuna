@@ -1,0 +1,726 @@
+<div align="center">
+
+# 絆 Kizuna · Setup
+
+**From zero to a matched anime library in four steps.**
+
+[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](#%EF%B8%8F-settings) &nbsp;·&nbsp; [🩹 Mapping](#-fixing-a-wrong-mapping) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting)
+
+<sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
+
+</div>
+
+---
+
+```mermaid
+flowchart LR
+    K["🔑 1. Get keys"] --> R["🐳 2. Run Kizuna"] --> P["🔌 3. Add it to Plex"] --> L["📚 4. Point a library at it"] --> D["✅ Scan + refresh"]
+```
+
+**You need:** a machine that runs Docker on the same network as Plex, **Plex Media Server 1.43 or newer**, and a free
+AniDB account.
+
+> [!TIP]
+> **Coming from HAMA + Absolute Series Scanner?** Do steps 1–3 here, then follow [MIGRATION.md](MIGRATION.md) instead
+> of step 4.
+
+## 🔑 1. Get your keys
+
+| Source | Key | Where to get it | Setting |
+|---|---|---|---|
+| **AniDB** | client name | [anidb.net](https://anidb.net) → *Settings → Client → Add client*, protocol **HTTP** (free) | `ANIDB_CLIENT` |
+| **TheTVDB** | API key (v4) | [thetvdb.com](https://thetvdb.com/api-information) | `TVDB_API_KEY` |
+| **TheMovieDb** | API key (v3) | [themoviedb.org](https://www.themoviedb.org/settings/api) | `TMDB_API_KEY` |
+| **MyAnimeList** | Client ID | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | `MAL_CLIENT_ID` |
+| **Anime News Network** | none | – | – |
+
+**The minimum for each [mode](README.md#%EF%B8%8F-modes):**
+
+| Mode | Required | For |
+|---|---|---|
+| `/anidb` | AniDB | episode lists, specials, summaries |
+| `/tvdb` | TheTVDB **or** TheMovieDb (TheTVDB is used when both are set) | seasons and episode lists |
+| `/auto` | AniDB **and** TheTVDB or TheMovieDb | both kinds of shows |
+
+Without an AniDB client, shows still match by title (from AniDB's offline title list), but get no AniDB details.
+
+**What each source can supply.** Every key you add is another source to pick from. You choose the order per field in
+[sources per field](#-sources-per-field), so any source can be first, not just a fallback:
+
+| Field | AniDB | TheTVDB | TheMovieDb | MyAnimeList | ANN |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Title | ⭐ | ✅ | ✅ | | ✅ |
+| Summary | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Genres | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Cast | ⭐ | ✅ | ✅ | | ✅ |
+| Crew | ⭐ | ✅ | ✅ | | ✅ |
+| Studio | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Content rating | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Poster | ✅ | ✅ | ⭐ | ✅ | ✅ |
+| Background, logo | | ✅ | ⭐ | | |
+| Episode list (`/tvdb`) | | ⭐ | ✅ | | |
+| Episode titles | ⭐ | ✅ | ✅ | | |
+| Episode thumbnails (`/anidb`) | | ⭐ | | | |
+
+<sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback</sub>
+
+## 🐳 2. Run Kizuna
+
+<table>
+<tr><th>Docker Compose (recommended)</th><th>Plain Docker</th></tr>
+<tr><td>
+
+Edit [`compose.yml`](compose.yml): fill in the `<...>` placeholders and replace `/change/me` with a folder on the
+host. Then:
+
+```bash
+docker compose up -d
+```
+
+</td><td>
+
+```bash
+docker run -d --name kizuna \
+  --restart unless-stopped \
+  --user 1000:1000 \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  -p 32600:32600 \
+  -v /srv/kizuna:/data \
+  -e ANIDB_CLIENT=myclient \
+  -e TVDB_API_KEY=... \
+  -e TMDB_API_KEY=... \
+  ghcr.io/kurtzpt/kizuna:latest
+```
+
+</td></tr>
+</table>
+
+| Image tag | Is | Use it |
+|---|---|---|
+| **`:latest`** | the newest **stable** release | normally |
+| `:1.2.3`, `:1.2` | one release / the newest patch of a minor | to pin a version |
+| `:dev` | a **beta**, rebuilt from the `dev` branch on every change | to try fixes and features before release; may break |
+
+`curl http://<kizuna-host>:32600/health` shows which one you run: `v1.2.3` for a release, `dev-<commit>` for a beta.
+
+The data folder (`/data` in the container) holds the cache, the AniDB rate-limit state, your optional
+[mapping corrections](#-fixing-a-wrong-mapping) and the [logs](#-logs). **It must be writable by `1000:1000`** (or
+whatever `user` you set).
+
+**Check that it's up**, from the machine (or container) that runs Plex:
+
+```bash
+curl http://<kizuna-host>:32600/health
+```
+
+| Answer | Means |
+|---|---|
+| `{"status":"ok","version":"..."}` | ready |
+| `{"status":"starting","version":"..."}` (HTTP 503) | still downloading the AniDB title list, first start only |
+| `{"status":"degraded","missing":["mapping"],"version":"..."}` (HTTP 503) | titles match, but the id mapping lists didn't download: TVDB tags and `/tvdb` mode find nothing. Docker shows the container `unhealthy` |
+| `403` with `ALLOW_FROM` or `ALLOWED_HOSTS` | Kizuna refused the caller: see [access](#%EF%B8%8F-access) |
+| no answer | wrong address, or a firewall: see [troubleshooting](#-troubleshooting) |
+
+> [!IMPORTANT]
+> **Plex in Docker?** Inside the Plex container, `localhost` is Plex itself. Use the host's LAN IP, or put both
+> containers on one Docker network and use `http://kizuna:32600`.
+
+> [!WARNING]
+> Kizuna has **no login**, because Plex can't send credentials to a provider. Keep port 32600 on your LAN and never
+> forward it to the internet. By default Kizuna only answers [private addresses](#%EF%B8%8F-access), and only
+> requests sent to an IP address or a local name.
+
+## 🔌 3. Register Kizuna in Plex
+
+In Plex Web, open **Settings → Metadata Agents**.
+
+**a. Add the provider.** Click *Add Provider* and enter the URL for your library's layout:
+
+| URL | Shows up in Plex as | Use it for |
+|---|---|---|
+| `http://<host>:32600/anidb` | Kizuna – AniDB (absolute) | every season is its own show, episodes numbered 1…n |
+| `http://<host>:32600/tvdb` | Kizuna – TVDB seasons (absolute) | one show with TVDB seasons |
+| `http://<host>:32600/auto` | Kizuna – AniDB or TVDB per folder tag | one library that mixes both ([README](README.md#auto-both-in-one-library)) |
+
+You can add more than one; each is its own provider.
+
+**b. Create an agent.** Click *Add Agent* and add, in this order:
+
+```mermaid
+flowchart LR
+    subgraph agent["🧩 Agent: Kizuna Anime"]
+        direction TB
+        A["① Kizuna provider<br/><i>primary: matching + metadata</i>"]
+        B["② Plex Local Media<br/><i>poster.jpg, fanart.jpg, theme.mp3,<br/>subtitles from your folders</i>"]
+    end
+```
+
+- **Plex Local Media** makes your own `poster.jpg`, `fanart.jpg`, `clearlogo.png`, `Season02.jpg` and `theme.mp3` win
+  over online artwork. Kizuna never reads your folders.
+- **One Kizuna mode per agent.** `/anidb` and `/tvdb` number episodes differently, so never put both in one agent. Use
+  `/auto` for a mixed library.
+
+## 📚 4. Point a library at it
+
+In **Manage Library → Edit → Advanced**:
+
+| Field | Value |
+|---|---|
+| **Scanner** | `Plex TV Series`. Legacy scanners such as ASS can't be combined with the new providers |
+| **Agent** | the agent from step 3 |
+
+Save, then run **Scan Library Files** and **Refresh All Metadata**.
+
+> [!CAUTION]
+> **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first. For a HAMA
+> + Absolute Series Scanner library, follow [MIGRATION.md](MIGRATION.md): its script writes the `.plexmatch` hints
+> Plex's scanner needs, without renaming anything, with a dry run and an undo.
+
+AniDB allows one request every 4 seconds and 200 a day, so a large library takes **several days** to get all its
+AniDB details. Shows fill in on later refreshes.
+
+---
+
+## ⚙️ Settings
+
+Everything is an environment variable. [`compose.yml`](compose.yml) lists them, commented out. Plex doesn't pass
+per-library settings to providers, so every setting applies to every mode and every library.
+
+| You set | Kizuna |
+|---|---|
+| a variable to `""` or nothing | uses the default. For an API key the default is empty, so that source is off |
+| an unknown source, mode, size, port or `LOG_LEVEL` | logs a warning at startup and uses the default |
+| a boolean or number it can't read (`TITLE_OFFICIAL_ONLY=yes`) | silently uses the default |
+
+The `ready` line at startup shows the settings in effect ([logs](#-logs)).
+
+### 🔑 Accounts & keys
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off and shows match by title only |
+| `ANIDB_CLIENTVER` | `1` | The client version you registered |
+| `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
+| `TVDB_PIN` | – | Only for TVDB subscriber keys |
+| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork and logos, and `/tvdb` episodes when there's no TVDB key |
+| `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
+
+### 🎯 Matching & titles
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MIN_SCORE` | `60` | Lowest title-search score (0–100) for an automatic match. Plex's *Fix Match* list ignores it |
+| `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID |
+| `MAPPING_SOURCES` | `animelists,fribb` | Id mapping lists, in priority order. A later list only fills ids the earlier ones lack |
+| `TITLE_LANGS` | `main,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
+| `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
+| `ORIGINAL_TITLE_LANGS` | `ja` | Language order for Plex's *original title* (official titles only, e.g. `x-jat` for romaji). Left empty when it equals the title; `none` turns it off |
+| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order. When none of these has a title, the next source in `EPISODE_TITLES` is tried first; AniDB's title in any language is the last resort |
+
+### 🔀 Sources per field
+
+Each `*_SOURCES` value is a comma-separated list of `anidb`, `tvdb`, `tmdb`, `mal`, `ann`:
+
+```mermaid
+flowchart LR
+    A["1st source"] -- "nothing: no entry,<br/>no key, empty field" --> B["2nd source"] -- "nothing" --> C["…"]
+    A -- "has a value" --> W["✅ used"]
+    B -- "has a value" --> W
+```
+
+Fallbacks are only downloaded when they're needed. `none` turns a field off.
+
+**Show details**
+
+| Variable | Default | Allowed | Notes |
+|---|---|---|---|
+| `TITLE_SOURCES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
+| `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
+| `GENRE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
+| `CAST_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters. ANN: Japanese cast, no photos |
+| `CREW_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Directors and writers, both from the same source |
+| `STUDIO_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | |
+| `DATE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | First aired / release date |
+| `RATING_SOURCES` | `anidb,mal,tmdb,tvdb` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
+| `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
+
+In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
+date they're only used on the series' first AniDB entry (a TheMovieDb movie is always its own entry).
+
+**Artwork**
+
+| Variable | Default | Allowed | Notes |
+|---|---|---|---|
+| `POSTER_SOURCES` | `tmdb,tvdb,anidb,mal` | anidb tvdb tmdb mal ann | |
+| `BACKGROUND_SOURCES` | `tmdb,tvdb` | tvdb tmdb | |
+| `LOGO_SOURCES` | `tmdb,tvdb` | tvdb tmdb | |
+| `ART_ALL_SOURCES` | `true` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
+
+**Episodes**
+
+| Variable | Default | Allowed | Notes |
+|---|---|---|---|
+| `EPISODE_SOURCES` | `tvdb,tmdb` | tvdb tmdb | `/tvdb`: where the episode list comes from |
+| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes. Each episode is paired with its counterpart on every source; the first **real** title wins (*Episode 12*, *TBA* don't count). `tvdb,tmdb,anidb` = TheTVDB's English titles first. [How pairing works](README.md#%EF%B8%8F-episode-titles-and-pairing) |
+| `EPISODE_FILL_SOURCES` | `tvdb` | tvdb | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `none` turns it off |
+
+> [!NOTE]
+> In `/tvdb`, AniDB episode titles come from every AniDB entry of the series. Entries missing from the cache are
+> fetched in the background, which stops once 150 of the 200 daily AniDB calls are used, so their titles show up on a
+> later refresh.
+
+<details>
+<summary><b>Examples</b></summary>
+
+```yaml
+# AniDB posters by default, the others still offered in Plex's Edit dialog
+POSTER_SOURCES: "anidb,tmdb,tvdb,mal"
+ART_ALL_SOURCES: "true"
+
+# English titles where AniDB has an official one, else romaji
+TITLE_LANGS: "en,x-jat"
+TITLE_OFFICIAL_ONLY: "true"
+
+# German age ratings first, then British, then anything
+RATING_COUNTRY: "DE,GB"
+
+# No cast at all
+CAST_SOURCES: "none"
+```
+
+</details>
+
+### 🖥️ Server
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PORT` | `32600` | Port Kizuna listens on (1–65535). **In Docker, leave it** and change the *host* side of the port mapping instead: `"32700:32600"` makes Kizuna `http://<host>:32700`. Change `PORT` only for the binary or host networking |
+| `LISTEN` | – | Full listen address, e.g. `127.0.0.1:32600` to accept only local connections. Overrides `PORT` |
+| `DATA_DIR` | `/data` (image) · `./data` (binary) | Cache, AniDB state, mapping corrections and logs |
+
+### 🛡️ Access
+
+Kizuna can't ask for a password, because Plex can't send one. Instead it limits *who* may talk to it, with two
+checks. Both are on by default and need no change for the usual setups: Plex and Kizuna on the same LAN, Docker host
+or Tailscale network.
+
+```mermaid
+flowchart LR
+    R["request"] --> A{"ALLOW_FROM<br/><i>client address<br/>private?</i>"}
+    A -- no --> X["⛔ 403"]
+    A -- yes --> H{"ALLOWED_HOSTS<br/><i>sent to an IP or<br/>a local name?</i>"}
+    H -- no --> X
+    H -- yes --> OK["✅ answered"]
+```
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ALLOW_FROM` | `private` | Client addresses that may use Kizuna, comma-separated: `private` (loopback, `10.x`, `172.16–31.x`, `192.168.x`, Tailscale's `100.64.0.0/10`, link-local, IPv6 private), single IPs (`192.168.1.10`) or networks (`192.168.1.0/24`). `any` turns it off. The machine itself (`127.0.0.1`, `::1`) is always allowed, for Docker's health check |
+| `ALLOWED_HOSTS` | – | Extra names Kizuna may be reached by: `kizuna.example.com`, or `.example.com` for it and every name under it. `any` turns it off. Always allowed: IP addresses, `localhost`, one-word names (`kizuna`, a container name), and names ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain` |
+
+Each refused client or name is logged once every 10 minutes, with the setting to change.
+
+```yaml
+ALLOW_FROM: "192.168.1.10"              # only the Plex server (and the machine itself)
+ALLOW_FROM: "private,203.0.113.7"       # the LAN plus one outside address
+ALLOWED_HOSTS: "kizuna.mynas.example"   # you added the provider as http://kizuna.mynas.example:32600
+```
+
+<details>
+<summary><b>Why these two checks</b></summary>
+
+- **`ALLOW_FROM` makes an accidental port forward harmless.** A request from the internet comes from a public
+  address and gets refused. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can
+  fake.
+- **`ALLOWED_HOSTS` stops DNS rebinding.** A web page can try to reach devices on your LAN through your browser, by
+  pointing its own domain at a LAN address. The browser then sends that domain as the host name, which Kizuna doesn't
+  know, so it refuses.
+- **Behind a reverse proxy**, every request comes from the proxy's private address, so `ALLOW_FROM` can't tell clients
+  apart. The host name check still refuses a public domain you haven't listed. Kizuna is meant for your LAN, not the
+  internet.
+
+</details>
+
+### 💾 Storage & cache
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CACHE_MIN_FREE` | `1GB` | When the disk holding the cache has less free space than this, the oldest cache files are deleted. `0` = never clean up |
+| `CACHE_FREE_TARGET` | `2GB` | …until this much is free again. Sizes like `500MB`, `2GB`, `1.5TB`; a plain number is MB |
+
+The cache has no size limit of its own. Every 10 minutes Kizuna checks the free space and, when it's low, deletes in
+this order:
+
+```mermaid
+flowchart LR
+    A["1️⃣ TVDB · TMDB · MAL · ANN<br/><i>oldest first, quick to download again</i>"] --> B["2️⃣ AniDB anime entries<br/><i>oldest first, slow to get back:<br/>200 a day</i>"]
+    N["🔒 never: AniDB title list, mapping lists"]
+```
+
+If the target still isn't reached, something else is filling the disk, and Kizuna logs a warning.
+
+| Cached | For |
+|---|---|
+| AniDB anime | 6 days while airing and for 60 days after it ends, then 180 days |
+| TheTVDB · TheMovieDb | 2–7 days (TheMovieDb id lookups: 30 days) |
+| MyAnimeList | 30 days |
+| Anime News Network | 7 days |
+| AniDB title list · mapping lists | refreshed daily (every 5 min until the first download succeeds); an unchanged list isn't downloaded again |
+| Built shows (in memory) | 1 hour (2 min when AniDB details were missing) |
+
+### 📝 Logging
+
+| Variable | Default | What it does |
+|---|---|---|
+| `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](#-logs)) |
+| `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` = keep forever |
+| `TZ` | UTC | Time zone (e.g. `Europe/Lisbon`) for log timestamps and when a new log day starts |
+
+---
+
+## 🩹 Fixing a wrong mapping
+
+Kizuna learns which AniDB entry is which TVDB series, season and episode from the
+[Anime-Lists](https://github.com/Anime-Lists/anime-lists) and [Fribb](https://github.com/Fribb/anime-lists) lists.
+When they're wrong or incomplete, write your own correction in **`anime-list-custom.xml`** in the data folder (next to
+`cache/` and `logs/`). Your entries win over both lists.
+
+| A correction changes | How |
+|---|---|
+| 🎯 Matching | which AniDB entry a `[tvdb-…]`, `[tmdb-…]` or `[imdb-…]` tag points to |
+| 📺 `/tvdb` shows | which AniDB entries make up a TVDB series, and which one supplies the show details |
+| 🖼️ `/anidb` episodes | which TVDB episode gives each AniDB episode its thumbnail, summary and date |
+| 🏷️ Episode titles | which episodes are paired across AniDB, TheTVDB and TheMovieDb, in both modes |
+
+### The file
+
+```xml
+<anime-list>
+  <anime anidbid="1234" tvdbid="56789" defaulttvdbseason="2" episodeoffset="0">
+    <name>My Show Season 2</name>   <!-- optional, just a note for you -->
+    <mapping-list>                  <!-- optional: per-episode exceptions -->
+      <mapping anidbseason="1" tvdbseason="0">;9-1;</mapping>
+    </mapping-list>
+  </anime>
+</anime-list>
+```
+
+| Attribute | Meaning |
+|---|---|
+| `anidbid` | the AniDB entry, from its page: `anidb.net/anime/1234` |
+| `tvdbid` | the TVDB series id (on its page at thetvdb.com). `movie`, `OVA`… = no TVDB series on purpose; `unknown` or left out = not known |
+| `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` = TheTVDB's absolute order; `0` = TheTVDB's specials. **Always set it when `tvdbid` is a number**: left out, it counts as `0` |
+| `episodeoffset` | AniDB episode 1 is TVDB episode `1 + offset` in that season (default `0`) |
+| `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show · TheMovieDb movie · IMDb id (`tt…`) |
+
+> [!WARNING]
+> An entry **replaces** that AniDB id's whole entry from both lists, including the MyAnimeList, AniList, Kitsu and
+> ANN ids that only the Fribb list has. Those can't be written in this format, so for a corrected show a
+> `[mal-…]`-style folder tag no longer matches. Use an `[anidb-…]` or `[tvdb-…]` tag for it.
+
+### Reading `<mapping-list>`
+
+Without exceptions, AniDB episode *N* is TVDB episode *N + `episodeoffset`* in `defaulttvdbseason`. A `<mapping>`
+says otherwise for specific episodes:
+
+```xml
+<mapping anidbseason="1" tvdbseason="0">;9-1;18-2;</mapping>
+<!--     AniDB side      TVDB side      pairs: "AniDB episode - TVDB episode" -->
+```
+
+| Attribute | Values |
+|---|---|
+| `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; openings, endings and trailers can't be mapped) |
+| `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order |
+
+| Written | Means |
+|---|---|
+| `;9-1;` | AniDB episode **9** is TVDB episode **1** |
+| `;9-1;18-2;` | AniDB 9 → TVDB 1, and AniDB 18 → TVDB 2 |
+| `;5-5+6;` | AniDB 5 is TVDB 5 *and* 6 (a double episode). Kizuna uses the first, TVDB 5 |
+| `;2-0;` | AniDB 2 has **no** TVDB episode: nothing is paired with it |
+| `start="10" end="17" offset="-1"` | AniDB 10 … 17 are TVDB 9 … 16: every episode in the range, shifted by `offset` |
+
+When several rules cover the same episode, the most specific one wins:
+
+```mermaid
+flowchart LR
+    A["AniDB episode"] --> P{"listed in a<br/>;a-t; pair?"}
+    P -- yes --> R1["✅ that pair"]
+    P -- no --> G{"inside a<br/>start…end range?"}
+    G -- yes --> R2["✅ episode + offset"]
+    G -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes only</i>"]
+```
+
+### Use cases
+
+| # | Problem | Fix |
+|---|---|---|
+| [1](#uc1) | no TVDB series, or the wrong one | `tvdbid` + `defaulttvdbseason` |
+| [2](#uc2) | a sequel is a later TVDB season | `defaulttvdbseason="3"` |
+| [3](#uc3) | a second cour continues the same TVDB season | `episodeoffset="12"` |
+| [4](#uc4) | a long series in TheTVDB's absolute order | `defaulttvdbseason="a"` |
+| [5](#uc5) | recaps that TheTVDB files as specials | pairs + ranges |
+| [6](#uc6) | AniDB specials that are TVDB specials | `anidbseason="0"` pairs |
+| [7](#uc7) | an OVA among TheTVDB's specials | `defaulttvdbseason="0"` |
+| [8](#uc8) | a season TheTVDB splits in two | a range into season 2 |
+| [9](#uc9) | a movie, kept out of the TV series | `tvdbid="movie"` |
+
+<details open>
+<summary><b><a id="uc1"></a>1 · The show has no TVDB series, or the wrong one</b></summary>
+
+AniDB 1234 should be TVDB series 56789, starting at season 1:
+
+```xml
+<anime anidbid="1234" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0" />
+```
+
+</details>
+
+<details>
+<summary><b><a id="uc2"></a>2 · A sequel is a later TVDB season</b></summary>
+
+AniDB has one entry per season; TheTVDB has one series. The AniDB entry for season 3 is TVDB season 3, from its
+episode 1:
+
+```xml
+<anime anidbid="1236" tvdbid="56789" defaulttvdbseason="3" episodeoffset="0" />
+```
+
+| AniDB 1236 | TheTVDB |
+|---|---|
+| episode 1 | S03E01 |
+| episode 12 | S03E12 |
+
+</details>
+
+<details>
+<summary><b><a id="uc3"></a>3 · A second cour continues the same TVDB season</b></summary>
+
+AniDB gives episodes 13–24 their own entry, but TheTVDB keeps them in season 1. With `episodeoffset="12"`, episode 1
+of the second cour is TVDB S01E13:
+
+```xml
+<anime anidbid="1235" tvdbid="56789" defaulttvdbseason="1" episodeoffset="12" />
+```
+
+| AniDB 1235 | TheTVDB |
+|---|---|
+| episode 1 | S01E13 |
+| episode 12 | S01E24 |
+
+</details>
+
+<details>
+<summary><b><a id="uc4"></a>4 · A long series in TheTVDB's absolute order</b></summary>
+
+For series that TheTVDB numbers 1…n across seasons, use `a` and the number of episodes before this entry. This entry
+starts after the first 61 episodes:
+
+```xml
+<anime anidbid="1240" tvdbid="56789" defaulttvdbseason="a" episodeoffset="61" />
+```
+
+| AniDB 1240 | TheTVDB |
+|---|---|
+| episode 1 | absolute 62, in whichever season TheTVDB has it |
+
+</details>
+
+<details>
+<summary><b><a id="uc5"></a>5 · Recaps that TheTVDB files as specials</b></summary>
+
+AniDB counts recap episodes 9 and 18 as regular episodes; TheTVDB moved them to specials S00E01 and S00E02. So every
+episode after a recap is one (then two) behind on TheTVDB:
+
+```xml
+<anime anidbid="1234" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0">
+  <mapping-list>
+    <mapping anidbseason="1" tvdbseason="0">;9-1;18-2;</mapping>
+    <mapping anidbseason="1" tvdbseason="1" start="10" end="17" offset="-1"/>
+    <mapping anidbseason="1" tvdbseason="1" start="19" end="26" offset="-2"/>
+  </mapping-list>
+</anime>
+```
+
+| AniDB | TheTVDB | Rule |
+|---|---|---|
+| 1 … 8 | S01E01 … S01E08 | default |
+| **9** | **S00E01** | `;9-1;` |
+| 10 … 17 | S01E09 … S01E16 | range, `offset="-1"` |
+| **18** | **S00E02** | `;18-2;` |
+| 19 … 26 | S01E17 … S01E24 | range, `offset="-2"` |
+
+</details>
+
+<details>
+<summary><b><a id="uc6"></a>6 · AniDB specials that are TVDB specials</b></summary>
+
+AniDB's specials `S1` and `S3` are TheTVDB's S00E04 and S00E05; `S2` has no TVDB counterpart:
+
+```xml
+<anime anidbid="1234" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0">
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0">;1-4;2-0;3-5;</mapping>
+  </mapping-list>
+</anime>
+```
+
+</details>
+
+<details>
+<summary><b><a id="uc7"></a>7 · An OVA that TheTVDB lists among the specials</b></summary>
+
+The AniDB entry is a two-episode OVA that TheTVDB has as S00E07 and S00E08. Put the whole entry in season `0`:
+
+```xml
+<anime anidbid="1250" tvdbid="56789" defaulttvdbseason="0" episodeoffset="6" />
+```
+
+In `/tvdb` the OVA's titles then land on those two specials.
+
+</details>
+
+<details>
+<summary><b><a id="uc8"></a>8 · A season that TheTVDB splits in two</b></summary>
+
+AniDB has 24 episodes in one entry; TheTVDB splits them into S01 (1–12) and S02 (1–12):
+
+```xml
+<anime anidbid="1234" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0">
+  <mapping-list>
+    <mapping anidbseason="1" tvdbseason="2" start="13" end="24" offset="-12"/>
+  </mapping-list>
+</anime>
+```
+
+| AniDB | TheTVDB |
+|---|---|
+| 1 … 12 | S01E01 … S01E12 (default) |
+| 13 … 24 | S02E01 … S02E12 (range) |
+
+</details>
+
+<details>
+<summary><b><a id="uc9"></a>9 · A movie, kept out of the TV series</b></summary>
+
+`tvdbid="movie"` says there's no TVDB series on purpose, so no list can add one. `tmdbid` is the TheMovieDb movie,
+used for artwork and details:
+
+```xml
+<anime anidbid="1260" tvdbid="movie" tmdbid="98765" imdbid="tt1234567" />
+```
+
+</details>
+
+### Checking a correction
+
+1. **Restart Kizuna** (`docker restart kizuna`), or wait for the daily mapping refresh.
+2. In Plex, run **Refresh Metadata** on the show.
+3. With `LOG_LEVEL=debug`, find the show's lines:
+
+| Log line | Mode | Tells you |
+|---|---|---|
+| `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` | how many AniDB episodes your exceptions cover (use case 5 covers 18) and how many were paired with TheTVDB |
+| `episode titles: source used … anidb=24 tvdb=0` | both | where each episode title came from |
+
+> [!TIP]
+> If your fix would help everyone, send it upstream to [Anime-Lists](https://github.com/Anime-Lists/anime-lists).
+> Once it's in their list, delete it from yours.
+
+## 📜 Logs
+
+Logs go to **`logs/kizuna.log`** in the data folder and to `docker logs kizuna`, one `key=value` line per event. On
+the first line after midnight (in `TZ`) the file is renamed `kizuna-YYYY-MM-DD.log` and a new one starts. API keys
+and Plex tokens are always shown as `***`.
+
+| Level | Shows |
+|---|---|
+| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `anidb_details=true/false` · failed requests, rejected API keys, AniDB backoff and bans |
+| **`debug`** | all of the above, plus every Plex request and match body · every outgoing call and cache decision · the top 5 title-search scores · why AniDB wasn't called · which source supplied each field (`show fields: source used`) · episode pairing counts · cache cleanup checks |
+
+## 🧰 Troubleshooting
+
+**Kizuna won't start, or isn't ready**
+
+| Symptom | Fix |
+|---|---|
+| `can't run: port 32600 is already in use by another program` | Something else has the port, often a second Kizuna. Stop it, or use another port: the host side of the port mapping in Docker, `PORT` outside Docker. Kizuna exits right away (code 1) instead of starting half-way |
+| `docker compose up` says *port is already allocated* | Docker found the host port taken before Kizuna started. Change the first number under `ports:` in `compose.yml` |
+| log says `can't write the log file` | Kizuna runs, but can't write to the data folder: no log file, no cache. Make it writable by the container's user (`1000:1000` by default) |
+| `/health` says `starting` for a long time | The AniDB title list couldn't be downloaded (first start, no network). It retries every 5 min; look for `a list is missing` |
+| `/health` says `degraded` (container `unhealthy`) | The id mapping lists couldn't be downloaded (first start, no network, GitHub unreachable). It retries every 5 min; look for `anime mapping` and `a list is missing`. `docker inspect --format '{{json .State.Health}}' kizuna` shows the health check's answer |
+
+**Plex can't reach Kizuna**
+
+| Symptom | Fix |
+|---|---|
+| Plex can't add the provider | `curl` the `/health` URL from the Plex machine or container ([step 2](#-2-run-kizuna)). In Docker, `localhost` is the container itself |
+| `refused a request from an address outside ALLOW_FROM` | The log line shows the client's address. If it's yours, add it to [`ALLOW_FROM`](#%EF%B8%8F-access) |
+| `refused a request for an unknown host name` | You reached Kizuna by a domain name it doesn't consider local. Add it to [`ALLOWED_HOSTS`](#%EF%B8%8F-access) |
+
+**Matching and metadata**
+
+| Symptom | Fix |
+|---|---|
+| A show doesn't match | The `match: nothing found` line gives the reason. Add an id tag to the folder: `Show [anidb-1234]` |
+| Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
+| No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, daily limit, backoff). The `show built` line says which; a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
+| `/tvdb` show has no episodes | Set `TVDB_API_KEY` or `TMDB_API_KEY` |
+| Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
+| Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
+| `source rejected the request: check its API key / client id` | That key or client id is wrong or expired |
+
+**Still stuck?** [Open an issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the form that fits:
+
+| Form | For |
+|---|---|
+| 📺 [Wrong match or metadata](https://github.com/KurtzPT/kizuna/issues/new?template=1-wrong-metadata.yml) | wrong show, no match, wrong titles, seasons, artwork, specials |
+| 🛠️ [Migration script](https://github.com/KurtzPT/kizuna/issues/new?template=2-migration-script.yml) | a wrong or missing hint in the dry run |
+| 🐳 [Running Kizuna](https://github.com/KurtzPT/kizuna/issues/new?template=3-running-kizuna.yml) | won't start, health check fails, Plex can't reach it, key or AniDB errors |
+| 🐞 [Something else](https://github.com/KurtzPT/kizuna/issues/new?template=5-something-else.yml) | crashes, restarts, error messages, slowness, memory or disk, anything that fits nowhere else |
+| ✨ [Idea](https://github.com/KurtzPT/kizuna/issues/new?template=4-feature-request.yml) | something Kizuna could do better |
+
+Each form asks for the folder and file names, your mode and a `LOG_LEVEL=debug` excerpt for that one show. That's
+usually enough to reproduce the problem.
+
+---
+
+<details>
+<summary><b>🛠️ Building from source</b></summary>
+
+The Docker build runs the tests first:
+
+```bash
+docker build -t kizuna .
+# or, with Go installed:
+go test ./... && go build -o kizuna ./cmd/kizuna
+```
+
+The GitHub workflow builds `linux/amd64` and `linux/arm64` images on GitHub Container Registry:
+
+| Event | Image tags |
+|---|---|
+| push to `dev` | `:dev`, `:sha-<short>` (beta) |
+| tag `v1.2.3` on `main` | `:1.2.3`, `:1.2`, `:latest`, `:sha-<short>` (stable) |
+| tag `v1.2.3-beta.1` | `:1.2.3-beta.1`, `:sha-<short>` |
+| push to `main`, pull request | build and test only, nothing pushed |
+
+How branches and releases work: [CONTRIBUTING.md](CONTRIBUTING.md#-branches-and-releases).
+
+**Code map**
+
+```text
+cmd/kizuna/main.go         start-up, list refresh, `kizuna health` (Docker healthcheck)
+internal/config            environment variables
+internal/fetch             HTTP + disk cache + throttling + free-space cleanup (every source uses it)
+internal/logfile           daily log file, old days deleted
+internal/anidb             offline AniDB title list: search and title-language picking
+internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
+internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4, TheMovieDb, MyAnimeList, ANN
+internal/provider          modes, matching, show model, Plex JSON, HTTP routes
+scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
+```
+
+</details>

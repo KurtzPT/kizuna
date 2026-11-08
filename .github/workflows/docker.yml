@@ -1,0 +1,98 @@
+# Builds the image with Docker (tests run inside the build) and publishes it
+# to GitHub Container Registry, ghcr.io/<owner>/<repo>:
+#   push to dev         -> :dev and :sha-<short>                  (beta)
+#   tag v1.2.3 on main  -> :1.2.3, :1.2, :latest and :sha-<short>  (stable)
+#   tag v1.2.3-beta.1   -> :1.2.3-beta.1 and :sha-<short>          (never :latest)
+#   push to main        -> build + test only: a release is the tag, not the merge
+#   pull request        -> build + test only
+#   manual run          -> like a push to that branch; on any other branch
+#                          (e.g. a go-update PR) it only builds + tests
+name: docker
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+    paths-ignore: ["**.md", ".github/ISSUE_TEMPLATE/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      # publish only from dev or a release tag (pull requests have a refs/pull/... ref)
+      PUBLISH: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
+      # a stable release: a v* tag without a pre-release part (v1.2.3, not v1.2.3-beta.1)
+      STABLE: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the stable-tag check below needs main's history
+
+      # :latest must only ever be something that was merged to main
+      - name: stable tag is on main
+        if: env.STABLE == 'true'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME isn't on main. Stable releases are tagged on main; tag a beta (v1.2.3-beta.1) on dev"
+            exit 1
+          fi
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # image names must be lowercase: KurtzPT/kizuna -> ghcr.io/kurtzpt/kizuna
+      - name: image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # build with the Go version from go.mod, not the Dockerfile default
+      - name: go version
+        run: echo "GO_VERSION=$(awk '$1 == "go" {print $2}' go.mod)" >> "$GITHUB_ENV"
+
+      # what /health, the logs and Plex show: v1.2.3 for a tag, dev-<sha> for a
+      # beta build, the short sha for anything else
+      - name: kizuna version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then v=$GITHUB_REF_NAME
+          elif [ "$GITHUB_REF" = refs/heads/dev ]; then v=dev-${GITHUB_SHA::7}
+          else v=${GITHUB_SHA::7}
+          fi
+          echo "KIZUNA_VERSION=$v" >> "$GITHUB_ENV"
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ env.STABLE == 'true' }}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.KIZUNA_VERSION }}
+            GO_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

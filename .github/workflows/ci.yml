@@ -1,0 +1,60 @@
+# Fast checks on every push and pull request (the Docker workflow builds and
+# publishes the image):
+#   go       Go version in sync, gofmt, go vet, tests with the race detector
+#   script   ShellCheck on the migration script
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      # the Dockerfile's GO_VERSION default is what a local docker build uses
+      - name: Go version in sync
+        run: |
+          mod=$(awk '$1 == "go" {print $2}' go.mod)
+          docker=$(sed -n 's/^ARG GO_VERSION=//p' Dockerfile)
+          if [ "$mod" != "$docker" ]; then
+            echo "::error file=Dockerfile::ARG GO_VERSION=$docker, but go.mod says go $mod: make them match"
+            exit 1
+          fi
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files need gofmt -w:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race detector)
+        run: go test -race -count=1 ./...
+
+  script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: bash syntax
+        run: bash -n scripts/kizuna-migrate.sh
+
+      - name: ShellCheck
+        run: shellcheck --severity=warning scripts/*.sh
