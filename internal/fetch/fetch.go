@@ -32,8 +32,8 @@ const maxBody = 64 << 20
 
 // Client is safe for concurrent use.
 type Client struct {
-	dir  string       // cache root, e.g. /data/cache
-	http *http.Client //
+	dir  string // cache root, e.g. /data/cache
+	http *http.Client
 
 	mu       sync.Mutex
 	inflight map[string]*call      // cache key -> running download
@@ -55,11 +55,11 @@ type hostLimit struct {
 // Request describes one download.
 type Request struct {
 	URL     string
-	Key     string            // cache file name (relative); "" = don't cache
-	TTL     time.Duration     // how long a cached copy is fresh
-	Method  string            // default GET
-	Body    []byte            // POST body
-	Headers map[string]string //
+	Key     string        // cache file name (relative); "" = don't cache
+	TTL     time.Duration // how long a cached copy is fresh
+	Method  string        // default GET
+	Body    []byte        // POST body
+	Headers map[string]string
 	// Validate rejects answers that must not be cached (e.g. AniDB error pages).
 	Validate func([]byte) error
 	// NoStale: report a failed download instead of answering with a stale
@@ -342,8 +342,8 @@ func WriteFile(path string, data []byte) error {
 	return err
 }
 
-// Touch marks a cached file as fresh again (used when a source is down on
-// purpose, e.g. during an AniDB ban, to avoid hammering it).
+// Touch marks a cached file as fresh again (a 304 answer: the source says
+// the cached copy is still current).
 func (c *Client) Touch(key string) {
 	now := time.Now()
 	_ = os.Chtimes(c.path(key), now, now)

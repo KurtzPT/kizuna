@@ -25,7 +25,7 @@ type Config struct {
 	DataDir                 string // cache and state
 
 	AniDBClient    string // registered AniDB HTTP client name (required for AniDB details)
-	AniDBClientVer string //
+	AniDBClientVer string // the version registered with that client
 
 	TVDBKey       string // TheTVDB v4 API key (optional, enables TVDB episodes and art)
 	TVDBPin       string // only for subscriber keys
@@ -55,8 +55,9 @@ type Config struct {
 	LogoSources       []string // tvdb, tmdb
 	EpisodeSources    []string // tvdb, tmdb (episode list of the /tvdb mode)
 	// EpisodeFillSources: in /anidb mode, where missing episode thumbnails,
-	// summaries, titles, dates and runtimes come from, matched through the
-	// mapping's TVDB season and episode offset. tvdb.
+	// summaries, dates and runtimes come from, matched through the
+	// mapping's TVDB season and episode offset. tvdb. (Titles follow
+	// EpisodeTitles.)
 	EpisodeFillSources []string
 	// EpisodeTitles: where episode titles come from, in both modes (first
 	// real title wins). anidb (per EpisodeLangs), tvdb, tmdb.

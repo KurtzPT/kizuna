@@ -148,13 +148,11 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	return c
 }
 
-// Enabled reports whether an AniDB client is configured.
 func (c *AniDB) Enabled() bool { return c.client != "" }
 
 // Anime returns the entry from memory, disk cache, or the API (in that order).
 // Waits at most until ctx is done; an unfinished download keeps going in the
 // background and is served from the cache on Plex's next refresh.
-
 func (c *AniDB) Anime(ctx context.Context, aid int) (*AniDBAnime, error) {
 	return c.anime(ctx, aid, false)
 }
@@ -448,7 +446,7 @@ func (c *AniDB) save() {
 	}
 }
 
-// anidbTTL: finished long ago -> rarely changes; airing -> refresh weekly.
+// anidbTTL: finished long ago -> rarely changes; airing or ended lately -> refresh every 6 days.
 func anidbTTL(endDate string) time.Duration {
 	end, err := time.Parse("2006-01-02", endDate)
 	if err != nil || time.Since(end) < 60*24*time.Hour {

@@ -134,7 +134,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		s.Episodes[1] = nil
 		s.Placeholders = true
 	} else {
-		p.fillFromAniDB(s, a)
+		averageRuntime(s, a)
 		for _, e := range a.Episodes {
 			ep := Ep{Season: e.Season, Index: e.Index, Summary: e.Summary, Date: e.AirDate, Minutes: e.Minutes,
 				anyTitle: anidb.PickTitle(e.Titles, p.cfg.EpisodeLangs, false), listIndex: e.ListIndex()}
@@ -177,9 +177,9 @@ func (p *Provider) originalTitle(titles []anidb.Title) string {
 	return anidb.FindTitle(titles, p.cfg.OriginalTitleLangs, true)
 }
 
-// fillFromAniDB sets the fields only AniDB has (everything else is picked
-// per setting in fields.go).
-func (p *Provider) fillFromAniDB(s *Show, a *sources.AniDBAnime) {
+// averageRuntime sets the show's runtime: the average of AniDB's regular
+// episodes (everything else is picked per setting in fields.go).
+func averageRuntime(s *Show, a *sources.AniDBAnime) {
 	total, n := 0, 0
 	for _, e := range a.Episodes {
 		if e.Season == 1 && e.Minutes > 0 {
@@ -242,7 +242,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	episodesFromList(s, b)
 	if a != nil {
 		s.OriginalTitle = p.originalTitle(a.Titles)
-		p.fillFromAniDB(s, a)
+		averageRuntime(s, a)
 	} else if len(p.titles.Of(aid)) > 0 {
 		s.Complete = false
 	}

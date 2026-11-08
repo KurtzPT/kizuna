@@ -170,7 +170,6 @@ func (t *Titles) set(byAID map[int][]Title) {
 	t.mu.Unlock()
 }
 
-// Ready reports whether the dump has been loaded.
 func (t *Titles) Ready() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

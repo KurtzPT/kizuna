@@ -1,5 +1,6 @@
 // Package sources holds the online metadata sources: the AniDB HTTP API,
-// TheTVDB (v4), TheMovieDb (v3) and MyAnimeList (API v2).
+// TheTVDB (v4, or the legacy v3 API), TheMovieDb (v3), MyAnimeList (API v2)
+// and Anime News Network.
 // Each returns plain structs; nothing here knows about Plex.
 package sources
 

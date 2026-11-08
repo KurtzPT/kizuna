@@ -76,7 +76,6 @@ func (r *recorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// healthAnswer is what /health returns.
 type healthAnswer struct {
 	Status  string   `json:"status"` // ok, starting, degraded
 	Missing []string `json:"missing,omitempty"`

@@ -40,7 +40,6 @@ var (
 	idAliases = map[string]string{"thetvdb": "tvdb", "themoviedb": "tmdb", "myanimelist": "mal", "animenewsnetwork": "ann"}
 )
 
-// candidate is a possible show for a match: its root rating key and score.
 type candidate struct {
 	root  string
 	score int

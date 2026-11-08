@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// keepFreeEvery is how often KeepFree checks the disk.
 const keepFreeEvery = 10 * time.Minute
 
 // KeepFree watches the free space of the disk holding the cache. When it
