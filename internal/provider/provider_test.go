@@ -261,7 +261,7 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}}
 	s.eachEpisode(func(ep *Ep) { ep.setTitle("tvdb", fmt.Sprintf("TVDB S%dE%d", ep.listed.season, ep.listed.number)) })
 
-	if ready := p.tvdbEpisodeTitles(context.Background(), s, 500, 0, "tvdb", first); !ready {
+	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, 500, 0, "tvdb", first); !ready {
 		t.Error("no AniDB client: nothing can be fetched, so nothing to wait for")
 	}
 	p.pickEpisodeTitles(s)

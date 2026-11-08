@@ -274,9 +274,10 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	// fetch both at once.
 	var titlesReady, crewReady bool
 	wg.Go(func() {
-		titlesReady = p.tvdbEpisodeTitles(ctx, s, tvdbID, tmdbID, listSrc, a)
+		var pr tvdbPairing
+		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, tvdbID, tmdbID, listSrc, a)
 		p.pickEpisodeTitles(s)
-		crewReady = p.tvdbEpisodeCrew(ctx, s, tvdbID, tmdbID, listSrc, eps)
+		crewReady = p.tvdbEpisodeCrew(ctx, s, tvdbID, tmdbID, listSrc, eps, pr)
 	})
 	p.newSources(ctx, aid, a, tvdbID, tmdbID, false, true).fill(s)
 	wg.Wait()

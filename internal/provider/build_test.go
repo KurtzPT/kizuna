@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
@@ -263,6 +264,100 @@ func TestAniDBPairsTMDBByItsOwnSeasons(t *testing.T) {
 		if d, w := strings.Join(ep.Directors, ","), strings.Join(ep.Writers, ","); d != c.directors || w != c.writers {
 			t.Errorf("S01E%02d directors %q writers %q, want %q %q", c.index, d, w, c.directors, c.writers)
 		}
+	}
+}
+
+// /tvdb pairs TheMovieDb through AniDB, not at TheTVDB's season and number
+// (One Piece: TVDB S2E1 is AniDB episode 9, TMDB S2E1 is episode 62). An
+// episode without an AniDB counterpart keeps TheTVDB's season and number,
+// and so does one whose AniDB entry isn't cached yet, until the rebuild.
+func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
+	second := `<anime id="200"><type>TV Series</type><enddate>2010-01-01</enddate><episodes>
+<episode><epno type="1">1</epno><title xml:lang="en">Second Start</title></episode></episodes></anime>`
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" && q["aid"][0] == "200" {
+			return 200, second
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net)
+	p.lists.SetForTest(map[int]mapping.Entry{
+		// AniDB 1 = TVDB S1E1 = TMDB S1E2; AniDB 2 = TVDB S1E2 = TMDB S2E1
+		100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1,
+			TMDBEpisodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, TVDBSeason: 2, TVDBEp: 1}}},
+		// AniDB 200 ep 1 = TVDB S2E1 = TMDB S1E1, not cached at first
+		200: {AID: 200, TVDB: 500, TVDBSeason: 2, TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1},
+	})
+	type want struct {
+		season, index        int
+		tmdb, directors, wrt string
+	}
+	check := func(build string, s *Show, wants []want) {
+		t.Helper()
+		for _, w := range wants {
+			ep := s.Episode(w.season, w.index)
+			if ep == nil {
+				t.Fatalf("%s: S%02dE%02d missing", build, w.season, w.index)
+			}
+			if ep.titles["tmdb"] != w.tmdb {
+				t.Errorf("%s: S%02dE%02d TMDB title %q, want %q", build, w.season, w.index, ep.titles["tmdb"], w.tmdb)
+			}
+			if d, wr := strings.Join(ep.Directors, ","), strings.Join(ep.Writers, ","); d != w.directors || wr != w.wrt {
+				t.Errorf("%s: S%02dE%02d directors %q writers %q, want %q %q", build, w.season, w.index, d, wr, w.directors, w.wrt)
+			}
+		}
+	}
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Complete {
+		t.Error("AniDB 200 not cached: want an incomplete show")
+	}
+	check("first build", s, []want{
+		{1, 1, "TMDB Two", "TVDB Director", "TVDB Writer"},
+		{1, 2, "TMDB Three", "TVDB Director 2", ""}, // TMDB S2E1 has no writer
+		{2, 3, "TMDB Three", "TMDB Director 3", ""}, // AniDB 200 not cached: TheTVDB's S2E1
+		{0, 1, "", "", ""}, // no AniDB counterpart, no TMDB S00E01
+	})
+
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if a, _ := p.anidb.Peek(200); a != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("AniDB 200 never fetched in the background")
+		}
+	}
+	if s, err = p.buildShow(context.Background(), "tvdb-500"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Complete {
+		t.Error("every AniDB entry cached: want a complete show")
+	}
+	check("rebuild", s, []want{{2, 3, "TMDB One", "TMDB Director", ""}})
+}
+
+// With the episode list from TheMovieDb (no usable TVDB key), AniDB titles
+// are placed by the mapping's TMDB seasons.
+func TestTMDBListPairsAniDBByTMDBSeasons(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api4.thetvdb.com/v4/login" {
+			return 401, `{}`
+		}
+		return testSeries(path, q)
+	}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1,
+		TMDBTV: 77, TMDBMapped: true, TMDBSeason: 1, TMDBOffset: 1}})
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep := s.Episode(1, 2); ep == nil || ep.titles["tmdb"] != "TMDB Two" || ep.titles["anidb"] != "The Start" {
+		t.Errorf("TMDB S1E2: %+v, want AniDB episode 1's title", ep)
+	}
+	if ep := s.Episode(1, 1); ep == nil || ep.titles["anidb"] != "" {
+		t.Errorf("TMDB S1E1: %+v, want no AniDB title (AniDB 1 is TMDB S1E2)", ep)
 	}
 }
 

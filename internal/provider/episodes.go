@@ -22,7 +22,9 @@ import (
 // season and episode offset. In /anidb, TheMovieDb is paired the same way by its
 // own season, offset and exceptions (tmdbseason…), since its seasons often
 // differ from TheTVDB's; an entry without them gets TheTVDB's season and
-// number. In /tvdb, TheMovieDb is paired at TheTVDB's season and number.
+// number. In /tvdb, the other site (TheMovieDb, or TheTVDB when the list came
+// from TheMovieDb) is paired through AniDB: the place on the list gives the
+// AniDB episode, and the mapping gives its place on the other site.
 
 // spot is a place on a TVDB or TMDB series: season (-1 = absolute order) and
 // episode number.
@@ -196,38 +198,53 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 
 // --- /tvdb -----------------------------------------------------------------
 
-// tvdbEpisodeTitles adds every title EPISODE_TITLES may pick to a /tvdb show:
-// the other of TVDB/TMDB (the episode list's own source is already set),
-// paired by season and number, and AniDB's, through every AniDB entry of the
-// series. first is the series' first AniDB entry (already fetched). Other
-// entries come from the cache; missing ones are fetched in the background
-// for the next build. Returns false while some are still missing, or when
-// the other episode list failed.
-func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, tvdbID, tmdbID int, listSrc string, first *sources.AniDBAnime) bool {
-	order := p.cfg.EpisodeTitles
-	ready := true
-	for _, src := range []string{"tvdb", "tmdb"} {
-		id, enabled := tvdbID, p.tvdb.Enabled()
-		if src == "tmdb" {
-			id, enabled = tmdbID, p.tmdb.Enabled() && tmdbID > 0
-		}
-		if src == listSrc || !enabled || !slices.Contains(order, src) {
-			continue
-		}
-		x, ok := p.seriesEpisodes(ctx, src, id)
-		ready = ready && ok
-		s.eachEpisode(func(ep *Ep) {
-			if e, ok := x.at(ep.listed); ok {
-				ep.setTitle(src, e.Title)
-			}
-		})
-	}
-	if !slices.Contains(order, "anidb") {
-		return ready
-	}
+// tvdbPairing is what a /tvdb show's AniDB entries tell about each place on
+// its episode list (TheTVDB's, or TheMovieDb's when the list came from
+// there): AniDB's titles, and the place of the same AniDB episode on the
+// other site, which often splits seasons differently (One Piece: TVDB S2E1
+// is AniDB episode 9, TMDB S2E1 is episode 62).
+type tvdbPairing struct {
+	titles map[spot]anidbTitles
+	other  map[spot]spot
+}
 
-	type found struct{ title, any string }
-	at := map[spot]found{}
+type anidbTitles struct{ title, any string }
+
+// atListed looks up an episode by its place on the list, else (regular
+// episodes) by its absolute number, for entries mapped in absolute order.
+func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
+	v, ok := m[ep.listed]
+	if !ok && ep.Season > 0 {
+		v, ok = m[spot{-1, ep.Index}]
+	}
+	return v, ok
+}
+
+// otherAt: an episode's place on the other site, through AniDB; without an
+// AniDB counterpart (not cached yet, or a TheTVDB-only extra), the same
+// season and number as on the list.
+func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
+	if sp, ok := atListed(pr.other, ep); ok {
+		return sp, true
+	}
+	return ep.listed, true
+}
+
+// tvdbPairing walks every AniDB entry of a /tvdb series. first is the
+// series' first AniDB entry (already fetched). Other entries come from the
+// cache; missing ones are fetched in the background for the next build, and
+// ready is false meanwhile.
+func (p *Provider) tvdbPairing(tvdbID, tmdbID int, listSrc string, first *sources.AniDBAnime) (pr tvdbPairing, ready bool) {
+	pr = tvdbPairing{map[spot]anidbTitles{}, map[spot]spot{}}
+	ready = true
+	// an entry of another TMDB show has no place on this one
+	onTMDB := func(e mapping.Entry) bool { return e.TMDBTV == 0 || e.TMDBTV == tmdbID }
+	listSpot, otherSpot := p.tvdbSpot, p.tmdbSpot
+	listOK, otherOK := func(mapping.Entry) bool { return true }, onTMDB
+	if listSrc == "tmdb" {
+		listSpot, otherSpot = otherSpot, listSpot
+		listOK, otherOK = otherOK, listOK
+	}
 	firstAID := p.lists.FirstAID(tvdbID)
 	for _, aid := range p.lists.AIDsForTVDB(tvdbID) {
 		a := first
@@ -238,36 +255,69 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, tvdbID, tmdbI
 				ready = ready && a != nil
 			}
 		}
-		if a == nil {
+		e := p.lists.ByAID(aid)
+		if a == nil || !listOK(e) {
 			continue
 		}
-		e := p.lists.ByAID(aid)
 		for _, ae := range a.Episodes {
-			sp, ok := p.tvdbSpot(e, ae.Season, ae.ListIndex())
-			if _, taken := at[sp]; !ok || taken {
+			sp, ok := listSpot(e, ae.Season, ae.ListIndex())
+			if !ok {
 				continue
 			}
-			at[sp] = found{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false)}
+			if _, taken := pr.titles[sp]; !taken { // first entry wins
+				pr.titles[sp] = anidbTitles{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false)}
+			}
+			if _, taken := pr.other[sp]; !taken && otherOK(e) {
+				if o, ok := otherSpot(e, ae.Season, ae.ListIndex()); ok {
+					pr.other[sp] = o
+				}
+			}
 		}
 	}
-	s.eachEpisode(func(ep *Ep) {
-		f, ok := at[ep.listed]
-		if !ok && ep.Season > 0 { // entries mapped in TheTVDB's absolute order
-			f, ok = at[spot{-1, ep.Index}]
-		}
-		if ok {
-			ep.setTitle("anidb", f.title)
-			ep.anyTitle = f.any
-		}
-	})
-	return ready
+	return pr, ready
+}
+
+// tvdbEpisodeTitles adds every title EPISODE_TITLES may pick to a /tvdb show:
+// the other of TVDB/TMDB (the episode list's own source is already set),
+// paired through AniDB (tvdbPairing), and AniDB's, through every AniDB entry
+// of the series. Returns the pairing for tvdbEpisodeCrew, and false while
+// some AniDB entries are still missing, or when the other list failed.
+func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, tvdbID, tmdbID int, listSrc string, first *sources.AniDBAnime) (tvdbPairing, bool) {
+	order := p.cfg.EpisodeTitles
+	otherSrc, otherID, otherOn := "tmdb", tmdbID, p.tmdb.Enabled() && tmdbID > 0
+	if listSrc == "tmdb" {
+		otherSrc, otherID, otherOn = "tvdb", tvdbID, p.tvdb.Enabled()
+	}
+	var pr tvdbPairing
+	ready := true
+	if otherOn || slices.Contains(order, "anidb") { // the other site's crew needs the pairing too
+		pr, ready = p.tvdbPairing(tvdbID, tmdbID, listSrc, first)
+	}
+	if otherOn && slices.Contains(order, otherSrc) {
+		x, ok := p.seriesEpisodes(ctx, otherSrc, otherID)
+		ready = ready && ok
+		s.eachEpisode(func(ep *Ep) {
+			if e, ok := x.of(ep, pr.otherAt); ok {
+				ep.setTitle(otherSrc, e.Title)
+			}
+		})
+	}
+	if slices.Contains(order, "anidb") {
+		s.eachEpisode(func(ep *Ep) {
+			if f, ok := atListed(pr.titles, ep); ok {
+				ep.setTitle("anidb", f.title)
+				ep.anyTitle = f.any
+			}
+		})
+	}
+	return pr, ready
 }
 
 // tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes from
 // its episode list (eps, absolute numbers filled in) and the other of
-// TVDB/TMDB, paired by season and number like the titles. Returns false when
+// TVDB/TMDB, paired through AniDB like the titles (pr). Returns false when
 // the other list failed or episode crew is still being fetched.
-func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, tvdbID, tmdbID int, listSrc string, eps []sources.Episode) bool {
+func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, tvdbID, tmdbID int, listSrc string, eps []sources.Episode, pr tvdbPairing) bool {
 	own := indexEpisodes(eps)
 	var tv, tm episodeIndex
 	ready := true
@@ -286,7 +336,11 @@ func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, tvdbID, tmdbID 
 		ready = ready && ok
 	}
 	listed := func(ep *Ep) (spot, bool) { return ep.listed, true }
-	crewOK := p.episodeCrew(ctx, s, tv, tm, listed, listed)
+	tvAt, tmAt := listed, pr.otherAt
+	if listSrc == "tmdb" {
+		tvAt, tmAt = pr.otherAt, listed
+	}
+	crewOK := p.episodeCrew(ctx, s, tv, tm, tvAt, tmAt)
 	return ready && crewOK
 }
 
