@@ -46,12 +46,13 @@ type Config struct {
 	MinScore           int      // lowest title-search score accepted automatically (0-100)
 
 	// Source order per field: the first source that has a value wins, the
-	// rest are fallbacks in order.
+	// rest are fallbacks in order. Each comment lists the allowed sources in
+	// their default order (see Load).
 	TitleSources      []string // anidb, tvdb, tmdb, ann
 	SummarySources    []string // anidb, tvdb, tmdb, mal, ann
-	PosterSources     []string // tmdb, tvdb, anidb, mal, ann
-	BackgroundSources []string // tmdb, tvdb
-	LogoSources       []string // tmdb, tvdb
+	PosterSources     []string // tvdb, tmdb, anidb, mal, ann
+	BackgroundSources []string // tvdb, tmdb
+	LogoSources       []string // tvdb, tmdb
 	EpisodeSources    []string // tvdb, tmdb (episode list of the /tvdb mode)
 	// EpisodeFillSources: in /anidb mode, where missing episode thumbnails,
 	// summaries, titles, dates and runtimes come from, matched through the

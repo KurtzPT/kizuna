@@ -21,6 +21,7 @@ Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick th
 | 📺 **Wrong match or metadata** | wrong show, no match, wrong titles, episodes, seasons, artwork |
 | 🛠️ **Migration script** | `kizuna-migrate.sh` wrote wrong hints or failed |
 | 🐳 **Running Kizuna** | Docker, Plex registration, access, health check, logs |
+| 🐞 **Something else** | crashes, restarts, errors, memory or disk use, anything the others don't cover |
 | ✨ **Feature request** | something Kizuna should do |
 
 **Check the [troubleshooting table](SETUP.md#-troubleshooting) first**, and attach the log lines for the show

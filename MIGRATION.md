@@ -170,9 +170,9 @@ for your library:
 ./kizuna-migrate.sh -m tvdb -u http://192.168.1.10:32600 /mnt/media/AnimeTVDB  > plan.txt 2>&1
 ./kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime      > plan.txt 2>&1
 
-grep -c '^  + ' plan.txt    # hints added or changed
+grep -c '^  + ' plan.txt    # hints to add
 grep WARNING plan.txt       # everything the script left alone
-tail -n 3 plan.txt          # summary: files to write, hints, warnings
+tail -n 4 plan.txt          # summary: files to write, hints, warnings
 ```
 
 In `tvdb` mode the script stops right away if Kizuna isn't reachable or `curl`/`jq` are missing. In `anidb` and `auto`
@@ -181,7 +181,7 @@ mode it carries on and prints a `note:` at the top saying what it can't plan wit
 | Look for | Means | Fix |
 |---|---|---|
 | an episode number that doesn't match the file | the script read the name differently | write that hint [by hand](#-your-own-plexmatch-files) |
-| an opening, ending or special on an unexpected `SP` number | AniDB numbers them its own way | check against [variants](#openings-and-endings-with-variants) |
+| a special, or an opening or ending's new name, on an unexpected `S00E` number | AniDB numbers them its own way | check against [variants](#openings-and-endings-with-variants) |
 | a `tvdb` season that's off (`S03` where you expect `S02`) | TheTVDB's seasons differ from the release, or the mapping is wrong | [fix the mapping](SETUP.md#-fixing-a-wrong-mapping) |
 | renumbered `[tvdb-…]` files off by one | TheTVDB lists one episode more or less than your files | compare with TheTVDB before applying |
 | a `[tvdb-…]` file with no hint that should have one | its per-season number is also one of the season's absolute numbers | [rename it or hint it by hand](#plain-tvdb-folders-per-season-numbers) |
@@ -292,16 +292,15 @@ Kizuna title or number, and an `ep:` hint can't change that. Plex looks for, as 
 |---|---|
 | optional prefix | `NC`, `Creditless`, `Clean` (the last two followed by a space, `.` or `_`) |
 | the word | `OP`, `ED`, `Opening`, `Ending`, `OPED` |
-| optional number | 1 or 2 digits, with or without a space, `.` or `_` before it, and one letter after it: `OP1`, `OP 2`, `OP1a`, `OP1x` |
+| optional number | 1 or 2 digits, with or without a space, `.` or `_` before it, and maybe one letter after it: `OP1`, `OP 2`, `OP1a`, `OP1x` |
 | optional extras | one more letter after a space, `.` or `_` (`OP1 a`), and a version: `v2` |
 
-So `NCOP`, `NCED2`, `OP1b`, `ED 1`, `Creditless Opening` and `Clean Ending v2` are all extras. The words are matched
-in capitals as written above, so a lowercase `op1` is probably read as an episode name (not tested). An episode whose
-name has such a word on its own, like `Show - 05 [ED fix].mkv`, may become an extra too; the script warns about it.
+So `NCOP`, `NCED2`, `OP1b`, `ED 1`, `Creditless Opening` and `Clean Ending v2` are all extras. Two things are not
+tested yet: whether a lowercase `op1` counts too (the script assumes it doesn't), and whether a regular episode with
+such a word, like `Show - 05 [ED fix].mkv`, becomes an extra (the script warns about it).
 
-To get an opening or ending as Kizuna's special, rename it without those words, ideally to its number:
-`Show - S00E101.mkv`. The scanner reads that by itself, no hint needed. The script prints the name to use for each
-file.
+To get an opening or ending as Kizuna's special, rename it to its number, e.g. `Show - S00E101.mkv`. The scanner
+reads that by itself, no hint needed, and the script prints the name to use for each file.
 
 ### Openings and endings with variants
 
@@ -328,8 +327,9 @@ So the script asks Kizuna for the show's credit list and matches each file to a 
 > [!IMPORTANT]
 > This needs **Kizuna running with AniDB details** for the show (an AniDB client, not banned). In `anidb` mode the
 > script uses Kizuna at `-u` (default `http://localhost:32600`) and says at the start when it can't reach it. Without
-> Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`S00E101`, `S00E152`). Variant files are only reported, and
-> so is every opening in a folder with opening variants (endings likewise), because a variant shifts the numbers.
+> Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`S00E101`, `S00E152`). Variant files get no number,
+> and neither does any opening in a folder with opening variants (endings likewise), because a variant shifts the
+> numbers.
 
 ### HAMA `.id` files
 
@@ -424,7 +424,7 @@ the script reads it the way Plex does:
 |---|---|
 | no `.plexmatch` | creates one with just its hints |
 | `title:` / `show:`, `year:` | sends them to Kizuna as the show's title and year, like Plex |
-| `ep:` lines, yours or from an earlier run | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently, and for every `ep: SPxx:` line, which Plex 1.43 ignores: change those to `ep: S00Exx:` |
+| `ep:` lines, yours or from an earlier run | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently, and for every `ep: SPxx:` line ([Plex 1.43 leaves those files out](#anidb-rules)): change those to `ep: S00Exx:` |
 | `season:` in a season folder | treats that folder as that season |
 | `season:` in the show folder | warns: every file without its own hint is read as that season |
 | `tvdbid:`, `tmdbid:`, `imdbid:`, `guid:` | ⚠️ warns and ignores them. Put the id in the folder name: `Show [tvdb-267440]` |

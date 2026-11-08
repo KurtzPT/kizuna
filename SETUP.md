@@ -59,8 +59,8 @@ Without an AniDB client, shows still match by title (from AniDB's offline title 
 | Studio | ⭐ | ✅¹ | ✅ | ✅ | ✅ |
 | Content rating | ⭐ | ✅² | ✅ | ✅ | ✅ |
 | Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
-| Poster | ✅ | ✅ | ⭐ | ✅ | ✅ |
-| Background, logo | | ✅³ | ⭐ | | |
+| Poster | ✅ | ⭐ | ✅ | ✅ | ✅ |
+| Background, logo | | ⭐³ | ✅ | | |
 | Episode list (`/tvdb`) | | ⭐ | ✅ | | |
 | Episode titles | ⭐ | ✅ | ✅ | | |
 | Episode thumbnails (`/anidb`) | | ⭐ | | | |
@@ -151,11 +151,8 @@ You can add more than one; each is its own provider.
 **b. Create an agent.** Click *Add Agent*, give it a name (e.g. *Kizuna Anime*), then add two providers:
 
 1. **The Kizuna provider from step a.** It's the agent's **primary** provider (matching and metadata) and always
-   stays first.
+   stays first, so there's nothing to reorder.
 2. **Plex Local Media.** It adds your own artwork, theme songs and subtitles from your folders.
-
-Plex only lets you reorder providers once both are in the agent. There's nothing to reorder here: Kizuna stays the
-primary whatever the order of the others.
 
 ```mermaid
 flowchart LR
@@ -286,7 +283,7 @@ date they're only used on the series' first AniDB entry (a TheMovieDb movie is a
 
 ```yaml
 # AniDB posters by default, the others still offered in Plex's Edit dialog
-POSTER_SOURCES: "anidb,tmdb,tvdb,mal"
+POSTER_SOURCES: "anidb,tvdb,tmdb,mal,ann"
 ART_ALL_SOURCES: "true"
 
 # English titles where AniDB has an official one, else romaji
@@ -442,7 +439,7 @@ says otherwise for specific episodes:
 
 | Attribute | Values |
 |---|---|
-| `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; openings, endings and trailers can't be mapped) |
+| `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; openings, endings and trailers use Kizuna's numbers: `101`…, `151`…, `201`…) |
 | `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order |
 
 | Written | Means |
@@ -461,7 +458,7 @@ flowchart LR
     P -- yes --> R1["✅ that pair"]
     P -- no --> G{"inside a<br/>start…end range?"}
     G -- yes --> R2["✅ episode + offset"]
-    G -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes only</i>"]
+    G -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes; specials:<br/>same number (use case 6)</i>"]
 ```
 
 ### Use cases
@@ -722,20 +719,7 @@ The GitHub workflow builds `linux/amd64` and `linux/arm64` images on GitHub Cont
 | tag `v1.2.3-beta.1` | `:1.2.3-beta.1`, `:sha-<short>` |
 | push to `main`, pull request | build and test only, nothing pushed |
 
-How branches and releases work: [CONTRIBUTING.md](CONTRIBUTING.md#-branches-and-releases).
-
-**Code map**
-
-```text
-cmd/kizuna/main.go         start-up, list refresh, `kizuna health` (Docker healthcheck)
-internal/config            environment variables
-internal/fetch             HTTP + disk cache + throttling + free-space cleanup (every source uses it)
-internal/logfile           daily log file, old days deleted
-internal/anidb             offline AniDB title list: search and title-language picking
-internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
-internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
-internal/provider          modes, matching, show model, Plex JSON, HTTP routes
-scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
-```
+How branches and releases work, and where things are in the code: [CONTRIBUTING.md](CONTRIBUTING.md#-branches-and-releases)
+([code map](CONTRIBUTING.md#%EF%B8%8F-code-map)).
 
 </details>

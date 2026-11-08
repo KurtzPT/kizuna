@@ -192,9 +192,9 @@ several AniDB entries (a TVDB series with one entry per season) gives the series
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date | none |
 
 Every field has its own source order, and any source can come first. Later sources are only downloaded when the ones
-before them have nothing. By default AniDB comes first for show details, and TheTVDB for artwork, with TheTVDB
-ahead of TheMovieDb everywhere and Anime News Network as the last fallback wherever it has data. Set `ART_ALL_SOURCES=true` to offer
-posters, backgrounds and logos from every listed source in Plex's *Edit* dialog.
+before them have nothing. By default AniDB comes first for show details and TheTVDB for artwork; TheTVDB always
+comes before TheMovieDb, and Anime News Network is the last fallback. Set `ART_ALL_SOURCES=true` to offer posters,
+backgrounds and logos from every listed source in Plex's *Edit* dialog.
 
 **Setup:** [which keys each mode needs and what each source can supply](SETUP.md#-1-get-your-keys) ·
 [changing the order per field](SETUP.md#-sources-per-field).
@@ -216,7 +216,7 @@ flowchart LR
 
 | | |
 |---|---|
-| **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. An AniDB special the mapping doesn't list is TheTVDB's special with the same number (`S1` = `S00E01`) on the entry that starts the series; openings, endings and trailers only pair through an exception. TheMovieDb is paired at the same season and number as TheTVDB |
+| **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. An AniDB special the mapping doesn't list is TheTVDB's special with the same number (`S1` = `S00E01`), but only on the entry that starts the series and isn't in TVDB season 0; openings, endings and trailers only pair through an exception. TheMovieDb is paired at the same season and number as TheTVDB |
 | **Picking the title** | `EPISODE_TITLES` sets the order (default AniDB → TheTVDB → TheMovieDb), in both modes. The first **real** title wins: *Episode 12* or *TBA* don't count |
 | **AniDB languages** | `EPISODE_LANGS` (default English, then romaji). With none of those, the next source is tried; AniDB's title in any language is the last resort |
 | **In `/tvdb`** | a show spans several AniDB entries. Uncached ones are fetched in the background, within AniDB's limits, so their titles appear on a later refresh |
