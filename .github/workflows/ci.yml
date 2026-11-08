@@ -1,7 +1,7 @@
 # Fast checks on every push and pull request (the Docker workflow builds and
 # publishes the image):
 #   go       Go version in sync, gofmt, go vet, tests with the race detector
-#   script   ShellCheck on the migration script
+#   script   bash syntax, ShellCheck and the behaviour tests of the migration script
 name: ci
 
 on:
@@ -54,7 +54,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: bash syntax
-        run: bash -n scripts/kizuna-migrate.sh
+        run: for f in scripts/*.sh; do bash -n "$f"; done
 
       - name: ShellCheck
         run: shellcheck --severity=warning scripts/*.sh
+
+      - name: script tests
+        run: bash scripts/kizuna-migrate_test.sh

@@ -77,6 +77,7 @@ go vet ./...
 go test -race -count=1 ./...
 bash -n scripts/kizuna-migrate.sh
 shellcheck --severity=warning scripts/*.sh
+bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
 ```
 
 The [`docker`](.github/workflows/docker.yml) workflow also builds the `amd64` and `arm64` images for a pull request,
@@ -177,6 +178,7 @@ internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (A
 internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
 internal/provider          modes, matching, show model, Plex JSON, HTTP routes
 scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
+scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 ```
 
 | To add… | Start in |

@@ -740,7 +740,7 @@ add_hints() {
 	# a copy of the old file first, for its permissions (and owner, as root)
 	if [[ -f $pm ]]; then cp -p "$pm" "$tmp" 2>/dev/null || :; fi
 	if ! printf '%s' "$out" >"$tmp" || ! mv -f "$tmp" "$pm"; then
-		rm -f "$tmp"
+		rm -f "$tmp" 2>/dev/null || :
 		die "can't write $pm (full disk? permissions?): it was left as it was"
 	fi
 }
