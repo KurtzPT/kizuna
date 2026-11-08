@@ -95,7 +95,7 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77}})
 	cfg := config.Load()
 	return New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
-		sources.NewTVDB(f, "key", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
+		sources.NewTVDB(f, "key", "", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
 }
 
 func TestBuildTVDBShow(t *testing.T) {

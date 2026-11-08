@@ -22,6 +22,7 @@ services:
       # Set a key to "" to disable that source.
       TVDB_API_KEY: "<tvdb-api-key>"
       # TVDB_PIN: "<tvdb-pin>"       # only for subscriber keys
+      # TVDB_LEGACY_API_KEY: "<key>"  # a legacy (v3) key: used when TVDB_API_KEY is empty or rejected
       TMDB_API_KEY: "<tmdb-api-key>"
 
       # --- MyAnimeList (fallback summary/poster; "" to disable) ---

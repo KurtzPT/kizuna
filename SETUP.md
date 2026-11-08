@@ -29,7 +29,7 @@ AniDB account.
 | Source | Key | Where to get it | Setting |
 |---|---|---|---|
 | **AniDB** | client name | [anidb.net](https://anidb.net) → *Settings → Client → Add client*, protocol **HTTP** (free) | `ANIDB_CLIENT` |
-| **TheTVDB** | API key (v4) | [thetvdb.com](https://thetvdb.com/api-information) | `TVDB_API_KEY` |
+| **TheTVDB** | API key (v4), or a legacy key | [thetvdb.com](https://thetvdb.com/api-information) | `TVDB_API_KEY` (legacy: `TVDB_LEGACY_API_KEY`) |
 | **TheMovieDb** | API key (v3) | [themoviedb.org](https://www.themoviedb.org/settings/api) | `TMDB_API_KEY` |
 | **MyAnimeList** | Client ID | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | `MAL_CLIENT_ID` |
 | **Anime News Network** | none | – | – |
@@ -53,17 +53,18 @@ Without an AniDB client, shows still match by title (from AniDB's offline title 
 | Summary | ⭐ | ✅ | ✅ | ✅ | ✅ |
 | Genres | ⭐ | ✅ | ✅ | ✅ | ✅ |
 | Cast | ⭐ | ✅ | ✅ | | ✅ |
-| Crew | ⭐ | ✅ | ✅ | | ✅ |
-| Studio | ⭐ | ✅ | ✅ | ✅ | ✅ |
-| Content rating | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Crew | ⭐ | ✅¹ | ✅ | | ✅ |
+| Studio | ⭐ | ✅¹ | ✅ | ✅ | ✅ |
+| Content rating | ⭐ | ✅² | ✅ | ✅ | ✅ |
 | Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
 | Poster | ✅ | ✅ | ⭐ | ✅ | ✅ |
-| Background, logo | | ✅ | ⭐ | | |
+| Background, logo | | ✅³ | ⭐ | | |
 | Episode list (`/tvdb`) | | ⭐ | ✅ | | |
 | Episode titles | ⭐ | ✅ | ✅ | | |
 | Episode thumbnails (`/anidb`) | | ⭐ | | | |
 
-<sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback</sub>
+<sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key
+(`TVDB_LEGACY_API_KEY`): ¹ none, ² US rating only, ³ backgrounds only, no logos</sub>
 
 ## 🐳 2. Run Kizuna
 
@@ -202,7 +203,8 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off and shows match by title only |
 | `ANIDB_CLIENTVER` | `1` | The client version you registered |
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
-| `TVDB_PIN` | – | Only for TVDB subscriber keys |
+| `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB answers `pin required` without it |
+| `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or as a fallback when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives episodes, thumbnails, posters, backgrounds, cast, genres and the US content rating, but no clear logos, studio, directors or writers. TheTVDB may switch the v3 API off at any time |
 | `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork and logos, and `/tvdb` episodes when there's no TVDB key |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
 
@@ -238,7 +240,7 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | `TITLE_SOURCES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
 | `GENRE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
-| `CAST_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters. ANN: Japanese cast, no photos |
+| `CAST_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
 | `CREW_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Directors and writers, both from the same source |
 | `STUDIO_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | |
 | `DATE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | First aired / release date |
@@ -637,7 +639,7 @@ and Plex tokens are always shown as `***`.
 
 | Level | Shows |
 |---|---|
-| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `anidb_details=true/false` · failed requests, rejected API keys, AniDB backoff and bans |
+| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `anidb_details=true/false` · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
 | **`debug`** | all of the above, plus every Plex request and match body · every outgoing call and cache decision · the top 5 title-search scores · why AniDB wasn't called · which source supplied each field (`show fields: source used`) · episode pairing counts · cache cleanup checks |
 
 ## 🧰 Troubleshooting
@@ -667,10 +669,12 @@ and Plex tokens are always shown as `***`.
 | A show doesn't match | The `match: nothing found` line gives the reason. Add an id tag to the folder: `Show [anidb-1234]` |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
 | No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, daily limit, backoff). The `show built` line says which; a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
-| `/tvdb` show has no episodes | Set `TVDB_API_KEY` or `TMDB_API_KEY` |
+| `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
 | Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
 | `source rejected the request: check its API key / client id` | That key or client id is wrong or expired |
+| `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or `pin required`: set `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min |
+| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
 
 **Still stuck?** [Open an issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the form that fits:
 
@@ -718,7 +722,7 @@ internal/fetch             HTTP + disk cache + throttling + free-space cleanup (
 internal/logfile           daily log file, old days deleted
 internal/anidb             offline AniDB title list: search and title-language picking
 internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
-internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4, TheMovieDb, MyAnimeList, ANN
+internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
 internal/provider          modes, matching, show model, Plex JSON, HTTP routes
 scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
 ```

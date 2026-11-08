@@ -69,3 +69,20 @@ func TestANNFallback(t *testing.T) {
 		t.Fatalf("summary %q title %q genres %v", s.Summary, s.Title, s.Genres)
 	}
 }
+
+func TestUniqueCast(t *testing.T) {
+	got := uniqueCast([]sources.Person{
+		{Name: "Atsumi Tanezaki", Role: "Frieren", Photo: "a.jpg"},
+		{Name: "Yoji Ueda", Role: "Eisen"},
+		{Name: "Yoji Ueda ", Role: "eisen", Photo: "u.jpg"}, // same person and character
+		{Name: "Yoji Ueda", Role: "Narrator"},               // another character: kept
+	})
+	want := []sources.Person{
+		{Name: "Atsumi Tanezaki", Role: "Frieren", Photo: "a.jpg"},
+		{Name: "Yoji Ueda", Role: "Eisen", Photo: "u.jpg"},
+		{Name: "Yoji Ueda", Role: "Narrator"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}

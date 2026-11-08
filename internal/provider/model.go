@@ -231,7 +231,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		slog.Info("episode list incomplete; using what came back, rebuilt in 2 min", "root", s.Root, "err", epsErr)
 	}
 	if len(eps) == 0 {
-		return nil, fmt.Errorf("tvdb %d: no episode list from EPISODE_SOURCES %v (set TVDB_API_KEY or TMDB_API_KEY): %v",
+		return nil, fmt.Errorf("tvdb %d: no episode list from EPISODE_SOURCES %v (set TVDB_API_KEY, TVDB_LEGACY_API_KEY or TMDB_API_KEY): %v",
 			tvdbID, p.cfg.EpisodeSources, epsErr)
 	}
 	if tmdbID > 0 {

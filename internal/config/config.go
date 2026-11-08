@@ -27,10 +27,11 @@ type Config struct {
 	AniDBClient    string // registered AniDB HTTP client name (required for AniDB details)
 	AniDBClientVer string //
 
-	TVDBKey     string // TheTVDB v4 API key (optional, enables TVDB episodes and art)
-	TVDBPin     string // only for subscriber keys
-	TMDBKey     string // TheMovieDb v3 API key (optional)
-	MALClientID string // MyAnimeList API v2 client ID (optional, public data only)
+	TVDBKey       string // TheTVDB v4 API key (optional, enables TVDB episodes and art)
+	TVDBPin       string // only for subscriber keys
+	TVDBLegacyKey string // legacy TheTVDB key (v3 API): when TVDBKey is empty or rejected
+	TMDBKey       string // TheMovieDb v3 API key (optional)
+	MALClientID   string // MyAnimeList API v2 client ID (optional, public data only)
 
 	// MappingSources: AniDB id mapping lists, in priority order; later ones
 	// only fill missing ids. animelists, fribb.
@@ -93,6 +94,7 @@ func Load() Config {
 		AniDBClientVer:     env("ANIDB_CLIENTVER", "1"),
 		TVDBKey:            env("TVDB_API_KEY", ""),
 		TVDBPin:            env("TVDB_PIN", ""),
+		TVDBLegacyKey:      env("TVDB_LEGACY_API_KEY", ""),
 		TMDBKey:            env("TMDB_API_KEY", ""),
 		MALClientID:        env("MAL_CLIENT_ID", ""),
 		MappingSources:     sourceList("MAPPING_SOURCES", "animelists,fribb", "animelists", "fribb"),

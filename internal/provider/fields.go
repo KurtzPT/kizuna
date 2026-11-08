@@ -215,7 +215,7 @@ func (ss *showSources) fill(s *Show) {
 	s.Genres = d.Genres
 	note("genres", src)
 	d, src = ss.pickDetails(cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 })
-	s.Roles = d.Cast
+	s.Roles = uniqueCast(d.Cast)
 	note("cast", src)
 	d, src = ss.pickDetails(cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" })
 	s.Studio = d.Studio
@@ -332,4 +332,25 @@ type lazy[T any] struct {
 func (l *lazy[T]) get() T {
 	l.once.Do(func() { l.v = l.f() })
 	return l.v
+}
+
+// uniqueCast drops repeated cast entries (same person, same character, as
+// sources sometimes list them twice), keeping the first one's place and the
+// first photo found.
+func uniqueCast(cast []sources.Person) []sources.Person {
+	type who struct{ name, role string }
+	at := map[who]int{}
+	var out []sources.Person
+	for _, p := range cast {
+		k := who{strings.ToLower(strings.TrimSpace(p.Name)), strings.ToLower(strings.TrimSpace(p.Role))}
+		if i, ok := at[k]; ok {
+			if out[i].Photo == "" {
+				out[i].Photo = p.Photo
+			}
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, p)
+	}
+	return out
 }

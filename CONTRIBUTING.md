@@ -171,7 +171,7 @@ internal/fetch             HTTP + disk cache + throttling + free-space cleanup (
 internal/logfile           daily log file, old days deleted
 internal/anidb             offline AniDB title list: search and title-language picking
 internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
-internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4, TheMovieDb, MyAnimeList, ANN
+internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
 internal/provider          modes, matching, show model, Plex JSON, HTTP routes
 scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
 ```

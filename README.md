@@ -184,7 +184,7 @@ several AniDB entries (a TVDB series with one entry per season) gives the series
 | Source | Best at | Key |
 |---|---|---|
 | [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff | free HTTP client |
-| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, artwork | API key |
+| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, artwork | API key (v4, or a legacy key) |
 | [**TheMovieDb**](https://www.themoviedb.org) | posters, backgrounds, logos; `/tvdb` episodes without a TVDB key | API key |
 | [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date | client ID |
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date | none |

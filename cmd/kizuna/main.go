@@ -72,13 +72,29 @@ func main() {
 	}
 }
 
+// tvdbAPI names the TheTVDB API the keys select, for the ready line: the v4
+// key wins over the legacy (v3) one.
+func tvdbAPI(cfg config.Config) string {
+	switch {
+	case cfg.TVDBKey != "":
+		return "v4"
+	case cfg.TVDBLegacyKey != "":
+		return "v3"
+	}
+	return "off"
+}
+
 // setup creates every source and loads the two lists matching depends on.
 func setup(ctx context.Context, cfg config.Config) *provider.Provider {
 	f := fetch.New(filepath.Join(cfg.DataDir, "cache"))
 	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget)
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
 	ad := sources.NewAniDB(f, cfg.DataDir, cfg.AniDBClient, cfg.AniDBClientVer)
-	p := provider.New(cfg, titles, ad, lists, sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin),
+	tvdb := sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin, cfg.TVDBLegacyKey)
+	if cfg.TVDBKey != "" && cfg.TVDBLegacyKey != "" {
+		slog.Info("TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; the legacy key takes over (with a warning) if TheTVDB rejects it")
+	}
+	p := provider.New(cfg, titles, ad, lists, tvdb,
 		sources.NewTMDB(f, cfg.TMDBKey), sources.NewMAL(f, cfg.MALClientID), sources.NewANN(f))
 	load := func() {
 		if err := titles.Load(ctx, f); err != nil {
@@ -123,7 +139,7 @@ func serve(cfg config.Config) error {
 	}
 	p := setup(ctx, cfg)
 	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
-		"tvdb", cfg.TVDBKey != "", "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
+		"tvdb", tvdbAPI(cfg), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
 		"titles", cfg.TitleSources, "summaries", cfg.SummarySources, "posters", cfg.PosterSources,
 		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
 		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,

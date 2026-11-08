@@ -176,7 +176,7 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 		200: {AID: 200, TVDB: 500, TVDBSeason: 2, Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 3, TVDBSeason: 0, TVDBEp: 1}}},
 		300: {AID: 300, TVDB: 500, TVDBSeason: 3}, // never fetched
 	})
-	p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "", "1"), tvdb: sources.NewTVDB(f, "", ""), tmdb: sources.NewTMDB(f, "")}
+	p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "", "1"), tvdb: sources.NewTVDB(f, "", "", ""), tmdb: sources.NewTMDB(f, "")}
 	p.cfg.EpisodeTitles, p.cfg.EpisodeLangs = []string{"anidb", "tvdb"}, []string{"en"}
 
 	first := &sources.AniDBAnime{AID: 100, Episodes: []sources.AniDBEpisode{

@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,12 +18,15 @@ import (
 
 const tvdbAPI = "https://api4.thetvdb.com/v4"
 
-// TVDB is a minimal TheTVDB v4 client (needs your own API key).
+// TVDB is a minimal TheTVDB client (needs your own API key). It speaks v4,
+// or the legacy v3 API (tvdb3.go) with a legacy key: when that's the only
+// key, or as a fallback once TheTVDB rejects the v4 key.
 type TVDB struct {
-	f        *fetch.Client
-	key, pin string
+	f                   *fetch.Client
+	key, pin, legacyKey string // key: v4
 
 	mu      sync.Mutex
+	legacy  bool // using the legacy key (v3 API)
 	token   string
 	tokenAt time.Time
 	// A failed login is remembered until loginRetry, so a wrong key costs
@@ -38,69 +42,163 @@ const (
 	tvdbLoginPause  = 30 * time.Second
 )
 
-func NewTVDB(f *fetch.Client, key, pin string) *TVDB {
+// NewTVDB uses the v4 key when there is one, else the legacy v3 key. With
+// both, the legacy key takes over (with a warning) once TheTVDB rejects the
+// v4 key, until the next restart.
+func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
-	return &TVDB{f: f, key: key, pin: pin}
+	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
+	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != ""}
 }
 
-func (t *TVDB) Enabled() bool { return t.key != "" }
+func (t *TVDB) Enabled() bool { return t.key != "" || t.legacyKey != "" }
 
-// login returns a bearer token (valid a month; renewed weekly).
-func (t *TVDB) login(ctx context.Context) (string, error) {
+// API names the TheTVDB API in use: "v4", "v3" (legacy key) or "" (off).
+func (t *TVDB) API() string {
+	if !t.Enabled() {
+		return ""
+	}
+	if t.isLegacy() {
+		return "v3"
+	}
+	return "v4"
+}
+
+func (t *TVDB) isLegacy() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.token != "" && time.Since(t.tokenAt) < 7*24*time.Hour {
-		return t.token, nil
-	}
-	if time.Now().Before(t.loginRetry) {
-		return "", t.loginErr
-	}
-	body, _ := json.Marshal(map[string]string{"apikey": t.key, "pin": t.pin})
-	data, err := t.f.Get(ctx, fetch.Request{URL: tvdbAPI + "/login", Method: "POST", Body: body, Quiet: true})
-	var r struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
-	}
-	if err == nil {
-		if json.Unmarshal(data, &r) != nil || r.Data.Token == "" {
-			err = errors.New("no token in the answer")
-		}
-	}
-	if err != nil {
-		err = fmt.Errorf("tvdb login: %w", err)
-		if ctx.Err() != nil { // the caller gave up: says nothing about TVDB
-			return "", err
-		}
-		var se *fetch.StatusError
-		if errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden) {
-			t.loginErr, t.loginRetry = err, time.Now().Add(tvdbBadKeyPause)
-			slog.Error("TVDB rejected the API key: check TVDB_API_KEY (and TVDB_PIN for subscriber keys); TVDB is skipped until the next try",
-				"retry_in", tvdbBadKeyPause, "err", err)
-		} else {
-			t.loginErr, t.loginRetry = err, time.Now().Add(tvdbLoginPause)
-			slog.Warn("TVDB login failed; TVDB is skipped until the next try", "retry_in", tvdbLoginPause, "err", err)
-		}
-		return "", err
-	}
-	t.token, t.tokenAt, t.loginErr, t.loginRetry = r.Data.Token, time.Now(), nil, time.Time{}
-	return t.token, nil
+	return t.legacy
 }
 
-func (t *TVDB) get(ctx context.Context, path, key string, ttl time.Duration, out any) error {
+// useLegacy says which API a call should use. With both keys, it first makes
+// sure the v4 key still works (a login, normally the remembered token), so a
+// rejected v4 key switches to the legacy one before the call picks its API.
+func (t *TVDB) useLegacy(ctx context.Context) bool {
+	if t.key != "" && t.legacyKey != "" && !t.isLegacy() {
+		_, _, _ = t.login(ctx)
+	}
+	return t.isLegacy()
+}
+
+func apiBase(legacy bool) string {
+	if legacy {
+		return tvdb3API
+	}
+	return tvdbAPI
+}
+
+// cacheFolder: v3 and v4 answers look different, so each API has its own.
+func cacheFolder(legacy bool) string {
+	if legacy {
+		return "tvdb3/"
+	}
+	return "tvdb/"
+}
+
+// rejected: TheTVDB refused the key or PIN (400 is its answer to a missing
+// PIN). Trying again won't help.
+func rejected(err error) bool {
+	var se *fetch.StatusError
+	return errors.As(err, &se) &&
+		(se.Code == http.StatusBadRequest || se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden)
+}
+
+// login returns a bearer token and whether it's for the legacy (v3) API. A
+// v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
+// 20 hours).
+func (t *TVDB) login(ctx context.Context) (string, bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for {
+		life := 7 * 24 * time.Hour
+		if t.legacy {
+			life = 20 * time.Hour
+		}
+		if t.token != "" && time.Since(t.tokenAt) < life {
+			return t.token, t.legacy, nil
+		}
+		if time.Now().Before(t.loginRetry) {
+			return "", t.legacy, t.loginErr
+		}
+		creds := map[string]string{"apikey": t.key, "pin": t.pin}
+		if t.legacy {
+			creds = map[string]string{"apikey": t.legacyKey}
+		}
+		body, _ := json.Marshal(creds)
+		data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(t.legacy) + "/login", Method: "POST", Body: body, Quiet: true})
+		var r struct {
+			Token string `json:"token"` // v3
+			Data  struct {
+				Token string `json:"token"` // v4
+			} `json:"data"`
+		}
+		token := ""
+		if err == nil {
+			if json.Unmarshal(data, &r) == nil {
+				token = cmp.Or(r.Data.Token, r.Token)
+			}
+			if token == "" {
+				err = errors.New("no token in the answer")
+			}
+		}
+		if err == nil {
+			t.token, t.tokenAt, t.loginErr, t.loginRetry = token, time.Now(), nil, time.Time{}
+			return t.token, t.legacy, nil
+		}
+		err = fmt.Errorf("tvdb login: %w", err)
+		if ctx.Err() != nil { // the caller gave up: says nothing about TVDB
+			return "", t.legacy, err
+		}
+		if !rejected(err) {
+			t.loginErr, t.loginRetry = err, time.Now().Add(tvdbLoginPause)
+			slog.Warn("TVDB login failed; TVDB is skipped until the next try", "retry_in", tvdbLoginPause, "err", err)
+			return "", t.legacy, err
+		}
+		if !t.legacy && t.legacyKey != "" {
+			slog.Warn("TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY (legacy v3 API) until the next restart; "+
+				"TVDB gives no clear logos, studio, directors or writers this way. Check TVDB_API_KEY (and TVDB_PIN for subscriber keys)",
+				"err", err)
+			t.legacy, t.token = true, ""
+			continue // log in with the legacy key now
+		}
+		hint := "check TVDB_API_KEY (and TVDB_PIN for subscriber keys)"
+		if t.legacy {
+			hint = "check TVDB_LEGACY_API_KEY"
+		}
+		t.loginErr, t.loginRetry = err, time.Now().Add(tvdbBadKeyPause)
+		slog.Error("TVDB rejected the API key: "+hint+"; TVDB is skipped until the next try",
+			"legacy", t.legacy, "retry_in", tvdbBadKeyPause, "err", err)
+		return "", t.legacy, err
+	}
+}
+
+// errTVDBSwitched: the client fell back to the legacy key while a v4 call
+// was under way; that one call gives up.
+var errTVDBSwitched = errors.New("tvdb: switched to the legacy key during the call")
+
+// get fetches path (relative to the root of the v3 or v4 API) through the
+// cache; key is the cache file name without the tvdb/ or tvdb3/ folder.
+func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tvdb: no api key")
 	}
+	key = cacheFolder(legacy) + key
 	if data, age, ok := t.f.Cached(key); ok && age < ttl { // skip the login when cached
 		slog.Debug("cache hit", "key", key, "age", age.Round(time.Minute), "ttl", ttl)
 		return json.Unmarshal(data, out)
 	}
-	token, err := t.login(ctx)
+	token, tokenLegacy, err := t.login(ctx)
 	if err != nil {
 		return err
 	}
-	data, err := t.f.Get(ctx, fetch.Request{URL: tvdbAPI + path, Key: key, TTL: ttl,
-		Headers: map[string]string{"Authorization": "Bearer " + token}})
+	if tokenLegacy != legacy {
+		return errTVDBSwitched
+	}
+	headers := map[string]string{"Authorization": "Bearer " + token}
+	if legacy {
+		headers["Accept-Language"] = "en" // v3 picks the language by header
+	}
+	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers})
 	var se *fetch.StatusError
 	if errors.As(err, &se) && se.Code == http.StatusUnauthorized {
 		t.mu.Lock()
@@ -118,6 +216,9 @@ func (t *TVDB) get(ctx context.Context, path, key string, ttl time.Duration, out
 // Episodes returns all episodes in aired ("official") order with English
 // titles, sorted by season and number.
 func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
+	if t.useLegacy(ctx) {
+		return t.episodes3(ctx, id)
+	}
 	type ep struct {
 		Season   *int   `json:"seasonNumber"`
 		Number   *int   `json:"number"`
@@ -143,7 +244,7 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 			} `json:"links"`
 		}
 		path := fmt.Sprintf("/series/%d/episodes/official/eng?page=%d", id, page)
-		if err := t.get(ctx, path, fmt.Sprintf("tvdb/%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
+		if err := t.get(ctx, false, path, fmt.Sprintf("%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
 			if page == 0 {
 				return nil, err
 			}
@@ -173,19 +274,25 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 
 // Overview returns the English series name and summary.
 func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string) {
+	if t.useLegacy(ctx) {
+		return t.overview3(ctx, id)
+	}
 	var r struct {
 		Data struct {
 			Name     string `json:"name"`
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	_ = t.get(ctx, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("tvdb/%d/eng.json", id), 7*24*time.Hour, &r)
+	_ = t.get(ctx, false, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id), 7*24*time.Hour, &r)
 	return r.Data.Name, r.Data.Overview
 }
 
 // Details returns genres, people, studio, content rating and first air date
 // from the extended series record.
 func (t *TVDB) Details(ctx context.Context, id int) Details {
+	if t.useLegacy(ctx) {
+		return t.details3(ctx, id)
+	}
 	var r struct {
 		Data struct {
 			FirstAired string `json:"firstAired"`
@@ -209,7 +316,7 @@ func (t *TVDB) Details(ctx context.Context, id int) Details {
 			} `json:"contentRatings"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("tvdb/%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
 		return Details{}
 	}
 	d := Details{Date: r.Data.FirstAired}
@@ -243,6 +350,9 @@ func (t *TVDB) Details(ctx context.Context, id int) Details {
 
 // Art returns posters, backgrounds and clear logos, highest score first.
 func (t *TVDB) Art(ctx context.Context, id int) Art {
+	if t.useLegacy(ctx) {
+		return t.art3(ctx, id)
+	}
 	var r struct {
 		Data struct {
 			Artworks []struct {
@@ -253,7 +363,7 @@ func (t *TVDB) Art(ctx context.Context, id int) Art {
 			} `json:"artworks"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, fmt.Sprintf("/series/%d/artworks", id), fmt.Sprintf("tvdb/%d/artworks.json", id), 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), fmt.Sprintf("%d/artworks.json", id), 7*24*time.Hour, &r); err != nil {
 		return Art{}
 	}
 	arts := r.Data.Artworks
