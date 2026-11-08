@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -46,8 +47,12 @@ func main() {
 	// Logs go to standard output (docker logs) and, for the server, to
 	// <DATA_DIR>/logs/kizuna.log: one file per day, older days renamed
 	// kizuna-YYYY-MM-DD.log and deleted after LOG_RETENTION_DAYS.
+	// A bad LOG_RETENTION_DAYS is reported before the log file is open, so
+	// that warning is held back and written once the real logger is set.
 	out, fileErr := io.Writer(os.Stdout), error(nil)
+	var early bytes.Buffer
 	if !healthCheck {
+		slog.SetDefault(slog.New(slog.NewTextHandler(&early, nil)))
 		if f, err := logfile.Open(filepath.Join(config.DataDir(), "logs"), "kizuna", config.LogRetentionDays()); err == nil {
 			defer f.Close()
 			out = io.MultiWriter(os.Stdout, f)
@@ -56,6 +61,7 @@ func main() {
 		}
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})))
+	_, _ = out.Write(early.Bytes())
 	if fileErr != nil {
 		slog.Warn("can't write the log file; logging to standard output only (check the data folder's permissions)", "err", fileErr)
 	}
