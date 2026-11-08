@@ -48,7 +48,7 @@ type Show struct {
 // Ep is one episode at the season/index Plex's scanner gives the file.
 type Ep struct {
 	Season, Index int
-	Title         string // picked per EPISODE_TITLES (episodes.go)
+	Title         string // picked per EPISODE_TITLES (episode_titles.go)
 	Summary       string
 	Date          string
 	Thumb         string
@@ -87,6 +87,14 @@ func (s *Show) Episode(season, index int) *Ep {
 		return &Ep{Season: season, Index: index}
 	}
 	return nil
+}
+
+func (s *Show) eachEpisode(f func(*Ep)) {
+	for n := range s.Episodes {
+		for i := range s.Episodes[n] {
+			f(&s.Episodes[n][i])
+		}
+	}
 }
 
 // --- Mode "anidb": one AniDB entry, absolute numbering, no seasons ---------
