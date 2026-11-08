@@ -7,8 +7,8 @@ body:
     attributes:
       value: |
         Anime libraries are named in thousands of ways, so examples from yours are what makes the script better.
-        Please paste **dry-run** output (no `-a`). If you already applied a plan, `kizuna-migrate.sh -U <library>`
-        removes its hints again.
+        Please paste **dry-run** output (no `-a`). If you already applied a plan, its `ep:` lines are in your
+        `.plexmatch` files: the script doesn't track them, so fix or remove wrong ones by hand.
 
   - type: dropdown
     id: mode
@@ -63,7 +63,7 @@ body:
       description: For the wrong lines, the episode number you expected, and why if it's not obvious (e.g. *AniDB lists Opening 1b as C3*).
       render: text
       placeholder: |
-        ep: SP103: NCOP2.mkv   (AniDB has Opening 1a, 1b, 2)
+        NCOP2.mkv: S00E103   (AniDB has Opening 1a, 1b, 2)
     validations:
       required: true
 

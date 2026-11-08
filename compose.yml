@@ -33,32 +33,32 @@ services:
       # MAPPING_SOURCES: "animelists,fribb"
 
       # --- titles ---
-      # TITLE_LANGS: "main,en"       # main = AniDB main (romaji) title; any AniDB language code: en, x-jat, ja, de...
+      # TITLE_LANGS: "main,x-jat,en" # main = AniDB main (romaji) title; any AniDB language code: en, x-jat, ja, de...
       # TITLE_OFFICIAL_ONLY: "false"  # true = skip AniDB synonyms, fall through to the next language
       # ORIGINAL_TITLE_LANGS: "ja"   # e.g. "x-jat" for romaji; "none" = no original title
       # EPISODE_LANGS: "en,x-jat"     # AniDB episode title languages
       # EPISODE_TITLES: "anidb,tvdb,tmdb"  # episode titles, both modes; first real title wins
-      # MIN_SCORE: "60"              # lowest auto-match score (0-100)
+      # MIN_SCORE: "80"              # lowest auto-match score (0-100)
       # AUTO_DEFAULT: "anidb"        # /auto provider: rules for shows without an [anidb-N] / [tvdb-N] tag
 
       # --- sources per field: first = default, the rest are fallbacks in order ---
       # anidb, tvdb, tmdb, mal, ann (Anime News Network, no key); "none" turns a field off.
-      # TITLE_SOURCES: "anidb,tvdb,tmdb"
+      # TITLE_SOURCES: "anidb,tvdb,tmdb,ann"
       # SUMMARY_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # POSTER_SOURCES: "tmdb,tvdb,anidb,mal"
-      # BACKGROUND_SOURCES: "tmdb,tvdb"
-      # LOGO_SOURCES: "tmdb,tvdb"
+      # POSTER_SOURCES: "tvdb,tmdb,anidb,mal,ann"
+      # BACKGROUND_SOURCES: "tvdb,tmdb"
+      # LOGO_SOURCES: "tvdb,tmdb"
       # EPISODE_SOURCES: "tvdb,tmdb"   # /tvdb mode episode list
       # EPISODE_FILL_SOURCES: "tvdb"  # /anidb mode: episode thumbnails (+ summaries, dates AniDB lacks); "none" = off
       # In /anidb mode, tvdb/tmdb are only used for these on a series' first AniDB entry:
-      # GENRE_SOURCES: "anidb,mal,tmdb,tvdb,ann"
-      # CAST_SOURCES: "anidb,tmdb,tvdb,ann"
-      # STUDIO_SOURCES: "anidb,mal,tmdb,tvdb,ann"
-      # CREW_SOURCES: "anidb,tmdb,tvdb,ann"   # directors + writers
-      # RATING_SOURCES: "anidb,mal,tmdb,tvdb"
+      # GENRE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
+      # CAST_SOURCES: "anidb,tvdb,tmdb,ann"
+      # STUDIO_SOURCES: "anidb,tvdb,tmdb,mal,ann"
+      # CREW_SOURCES: "anidb,tvdb,tmdb,ann"   # directors + writers
+      # RATING_SOURCES: "anidb,tvdb,tmdb,mal,ann"
       # RATING_COUNTRY: "US"              # e.g. "DE" or "GB,US"; other countries only as a last resort
-      # DATE_SOURCES: "anidb,mal,tmdb,tvdb,ann"
-      # ART_ALL_SOURCES: "true"        # true = artwork from every listed source; false = first source that has any
+      # DATE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
+      # ART_ALL_SOURCES: "false"       # true = artwork from every listed source; false = first source that has any
 
       # CACHE_MIN_FREE: "1GB"         # below this much free disk space, delete the oldest cache files...
       # CACHE_FREE_TARGET: "2GB"      # ...until this much is free; CACHE_MIN_FREE "0" = never

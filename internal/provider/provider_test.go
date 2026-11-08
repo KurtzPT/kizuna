@@ -125,6 +125,39 @@ func TestAutoModePerFolder(t *testing.T) {
 	}
 }
 
+// An AniDB special the mapping doesn't list is the TVDB special with the same
+// number, but only on the entry that starts the series (Air Gear S1 = TVDB
+// S00E01); later entries and entries living in TVDB season 0 need an exception.
+func TestTVDBSpotSpecials(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		4196: {AID: 4196, TVDB: 79796, TVDBSeason: 1},
+		4197: {AID: 4197, TVDB: 79796, TVDBSeason: 2},
+		7669: {AID: 7669, TVDB: 79796, TVDBSeason: 0, Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 1, TVDBSeason: 0, TVDBEp: 2}}},
+		7670: {AID: 7670, TVDB: 79796, TVDBSeason: 0, Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 1, TVDBSeason: 0, TVDBEp: 9}}},
+	})
+	p := &Provider{lists: l}
+	cases := []struct {
+		aid, season, index int
+		want               spot
+		ok                 bool
+	}{
+		{4196, 0, 1, spot{0, 1}, true}, // first entry: S1 -> S00E01
+		{4196, 0, 101, spot{}, false},  // an opening has no TVDB number
+		{4196, 1, 3, spot{1, 3}, true}, // regular episodes unchanged
+		{4197, 0, 1, spot{}, false},    // later entry: would be the first entry's special
+		{7669, 0, 1, spot{}, false},    // lives in TVDB season 0: its numbers are taken
+		{7669, 1, 1, spot{0, 2}, true}, // its own episodes still follow the mapping
+		{7670, 0, 1, spot{0, 9}, true}, // an exception always wins
+	}
+	for _, c := range cases {
+		got, ok := p.tvdbSpot(l.ByAID(c.aid), c.season, c.index)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
+		}
+	}
+}
+
 func TestEpisodeTitlePick(t *testing.T) {
 	ep := &Ep{anyTitle: "Daiichiwa"}
 	ep.setTitle("anidb", "Episode 1") // AniDB's placeholder: doesn't count

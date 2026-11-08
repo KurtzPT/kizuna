@@ -69,15 +69,25 @@ type EpisodeMap struct {
 // TVDBEpisode returns where an AniDB episode of this entry sits on its TVDB
 // series: season (-1 = TheTVDB's absolute order) and episode number. The
 // entry's own exceptions win; otherwise a regular episode N is episode
-// N + TVDBOffset of TVDBSeason. ok = false when it has no TVDB position
-// (no series, an unlisted special, or an exception saying "none").
+// N + TVDBOffset of TVDBSeason, and special SN is TVDB special N: Anime-Lists
+// only lists episodes whose numbers don't match ("not necessary if episode
+// numbers match up exactly within the season(s)"). Openings, endings,
+// trailers and the like (index 100 and up) have no TVDB numbers of their own,
+// so they're only placed by an exception. ok = false when it has no TVDB
+// position (no series, an unlisted credit or trailer, or an exception saying
+// "none").
 func (e Entry) TVDBEpisode(anidbSeason, ep int) (season, number int, ok bool) {
 	for _, m := range e.Episodes {
 		if m.AniDBSeason == anidbSeason && m.AniDBEp == ep {
 			return m.TVDBSeason, m.TVDBEp, m.TVDBEp > 0
 		}
 	}
-	if e.TVDB == 0 || anidbSeason != 1 || ep+e.TVDBOffset <= 0 {
+	switch {
+	case e.TVDB == 0:
+		return 0, 0, false
+	case anidbSeason == 0:
+		return 0, ep, ep >= 1 && ep < 100
+	case anidbSeason != 1 || ep+e.TVDBOffset <= 0:
 		return 0, 0, false
 	}
 	return e.TVDBSeason, ep + e.TVDBOffset, true

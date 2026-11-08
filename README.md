@@ -65,11 +65,11 @@ Kizuna never reads your media folders and can't move an episode to another numbe
 
 Each mode is its own provider URL; a library's agent uses one of them.
 
-| Mode | A show in Plex is… | Files look like | Pick it when |
-|---|---|---|---|
-| **`/anidb`** | one **AniDB entry** | `Show - 01.mkv` … `Show - 148.mkv` | every season or sequel is its own folder |
-| **`/tvdb`** | one **TVDB series** | `Show - S02E26.mkv` | one folder per series, with seasons |
-| **`/auto`** | either, **per folder** | both, side by side | your library mixes the two |
+| Mode | Shows up in Plex as | A show in Plex is… | Files look like | Pick it when |
+|---|---|---|---|---|
+| **`/anidb`** | Kizuna (AniDB) | one **AniDB entry** | `Show - 01.mkv` … `Show - 148.mkv` | every season or sequel is its own folder |
+| **`/tvdb`** | Kizuna (TVDB) | one **TVDB series** | `Show - S02E26.mkv` | one folder per series, with seasons |
+| **`/auto`** | Kizuna | either, **per folder** | both, side by side | your library mixes the two |
 
 The same anime in both models, *Attack on Titan* (25 + 12 episodes):
 
@@ -186,14 +186,15 @@ several AniDB entries (a TVDB series with one entry per season) gives the series
 | Source | Best at | Key |
 |---|---|---|
 | [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff | free HTTP client |
-| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, artwork | API key (v4, or a legacy key) |
-| [**TheMovieDb**](https://www.themoviedb.org) | posters, backgrounds, logos; `/tvdb` episodes without a TVDB key | API key |
+| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, posters, backgrounds, logos | API key (v4, or a legacy key) |
+| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; `/tvdb` episodes without a TVDB key | API key |
 | [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date | client ID |
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date | none |
 
 Every field has its own source order, and any source can come first. Later sources are only downloaded when the ones
-before them have nothing. By default AniDB comes first for show details, and TheMovieDb for artwork. Posters,
-backgrounds and logos from every listed source are offered in Plex's *Edit* dialog.
+before them have nothing. By default AniDB comes first for show details, and TheTVDB for artwork, with TheTVDB
+ahead of TheMovieDb everywhere and Anime News Network as the last fallback wherever it has data. Set `ART_ALL_SOURCES=true` to offer
+posters, backgrounds and logos from every listed source in Plex's *Edit* dialog.
 
 **Setup:** [which keys each mode needs and what each source can supply](SETUP.md#-1-get-your-keys) ·
 [changing the order per field](SETUP.md#-sources-per-field).
@@ -215,7 +216,7 @@ flowchart LR
 
 | | |
 |---|---|
-| **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. TheMovieDb is paired at the same season and number as TheTVDB |
+| **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. An AniDB special the mapping doesn't list is TheTVDB's special with the same number (`S1` = `S00E01`) on the entry that starts the series; openings, endings and trailers only pair through an exception. TheMovieDb is paired at the same season and number as TheTVDB |
 | **Picking the title** | `EPISODE_TITLES` sets the order (default AniDB → TheTVDB → TheMovieDb), in both modes. The first **real** title wins: *Episode 12* or *TBA* don't count |
 | **AniDB languages** | `EPISODE_LANGS` (default English, then romaji). With none of those, the next source is tried; AniDB's title in any language is the last resort |
 | **In `/tvdb`** | a show spans several AniDB entries. Uncached ones are fetched in the background, within AniDB's limits, so their titles appear on a later refresh |

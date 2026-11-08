@@ -73,10 +73,15 @@ func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x ep
 }
 
 // tvdbSpot returns where an AniDB episode (season 1 regular, 0 = S special)
-// of entry e sits on its TVDB series.
+// of entry e sits on its TVDB series (openings, endings, trailers… only
+// through a mapping exception: see mapping.Entry.TVDBEpisode).
 func (p *Provider) tvdbSpot(e mapping.Entry, season, index int) (spot, bool) {
-	if season == 0 && index >= 100 {
-		return spot{}, false // openings, endings, trailers…: never on TheTVDB
+	if season == 0 && !e.HasException(season, index) && (e.TVDBSeason == 0 || !p.lists.StartsSeries(e.AID)) {
+		// An unlisted special is the TVDB special with the same number only
+		// on the entry that starts the series. A later entry's S1 would land
+		// on the first entry's S00E01, and an entry whose own episodes live
+		// in TVDB season 0 (OVAs, movies) shares its numbers with them.
+		return spot{}, false
 	}
 	if !e.HasException(season, index) && e.TVDBSeason == -1 && e.TVDBOffset == 0 && !p.lists.StartsSeries(e.AID) {
 		// "absolute from episode 1" on a later entry of the series: the

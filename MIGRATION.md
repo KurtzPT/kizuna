@@ -37,7 +37,7 @@ number differently from Kizuna. Your files, subtitles and torrents stay untouche
 
 | HAMA mode | Folder tag | Episode numbers | Script mode | Kizuna provider | Hints written for |
 |---|---|---|---|---|---|
-| **`anidb`** | `[anidb-23]` or none | absolute (`- 033`) | `-m anidb` | `/anidb` | specials (`SP3`, `PV`…), openings/endings, a lone unnumbered movie |
+| **`anidb`** | `[anidb-23]` or none | absolute (`- 033`) | `-m anidb` | `/anidb` | specials (`SP3`, `PV`…), a lone unnumbered movie. Openings/endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras) unless renamed |
 | **`tvdb3`** | `[tvdb3-81797]` | absolute (`S02E26`) | `-m tvdb` | `/tvdb` | every episode outside season 1 |
 | **`tvdb`** | `[tvdb-81797]` | per season (`S02E01`) | `-m tvdb` | `/tvdb` | every episode outside season 1, [renumbered](#plain-tvdb-folders-per-season-numbers) to absolute |
 | a mix of the above | any | any | `-m auto` | `/auto` | per folder, by its tag ([rules](#auto-rules)) |
@@ -199,8 +199,12 @@ Run **exactly the same command** as the dry run, plus `-a`:
 
 ```bash
 ./kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 -a /mnt/media/Anime
-./kizuna-migrate.sh -U /mnt/media/Anime     # undo: removes the script's hints again
 ```
+
+> [!WARNING]
+> **There's no undo.** The hints are added as plain `ep:` lines, with no marker around them, so the script can't
+> tell them from your own lines afterwards: a later run keeps them, and changing or removing one is done by hand.
+> Apply only a plan you've checked, and back up your `.plexmatch` files first if you already have some.
 
 The Absolute Series Scanner ignores `.plexmatch` files, so the library keeps working as before until step 4.
 
@@ -252,9 +256,9 @@ new files in either of two ways:
 | `Show [anidb-23]/Show - 01.mkv` … `- 148.mkv` | `S01E01` … `S01E148` | none |
 | `Show - S01E05.mkv` | `S01E05` | none |
 | `Specials/Show - 01.mkv` | `S00E01` | none |
-| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | skipped, or made extras | 🔧 `ep: SP101: NCOP1.mkv`, `ep: SP152: NCED2.mkv`… ([variants](#openings-and-endings-with-variants)) |
-| specials: `SP3` `Special 3` `OVA2` `OAD` | skipped, or made extras | 🔧 `ep: SP3: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `SP1`) |
-| trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped, or made extras | 🔧 `ep: SP201: … PV.mkv`, `PV2` → `SP202` (AniDB's trailer numbers) |
+| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | ✋ rename to Kizuna's number, e.g. `Show - S00E101.mkv`: the script reports each one with the name ([why](#openings-and-endings-plex-makes-them-extras), [variants](#openings-and-endings-with-variants)) |
+| specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `S00E01`) |
+| trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` → `S00E202` (AniDB's trailer numbers) |
 | a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
 | HAMA `anidb.id`, `tvdb.id`, `tvdb3.id`… | ignored by Plex | ✋ rename the folder ([`.id` files](#hama-id-files)) |
 | `tvshow.nfo` | ignored by Plex | ✋ put the id in the folder name: `Show [anidb-23]` |
@@ -267,28 +271,51 @@ new files in either of two ways:
 ```text
 📁 Hunter x Hunter (2011) [anidb-8550]
    Hunter x Hunter - 001.mkv … - 148.mkv     ← no hints needed
-   NCOP1.mkv
-   NCED1.mkv
+   Hunter x Hunter - SP1.mkv
+   NCOP1.mkv                                 ← stays an extra: rename it to "Hunter x Hunter - S00E101.mkv"
    .plexmatch                                ← new:
-     # kizuna-migrate: begin (…)
-     ep: SP101: NCOP1.mkv
-     ep: SP151: NCED1.mkv
-     # kizuna-migrate: end
+     ep: S00E01: Hunter x Hunter - SP1.mkv
 ```
+
+> [!NOTE]
+> Hints are written as `S00Exx`. Plex's `.plexmatch` documentation also allows `SPxx`, but Plex Media Server 1.43
+> reads that without a season and leaves the file out. The script warns about `SPxx` lines in your own `.plexmatch`.
+
+### Openings and endings: Plex makes them extras
+
+Before it reads any `.plexmatch` hint, Plex's scanner checks each file name for an opening or ending, and makes
+every file that has one an **extra**. An extra still plays from the show page, but it isn't a special: it gets no
+Kizuna title or number, and an `ep:` hint can't change that. Plex looks for, as a separate word (spaces, `.`, `_`,
+`-`, brackets around it):
+
+| Part | Words |
+|---|---|
+| optional prefix | `NC`, `Creditless`, `Clean` (the last two followed by a space, `.` or `_`) |
+| the word | `OP`, `ED`, `Opening`, `Ending`, `OPED` |
+| optional number | 1 or 2 digits, with or without a space, `.` or `_` before it, and one letter after it: `OP1`, `OP 2`, `OP1a`, `OP1x` |
+| optional extras | one more letter after a space, `.` or `_` (`OP1 a`), and a version: `v2` |
+
+So `NCOP`, `NCED2`, `OP1b`, `ED 1`, `Creditless Opening` and `Clean Ending v2` are all extras. The words are matched
+in capitals as written above, so a lowercase `op1` is probably read as an episode name (not tested). An episode whose
+name has such a word on its own, like `Show - 05 [ED fix].mkv`, may become an extra too; the script warns about it.
+
+To get an opening or ending as Kizuna's special, rename it without those words, ideally to its number:
+`Show - S00E101.mkv`. The scanner reads that by itself, no hint needed. The script prints the name to use for each
+file.
 
 ### Openings and endings with variants
 
 Kizuna numbers AniDB's opening credits from `S00E101` and endings from `S00E151`, one number per version. A variant
 shifts every number after it, so `OP2` isn't always `S00E102`:
 
-| AniDB credit | Title on AniDB | Plex | Your file | Hint |
+| AniDB credit | Title on AniDB | Plex | Your file | Rename it to |
 |---|---|---|---|---|
-| C1 | Opening 1a | `S00E101` | `NCOP1a.mkv` | `ep: SP101: NCOP1a.mkv` |
-| C2 | Opening 1b | `S00E102` | `NCOP1b.mkv` | `ep: SP102: NCOP1b.mkv` |
-| C3 | Opening 2 | **`S00E103`** | `NCOP2.mkv` | `ep: SP103: NCOP2.mkv` |
-| C4 | Ending 1 | `S00E151` | `NCED1.mkv` | `ep: SP151: NCED1.mkv` |
+| C1 | Opening 1a | `S00E101` | `NCOP1a.mkv` | `Show - S00E101.mkv` |
+| C2 | Opening 1b | `S00E102` | `NCOP1b.mkv` | `Show - S00E102.mkv` |
+| C3 | Opening 2 | **`S00E103`** | `NCOP2.mkv` | `Show - S00E103.mkv` |
+| C4 | Ending 1 | `S00E151` | `NCED1.mkv` | `Show - S00E151.mkv` |
 
-So the script asks Kizuna for the show's credit list and matches each file to a title:
+So the script asks Kizuna for the show's credit list and matches each file to a title, to print the right name:
 
 | Your file | Matched to |
 |---|---|
@@ -296,12 +323,12 @@ So the script asks Kizuna for the show's credit list and matches each file to a 
 | `NCOP2` | *Opening 2*, whatever its number |
 | `NCOP1` when AniDB has 1a and 1b | *Opening 1a*, with a warning |
 | `NCOP1b` when AniDB has only *Opening 1* | *Opening 1* |
-| `NCOP3` that AniDB doesn't list | reported, no hint |
+| `NCOP3` that AniDB doesn't list | reported without a number |
 
 > [!IMPORTANT]
 > This needs **Kizuna running with AniDB details** for the show (an AniDB client, not banned). In `anidb` mode the
 > script uses Kizuna at `-u` (default `http://localhost:32600`) and says at the start when it can't reach it. Without
-> Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`SP101`, `SP152`). Variant files are only reported, and
+> Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`S00E101`, `S00E152`). Variant files are only reported, and
 > so is every opening in a folder with opening variants (endings likewise), because a variant shifts the numbers.
 
 ### HAMA `.id` files
@@ -342,7 +369,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 | **Left alone** | files with `SxxEyy` in the name or in a `Season NN` folder (in `[tvdb3-…]` folders these are already absolute) |
 | **Episode numbers read from** | ` - 033`, `E33` / `Ep 33` / `Episode 33`, or a number ending the name; `[…]`, `(…)`, `{…}` groups don't count. A file with none is reported |
 | **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules |
-| **Specials** (`NCOP1`…) | only reported, because TheTVDB numbers its own. Add `ep: SPxx: <file>` lines with TheTVDB's numbers [yourself](#-your-own-plexmatch-files) |
+| **Specials** (`SP3`, `PV`…) | only reported, because TheTVDB numbers its own. Add `ep: S00Exx: <file>` lines with TheTVDB's numbers [yourself](#-your-own-plexmatch-files). Openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras) unless renamed |
 
 ### Plain `tvdb` folders: per-season numbers
 
@@ -390,30 +417,27 @@ The tag can also be in a file name, as Kizuna reads it. `tvdb`-rule folders need
 
 ## 📄 Your own `.plexmatch` files
 
-The script only writes **its own block**, at the end of the file between two marker lines. Everything else stays as
-it is, and the script reads it the way Plex does:
+The script only **adds `ep:` lines** at the end of the file, without any marker. Everything else stays as it is, and
+the script reads it the way Plex does:
 
 | You already have | The script |
 |---|---|
-| no `.plexmatch` | creates one with just its block |
+| no `.plexmatch` | creates one with just its hints |
 | `title:` / `show:`, `year:` | sends them to Kizuna as the show's title and year, like Plex |
-| `ep:` lines | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently |
+| `ep:` lines, yours or from an earlier run | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently, and for every `ep: SPxx:` line, which Plex 1.43 ignores: change those to `ep: S00Exx:` |
 | `season:` in a season folder | treats that folder as that season |
 | `season:` in the show folder | warns: every file without its own hint is read as that season |
 | `tvdbid:`, `tmdbid:`, `imdbid:`, `guid:` | ⚠️ warns and ignores them. Put the id in the folder name: `Show [tvdb-267440]` |
 | `pattern:` / `pt:` | ⚠️ **skips the show**: it can't tell which files a pattern numbers. Write `ep:` lines by hand |
-| its block from an earlier run | replaces it (the dry run shows `+` and `-` lines) |
-| its begin line without an end line | ⚠️ **skips the show**: fix the file by hand |
 
-**To change one of the script's hints**, don't edit inside the block: the next run replaces it. Add your own `ep:`
-line for that file **above** the block. Yours wins, and the script leaves that file alone from then on.
+**To change one of the script's hints**, edit or delete its line in the `.plexmatch`: from the moment it's written,
+it's an ordinary line like your own.
 
 ## 💻 Command-line reference
 
 ```text
 kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] LIBRARY      dry run: print the plan
 kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] -a LIBRARY   write it
-kizuna-migrate.sh -U LIBRARY                                 remove it again
 ```
 
 | Option | Meaning | Default |
@@ -421,14 +445,13 @@ kizuna-migrate.sh -U LIBRARY                                 remove it again
 | `-m` | mode: `anidb`, `tvdb` or `auto` | `anidb` |
 | `-u` | Kizuna's address. Required for `tvdb`, and for `auto` beyond `[anidb-N]` folders; used by `anidb` for opening and ending numbers. A full domain name must be in [`ALLOWED_HOSTS`](SETUP.md#%EF%B8%8F-access); an IP or local name works as is | `$KIZUNA_URL`, else `http://localhost:32600` |
 | `-a` | write the plan | off (dry run) |
-| `-U` | remove the script's block from every `.plexmatch`, and delete files left empty | |
 
 What the script guarantees:
 
 - It only writes files named `.plexmatch` in show folders, and keeps your lines, line endings, owner and permissions.
 - It looks at every folder in `LIBRARY` as a show, skipping hidden ones, and every video below it except in `extras/`.
 - Running it twice changes nothing. Running it after adding episodes only adds their hints.
-- `-U` removes everything it wrote.
+- It never changes or removes an `ep:` line, its own included: that's done by hand.
 
 None of that fixes a misread file name. That's what the [dry run](#-2-dry-run) is for.
 

@@ -43,9 +43,9 @@ func (m Mode) Identifier() string {
 }
 
 var Modes = map[string]Mode{
-	"anidb": {Path: "anidb", Title: "Kizuna – AniDB (absolute)"},
-	"tvdb":  {Path: "tvdb", Title: "Kizuna – TVDB seasons (absolute)", TVDB: true},
-	"auto":  {Path: "auto", Title: "Kizuna – AniDB or TVDB per folder tag", Auto: true},
+	"anidb": {Path: "anidb", Title: "Kizuna (AniDB)"},
+	"tvdb":  {Path: "tvdb", Title: "Kizuna (TVDB)", TVDB: true},
+	"auto":  {Path: "auto", Title: "Kizuna", Auto: true},
 }
 
 // Provider holds all sources plus two small caches.

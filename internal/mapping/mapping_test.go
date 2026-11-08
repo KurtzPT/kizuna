@@ -87,13 +87,14 @@ func TestEpisodeExceptions(t *testing.T) {
 		season, ep, wantSeason, wantEp int
 		ok                             bool
 	}{
-		{1, 5, 1, 5, true},   // default: season 1, no offset
-		{1, 9, 0, 1, true},   // recap -> TVDB special 1
-		{1, 12, 1, 11, true}, // range, offset -1
-		{1, 20, 1, 18, true}, // range, offset -2
-		{0, 1, 0, 4, true},   // AniDB special 1 -> TVDB S00E04
-		{0, 2, 0, 0, false},  // "2-0": no TVDB episode
-		{0, 3, 0, 0, false},  // unlisted special
+		{1, 5, 1, 5, true},    // default: season 1, no offset
+		{1, 9, 0, 1, true},    // recap -> TVDB special 1
+		{1, 12, 1, 11, true},  // range, offset -1
+		{1, 20, 1, 18, true},  // range, offset -2
+		{0, 1, 0, 4, true},    // AniDB special 1 -> TVDB S00E04
+		{0, 2, 0, 0, false},   // "2-0": no TVDB episode
+		{0, 3, 0, 3, true},    // unlisted special: same number on TVDB
+		{0, 101, 0, 0, false}, // unlisted opening: no TVDB number
 	}
 	for _, c := range cases {
 		s, n, ok := e.TVDBEpisode(c.season, c.ep)

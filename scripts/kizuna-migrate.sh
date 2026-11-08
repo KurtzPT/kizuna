@@ -5,13 +5,16 @@
 #
 #   kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] LIBRARY     show the planned hints (dry run)
 #   kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] -a LIBRARY  write them
-#   kizuna-migrate.sh -U LIBRARY                                remove them again
 #
 # Each show folder gets one .plexmatch with an "ep:" line for every file the
 # scanner would number differently from Kizuna:
-#   anidb rules  NCOP1 / OP1b / ED2 / SP3 / PV / OVA  -> ep: SP101: NCOP1.mkv etc.
-#                (openings and endings get AniDB's own numbers from Kizuna when
-#                it's reachable, so OP1a / OP1b / OP2 land on their own entries)
+#   anidb rules  SP3 / PV / OVA                        -> ep: S00E03: Show - SP3.mkv etc.
+#                openings and endings get AniDB's own numbers (S00E101...) from
+#                Kizuna when it's reachable, so OP1a / OP1b / OP2 land on their
+#                own entries. But Plex's scanner makes every file named like
+#                NCOP1 / OP1b / ED2 / Creditless Opening an extra and ignores
+#                hints for it (PLEX_CREDIT_RE): those are reported with the name
+#                to rename them to instead of getting a hint
 #                a folder's only video without a number -> ep: S01E01 (a movie)
 #   tvdb rules   absolute "Show - 033.mkv"             -> ep: S02E33: Show - 033.mkv
 #                plain HAMA [tvdb-N] folders (seasons counted from 1 each):
@@ -22,13 +25,15 @@
 #                (tvdb); other tags and untagged folders follow Kizuna's
 #                AUTO_DEFAULT and its mapping, so Kizuna is asked for those
 #
-# The hints go into a marked block at the end of the show's .plexmatch. The rest
-# of an existing .plexmatch is kept and read the way Plex reads it: title and
-# year hints go into the match requests sent to Kizuna, season hints set a
-# folder's season, a file that already has its own ep: hint keeps it (reported
-# when it differs), and a show with pattern: hints is skipped, because the
-# script can't evaluate them. Id hints (tvdbid:, guid:...) aren't supported:
-# they're reported and ignored, the show is matched by its folder tag or title.
+# The hints are added as plain ep: lines at the end of the show's .plexmatch,
+# without any marker, so they aren't tracked: the next run reads them like your
+# own lines, and changing or removing one is done by hand. The rest of an
+# existing .plexmatch is kept and read the way Plex reads it: title and year
+# hints go into the match requests sent to Kizuna, season hints set a folder's
+# season, a file that already has an ep: hint keeps it (reported when it
+# differs), and a show with pattern: hints is skipped, because the script can't
+# evaluate them. Id hints (tvdbid:, guid:...) aren't supported: they're
+# reported and ignored, the show is matched by its folder tag or title.
 #
 # A show folder without an id tag but with a HAMA .id file (anidb.id, tvdb.id,
 # tvdb3.id, tmdb.id, imdb.id) is planned as if its name had that tag, and a
@@ -44,12 +49,10 @@ set -euo pipefail
 shopt -s nullglob
 
 PLEXMATCH=.plexmatch
-BLOCK_BEGIN='# kizuna-migrate: begin (written by kizuna-migrate.sh, which replaces this block on every run)'
-BLOCK_END='# kizuna-migrate: end'
 VIDEO_EXT=" mkv mp4 avi m4v ts m2ts wmv mov webm ogm flv mpg "
 
 usage() {
-	sed -n '6,8p' "$0" | sed 's/^# \{0,1\}//' >&2
+	sed -n '6,7p' "$0" | sed 's/^# \{0,1\}//' >&2
 	exit 2
 }
 
@@ -86,6 +89,13 @@ SEASON_DIR='^((season|series|saison|staffel|temporada)[ ._-]*[0-9]{1,4}|s[0-9]{1
 GROUP_DIR='^[[:space:]]*[[(][0-9]+[])]'
 # openings / endings: NCOP1, OP1b, ED, Ending 2a (kind, number, variant letter)
 CREDIT_RE='^(nc)?(op|opening|ed|ending)[[:space:]]*0*([0-9]{1,2})?[[:space:]]*([a-z])?(v[0-9])?$'
+# Plex's own opening/ending check (Plex Media Server 1.43, from its binary):
+#   (?:\b|_|\.)(?<title>(?:NC|(?:Creditless|Clean)[ ._])?(?<type>OP|ED|Opening|Ending|OPED)
+#   (?:[ ._]?(?<index>\d{1,2})[A-Za-z]?)?(?:[ ._][A-Za-z])?)(?:v\d)?(?:\b|_|\.)
+# A file whose name matches becomes an extra before .plexmatch hints are read.
+# Same pattern in bash ERE (\b as "not a letter or digit"), matched with case,
+# as Plex spells the words out in capitals. Group 2 is Plex's "title".
+PLEX_CREDIT_RE='(^|[^[:alnum:]])((NC|(Creditless|Clean)[ ._])?(OP|ED|Opening|Ending|OPED)([ ._]?[0-9]{1,2}[A-Za-z]?)?([ ._][A-Za-z])?)(v[0-9])?([^[:alnum:]]|$)'
 # AniDB credit titles: "Opening 1a", "Opening 1 (b)", "Ending", "Ending 2: Song"
 CREDIT_TITLE_RE='^(opening|op|ending|ed)([[:space:]]*0*([0-9]+))?[[:space:]]*(\(([a-z])\)|([a-z]))?([^[:alnum:]]|$)'
 # other special patterns: "regex|base|number group" (no group = number 1)
@@ -158,6 +168,29 @@ credit_title() {
 	shopt -u nocasematch
 }
 
+# plex_extra prints the part of file name $1 that makes Plex's scanner treat
+# the file as an opening/ending extra ("NCOP", "OP1b"), or fails.
+plex_extra() {
+	shopt -u nocasematch
+	[[ $1 =~ $PLEX_CREDIT_RE ]] || return 1
+	printf '%s' "${BASH_REMATCH[2]}"
+}
+
+# extra_note explains a file Plex makes an extra ($1 its name, $2 the part
+# that does it, $3 the special number it should get, if known, else $4 how to
+# find that number).
+extra_note() {
+	local note="Plex's scanner makes files with \"$2\" in the name opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page)"
+	if [[ -n ${3:-} ]]; then
+		note+=". To get it as Kizuna's $3, rename it, e.g. to \"${1/"$2"/$3}\""
+	elif [[ -n ${4:-} ]]; then
+		note+=". To make it a special, rename it with $4 in place of \"$2\""
+	else
+		note+=". To make it an episode, rename it without \"$2\""
+	fi
+	printf '%s; no hint' "$note"
+}
+
 # special_number maps other special file names to season-0 numbers
 # (PV -> 201, SP03 -> 3); 0 = not one. Openings and endings: credit_of.
 special_number() {
@@ -200,30 +233,20 @@ SHOW_TITLE="" SHOW_YEAR=0 # what Plex sends to Kizuna for the current show
 ID_HINT=""                # an id hint (tvdbid:, guid:...) in the show's .plexmatch: not supported
 ROOT_SEASON=""                        # a season: hint in the show folder's .plexmatch
 HAS_PATTERN=0                         # a pattern: hint anywhere in the show
-OPEN_BLOCK=""                         # a .plexmatch whose Kizuna block never ends
-OLD_BLOCK=""                          # the Kizuna block in the show's .plexmatch, as last written
-declare -A USER_EP=()                 # show-relative file -> episode from a hint outside our block
+declare -A USER_EP=()                 # show-relative file -> episode from an ep: hint already there
 declare -A DIR_SEASON=()              # show-relative folder -> season from its own season: hint
 
 # read_plexmatches reads every .plexmatch in the show folder $1 and below.
-# Hints in subfolders only count for their own folder, like in Plex.
+# Hints in subfolders only count for their own folder, like in Plex. Every
+# ep: line counts as the user's, also those an earlier run wrote.
 read_plexmatches() {
-	local dir=$1 pm reldir line name value inblock file
-	SHOW_TITLE=$(basename "$dir") SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0 OPEN_BLOCK="" OLD_BLOCK=""
+	local dir=$1 pm reldir line name value file
+	SHOW_TITLE=$(basename "$dir") SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
 	USER_EP=() DIR_SEASON=()
 	while IFS= read -r pm; do
 		reldir=${pm%/"$PLEXMATCH"} reldir=${reldir#"$dir"} reldir=${reldir#/} # "" = the show folder
-		inblock=0
 		while IFS= read -r line || [[ -n $line ]]; do
-			line=${line%$'\r'}
-			if [[ -z $reldir ]]; then # our block only ever lives in the show folder's file
-				if ((!inblock)) && [[ $line == "$BLOCK_BEGIN" ]]; then inblock=1; continue; fi
-				if ((inblock)); then
-					if [[ $line == "$BLOCK_END" ]]; then inblock=0; else OLD_BLOCK+="$line"$'\n'; fi
-					continue
-				fi
-			fi
-			line=$(trim "$line")
+			line=$(trim "${line%$'\r'}")
 			if [[ -z $line || $line == \#* || $line != *:* ]]; then continue; fi
 			name=$(trim "${line%%:*}") value=$(trim "${line#*:}")
 			case ${name,,} in
@@ -249,7 +272,6 @@ read_plexmatches() {
 				;;
 			esac
 		done <"$pm"
-		if ((inblock)); then OPEN_BLOCK=$pm; fi
 	done < <(find "$dir" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -name "$PLEXMATCH" -print)
 }
 
@@ -454,7 +476,7 @@ credit_index() {
 			for l in {a..z}; do
 				if [[ -n ${CREDIT_AT["$kind $num $l"]:-} ]]; then
 					CREDIT_N=${CREDIT_AT["$kind $num $l"]}
-					CREDIT_NOTE="AniDB has variants of this one; used $num$l (SP$CREDIT_N), change the hint if that's wrong"
+					CREDIT_NOTE="AniDB has variants of this one; used $num$l ($(printf 'S00E%02d' "$CREDIT_N")), change it if that's wrong"
 					break
 				fi
 			done
@@ -497,20 +519,28 @@ WARNINGS=()
 warn() { WARNINGS+=("$1"); }
 
 PLAN_REL=() PLAN_VAL=() # hints for the current show: show-relative file, episode number
-KEPT=0                  # files that keep a hint of their own
+KEPT=0                  # files that already have a hint
 SHOW_SKIPPED=0
 
 # hint plans "ep: $2: $1" for the show-relative file $1, unless the file
-# already has a hint of its own: that one is kept, with a warning when it
-# numbers the file differently.
+# already has a hint (yours, or from an earlier run): that one is kept, with a
+# warning when it numbers the file differently.
 hint() {
 	local have=${USER_EP[$1]:-} rd ds
+	shopt -s nocasematch
+	if [[ $have =~ ^sp[0-9] ]]; then # Plex 1.43 drops files hinted "SPxx"
+		shopt -u nocasematch
+		warn "$SHOW_DIR/$1: its hint \"ep: $have\" makes Plex leave the file out (Plex reads SPxx without a season); change that line by hand to \"ep: $2: $1\""
+		KEPT=$((KEPT + 1))
+		return
+	fi
+	shopt -u nocasematch
 	if [[ -n $have ]]; then
 		rd=$(dirname "$1")
 		if [[ $rd == . ]]; then rd=""; fi
 		ds=$(dir_season "$rd")
 		if [[ $(norm_ep "$have" "${ds:-1}") != "$(norm_ep "$2" "${ds:-1}")" ]]; then
-			warn "$SHOW_DIR/$1: kept its own hint \"ep: $have\"; Kizuna's numbering is $2"
+			warn "$SHOW_DIR/$1: kept its hint \"ep: $have\"; Kizuna's numbering is $2. Change that line by hand if it's wrong"
 		fi
 		KEPT=$((KEPT + 1))
 		return
@@ -520,18 +550,13 @@ hint() {
 
 plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter
-	local relative=0 se rs re
+	local relative=0 se rs re pe
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
 	for sub in "$dir"/*/; do
 		sub=$(basename "$sub")
 		if [[ $sub =~ $GROUP_DIR ]]; then warn "$dir: grouping folder \"$sub\" - move it to the library root as its own show"; fi
 	done
 	read_plexmatches "$dir"
-	if [[ -n $OPEN_BLOCK ]]; then
-		warn "$OPEN_BLOCK: the kizuna-migrate block has no end line; fix the file by hand. Show skipped"
-		SHOW_SKIPPED=1
-		return
-	fi
 	if ((HAS_PATTERN)); then
 		warn "$dir: a .plexmatch has pattern: hints, which the script can't evaluate. Show skipped: number its files by hand"
 		SHOW_SKIPPED=1
@@ -582,15 +607,26 @@ plan_show() {
 		ds=""
 		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); fi # a subfolder's season, if it has one
 
+		pe=$(plex_extra "$(basename "$v")") || pe=""
 		if read -r ckind cnum cletter < <(credit_of "$stem"); then
 			if [[ $rules == tvdb ]]; then # TVDB numbers its own specials; the 101+ scheme doesn't apply
-				warn "$v: special file - add its TVDB number by hand (ep: SPxx: $rel)"
+				if [[ -n $pe ]]; then
+					warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its TVDB number (S00Exx)")"
+				else
+					warn "$v: special file - add its TVDB number by hand (ep: S00Exx: $rel)"
+				fi
 				continue
 			fi
 			if [[ $CREDITS_FOR != "$dir" ]]; then load_credits "$dir" "$v"; fi
 			if credit_index "$ckind" "$cnum" "$cletter"; then
 				if [[ -n $CREDIT_NOTE ]]; then warn "$v: $CREDIT_NOTE"; fi
-				hint "$rel" "SP$CREDIT_N"
+				if [[ -n $pe ]]; then
+					warn "$v: $(extra_note "$(basename "$v")" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")")"
+				else
+					hint "$rel" "$(printf 'S00E%02d' "$CREDIT_N")"
+				fi
+			elif [[ -n $pe ]]; then
+				warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)")"
 			else
 				warn "$v: ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE; no hint"
 			fi
@@ -598,12 +634,21 @@ plan_show() {
 		fi
 		n=$(special_number "$stem")
 		if ((n > 0)); then
-			if [[ $rules == tvdb ]]; then
-				warn "$v: special file - add its TVDB number by hand (ep: SPxx: $rel)"
+			if [[ -n $pe ]]; then
+				if [[ $rules == tvdb ]]; then
+					warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its TVDB number (S00Exx)")"
+				else
+					warn "$v: $(extra_note "$(basename "$v")" "$pe" "$(printf 'S00E%02d' "$n")")"
+				fi
+			elif [[ $rules == tvdb ]]; then
+				warn "$v: special file - add its TVDB number by hand (ep: S00Exx: $rel)"
 			else
-				hint "$rel" "SP$n"
+				hint "$rel" "$(printf 'S00E%02d' "$n")"
 			fi
 			continue
+		fi
+		if [[ -n $pe ]]; then # an episode whose name Plex reads as an opening/ending
+			warn "$v: Plex's scanner may make it an opening/ending extra: its name contains \"$pe\". If it's missing from the show after the scan, rename it without that"
 		fi
 		abs=$(absolute_number "$stem")
 		if ((abs == 0 && ${#videos[@]} == 1)); then # a movie: one file, no number
@@ -660,98 +705,49 @@ plan_show() {
 
 # --- writing -------------------------------------------------------------------
 
-CHANGED=()           # show folders whose .plexmatch changes
-declare -A NEW_BLOCK # show folder -> its new block ("" = remove it)
-HINTS=0 UNCHANGED=0
+CHANGED=()           # show folders whose .plexmatch gets new hints
+declare -A NEW_HINTS # show folder -> the ep: lines to add
+HINTS=0
 
-# finish_show compares the planned hints with the block already in the show's
-# .plexmatch and prints what changes.
+# finish_show prints the hints planned for the show's .plexmatch.
 finish_show() {
-	local dir=$1 pm=$1/$PLEXMATCH new="" i line
-	local -A old_lines=() new_lines=()
+	local dir=$1 pm=$1/$PLEXMATCH new="" i
+	((${#PLAN_REL[@]} > 0)) || return 0
 	for i in "${!PLAN_REL[@]}"; do new+="ep: ${PLAN_VAL[i]}: ${PLAN_REL[i]}"$'\n'; done
 	HINTS=$((HINTS + ${#PLAN_REL[@]}))
-	if [[ $new == "$OLD_BLOCK" ]]; then
-		if [[ -n $new ]]; then UNCHANGED=$((UNCHANGED + 1)); fi
-		return
-	fi
 	CHANGED+=("$dir")
-	NEW_BLOCK[$dir]=$new
-	if [[ -z $new ]]; then echo "$pm: remove the old kizuna-migrate hints"
-	elif [[ -n $OLD_BLOCK ]]; then echo "$pm: update the kizuna-migrate hints"
-	elif [[ -f $pm ]]; then echo "$pm: add hints to your existing file"
-	else echo "$pm: new file"; fi
-	while IFS= read -r line; do if [[ -n $line ]]; then old_lines[$line]=1; fi; done <<<"$OLD_BLOCK"
-	while IFS= read -r line; do if [[ -n $line ]]; then new_lines[$line]=1; fi; done <<<"$new"
-	while IFS= read -r line; do
-		if [[ -n $line && -z ${new_lines[$line]:-} ]]; then printf '  - %s\n' "$line"; fi
-	done <<<"$OLD_BLOCK"
-	while IFS= read -r line; do
-		if [[ -n $line && -z ${old_lines[$line]:-} ]]; then printf '  + %s\n' "$line"; fi
-	done <<<"$new"
+	NEW_HINTS[$dir]=$new
+	if [[ -f $pm ]]; then echo "$pm: add hints to the existing file"; else echo "$pm: new file"; fi
+	for i in "${!PLAN_REL[@]}"; do printf '  + ep: %s: %s\n' "${PLAN_VAL[i]}" "${PLAN_REL[i]}"; done
 }
 
-# write_block replaces the kizuna-migrate block in the .plexmatch $1 with the
-# hints in $2 ("" removes it). Everything outside the block stays as it is; a
-# file left with nothing in it is deleted.
-write_block() {
-	local pm=$1 new=$2 line nl skip=0 eol=$'\n' out=""
+# add_hints appends the ep: lines in $2 to the .plexmatch $1, in the file's own
+# line endings. The lines already there stay as they are.
+add_hints() {
+	local pm=$1 new=$2 line nl eol=$'\n' out=""
 	if [[ -f $pm ]]; then
 		while true; do # bash keeps each line as it is, \r included
 			if IFS= read -r line; then nl=$'\n'; elif [[ -n $line ]]; then nl=""; else break; fi
 			if [[ $line == *$'\r' ]]; then eol=$'\r\n'; fi # keep a Windows file's line endings
-			if ((!skip)) && [[ ${line%$'\r'} == "$BLOCK_BEGIN" ]]; then
-				skip=1
-			elif ((skip)); then
-				if [[ ${line%$'\r'} == "$BLOCK_END" ]]; then skip=0; fi
-			else
-				out+=$line$nl
-			fi
+			out+=$line$nl
 			if [[ -z $nl ]]; then break; fi # last line without a newline
 		done <"$pm"
 	fi
-	if [[ -n $new ]]; then
-		if [[ -n $out && $out != *$'\n' ]]; then out+=$eol; fi
-		out+=$BLOCK_BEGIN$eol
-		while IFS= read -r line; do out+=$line$eol; done <<<"${new%$'\n'}"
-		out+=$BLOCK_END$eol
-	fi
-	if [[ $out == *[![:space:]]* ]]; then
-		printf '%s' "$out" >"$pm" # in place: keeps an existing file's owner and permissions
-	else
-		rm -f -- "$pm"
-	fi
-}
-
-# undo removes the kizuna-migrate block from every show's .plexmatch.
-undo() {
-	local d pm n=0
-	for d in "$LIBRARY"/*/; do
-		d=${d%/} pm=$d/$PLEXMATCH
-		if [[ $(basename "$d") == .* || ! -f $pm ]] || ! grep -qxF -e "$BLOCK_BEGIN" <(tr -d '\r' <"$pm"); then continue; fi
-		read_plexmatches "$d"
-		if [[ -n $OPEN_BLOCK ]]; then
-			echo "WARNING: $pm: the kizuna-migrate block has no end line; fix the file by hand" >&2
-			continue
-		fi
-		write_block "$pm" ""
-		if [[ -f $pm ]]; then echo "$pm: hints removed, your own lines kept"; else echo "$pm: removed"; fi
-		n=$((n + 1))
-	done
-	echo "removed the kizuna-migrate hints from $n .plexmatch files"
+	if [[ -n $out && $out != *$'\n' ]]; then out+=$eol; fi
+	while IFS= read -r line; do out+=$line$eol; done <<<"${new%$'\n'}"
+	printf '%s' "$out" >"$pm" # in place: keeps an existing file's owner and permissions
 }
 
 # --- main --------------------------------------------------------------------
 
 main() {
 	MODE=anidb URL=${KIZUNA_URL:-http://localhost:32600}
-	local do_apply=0 do_undo=0 d i w
-	while getopts 'm:u:aUh' opt; do
+	local do_apply=0 d i w
+	while getopts 'm:u:ah' opt; do
 		case $opt in
 		m) MODE=$OPTARG ;;
 		u) URL=${OPTARG%/} ;;
 		a) do_apply=1 ;;
-		U) do_undo=1 ;;
 		*) usage ;;
 		esac
 	done
@@ -761,10 +757,6 @@ main() {
 	LIBRARY=${1%/}
 	[[ $MODE == anidb || $MODE == tvdb || $MODE == auto ]] || die "unknown mode $MODE (anidb, tvdb or auto)"
 
-	if ((do_undo)); then
-		undo
-		return
-	fi
 	KIZUNA=0
 	if [[ $MODE == tvdb ]]; then
 		command -v curl >/dev/null && command -v jq >/dev/null || die "$MODE mode needs curl and jq"
@@ -789,15 +781,17 @@ main() {
 	done
 
 	for w in "${WARNINGS[@]}"; do echo "WARNING: $w"; done
-	echo "${#CHANGED[@]} .plexmatch files to write, $UNCHANGED already up to date, $HINTS hints in all," \
-		"$KEPT files keep hints of their own, ${#WARNINGS[@]} warnings"
+	echo "${#CHANGED[@]} .plexmatch files to write, $HINTS hints in all, $KEPT files already have a hint," \
+		"${#WARNINGS[@]} warnings"
 	((${#CHANGED[@]} > 0)) || return 0
 	if ((do_apply)); then
-		for d in "${CHANGED[@]}"; do write_block "$d/$PLEXMATCH" "${NEW_BLOCK[$d]}"; done
-		echo "wrote ${#CHANGED[@]} .plexmatch files (undo: $0 -U $LIBRARY)"
+		for d in "${CHANGED[@]}"; do add_hints "$d/$PLEXMATCH" "${NEW_HINTS[$d]}"; done
+		echo "wrote ${#CHANGED[@]} .plexmatch files. The new ep: lines are plain lines like your own: the next run"
+		echo "keeps them, and to change or remove one, edit the .plexmatch by hand."
 	else
 		echo "dry run: nothing was changed. Check every hint and WARNING above against your files;"
-		echo "the script can't know every naming style. Run again with -a only when the plan is right."
+		echo "the script can't know every naming style. Run again with -a only when the plan is right:"
+		echo "the hints it writes aren't tracked, so the script can't change or remove them afterwards."
 	fi
 }
 

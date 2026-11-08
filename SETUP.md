@@ -142,13 +142,20 @@ In Plex Web, open **Settings → Metadata Agents**.
 
 | URL | Shows up in Plex as | Use it for |
 |---|---|---|
-| `http://<host>:32600/anidb` | Kizuna – AniDB (absolute) | every season is its own show, episodes numbered 1…n |
-| `http://<host>:32600/tvdb` | Kizuna – TVDB seasons (absolute) | one show with TVDB seasons |
-| `http://<host>:32600/auto` | Kizuna – AniDB or TVDB per folder tag | one library that mixes both ([README](README.md#auto-both-in-one-library)) |
+| `http://<host>:32600/anidb` | Kizuna (AniDB) | every season is its own show, episodes numbered 1…n |
+| `http://<host>:32600/tvdb` | Kizuna (TVDB) | one show with TVDB seasons |
+| `http://<host>:32600/auto` | Kizuna | one library that mixes both ([README](README.md#auto-both-in-one-library)) |
 
 You can add more than one; each is its own provider.
 
-**b. Create an agent.** Click *Add Agent* and add, in this order:
+**b. Create an agent.** Click *Add Agent*, give it a name (e.g. *Kizuna Anime*), then add two providers:
+
+1. **The Kizuna provider from step a.** It's the agent's **primary** provider (matching and metadata) and always
+   stays first.
+2. **Plex Local Media.** It adds your own artwork, theme songs and subtitles from your folders.
+
+Plex only lets you reorder providers once both are in the agent. There's nothing to reorder here: Kizuna stays the
+primary whatever the order of the others.
 
 ```mermaid
 flowchart LR
@@ -178,7 +185,7 @@ Save, then run **Scan Library Files** and **Refresh All Metadata**.
 > [!CAUTION]
 > **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first. For a HAMA
 > + Absolute Series Scanner library, follow [MIGRATION.md](MIGRATION.md): its script writes the `.plexmatch` hints
-> Plex's scanner needs, without renaming anything, with a dry run and an undo.
+> Plex's scanner needs, without renaming anything, with a dry run first.
 
 AniDB allows one request every 4 seconds and 200 a day, so a large library takes **several days** to get all its
 AniDB details. Shows fill in on later refreshes.
@@ -214,10 +221,10 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `MIN_SCORE` | `60` | Lowest title-search score (0–100) for an automatic match. Plex's *Fix Match* list ignores it |
+| `MIN_SCORE` | `80` | Lowest title-search score (0–100) for an automatic match. Plex's *Fix Match* list ignores it |
 | `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID |
 | `MAPPING_SOURCES` | `animelists,fribb` | Id mapping lists, in priority order. A later list only fills ids the earlier ones lack |
-| `TITLE_LANGS` | `main,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
+| `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
 | `ORIGINAL_TITLE_LANGS` | `ja` | Language order for Plex's *original title* (official titles only, e.g. `x-jat` for romaji). Left empty when it equals the title; `none` turns it off |
 | `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order. When none of these has a title, the next source in `EPISODE_TITLES` is tried first; AniDB's title in any language is the last resort |
@@ -239,14 +246,14 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
-| `TITLE_SOURCES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
+| `TITLE_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
-| `GENRE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
-| `CAST_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
-| `CREW_SOURCES` | `anidb,tmdb,tvdb,ann` | anidb tvdb tmdb ann | Directors and writers, both from the same source |
-| `STUDIO_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | |
-| `DATE_SOURCES` | `anidb,mal,tmdb,tvdb,ann` | anidb tvdb tmdb mal ann | First aired / release date |
-| `RATING_SOURCES` | `anidb,mal,tmdb,tvdb` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
+| `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
+| `CAST_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
+| `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Directors and writers, both from the same source |
+| `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
+| `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | First aired / release date |
+| `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
 In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
@@ -256,10 +263,10 @@ date they're only used on the series' first AniDB entry (a TheMovieDb movie is a
 
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
-| `POSTER_SOURCES` | `tmdb,tvdb,anidb,mal` | anidb tvdb tmdb mal ann | |
-| `BACKGROUND_SOURCES` | `tmdb,tvdb` | tvdb tmdb | |
-| `LOGO_SOURCES` | `tmdb,tvdb` | tvdb tmdb | |
-| `ART_ALL_SOURCES` | `true` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
+| `POSTER_SOURCES` | `tvdb,tmdb,anidb,mal,ann` | anidb tvdb tmdb mal ann | |
+| `BACKGROUND_SOURCES` | `tvdb,tmdb` | tvdb tmdb | |
+| `LOGO_SOURCES` | `tvdb,tmdb` | tvdb tmdb | |
+| `ART_ALL_SOURCES` | `false` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
 
 **Episodes**
 
@@ -561,7 +568,9 @@ episode after a recap is one (then two) behind on TheTVDB:
 <details>
 <summary><b><a id="uc6"></a>6 · AniDB specials that are TVDB specials</b></summary>
 
-AniDB's specials `S1` and `S3` are TheTVDB's S00E04 and S00E05; `S2` has no TVDB counterpart:
+Without a mapping, the series' first entry pairs AniDB special `S1` with TheTVDB's S00E01, `S2` with S00E02 and so
+on. Later entries, and entries in `defaulttvdbseason="0"`, pair their specials only through a mapping. Here AniDB's
+specials `S1` and `S3` are TheTVDB's S00E04 and S00E05, and `S2` has no TVDB counterpart:
 
 ```xml
 <anime anidbid="1234" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0">
