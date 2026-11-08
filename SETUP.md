@@ -131,9 +131,8 @@ curl http://<kizuna-host>:32600/health
 > containers on one Docker network and use `http://kizuna:32600`.
 
 > [!WARNING]
-> Kizuna has **no login**, because Plex can't send credentials to a provider. Keep port 32600 on your LAN and never
-> forward it to the internet. By default Kizuna only answers [private addresses](#%EF%B8%8F-access), and only
-> requests sent to an IP address or a local name.
+> Kizuna has **no login** ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Keep port 32600 on your LAN and
+> never forward it to the internet.
 
 ## 🔌 3. Register Kizuna in Plex
 
@@ -185,14 +184,14 @@ Save, then run **Scan Library Files** and **Refresh All Metadata**.
 > + Absolute Series Scanner library, follow [MIGRATION.md](MIGRATION.md): its script writes the `.plexmatch` hints
 > Plex's scanner needs, without renaming anything, with a dry run first.
 
-AniDB allows one request every 4 seconds and 200 a day, so a large library takes **several days** to get all its
-AniDB details. Shows fill in on later refreshes.
+A large library takes **several days** to get all its AniDB details ([AniDB's limits](README.md#-anidb-fair-use)).
+Shows fill in on later refreshes.
 
 ---
 
 ## ⚙️ Settings
 
-Everything is an environment variable. [`compose.yml`](compose.yml) lists them, commented out. Plex doesn't pass
+Everything is an environment variable; [`compose.yml`](compose.yml) lists the common ones. Plex doesn't pass
 per-library settings to providers, so every setting applies to every mode and every library.
 
 | You set | Kizuna |
@@ -208,7 +207,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off and shows match by title only |
+| `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off |
 | `ANIDB_CLIENTVER` | `1` | The client version you registered |
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
 | `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB answers `pin required` without it |
@@ -226,7 +225,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
 | `ORIGINAL_TITLE_LANGS` | `ja` | Language order for Plex's *original title* (official titles only, e.g. `x-jat` for romaji). Left empty when it equals the title; `none` turns it off |
-| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order. When none of these has a title, the next source in `EPISODE_TITLES` is tried first; AniDB's title in any language is the last resort |
+| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order ([fallbacks](README.md#%EF%B8%8F-episode-titles-and-pairing)) |
 
 ### 🔀 Sources per field
 
@@ -256,7 +255,7 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
 In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
-date they're only used on the series' first AniDB entry (a TheMovieDb movie is always its own entry).
+date they're only used on the AniDB entry that starts the series (a TheMovieDb movie is always its own entry).
 
 **Episode directors and writers** come from TheTVDB, else TheMovieDb (each field on its own), in both modes; AniDB has
 none per episode. With a v4 TheTVDB key they're in one record per episode: Kizuna fetches them for up to 8 seconds
@@ -277,13 +276,8 @@ them. Refresh the show's metadata a few minutes later to fill them in. The legac
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
 | `EPISODE_SOURCES` | `tvdb,tmdb` | tvdb tmdb | `/tvdb`: where the episode list comes from |
-| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes. Each episode is paired with its counterpart on every source; the first **real** title wins (*Episode 12*, *TBA* don't count). `tvdb,tmdb,anidb` = TheTVDB's English titles first. [How pairing works](README.md#%EF%B8%8F-episode-titles-and-pairing) |
+| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes ([how titles are picked](README.md#%EF%B8%8F-episode-titles-and-pairing)). `tvdb,tmdb,anidb` = TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb` | tvdb | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `none` turns it off |
-
-> [!NOTE]
-> In `/tvdb`, AniDB episode titles come from every AniDB entry of the series. Entries missing from the cache are
-> fetched in the background, which stops once 150 of the 200 daily AniDB calls are used, so their titles show up on a
-> later refresh.
 
 <details>
 <summary><b>Examples</b></summary>
@@ -316,9 +310,8 @@ CAST_SOURCES: "none"
 
 ### 🛡️ Access
 
-Kizuna can't ask for a password, because Plex can't send one. Instead it limits *who* may talk to it, with two
-checks. Both are on by default and need no change for the usual setups: Plex and Kizuna on the same LAN, Docker host
-or Tailscale network.
+Two checks limit who may talk to Kizuna ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Both are on by
+default and need no change for the usual setups: Plex and Kizuna on the same LAN, Docker host or Tailscale network.
 
 ```mermaid
 flowchart LR
@@ -331,8 +324,8 @@ flowchart LR
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ALLOW_FROM` | `private` | Client addresses that may use Kizuna, comma-separated: `private` (loopback, `10.x`, `172.16–31.x`, `192.168.x`, Tailscale's `100.64.0.0/10`, link-local, IPv6 private), single IPs (`192.168.1.10`) or networks (`192.168.1.0/24`). `any` turns it off. The machine itself (`127.0.0.1`, `::1`) is always allowed, and so is `/health` from the machine's own address, for Docker's health check with `LISTEN=<ip>` |
-| `ALLOWED_HOSTS` | – | Extra names Kizuna may be reached by: `kizuna.example.com`, or `.example.com` for it and every name under it. `any` turns it off. Always allowed: IP addresses, `localhost`, one-word names (`kizuna`, a container name), and names ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain` |
+| `ALLOW_FROM` | `private` | Client addresses that may use Kizuna, comma-separated: `private` (loopback, `10.x`, `172.16–31.x`, `192.168.x`, Tailscale's `100.64.0.0/10`, link-local, IPv6 private), single IPs (`192.168.1.10`) or networks (`192.168.1.0/24`). `any` turns it off. The machine itself (loopback) is always allowed, and so is `/health` from the machine's own address, for Docker's health check with `LISTEN=<ip>` |
+| `ALLOWED_HOSTS` | – | Extra names Kizuna may be reached by: `kizuna.example.com`, or `.example.com` (or `*.example.com`) for it and every name under it. `any` turns it off. Always allowed: IP addresses, `localhost`, one-word names (`kizuna`, a container name), and names ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain` |
 
 Each refused client or name is logged once every 10 minutes, with the setting to change.
 
@@ -342,27 +335,12 @@ ALLOW_FROM: "private,203.0.113.7"       # the LAN plus one outside address
 ALLOWED_HOSTS: "kizuna.mynas.example"   # you added the provider as http://kizuna.mynas.example:32600
 ```
 
-<details>
-<summary><b>Why these two checks</b></summary>
-
-- **`ALLOW_FROM` makes an accidental port forward harmless.** A request from the internet comes from a public
-  address and gets refused. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can
-  fake.
-- **`ALLOWED_HOSTS` stops DNS rebinding.** A web page can try to reach devices on your LAN through your browser, by
-  pointing its own domain at a LAN address. The browser then sends that domain as the host name, which Kizuna doesn't
-  know, so it refuses.
-- **Behind a reverse proxy**, every request comes from the proxy's private address, so `ALLOW_FROM` can't tell clients
-  apart. The host name check still refuses a public domain you haven't listed. Kizuna is meant for your LAN, not the
-  internet.
-
-</details>
-
 ### 💾 Storage & cache
 
 | Variable | Default | What it does |
 |---|---|---|
 | `CACHE_MIN_FREE` | `1GB` | When the disk holding the cache has less free space than this, the oldest cache files are deleted. `0` = never clean up |
-| `CACHE_FREE_TARGET` | `2GB` | …until this much is free again. Sizes like `500MB`, `2GB`, `1.5TB`; a plain number is MB |
+| `CACHE_FREE_TARGET` | `2GB` | …until this much is free again (at least `CACHE_MIN_FREE`). Sizes like `500MB`, `2GB`, `1.5TB`; a plain number is MB |
 
 The cache has no size limit of its own. Every 10 minutes Kizuna checks the free space and, when it's low, deletes in
 this order:
@@ -377,7 +355,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 
 | Cached | For |
 |---|---|
-| AniDB anime | 6 days while airing and for 60 days after it ends, then 180 days |
+| AniDB anime | see [AniDB fair use](README.md#-anidb-fair-use) |
 | TheTVDB · TheMovieDb | 2–7 days (TheMovieDb id lookups: 30 days) |
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
@@ -431,7 +409,7 @@ downloaded.
 | Attribute | Meaning |
 |---|---|
 | `anidbid` | the AniDB entry, from its page: `anidb.net/anime/1234` |
-| `tvdbid` | the TVDB series id (on its page at thetvdb.com). `movie`, `OVA`… = no TVDB series on purpose; `unknown` or left out = not known |
+| `tvdbid` | the TVDB series id (on its page at thetvdb.com). Anything else (`movie`, `OVA`, `unknown`…) or left out = no TVDB series |
 | `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` = TheTVDB's absolute order; `0` = TheTVDB's specials. **Always set it when `tvdbid` is a number**: left out, it counts as `0` |
 | `episodeoffset` | AniDB episode 1 is TVDB episode `1 + offset` in that season (default `0`) |
 | `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show · TheMovieDb movie · IMDb id (`tt…`) |
@@ -650,7 +628,7 @@ used for artwork and details:
 
 | Log line | Mode | Tells you |
 |---|---|---|
-| `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` | how many AniDB episodes your exceptions cover (use case 5 covers 18) and how many were paired with TheTVDB |
+| `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` | how many AniDB episodes your pairs and `start…end` ranges cover (use case 5 covers 18; open ranges aren't counted) and how many were paired with TheTVDB |
 | `episode titles: source used … anidb=24 tvdb=0` | both | where each episode title came from |
 
 > [!TIP]
@@ -665,7 +643,7 @@ and Plex tokens are always shown as `***`.
 
 | Level | Shows |
 |---|---|
-| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `complete=false` when something was missing (AniDB details, part of an episode list, episode crew still being fetched) so it's rebuilt in 2 minutes, and an `AniDB details not available` line before it with `why=` when AniDB was the missing part · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
+| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) · `AniDB title list loaded` and `mapping loaded` with their counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `complete=false` when something was missing (AniDB details, part of an episode list, episode crew still being fetched) so it's rebuilt in 2 minutes, and an `AniDB details not available` line before it with `why=` when AniDB was the missing part · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
 | **`debug`** | all of the above, plus every Plex request and match body · every outgoing call and cache decision · the top 5 title-search scores · why AniDB wasn't called · which source supplied each field (`show fields: source used`) · episode pairing counts · cache cleanup checks |
 
 ## 🧰 Troubleshooting
@@ -702,42 +680,4 @@ and Plex tokens are always shown as `***`.
 | `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or `pin required`: set `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or show crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
 
-**Still stuck?** [Open an issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the form that fits:
-
-| Form | For |
-|---|---|
-| 📺 [Wrong match or metadata](https://github.com/KurtzPT/kizuna/issues/new?template=1-wrong-metadata.yml) | wrong show, no match, wrong titles, seasons, artwork, specials |
-| 🛠️ [Migration script](https://github.com/KurtzPT/kizuna/issues/new?template=2-migration-script.yml) | a wrong or missing hint in the dry run |
-| 🐳 [Running Kizuna](https://github.com/KurtzPT/kizuna/issues/new?template=3-running-kizuna.yml) | won't start, health check fails, Plex can't reach it, key or AniDB errors |
-| 🐞 [Something else](https://github.com/KurtzPT/kizuna/issues/new?template=5-something-else.yml) | crashes, restarts, error messages, slowness, memory or disk, anything that fits nowhere else |
-| ✨ [Idea](https://github.com/KurtzPT/kizuna/issues/new?template=4-feature-request.yml) | something Kizuna could do better |
-
-Each form asks for the folder and file names, your mode and a `LOG_LEVEL=debug` excerpt for that one show. That's
-usually enough to reproduce the problem.
-
----
-
-<details>
-<summary><b>🛠️ Building from source</b></summary>
-
-The Docker build runs the tests first:
-
-```bash
-docker build -t kizuna .
-# or, with Go installed:
-go test ./... && go build -o kizuna ./cmd/kizuna
-```
-
-The GitHub workflow builds `linux/amd64` and `linux/arm64` images on GitHub Container Registry:
-
-| Event | Image tags |
-|---|---|
-| push to `dev` | `:dev`, `:sha-<short>` (beta) |
-| tag `v1.2.3` on `main` | `:1.2.3`, `:1.2`, `:latest`, `:sha-<short>` (stable) |
-| tag `v1.2.3-beta.1` | `:1.2.3-beta.1`, `:sha-<short>` |
-| push to `main`, pull request | build and test only, nothing pushed |
-
-How branches and releases work, and where things are in the code: [CONTRIBUTING.md](CONTRIBUTING.md#-branches-and-releases)
-([code map](CONTRIBUTING.md#%EF%B8%8F-code-map)).
-
-</details>
+**Still stuck?** [Open an issue](CONTRIBUTING.md#-reporting-a-problem).

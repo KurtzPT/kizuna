@@ -6,7 +6,7 @@
 
 **Move a HAMA + Absolute Series Scanner library to Kizuna without renaming a single file.**
 
-[How it works](#-how-it-works) &nbsp;·&nbsp; [What migrates](#-what-can-be-migrated) &nbsp;·&nbsp; [Before you start](#-before-you-start) &nbsp;·&nbsp; [① Install](#-1-install-the-script) &nbsp;·&nbsp; [② Dry run](#-2-dry-run) &nbsp;·&nbsp; [③ Apply](#-3-apply-the-hints) &nbsp;·&nbsp; [④ Switch](#-4-switch-the-library) &nbsp;·&nbsp; [⑤ Scan](#-5-scan-and-refresh) &nbsp;·&nbsp; [⑥ Clean up](#-6-clean-up) &nbsp;·&nbsp; [📘 Reference](#-what-the-script-writes)
+[How it works](#-how-it-works) &nbsp;·&nbsp; [What migrates](#-what-can-be-migrated) &nbsp;·&nbsp; [Before you start](#-before-you-start) &nbsp;·&nbsp; [① Install](#-1-install-the-script) &nbsp;·&nbsp; [② Dry run](#-2-dry-run) &nbsp;·&nbsp; [③ Apply](#-3-apply-the-hints) &nbsp;·&nbsp; [④ Switch](#-4-switch-the-library) &nbsp;·&nbsp; [⑤ Clean up](#-5-clean-up) &nbsp;·&nbsp; [📘 Reference](#-what-the-script-writes)
 
 <sub>Haven't set Kizuna up yet? Start with <a href="SETUP.md">SETUP.md</a>.</sub>
 
@@ -44,7 +44,8 @@ number differently from Kizuna. Your files, subtitles and torrents stay untouche
 | `tvdb2`, `tvdb4`–`tvdb6`, `anidb2`–`anidb4`, `tmdb`, `imdb` | – | – | ❌ | – | not supported |
 
 For the ❌ modes the folder tag still finds the right show, but Kizuna numbers episodes its own way, so files numbered
-for those orders won't line up.
+for those orders won't line up. The script doesn't warn about them: it plans `[anidb2-…]` like `[anidb-…]` and
+`[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
 
 > [!IMPORTANT]
 > **Plain HAMA `tvdb` shows need the `[tvdb-…]` tag** (no digit after `tvdb`). That tag is the only way the script
@@ -61,7 +62,7 @@ for those orders won't line up.
 |---|---|---|
 | ☐ | **Set up Kizuna** and add it to Plex ([SETUP.md](SETUP.md)). Don't switch any library yet | the script asks Kizuna for seasons and openings |
 | ☐ | **Back up the Plex database**: stop Plex, copy its `Plug-in Support/Databases` folder | the only way back if the switch goes wrong |
-| ☐ | **Make a test library**: two or three show folders copied into their own Plex library, taken through step 5 | shows what happens to *your* episode numbers and watched states |
+| ☐ | **Make a test library**: two or three show folders copied into their own Plex library, taken through step 4 | shows what happens to *your* episode numbers and watched states |
 | ☐ | **Save watched states elsewhere** if you depend on them, e.g. sync to Trakt | see below |
 
 > [!WARNING]
@@ -74,7 +75,7 @@ for those orders won't line up.
 
 ```mermaid
 flowchart LR
-    A["📦 1. Install"] --> B["🔍 2. Dry run"] --> C["📝 3. Apply"] --> D["🔁 4. Switch library"] --> E["🔄 5. Scan + refresh"] --> F["🧹 6. Clean up"]
+    A["📦 1. Install"] --> B["🔍 2. Dry run"] --> C["📝 3. Apply"] --> D["🔁 4. Switch + scan"] --> F["🧹 5. Clean up"]
     B -. "plan wrong? fix folders, run again" .-> B
 ```
 
@@ -171,8 +172,8 @@ for your library:
 ./kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime      > plan.txt 2>&1
 
 grep -c '^  + ' plan.txt    # hints to add
-grep WARNING plan.txt       # everything the script left alone
-tail -n 4 plan.txt          # summary: files to write, hints, warnings
+grep '^WARNING' plan.txt    # everything the script left alone
+grep 'files to write' plan.txt   # summary: files to write, hints, warnings
 ```
 
 In `tvdb` mode the script stops right away if Kizuna isn't reachable or `curl`/`jq` are missing. In `anidb` and `auto`
@@ -210,21 +211,10 @@ The Absolute Series Scanner ignores `.plexmatch` files, so the library keeps wor
 
 ## 🔁 4. Switch the library
 
-In Plex, *Manage Library → Edit → Advanced*:
+Do [SETUP.md step 4](SETUP.md#-4-point-a-library-at-it): scanner *Plex TV Series*, your Kizuna agent, then *Scan
+Library Files* and *Refresh All Metadata*.
 
-| Field | Set to |
-|---|---|
-| **Scanner** | *Plex TV Series* |
-| **Agent** | your Kizuna agent (with *Plex Local Media*) |
-
-## 🔄 5. Scan and refresh
-
-Run *Scan Library Files*, then *Refresh All Metadata*.
-
-AniDB allows one request every 4 seconds and 200 a day, so a large library takes **several days** to get all its AniDB
-details. Shows fill in on later refreshes.
-
-## 🧹 6. Clean up
+## 🧹 5. Clean up
 
 Once no library uses them, delete `Plug-ins/Hama.bundle` and `Scanners/Series/Absolute Series Scanner.py`.
 
@@ -256,7 +246,7 @@ new files in either of two ways:
 | `Show [anidb-23]/Show - 01.mkv` … `- 148.mkv` | `S01E01` … `S01E148` | none |
 | `Show - S01E05.mkv` | `S01E05` | none |
 | `Specials/Show - 01.mkv` | `S00E01` | none |
-| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | ✋ rename to Kizuna's number, e.g. `Show - S00E101.mkv`: the script reports each one with the name ([why](#openings-and-endings-plex-makes-them-extras), [variants](#openings-and-endings-with-variants)) |
+| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | ✋ rename to Kizuna's number, e.g. `Show - S00E101.mkv`: the script reports each one, with the name when it knows the number ([why](#openings-and-endings-plex-makes-them-extras), [variants](#openings-and-endings-with-variants)) |
 | specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `S00E01`) |
 | trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` → `S00E202` (AniDB's trailer numbers) |
 | a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
@@ -279,7 +269,8 @@ new files in either of two ways:
 
 > [!NOTE]
 > Hints are written as `S00Exx`. Plex's `.plexmatch` documentation also allows `SPxx`, but Plex Media Server 1.43
-> reads that without a season and leaves the file out. The script warns about `SPxx` lines in your own `.plexmatch`.
+> reads that without a season and leaves the file out. The script warns about an `SPxx` line for a file it would
+hint.
 
 ### Openings and endings: Plex makes them extras
 
@@ -300,7 +291,7 @@ tested yet: whether a lowercase `op1` counts too (the script assumes it doesn't)
 such a word, like `Show - 05 [ED fix].mkv`, becomes an extra (the script warns about it).
 
 To get an opening or ending as Kizuna's special, rename it to its number, e.g. `Show - S00E101.mkv`. The scanner
-reads that by itself, no hint needed, and the script prints the name to use for each file.
+reads that by itself, no hint needed, and the script prints the name to use when it knows the number.
 
 ### Openings and endings with variants
 
@@ -326,7 +317,7 @@ So the script asks Kizuna for the show's credit list and matches each file to a 
 
 > [!IMPORTANT]
 > This needs **Kizuna running with AniDB details** for the show (an AniDB client, not banned). In `anidb` mode the
-> script uses Kizuna at `-u` (default `http://localhost:32600`) and says at the start when it can't reach it. Without
+> script uses Kizuna at [`-u`](#-command-line-reference) and says at the start when it can't reach it. Without
 > Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`S00E101`, `S00E152`). Variant files get no number,
 > and neither does any opening in a folder with opening variants (endings likewise), because a variant shifts the
 > numbers.
@@ -346,7 +337,7 @@ WARNING: …/Cowboy Bebop: anidb.id says [anidb-23], but Plex never reads .id fi
 - `tvdb.id` becomes a plain `[tvdb-…]` tag ([renumbered](#plain-tvdb-folders-per-season-numbers)), `tvdb3.id` becomes
   `[tvdb3-…]`.
 - A folder that already has a tag ignores its `.id` file, as HAMA did. With several `.id` files, the first of `anidb`,
-  `tvdb`, `tmdb`, `imdb` wins, and a warning names the others.
+  `tvdb`, `tmdb`, `imdb` wins, and a warning names the other kinds.
 
 ### `tvdb` rules
 
@@ -424,14 +415,11 @@ the script reads it the way Plex does:
 |---|---|
 | no `.plexmatch` | creates one with just its hints |
 | `title:` / `show:`, `year:` | sends them to Kizuna as the show's title and year, like Plex |
-| `ep:` lines, yours or from an earlier run | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently, and for every `ep: SPxx:` line ([Plex 1.43 leaves those files out](#anidb-rules)): change those to `ep: S00Exx:` |
+| `ep:` lines, yours or from an earlier run | **keeps them**, and writes no hint for that file. Warns if Kizuna numbers it differently, or if the line is `ep: SPxx:` ([Plex 1.43 leaves those files out](#anidb-rules)): change those to `ep: S00Exx:` |
 | `season:` in a season folder | treats that folder as that season |
 | `season:` in the show folder | warns: every file without its own hint is read as that season |
 | `tvdbid:`, `tmdbid:`, `imdbid:`, `guid:` | ⚠️ warns and ignores them. Put the id in the folder name: `Show [tvdb-267440]` |
 | `pattern:` / `pt:` | ⚠️ **skips the show**: it can't tell which files a pattern numbers. Write `ep:` lines by hand |
-
-**To change one of the script's hints**, edit or delete its line in the `.plexmatch`: from the moment it's written,
-it's an ordinary line like your own.
 
 ## 💻 Command-line reference
 
@@ -459,12 +447,5 @@ None of that fixes a misread file name. That's what the [dry run](#-2-dry-run) i
 
 ## 🚫 Not supported
 
-Left out on purpose, to keep Kizuna small:
-
-| Feature | Instead |
-|---|---|
-| **HAMA numbering modes** other than `anidb`, `tvdb3`, `tvdb` | their tags still match the show (`[anidb2-23]` = AniDB 23); numbering follows Kizuna's modes |
-| **id hints** (`tvdbid:`, `guid:`…) in `.plexmatch` | a folder tag such as `[anidb-23]` |
-| **`pattern:` hints** in `.plexmatch` | `ep:` lines, written by hand |
-| **Collections, online theme songs, rating badges** | local `theme.mp3` files still work through *Plex Local Media* |
-| **Per-library settings** | Plex doesn't pass settings to providers; use [environment variables](SETUP.md#%EF%B8%8F-settings) |
+Left out on purpose, to keep Kizuna small: HAMA's collections, online theme songs and rating badges. Local `theme.mp3`
+files still work through *Plex Local Media*.

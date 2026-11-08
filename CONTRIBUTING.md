@@ -18,15 +18,15 @@ Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick th
 
 | Template | For |
 |---|---|
-| 📺 **Wrong match or metadata** | wrong show, no match, wrong titles, episodes, seasons, artwork |
-| 🛠️ **Migration script** | `kizuna-migrate.sh` wrote wrong hints or failed |
-| 🐳 **Running Kizuna** | Docker, Plex registration, access, health check, logs |
+| 📺 **Wrong match or metadata** | wrong show, no match, wrong titles, episodes, seasons, artwork, specials |
+| 🛠️ **Migration script misread my files** | `kizuna-migrate.sh` planned a wrong hint, skipped files or failed |
+| 🐳 **Kizuna won't start, or Plex can't reach it** | startup, health check, Plex can't add the provider, rejected keys, AniDB bans |
 | 🐞 **Something else** | crashes, restarts, errors, memory or disk use, anything the others don't cover |
-| ✨ **Feature request** | something Kizuna should do |
+| ✨ **Idea or feature request** | something Kizuna could do, or do better |
 
-**Check the [troubleshooting table](SETUP.md#-troubleshooting) first**, and attach the log lines for the show
-(see [Logs](SETUP.md#-logs)). Keys and Plex tokens are already `***` in the logs, but remove any paths you don't want
-public.
+**Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file names,
+your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
+already `***` in the logs, but remove any paths you don't want public.
 
 > [!IMPORTANT]
 > **Security problems never go in a public issue.** Follow [SECURITY.md](SECURITY.md).
@@ -69,13 +69,14 @@ docker build -t kizuna .
 
 ## ✅ Checks
 
-CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every push and pull request. Run them before you push:
+CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every push to `main` or `dev` and every pull request. Run
+them before you push:
 
 ```bash
 gofmt -l .                       # must print nothing (fix with gofmt -w .)
 go vet ./...
 go test -race -count=1 ./...
-bash -n scripts/kizuna-migrate.sh
+for f in scripts/*.sh; do bash -n "$f"; done
 shellcheck --severity=warning scripts/*.sh
 bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
 ```
@@ -123,10 +124,10 @@ By contributing, you agree that your work is released under the [GPL-3.0](LICENS
 
 ## 🌿 Branches and releases
 
-| Branch | Holds | Image |
-|---|---|---|
-| **`main`** (default) | the latest **stable** release, and the docs that match it | `:latest`, `:1.2.3`, `:1.2` from release tags |
-| **`dev`** | the next version: every merged pull request lands here first | `:dev` (beta), rebuilt on every push |
+| Branch | Holds |
+|---|---|
+| **`main`** (default) | the latest **stable** release, and the docs that match it |
+| **`dev`** | the next version: every merged pull request lands here first |
 
 ```mermaid
 flowchart LR
@@ -163,8 +164,18 @@ gh release create v1.3.0-beta.1 --target dev --prerelease --generate-notes
 Dependabot **security** updates always open against `main` (GitHub doesn't let them target another branch), so they
 follow the hotfix path. Version updates and Go upgrades open against `dev`.
 
-The image workflow refuses to publish a stable tag (`v1.2.3` with no `-beta`) that isn't on `main`, so `:latest`
-is always something that was released.
+The [`docker`](.github/workflows/docker.yml) workflow builds `linux/amd64` and `linux/arm64` images on GitHub
+Container Registry, each with a signed build provenance attestation:
+
+| Event | Image tags |
+|---|---|
+| push to `dev` (not docs-only) | `:dev`, `:sha-<short>` |
+| tag `v1.2.3` on `main` | `:1.2.3`, `:1.2`, `:latest`, `:sha-<short>` |
+| tag `v1.2.3-beta.1` | `:1.2.3-beta.1`, `:sha-<short>` |
+| push to `main`, pull request | build and test only, nothing pushed |
+
+It refuses to publish a stable tag (`v1.2.3` with no `-beta`) that isn't on `main`, so `:latest` is always something
+that was released.
 
 ## 🗺️ Code map
 

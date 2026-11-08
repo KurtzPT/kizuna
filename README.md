@@ -65,11 +65,11 @@ Kizuna never reads your media folders and can't move an episode to another numbe
 
 Each mode is its own provider URL; a library's agent uses one of them.
 
-| Mode | Shows up in Plex as | A show in Plex is… | Files look like | Pick it when |
-|---|---|---|---|---|
-| **`/anidb`** | Kizuna (AniDB) | one **AniDB entry** | `Show - 01.mkv` … `Show - 148.mkv` | every season or sequel is its own folder |
-| **`/tvdb`** | Kizuna (TVDB) | one **TVDB series** | `Show - S02E26.mkv` | one folder per series, with seasons |
-| **`/auto`** | Kizuna | either, **per folder** | both, side by side | your library mixes the two |
+| Mode | A show in Plex is… | Files look like | Pick it when |
+|---|---|---|---|
+| **`/anidb`** | one **AniDB entry** | `Show - 01.mkv` … `Show - 148.mkv` | every season or sequel is its own folder |
+| **`/tvdb`** | one **TVDB series** | `Show - S02E26.mkv` | one folder per series, with seasons |
+| **`/auto`** | either, **per folder** | both, side by side | your library mixes the two |
 
 The same anime in both models, *Attack on Titan* (25 + 12 episodes):
 
@@ -183,18 +183,17 @@ several AniDB entries (a TVDB series with one entry per season) gives the series
 
 ## 📚 Sources
 
-| Source | Best at | Key |
-|---|---|---|
-| [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff | free HTTP client |
-| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, posters, backgrounds, logos | API key (v4, or a legacy key) |
-| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; `/tvdb` episodes without a TVDB key | API key |
-| [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date | client ID |
-| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date | none |
+| Source | Best at |
+|---|---|
+| [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff |
+| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, posters, backgrounds, logos |
+| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; `/tvdb` episodes without a TVDB key |
+| [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date |
+| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date |
 
 Every field has its own source order, and any source can come first. Later sources are only downloaded when the ones
 before them have nothing. By default AniDB comes first for show details and TheTVDB for artwork; TheTVDB always
-comes before TheMovieDb, and Anime News Network is the last fallback. Set `ART_ALL_SOURCES=true` to offer posters,
-backgrounds and logos from every listed source in Plex's *Edit* dialog.
+comes before TheMovieDb, and Anime News Network is the last fallback.
 
 **Setup:** [which keys each mode needs and what each source can supply](SETUP.md#-1-get-your-keys) ·
 [changing the order per field](SETUP.md#-sources-per-field).
@@ -218,8 +217,8 @@ flowchart LR
 |---|---|
 | **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. An AniDB special the mapping doesn't list is TheTVDB's special with the same number (`S1` = `S00E01`), but only on the entry that starts the series and isn't in TVDB season 0; openings, endings and trailers only pair through an exception. In `/anidb`, TheMovieDb is paired the same way by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's season and number. In `/tvdb`, through AniDB: an episode's place on the list gives its AniDB episode, and the mapping gives that episode's place on the other site. An episode whose AniDB entry the mapping puts on another TheMovieDb show gets no TheMovieDb title or crew. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet) is paired by absolute number, a special by its number in season 0 |
 | **Picking the title** | `EPISODE_TITLES` sets the order (default AniDB → TheTVDB → TheMovieDb), in both modes. The first **real** title wins: *Episode 12* or *TBA* don't count |
-| **AniDB languages** | `EPISODE_LANGS` (default English, then romaji). With none of those, the next source is tried; AniDB's title in any language is the last resort |
-| **In `/tvdb`** | a show spans several AniDB entries. Uncached ones are fetched in the background, within AniDB's limits, so their titles appear on a later refresh |
+| **AniDB languages** | `EPISODE_LANGS` (default English, then romaji). With none of those, the other sources' real titles come first, then AniDB's title in any language |
+| **In `/tvdb`** | a show spans several AniDB entries. Uncached ones are fetched in the background ([within AniDB's limits](#-anidb-fair-use)), so their titles appear on a later refresh |
 
 ### 🔗 Id mapping
 
@@ -229,7 +228,7 @@ in `MAPPING_SOURCES` wins:
 | List | Adds |
 |---|---|
 | [Anime-Lists](https://github.com/Anime-Lists/anime-lists) | TVDB, TMDB and IMDb ids, plus each entry's TVDB season, episode offset and per-episode exceptions |
-| [Fribb/anime-lists](https://github.com/Fribb/anime-lists) | MyAnimeList, AniList, Kitsu and ANN ids, plus extra IMDb ids |
+| [Fribb/anime-lists](https://github.com/Fribb/anime-lists) | MyAnimeList, AniList, Kitsu and ANN ids, plus TVDB, TMDB and IMDb ids Anime-Lists lacks |
 
 Wrong mapping? Correct it yourself with `anime-list-custom.xml` ([setup](SETUP.md#-fixing-a-wrong-mapping)).
 
@@ -239,7 +238,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 
 | Rule | |
 |---|---|
-| Matching never calls the API | it searches the daily title list |
+| Finding a show never calls the API | it searches the daily title list |
 | One call every 4 s, at most 200 a day | AniDB's limits |
 | Plex's calls go first | background fetches (other entries of a `/tvdb` show) wait behind them, still 4 s apart, and stop at 150 calls a day |
 | Every answer is cached | 6 days while airing and for 60 days after the end, then 180 days |

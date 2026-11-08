@@ -35,13 +35,9 @@ Kizuna has **no login, by design** (see [below](#%EF%B8%8F-how-kizuna-is-protect
 
 ## 📦 Supported versions
 
-Only the **latest release** gets security fixes.
-
-| Image tag | Is |
-|---|---|
-| `:latest` | the newest release: security fixes ship here as a patch release (`1.2.3` → `1.2.4`) |
-| `:1.2.3`, `:1.2` | a release; `:1.2` moves to each new patch of 1.2 |
-| `:dev`, `:1.2.3-beta.1` | a beta: not supported, though it usually gets the fix first |
+Only the **latest release** (`:latest`) gets security fixes, as a patch release (`1.2.3` → `1.2.4`). Betas (`:dev`,
+`:1.2.3-beta.1`) aren't supported, though they usually get the fix first. All tags:
+[SETUP.md](SETUP.md#-2-run-kizuna).
 
 Update with:
 
@@ -65,12 +61,21 @@ may talk to it, and what it exposes:
 | **Private clients only** | an accidental port forward: requests from public addresses get `403` | `ALLOW_FROM`, default `private` |
 | **Known host names only** | DNS rebinding: a web page reaching Kizuna through your browser | `ALLOWED_HOSTS` |
 | **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers; logs show them as `***` | built in |
-| **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml` |
+| **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, `Dockerfile` |
 | **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](README.md#-anidb-fair-use) |
 | **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |
 | **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, check below |
 
-How the two access checks work, and how to change them: [SETUP.md → Access](SETUP.md#%EF%B8%8F-access).
+- **`ALLOW_FROM` makes an accidental port forward harmless.** A request from the internet comes from a public
+  address and gets refused. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can
+  fake.
+- **`ALLOWED_HOSTS` stops DNS rebinding.** A web page can try to reach devices on your LAN through your browser, by
+  pointing its own domain at a LAN address. The browser then sends that domain as the host name, which Kizuna doesn't
+  know, so it refuses.
+- **Behind a reverse proxy**, every request comes from the proxy's private address, so `ALLOW_FROM` can't tell clients
+  apart. The host name check still refuses a public domain you haven't listed.
+
+How to change the two checks: [SETUP.md → Access](SETUP.md#%EF%B8%8F-access).
 
 > [!WARNING]
 > These reduce the risk; they don't make Kizuna safe on the internet. Keep port `32600` on your local network.
