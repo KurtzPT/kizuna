@@ -62,6 +62,43 @@ func TestMatchByOtherIDs(t *testing.T) {
 	}
 }
 
+// TheMovieDb numbers TV shows and movies separately, so a [tmdb-N] tag or a
+// tmdb://N GUID can be one anime's TV show and another anime's movie. Only
+// a movie with the id: that movie. Both: the one the title search finds,
+// else the TV show.
+func TestMatchTMDBMovieOrTV(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77},
+		101: {AID: 101, TVDB: 500, TVDBSeason: 2, TMDBTV: 77},
+		200: {AID: 200, TMDBMovie: 77},
+		300: {AID: 300, TMDBMovie: 88},
+	})
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{
+		100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}},
+		101: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test Second Season"}},
+		200: {{Type: "main", Lang: "x-jat", Text: "Some Movie"}},
+		300: {{Type: "main", Lang: "x-jat", Text: "Other Movie"}},
+	})
+	p := &Provider{lists: l, titles: titles}
+	cases := []struct{ title, guid, want string }{
+		{"Some Movie [tmdb-77]", "", "anidb-200"},
+		{"Some Movie", "tmdb://77", "anidb-200"},
+		{"Kizuna Test [tmdb-77]", "", "anidb-100"},
+		{"Kizuna Test Second Season [tmdb-77]", "", "anidb-100"}, // the TV show's first entry, as before
+		{"Unknown Name [tmdb-77]", "", "anidb-100"},
+		{"Anything [tmdb-88]", "", "anidb-300"},
+		{"Anything", "com.plexapp.agents.themoviedb://88?lang=en", "anidb-300"},
+	}
+	for _, c := range cases {
+		got, how := p.candidates(Modes["anidb"], c.title, 0, "", c.guid, false)
+		if len(got) != 1 || got[0].root != c.want {
+			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
+		}
+	}
+}
+
 func TestPlaceholderEpisodes(t *testing.T) {
 	s := &Show{Root: "anidb-1", Episodes: map[int][]Ep{1: nil}, Placeholders: true}
 	if ep := s.Episode(1, 12); ep == nil || ep.Index != 12 {

@@ -407,6 +407,12 @@ When they're wrong or incomplete, write your own correction in **`anime-list-cus
 | 🖼️ `/anidb` episodes | which TVDB episode gives each AniDB episode its thumbnail, summary and date |
 | 🏷️ Episode titles | which episodes are paired across AniDB, TheTVDB and TheMovieDb, in both modes |
 
+> [!NOTE]
+> A `[tmdb-…]` tag (or a `tmdb://…` GUID) is a TheMovieDb **TV show** id, an entry's `tmdbtv`, as `{tmdb-…}` is in
+> a Plex TV library. TheMovieDb numbers movies separately, so a movie id (`tmdbid`) is used only when no entry has
+> that number as its TV show. When one entry has it as a TV show and another as a movie, the title search decides
+> between those two; when it finds neither, the TV show wins.
+
 ### The file
 
 ```xml

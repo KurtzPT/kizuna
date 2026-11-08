@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"kizuna/internal/anidb"
@@ -97,9 +98,10 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 // the show folder) wins, then the GUID Plex already has, then title search.
 // how says which of them decided.
 func (p *Provider) candidates(mode Mode, title string, year int, filename, guid string, manual bool) ([]candidate, string) {
+	query := tagRe.ReplaceAllString(title, "")
 	for _, text := range []string{title, filename} {
 		if m := tagRe.FindStringSubmatch(text); m != nil {
-			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2]); root != "" {
+			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "tag " + m[0]
 			}
 			slog.Debug("match: id tag not in the mapping", "tag", m[0])
@@ -107,14 +109,13 @@ func (p *Provider) candidates(mode Mode, title string, year int, filename, guid 
 	}
 	for _, re := range []*regexp.Regexp{guidRe, otherGUIDRe} {
 		if m := re.FindStringSubmatch(guid); m != nil {
-			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2]); root != "" {
+			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "guid " + guid
 			}
 			slog.Debug("match: GUID id not in the mapping", "guid", guid)
 		}
 	}
 
-	query := tagRe.ReplaceAllString(title, "")
 	limit := 1
 	if manual {
 		limit = 10
@@ -182,9 +183,10 @@ func matchType(t int) string {
 }
 
 // rootForID turns any site's id into the show key used by a mode. AniDB
-// and TVDB ids are used directly; the others (TMDB TV show, IMDb, MAL,
-// AniList, Kitsu, ANN) are mapped to their AniDB entry first. "" if unknown.
-func (p *Provider) rootForID(mode Mode, source, id string) string {
+// and TVDB ids are used directly; the others (TMDB, IMDb, MAL, AniList,
+// Kitsu, ANN) are mapped to their AniDB entry first (see aidFor; title and
+// year only settle a TMDB id). "" if unknown.
+func (p *Provider) rootForID(mode Mode, source, id, title string, year int) string {
 	source, id = strings.ToLower(source), strings.TrimSpace(id)
 	if to, ok := idAliases[source]; ok {
 		source = to
@@ -200,13 +202,42 @@ func (p *Provider) rootForID(mode Mode, source, id string) string {
 		}
 		return p.rootFor(mode, source, n)
 	case source == "imdb" || (err == nil && n > 0):
-		if aid := p.lists.AIDFor(source, id); aid > 0 {
+		if aid := p.aidFor(source, id, title, year); aid > 0 {
 			root := p.rootFor(mode, "anidb", aid)
 			slog.Debug("match: id mapped", "source", source, "id", id, "aid", aid, "show", root)
 			return root
 		}
 	}
 	return ""
+}
+
+// aidFor maps another site's id to its AniDB entry (0 if unknown).
+//
+// A TMDB id (tag or GUID) doesn't say whether it is a TV show or a movie,
+// and TheMovieDb numbers both from 1, so one id can be an anime's TV show
+// and another anime's movie. It means the TV show (as {tmdb-N} does in a
+// Plex TV library) unless only a movie has it. When both have it, the
+// title search picks the one whose entry it finds first; when it finds
+// neither, the TV show wins.
+func (p *Provider) aidFor(source, id, title string, year int) int {
+	if source != "tmdb" {
+		return p.lists.AIDFor(source, id)
+	}
+	tv, movie := p.lists.AIDFor("tmdb", id), p.lists.AIDFor("tmdbmovie", id)
+	if tv == 0 || movie == 0 || tv == movie {
+		return cmp.Or(tv, movie)
+	}
+	n, _ := strconv.Atoi(id)
+	for _, m := range p.titles.Search(title, year, 20) {
+		switch e := p.lists.ByAID(m.AID); {
+		case e.TMDBTV == n:
+			return tv
+		case e.TMDBMovie == n:
+			slog.Debug("match: TMDB id is a TV show and a movie; the title search found the movie", "id", id, "aid", m.AID)
+			return m.AID
+		}
+	}
+	return tv
 }
 
 // rootFor turns a source id into the show key used by a mode.

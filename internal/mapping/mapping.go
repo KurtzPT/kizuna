@@ -594,7 +594,8 @@ func (l *Lists) firstAID(source string, id int, starts func(Entry) bool) int {
 }
 
 // AIDFor returns the AniDB id for another site's id (source: tvdb, tmdb,
-// imdb, mal, anilist, kitsu, ann; "tmdb" means a TMDB TV show), or 0. When a series-level id
+// tmdbmovie, imdb, mal, anilist, kitsu, ann; "tmdb" means a TMDB TV show,
+// "tmdbmovie" a TMDB movie), or 0. When a series-level id
 // (TVDB, TMDB, IMDb) covers several AniDB entries, the series' first entry
 // wins.
 func (l *Lists) AIDFor(source, id string) int {
