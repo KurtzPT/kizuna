@@ -119,7 +119,7 @@ body:
         `docker inspect kizuna --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -vE 'KEY|PIN|CLIENT_ID'`
       render: shell
       placeholder: |
-        ANIDB_CLIENT=set  TVDB_API_KEY=set  TMDB_API_KEY=not set  MAL_CLIENT_ID=not set
+        ANIDB_CLIENT=set  TVDB_API_KEY=set  TVDB_LEGACY_API_KEY=not set  TMDB_API_KEY=not set  MAL_CLIENT_ID=not set
         TITLE_LANGS=en,x-jat
         EPISODE_TITLES=anidb,tvdb,tmdb
 
