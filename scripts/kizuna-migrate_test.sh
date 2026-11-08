@@ -6,7 +6,8 @@
 #   bash scripts/kizuna-migrate_test.sh
 #
 # Offline: Kizuna is never asked (-u points at a closed port). Each run works
-# in a new folder under $TMPDIR (or /tmp), printed at the start and left there.
+# in a new folder under $TMPDIR (or /tmp), deleted at the end when every check
+# passed and kept (its path printed) when one failed.
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SCRIPT=$HERE/kizuna-migrate.sh
@@ -16,8 +17,17 @@ set +e # the script sets -e: a failing check must not end the run
 
 NO_KIZUNA=http://127.0.0.1:9 # nothing listens there
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/kizuna-migrate-test.XXXXXX") || exit 1
-echo "test folder: $WORK"
 CHECKS=0 FAILS=0
+
+# cleanup runs on any exit: a failed run keeps its folder to look at
+cleanup() {
+	if ((FAILS == 0)); then
+		rm -rf -- "$WORK"
+	else
+		echo "test folder kept: $WORK"
+	fi
+}
+trap cleanup EXIT
 
 # check NAME GOT WANT
 check() {
