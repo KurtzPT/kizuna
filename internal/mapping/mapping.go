@@ -9,7 +9,7 @@
 //	            up on TMDB (many extra IMDb/TMDB ids)
 //
 // An optional anime-list-custom.xml in the data folder (Anime-Lists format)
-// replaces whole entries and always wins.
+// replaces whole entries and always wins, also while no list has loaded yet.
 package mapping
 
 import (
@@ -169,6 +169,8 @@ type Lists struct {
 	byAID map[int]Entry
 	byID  map[string]map[string][]int // source -> id -> aids (sorted)
 	sum   [32]byte                    // of everything the mapping was loaded from (zero after SetForTest)
+	// customOnly: no list has loaded yet; byAID holds anime-list-custom.xml alone.
+	customOnly bool
 }
 
 // listSources: how each MAPPING_SOURCES list is downloaded and parsed.
@@ -228,8 +230,12 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		added, filled := merge(entries, list)
 		slog.Info("mapping loaded", "list", g.src, "entries", len(list), "new", added, "filled", filled)
 	}
-	if len(entries) == 0 {
-		return errors.Join(append(errs, errors.New("no mapping list loaded"))...)
+	listsLoaded := len(entries) > 0
+	if !listsLoaded {
+		errs = append(errs, errors.New("no mapping list loaded"))
+		if l.Ready() { // keep the full mapping of an earlier load (custom entries included)
+			return errors.Join(errs...)
+		}
 	}
 	if customErr == nil {
 		// A broken custom file is reported but never costs the downloaded lists.
@@ -242,7 +248,12 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 			slog.Info("mapping: custom entries applied", "entries", len(extra))
 		}
 	}
-	l.set(entries)
+	if len(entries) == 0 {
+		return errors.Join(errs...)
+	}
+	// Custom entries alone are used until a list loads, but don't make the
+	// mapping Ready: /health stays degraded and the lists are retried soon.
+	l.set(entries, !listsLoaded)
 	if len(errs) == 0 { // after a problem, load in full again: its error is logged until it's gone
 		l.mu.Lock()
 		l.sum = sum
@@ -303,7 +314,7 @@ func merge(dst, src map[int]Entry) (added, filled int) {
 }
 
 // set swaps in a new mapping and rebuilds the reverse indexes.
-func (l *Lists) set(entries map[int]Entry) {
+func (l *Lists) set(entries map[int]Entry, customOnly bool) {
 	byID := map[string]map[string][]int{}
 	add := func(src string, id string, aid int) {
 		if id == "" || id == "0" {
@@ -330,19 +341,20 @@ func (l *Lists) set(entries map[int]Entry) {
 		}
 	}
 	l.mu.Lock()
-	l.byAID, l.byID, l.sum = entries, byID, [32]byte{}
+	l.byAID, l.byID, l.sum, l.customOnly = entries, byID, [32]byte{}, customOnly
 	l.mu.Unlock()
 }
 
-// Ready reports whether a mapping has been loaded.
+// Ready reports whether a mapping list has been loaded (anime-list-custom.xml
+// alone doesn't count).
 func (l *Lists) Ready() bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.byAID != nil
+	return l.byAID != nil && !l.customOnly
 }
 
 // SetForTest replaces the mapping (for tests in other packages).
-func (l *Lists) SetForTest(entries map[int]Entry) { l.set(entries) }
+func (l *Lists) SetForTest(entries map[int]Entry) { l.set(entries, false) }
 
 // --- Anime-Lists (XML) -----------------------------------------------------
 

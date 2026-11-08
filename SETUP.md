@@ -122,7 +122,7 @@ curl http://<kizuna-host>:32600/health
 |---|---|
 | `{"status":"ok","version":"..."}` | ready |
 | `{"status":"starting","version":"..."}` (HTTP 503) | still downloading the AniDB title list, first start only |
-| `{"status":"degraded","missing":["mapping"],"version":"..."}` (HTTP 503) | titles match, but the id mapping lists didn't download: TVDB tags and `/tvdb` mode find nothing. Docker shows the container `unhealthy` |
+| `{"status":"degraded","missing":["mapping"],"version":"..."}` (HTTP 503) | titles match, but the id mapping lists didn't download: TVDB tags and `/tvdb` mode find nothing beyond your `anime-list-custom.xml` entries. Docker shows the container `unhealthy` |
 | `403` with `ALLOW_FROM` or `ALLOWED_HOSTS` | Kizuna refused the caller: see [access](#%EF%B8%8F-access) |
 | no answer | wrong address, or a firewall: see [troubleshooting](#-troubleshooting) |
 
@@ -398,7 +398,8 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 Kizuna learns which AniDB entry is which TVDB series, season and episode from the
 [Anime-Lists](https://github.com/Anime-Lists/anime-lists) and [Fribb](https://github.com/Fribb/anime-lists) lists.
 When they're wrong or incomplete, write your own correction in **`anime-list-custom.xml`** in the data folder (next to
-`cache/` and `logs/`). Your entries win over both lists.
+`cache/` and `logs/`). Your entries win over both lists, and are used even while neither list could be
+downloaded.
 
 | A correction changes | How |
 |---|---|

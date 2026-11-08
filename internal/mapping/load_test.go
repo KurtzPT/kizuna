@@ -65,3 +65,42 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 		t.Fatalf("custom file changed, but the mapping was kept: %+v", l.ByAID(1))
 	}
 }
+
+// down answers every request with a 500: no list downloads.
+type down struct{}
+
+func (down) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}, Request: r}, nil
+}
+
+// anime-list-custom.xml applies even while no list has loaded (a first start
+// without network): its entries are used, but the mapping isn't Ready, so
+// /health stays degraded and the lists are retried soon. Once a list loads,
+// the custom entries still win over it.
+func TestLoadCustomWithoutLists(t *testing.T) {
+	dir := t.TempDir()
+	custom := `<anime-list><anime anidbid="1" tvdbid="200" defaulttvdbseason="1"/></anime-list>`
+	if err := os.WriteFile(filepath.Join(dir, "anime-list-custom.xml"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(down{})
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err == nil {
+		t.Error("no list loaded: want an error to log")
+	}
+	if l.ByAID(1).TVDB != 200 || l.AIDFor("tvdb", "200") != 1 {
+		t.Errorf("custom entry not applied without a list: %+v", l.ByAID(1))
+	}
+	if l.Ready() {
+		t.Error("custom entries alone must not make the mapping Ready")
+	}
+
+	f.SetTransport(notModified{})
+	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+		t.Fatal(err)
+	}
+	if !l.Ready() || l.ByAID(1).TVDB != 200 {
+		t.Errorf("after the list loaded: ready %v, entry 1 %+v (custom wins)", l.Ready(), l.ByAID(1))
+	}
+}

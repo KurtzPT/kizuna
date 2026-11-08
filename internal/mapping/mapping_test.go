@@ -4,7 +4,7 @@ import "testing"
 
 func TestStartsSeries(t *testing.T) {
 	l := &Lists{}
-	l.set(map[int]Entry{
+	l.SetForTest(map[int]Entry{
 		1: {AID: 1, TVDB: 100, TVDBSeason: 1},
 		2: {AID: 2, TVDB: 100, TVDBSeason: 2},
 		3: {AID: 3, TMDBTV: 500},
@@ -55,7 +55,7 @@ func TestMergeFillsOnlyMissing(t *testing.T) {
 	}
 
 	l := &Lists{}
-	l.set(entries)
+	l.SetForTest(entries)
 	for src, id := range map[string]string{"mal": "21", "imdb": "tt0388629", "tmdb": "37854", "tvdb": "81797"} {
 		if got := l.AIDFor(src, id); got != 69 {
 			t.Errorf("AIDFor(%s, %s) = %d, want 69", src, id, got)
@@ -190,7 +190,7 @@ func TestTMDBEpisode(t *testing.T) {
 
 	// The first entry of the TMDB show: season 1 or absolute, no offset.
 	l := &Lists{}
-	l.set(list)
+	l.SetForTest(list)
 	for aid, want := range map[int]bool{69: true, 11370: true, 14792: false, 13430: false, 23: false} {
 		if got := l.StartsTMDBShow(aid); got != want {
 			t.Errorf("StartsTMDBShow(%d) = %v, want %v", aid, got, want)
