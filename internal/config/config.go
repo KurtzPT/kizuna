@@ -3,7 +3,9 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -104,7 +106,7 @@ func Load() Config {
 		TitleOfficialOnly:  flag("TITLE_OFFICIAL_ONLY", false),
 		OriginalTitleLangs: langList("ORIGINAL_TITLE_LANGS", "ja"),
 		EpisodeLangs:       list(env("EPISODE_LANGS", "en,x-jat")),
-		MinScore:           num("MIN_SCORE", 80),
+		MinScore:           num("MIN_SCORE", 80, 0, 100),
 
 		TitleSources:       sourceList("TITLE_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
 		SummarySources:     sourceList("SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
@@ -141,18 +143,7 @@ func listenAddr() string {
 }
 
 // port reads PORT (1-65535); anything else warns and uses DefaultPort.
-func port() int {
-	raw := env("PORT", "")
-	if raw == "" {
-		return DefaultPort
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 || n > 65535 {
-		slog.Warn("ignoring bad PORT; using the default", "PORT", raw, "allowed", "1-65535", "default", DefaultPort)
-		return DefaultPort
-	}
-	return n
-}
+func port() int { return num("PORT", DefaultPort, 1, 65535) }
 
 // DataDir is the folder for cache, state and logs (DATA_DIR). Separate from
 // Load so logging can start before the settings are read.
@@ -160,20 +151,28 @@ func DataDir() string { return env("DATA_DIR", "./data") }
 
 // LogRetentionDays is how many past days of logs are kept (LOG_RETENTION_DAYS,
 // default 7; 0 = keep forever). Read before Load, like DataDir.
-func LogRetentionDays() int {
-	if n := num("LOG_RETENTION_DAYS", 7); n >= 0 {
-		return n
-	}
-	return 7
-}
+func LogRetentionDays() int { return num("LOG_RETENTION_DAYS", 7, 0, math.MaxInt) }
 
 // sourceList reads a comma-separated source order. "none" turns the field
-// off; unknown or unsupported names are dropped with a warning.
+// off; unknown or unsupported names are dropped with a warning. A list with
+// no known source left uses the default, with a warning: a typo must not
+// turn a field off (an empty MAPPING_SOURCES would never load a mapping).
 func sourceList(name, def string, allowed ...string) []string {
 	raw := strings.ToLower(env(name, def))
 	if raw == "none" {
 		return nil
 	}
+	out := knownSources(name, raw, allowed)
+	if len(out) == 0 && raw != def {
+		slog.Warn("no known source left; using the default (\"none\" turns the field off)", "setting", name,
+			"value", raw, "default", def)
+		return knownSources(name, def, allowed)
+	}
+	return out
+}
+
+// knownSources keeps the allowed names of a source list, once each.
+func knownSources(name, raw string, allowed []string) []string {
 	var out []string
 	for _, s := range list(raw) {
 		if !slices.Contains(allowed, s) {
@@ -203,9 +202,15 @@ func langList(name, def string) []string {
 	return nil
 }
 
+// flag reads a boolean (true/false, 1/0); anything else warns and uses def.
 func flag(name string, def bool) bool {
-	b, err := strconv.ParseBool(env(name, ""))
+	raw := env(name, "")
+	if raw == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(raw)
 	if err != nil {
+		slog.Warn("ignoring bad value; using the default", "setting", name, "value", raw, "allowed", "true,false", "default", def)
 		return def
 	}
 	return b
@@ -255,9 +260,19 @@ func env(name, def string) string {
 	return def
 }
 
-func num(name string, def int) int {
-	n, err := strconv.Atoi(env(name, ""))
-	if err != nil {
+// num reads a whole number from lo to hi; anything else warns and uses def.
+func num(name string, def, lo, hi int) int {
+	raw := env(name, "")
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < lo || n > hi {
+		allowed := fmt.Sprintf("%d-%d", lo, hi)
+		if hi == math.MaxInt {
+			allowed = fmt.Sprintf("%d or more", lo)
+		}
+		slog.Warn("ignoring bad value; using the default", "setting", name, "value", raw, "allowed", allowed, "default", def)
 		return def
 	}
 	return n

@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +46,74 @@ func TestListenAddr(t *testing.T) {
 		if got := listenAddr(); got != c.want {
 			t.Errorf("LISTEN=%q PORT=%q: got %q, want %q", c.listen, c.port, got, c.want)
 		}
+	}
+}
+
+// warnings captures what the settings log while f runs.
+func warnings(t *testing.T, f func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+	f()
+	return buf.String()
+}
+
+// A list with no known source left falls back to the default with a
+// warning instead of turning the field off; "none" still turns it off.
+func TestSourceListWithNothingKnownUsesDefault(t *testing.T) {
+	for _, v := range []string{"animelist", "foo,bar", ","} {
+		t.Setenv("MAPPING_SOURCES", v)
+		var got []string
+		log := warnings(t, func() { got = Load().MappingSources })
+		if !slices.Equal(got, []string{"animelists", "fribb"}) {
+			t.Errorf("MAPPING_SOURCES=%q: %v, want the default", v, got)
+		}
+		if !strings.Contains(log, "no known source left") {
+			t.Errorf("MAPPING_SOURCES=%q: no warning in %q", v, log)
+		}
+	}
+	t.Setenv("MAPPING_SOURCES", "none")
+	if got := Load().MappingSources; got != nil {
+		t.Errorf("none: %v", got)
+	}
+}
+
+// Numbers and booleans that can't be read, or are out of range, warn and
+// use the default.
+func TestBadValuesWarnAndUseDefault(t *testing.T) {
+	cases := []struct {
+		name, value string
+		get         func(Config) any
+		want        any
+		warns       bool
+	}{
+		{"MIN_SCORE", "150", func(c Config) any { return c.MinScore }, 80, true},
+		{"MIN_SCORE", "-1", func(c Config) any { return c.MinScore }, 80, true},
+		{"MIN_SCORE", "high", func(c Config) any { return c.MinScore }, 80, true},
+		{"MIN_SCORE", "0", func(c Config) any { return c.MinScore }, 0, false},
+		{"MIN_SCORE", "100", func(c Config) any { return c.MinScore }, 100, false},
+		{"TITLE_OFFICIAL_ONLY", "yes", func(c Config) any { return c.TitleOfficialOnly }, false, true},
+		{"TITLE_OFFICIAL_ONLY", "true", func(c Config) any { return c.TitleOfficialOnly }, true, false},
+		{"ART_ALL_SOURCES", "maybe", func(c Config) any { return c.ArtAllSources }, false, true},
+		{"PORT", "70000", func(c Config) any { return c.Listen }, ":32600", true},
+	}
+	for _, c := range cases {
+		t.Setenv(c.name, c.value)
+		var got any
+		log := warnings(t, func() { got = c.get(Load()) })
+		if got != c.want {
+			t.Errorf("%s=%s: %v, want %v", c.name, c.value, got, c.want)
+		}
+		if warned := strings.Contains(log, "setting="+c.name); warned != c.warns {
+			t.Errorf("%s=%s: warned %v, want %v (log %q)", c.name, c.value, warned, c.warns, log)
+		}
+		t.Setenv(c.name, "")
+	}
+	t.Setenv("LOG_RETENTION_DAYS", "-3")
+	var days int
+	if log := warnings(t, func() { days = LogRetentionDays() }); days != 7 || !strings.Contains(log, "LOG_RETENTION_DAYS") {
+		t.Errorf("LOG_RETENTION_DAYS=-3: %d (log %q), want 7 with a warning", days, log)
 	}
 }

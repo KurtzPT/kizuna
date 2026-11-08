@@ -198,8 +198,9 @@ per-library settings to providers, so every setting applies to every mode and ev
 | You set | Kizuna |
 |---|---|
 | a variable to `""` or nothing | uses the default. For an API key the default is empty, so that source is off |
-| an unknown source, mode, size, port or `LOG_LEVEL` | logs a warning at startup and uses the default |
-| a boolean or number it can't read (`TITLE_OFFICIAL_ONLY=yes`) | silently uses the default |
+| an unknown source in a list (`TITLE_SOURCES=anidb,tvbd`) | logs a warning at startup and drops it. A list with no known source left uses the default; only `none` turns a field off |
+| an unknown mode, size, port or `LOG_LEVEL` | logs a warning at startup and uses the default |
+| a boolean, number or score it can't read or that is out of range (`TITLE_OFFICIAL_ONLY=yes`, `MIN_SCORE=150`) | logs a warning at startup and uses the default |
 
 The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 
@@ -664,7 +665,7 @@ and Plex tokens are always shown as `***`.
 
 | Level | Shows |
 |---|---|
-| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `anidb_details=true/false` · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
+| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) and list counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `complete=false` when something was missing (AniDB details, part of an episode list, episode crew still being fetched) so it's rebuilt in 2 minutes, and an `AniDB details not available` line before it with `why=` when AniDB was the missing part · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
 | **`debug`** | all of the above, plus every Plex request and match body · every outgoing call and cache decision · the top 5 title-search scores · why AniDB wasn't called · which source supplied each field (`show fields: source used`) · episode pairing counts · cache cleanup checks |
 
 ## 🧰 Troubleshooting
@@ -693,7 +694,7 @@ and Plex tokens are always shown as `***`.
 |---|---|
 | A show doesn't match | The `match: nothing found` line gives the reason. Add an id tag to the folder: `Show [anidb-1234]` |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
-| No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, daily limit, backoff). The `show built` line says which; a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
+| No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
 | `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
 | Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
