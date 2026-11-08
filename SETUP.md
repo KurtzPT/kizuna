@@ -445,8 +445,8 @@ says otherwise for specific episodes:
 
 | Attribute | Values |
 |---|---|
-| `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; openings, endings and trailers use Kizuna's numbers: `101`…, `151`…, `201`…) |
-| `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order |
+| `anidbseason` | `1` = regular episodes (1, 2, 3…) · `0` = specials (`S1` is 1, `S2` is 2…; credits `C1` is 101, `C2` 102…, trailers `T1` 201…, other `O1` 401…, as Anime-Lists numbers them. Plex shows endings from 151, but here they keep their C number) |
+| `tvdbseason` | the TVDB season the episodes land in · `0` = TheTVDB's specials · `a` = absolute order. A `<mapping>` without it (only `tmdbseason`) is for TheMovieDb and doesn't move TVDB episodes |
 
 | Written | Means |
 |---|---|
@@ -455,6 +455,8 @@ says otherwise for specific episodes:
 | `;5-5+6;` | AniDB 5 is TVDB 5 *and* 6 (a double episode). Kizuna uses the first, TVDB 5 |
 | `;2-0;` | AniDB 2 has **no** TVDB episode: nothing is paired with it |
 | `start="10" end="17" offset="-1"` | AniDB 10 … 17 are TVDB 9 … 16: every episode in the range, shifted by `offset` |
+| `start="1156" offset="-1155"` | no `end`: AniDB 1156 and every later episode are TVDB 1, 2, 3… |
+| `offset="7"` (no `start`, `end`) | every episode of the `anidbseason` is shifted (for specials: `S1`…`S99` only, not credits or trailers). Pairs in the same mapping still win |
 
 When several rules cover the same episode, the most specific one wins:
 
@@ -462,7 +464,7 @@ When several rules cover the same episode, the most specific one wins:
 flowchart LR
     A["AniDB episode"] --> P{"listed in a<br/>;a-t; pair?"}
     P -- yes --> R1["✅ that pair"]
-    P -- no --> G{"inside a<br/>start…end range?"}
+    P -- no --> G{"inside a<br/>start…end range<br/>(or open range)?"}
     G -- yes --> R2["✅ episode + offset"]
     G -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes; specials:<br/>same number (use case 6)</i>"]
 ```

@@ -208,3 +208,21 @@ func TestAniDBConcurrentCallers(t *testing.T) {
 		}
 	}
 }
+
+func TestAniDBEpisodeListIndex(t *testing.T) {
+	for _, c := range []struct {
+		ep   AniDBEpisode
+		want int
+	}{
+		{AniDBEpisode{Season: 1, Index: 5, EpNo: "5"}, 5},
+		{AniDBEpisode{Season: 0, Index: 2, EpNo: "S2"}, 2},
+		{AniDBEpisode{Season: 0, Index: 101, EpNo: "C1"}, 101},
+		{AniDBEpisode{Season: 0, Index: 151, EpNo: "C3"}, 103}, // an ending: 151 here, C3 = 103 on Anime-Lists
+		{AniDBEpisode{Season: 0, Index: 201, EpNo: "T1"}, 201},
+		{AniDBEpisode{Season: 0, Index: 401, EpNo: "O1"}, 401},
+	} {
+		if got := c.ep.ListIndex(); got != c.want {
+			t.Errorf("%s: ListIndex %d, want %d", c.ep.EpNo, got, c.want)
+		}
+	}
+}

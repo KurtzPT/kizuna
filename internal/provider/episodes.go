@@ -123,7 +123,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	for _, season := range []int{1, 0} {
 		for i := range s.Episodes[season] {
 			ep := &s.Episodes[season][i]
-			sp, ok := p.tvdbSpot(entry, season, ep.Index)
+			sp, ok := p.tvdbSpot(entry, season, ep.mapIndex())
 			if !ok {
 				continue
 			}
@@ -150,7 +150,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 		if ep.Season != 0 && ep.Season != 1 {
 			return spot{}, false
 		}
-		return p.tvdbSpot(entry, ep.Season, ep.Index)
+		return p.tvdbSpot(entry, ep.Season, ep.mapIndex())
 	})
 	return tvOK && tmOK && crewOK
 }
@@ -204,7 +204,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, tvdbID, tmdbI
 		}
 		e := p.lists.ByAID(aid)
 		for _, ae := range a.Episodes {
-			sp, ok := p.tvdbSpot(e, ae.Season, ae.Index)
+			sp, ok := p.tvdbSpot(e, ae.Season, ae.ListIndex())
 			if _, taken := at[sp]; !ok || taken {
 				continue
 			}

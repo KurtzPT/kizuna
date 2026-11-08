@@ -87,6 +87,18 @@ type AniDBEpisode struct {
 	Minutes       int
 }
 
+// ListIndex is the episode's number in Anime-Lists' mapping: the same as
+// Index, except that credits are 100 + AniDB's C number there (C1 = 101,
+// C2 = 102…), endings included, where Index starts endings at 151.
+func (e AniDBEpisode) ListIndex() int {
+	if e.Season == 0 && strings.HasPrefix(e.EpNo, "C") {
+		if n, err := strconv.Atoi(e.EpNo[1:]); err == nil && n > 0 {
+			return 100 + n
+		}
+	}
+	return e.Index
+}
+
 // AniDB fetches anime details from the AniDB HTTP API, following its fair
 // use rules: one request every 4 s, at most 200 a day,
 // every answer cached for days, the same anime never asked twice in 24 h

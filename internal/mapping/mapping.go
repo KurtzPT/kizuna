@@ -53,6 +53,10 @@ type Entry struct {
 	// Episodes: Anime-Lists' per-episode exceptions (<mapping-list>), which
 	// win over TVDBSeason/TVDBOffset. Only Anime-Lists has them.
 	Episodes []EpisodeMap
+	// Ranges: <mapping>s with no end ("start=1156 offset=-1155": that
+	// episode and every later one) or no start and end at all (the offset
+	// applies to the whole AniDB season). Checked after Episodes.
+	Ranges []EpisodeRange
 
 	// noTVDB: Anime-Lists says this entry has no TVDB series on purpose
 	// (tvdbid="movie", "OVA"...), so a fallback list must not add one.
@@ -66,9 +70,21 @@ type EpisodeMap struct {
 	AniDBSeason, AniDBEp, TVDBSeason, TVDBEp int
 }
 
+// EpisodeRange: AniDB episodes From..To (inclusive) of AniDBSeason are TVDB
+// episode n + Offset of TVDBSeason.
+type EpisodeRange struct {
+	AniDBSeason, From, To, TVDBSeason, Offset int
+}
+
+func (r EpisodeRange) covers(anidbSeason, ep int) bool {
+	return r.AniDBSeason == anidbSeason && ep >= r.From && ep <= r.To
+}
+
 // TVDBEpisode returns where an AniDB episode of this entry sits on its TVDB
-// series: season (-1 = TheTVDB's absolute order) and episode number. The
-// entry's own exceptions win; otherwise a regular episode N is episode
+// series: season (-1 = TheTVDB's absolute order) and episode number. ep is
+// in Anime-Lists' numbering (credits C1 = 101, trailers T1 = 201, other
+// O1 = 401: see sources.AniDBEpisode.ListIndex). The entry's own exceptions
+// win (single episodes, then open ranges); otherwise a regular episode N is episode
 // N + TVDBOffset of TVDBSeason, and special SN is TVDB special N: Anime-Lists
 // only lists episodes whose numbers don't match ("not necessary if episode
 // numbers match up exactly within the season(s)"). Openings, endings,
@@ -80,6 +96,11 @@ func (e Entry) TVDBEpisode(anidbSeason, ep int) (season, number int, ok bool) {
 	for _, m := range e.Episodes {
 		if m.AniDBSeason == anidbSeason && m.AniDBEp == ep {
 			return m.TVDBSeason, m.TVDBEp, m.TVDBEp > 0
+		}
+	}
+	for _, r := range e.Ranges {
+		if r.covers(anidbSeason, ep) {
+			return r.TVDBSeason, ep + r.Offset, ep+r.Offset > 0
 		}
 	}
 	switch {
@@ -97,6 +118,11 @@ func (e Entry) TVDBEpisode(anidbSeason, ep int) (season, number int, ok bool) {
 func (e Entry) HasException(anidbSeason, ep int) bool {
 	for _, m := range e.Episodes {
 		if m.AniDBSeason == anidbSeason && m.AniDBEp == ep {
+			return true
+		}
+	}
+	for _, r := range e.Ranges {
+		if r.covers(anidbSeason, ep) {
 			return true
 		}
 	}
@@ -211,7 +237,7 @@ func merge(dst, src map[int]Entry) (added, filled int) {
 		}
 		changed := false
 		if d.TVDB == 0 && !d.noTVDB && s.TVDB > 0 { // season, offset and exceptions belong to the TVDB id
-			d.TVDB, d.TVDBSeason, d.TVDBOffset, d.Episodes = s.TVDB, s.TVDBSeason, s.TVDBOffset, s.Episodes
+			d.TVDB, d.TVDBSeason, d.TVDBOffset, d.Episodes, d.Ranges = s.TVDB, s.TVDBSeason, s.TVDBOffset, s.Episodes, s.Ranges
 			changed = true
 		}
 		fill := func(dv *int, sv int) {
@@ -333,7 +359,11 @@ func parseAnimeLists(data []byte) (map[int]Entry, error) {
 			e.IMDB = ""
 		}
 		for _, m := range a.Maps {
-			e.Episodes = appendMapping(e.Episodes, atoi(m.AniDBSeason), tvdbSeason(m.TVDBSeason), m.Pairs, m.Start, m.End, m.Offset)
+			if strings.TrimSpace(m.TVDBSeason) == "" { // a TheMovieDb mapping (tmdbseason="…"): not about TheTVDB
+				continue
+			}
+			e.Episodes, e.Ranges = appendMapping(e.Episodes, e.Ranges, atoi(m.AniDBSeason), tvdbSeason(m.TVDBSeason),
+				m.Pairs, m.Start, m.End, m.Offset)
 		}
 		out[aid] = e
 	}
@@ -349,9 +379,13 @@ func tvdbSeason(s string) int {
 
 // appendMapping reads one <mapping>: explicit ";1-3;2-4+5;3-0;" pairs (AniDB
 // episode - TVDB episode; "+" = several TVDB episodes, the first is used;
-// 0 = none), or a start/end range shifted by offset. Explicit pairs come
-// first, so they win over a range that covers the same episode.
-func appendMapping(out []EpisodeMap, anidbSeason, tvdbSeason int, pairs, start, end, offset string) []EpisodeMap {
+// 0 = none), and/or a start..end range shifted by offset. Explicit pairs
+// come first, so they win over a range that covers the same episode.
+// A range without end runs on (every later episode); an offset without start
+// and end covers the whole AniDB season. Such open ranges go to ranges.
+// An open range of specials stays inside its hundred: specials 1–99, credits
+// 101–199, trailers 201–299… are separate kinds of episodes.
+func appendMapping(out []EpisodeMap, ranges []EpisodeRange, anidbSeason, tvdbSeason int, pairs, start, end, offset string) ([]EpisodeMap, []EpisodeRange) {
 	listed := map[int]bool{}
 	for _, p := range strings.Split(pairs, ";") {
 		a, t, ok := strings.Cut(strings.TrimSpace(p), "-")
@@ -364,15 +398,32 @@ func appendMapping(out []EpisodeMap, anidbSeason, tvdbSeason int, pairs, start, 
 			listed[n] = true
 		}
 	}
-	if from, to := atoi(start), atoi(end); from > 0 && to >= from && to-from < 5000 {
-		shift := atoi(offset)
+	from, to, shift := atoi(start), atoi(end), atoi(offset)
+	switch {
+	case strings.TrimSpace(start) == "" && strings.TrimSpace(end) == "":
+		if strings.TrimSpace(offset) == "" {
+			return out, ranges // only pairs
+		}
+		from = 1
+		fallthrough
+	case strings.TrimSpace(end) == "":
+		if from <= 0 {
+			return out, ranges
+		}
+		to = 1 << 30
+		if anidbSeason == 0 {
+			to = from/100*100 + 99
+		}
+		// Explicit pairs win: they come first in out, which is checked first.
+		ranges = append(ranges, EpisodeRange{anidbSeason, from, to, tvdbSeason, shift})
+	case from > 0 && to >= from && to-from < 5000:
 		for n := from; n <= to; n++ {
 			if !listed[n] {
 				out = append(out, EpisodeMap{anidbSeason, n, tvdbSeason, n + shift})
 			}
 		}
 	}
-	return out
+	return out, ranges
 }
 
 // --- Fribb/anime-lists (JSON) ----------------------------------------------

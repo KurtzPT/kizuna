@@ -204,6 +204,32 @@ func TestEpisodeCrew(t *testing.T) {
 	}
 }
 
+// Anime-Lists numbers credits C1 = 101, C2 = 102… (endings included), while
+// Kizuna shows endings from 151: the mapping must be read by AniDB's C number.
+func TestCreditsUseAnimeListsNumbers(t *testing.T) {
+	withCredits := strings.Replace(anidbXML, "</episodes>",
+		`<episode><epno type="3">C1</epno><title xml:lang="en">Opening</title></episode>
+<episode><epno type="3">C2</epno><title xml:lang="en">Ending</title></episode></episodes>`, 1)
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 200, withCredits
+		}
+		return testSeries(path, q)
+	}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: 500, TVDBSeason: 1, TMDBTV: 77,
+		Episodes: []mapping.EpisodeMap{{AniDBSeason: 0, AniDBEp: 102, TVDBSeason: 0, TVDBEp: 1}}}})
+	s, err := p.buildShow(context.Background(), "anidb-100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep := s.Episode(0, 151); ep == nil || ep.titles["tvdb"] != "TVDB Special" {
+		t.Errorf("ending C2 (S00E151): %+v, want paired with TVDB S00E01 through Anime-Lists' 102", ep)
+	}
+	if ep := s.Episode(0, 101); ep == nil || ep.titles["tvdb"] != "" {
+		t.Errorf("opening C1 (S00E101): %+v, want no TVDB pairing", ep)
+	}
+}
+
 // A partial episode list is used, but the show is rebuilt soon instead of
 // being kept for an hour with episodes missing.
 func TestPartialEpisodeListIsIncomplete(t *testing.T) {

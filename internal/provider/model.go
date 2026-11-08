@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -56,7 +57,13 @@ type Ep struct {
 	titles   map[string]string // source -> its title for this episode
 	anyTitle string            // AniDB title in any language: last resort
 	listed   spot              // /tvdb: season and in-season number on the episode list
+	// listIndex: /anidb: the episode's number in Anime-Lists' mapping
+	// (sources.AniDBEpisode.ListIndex); 0 = Index.
+	listIndex int
 }
+
+// mapIndex is the number the mapping knows the episode by.
+func (e *Ep) mapIndex() int { return cmp.Or(e.listIndex, e.Index) }
 
 // Seasons returns the season numbers, ascending (0 = Specials first).
 func (s *Show) Seasons() []int {
@@ -118,7 +125,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		p.fillFromAniDB(s, a)
 		for _, e := range a.Episodes {
 			ep := Ep{Season: e.Season, Index: e.Index, Summary: e.Summary, Date: e.AirDate, Minutes: e.Minutes,
-				anyTitle: anidb.PickTitle(e.Titles, p.cfg.EpisodeLangs, false)}
+				anyTitle: anidb.PickTitle(e.Titles, p.cfg.EpisodeLangs, false), listIndex: e.ListIndex()}
 			ep.setTitle("anidb", anidb.FindTitle(e.Titles, p.cfg.EpisodeLangs, false))
 			s.Episodes[e.Season] = append(s.Episodes[e.Season], ep)
 		}

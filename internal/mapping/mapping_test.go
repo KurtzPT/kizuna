@@ -112,3 +112,89 @@ func TestEpisodeExceptions(t *testing.T) {
 		t.Errorf("merge: %+v", dst[10])
 	}
 }
+
+// Real Anime-Lists entries (trimmed) that use the less common <mapping>
+// forms: TheMovieDb mappings, ranges without an end, offsets without a
+// range, and credits numbered C1 = 101.
+func TestAnimeListsMappingForms(t *testing.T) {
+	list, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="69" tvdbid="81797" defaulttvdbseason="a" episodeoffset="" tmdbtv="37854" tmdbseason="a" tmdboffset="" tmdbid="" imdbid="">
+  <name>One Piece</name>
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0">;1-27;2-3;6-0;</mapping>
+    <mapping anidbseason="1" tmdbseason="1" start="1" end="61" offset="0"/>
+    <mapping anidbseason="1" tmdbseason="2" start="62" end="77" offset="-61"/>
+    <mapping anidbseason="1" tvdbseason="1" start="1" end="8" offset="0"/>
+    <mapping anidbseason="1" tvdbseason="2" start="9" end="30" offset="-8"/>
+    <mapping anidbseason="1" tvdbseason="5" start="61" end="69" offset="-60"/>
+    <mapping anidbseason="1" tvdbseason="22" start="1086" end="1155" offset="-1085"/>
+    <mapping anidbseason="1" tvdbseason="23" start="1156" offset="-1155"/>
+  </mapping-list>
+</anime>
+<anime anidbid="4880" tvdbid="79824" defaulttvdbseason="a" episodeoffset="" tmdbtv="31910" tmdbseason="a">
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0" tmdbseason="0">;1-0;</mapping>
+    <mapping anidbseason="1" tmdbseason="10" start="197" end="221" offset="-196"/>
+    <mapping anidbseason="1" tvdbseason="1" tmdbseason="1" start="1" end="32" offset="0"/>
+    <mapping anidbseason="1" tvdbseason="10" start="197" end="222" offset="-196"/>
+  </mapping-list>
+</anime>
+<anime anidbid="377" tvdbid="75113" defaulttvdbseason="a" episodeoffset="" tmdbtv="34163" tmdbseason="1">
+  <mapping-list>
+    <mapping anidbseason="1" tmdbseason="1" offset="23">;1-1;1-2;2-3;2-4;</mapping>
+    <mapping anidbseason="1" tvdbseason="1" start="1" end="54"/>
+    <mapping anidbseason="1" tvdbseason="2" start="55" end="106" offset="-54"/>
+  </mapping-list>
+</anime>
+<anime anidbid="9304" tvdbid="262954" defaulttvdbseason="1" episodeoffset="">
+  <mapping-list><mapping anidbseason="0" tvdbseason="0" offset="7"/></mapping-list>
+</anime>
+<anime anidbid="3427" tvdbid="79880" defaulttvdbseason="1" episodeoffset="">
+  <mapping-list><mapping anidbseason="0" tvdbseason="0" offset="5">;1-30;6-34;7-35;8-31;</mapping></mapping-list>
+</anime>
+<anime anidbid="14086" tvdbid="347734" defaulttvdbseason="a" episodeoffset="">
+  <mapping-list>
+    <mapping anidbseason="1" tvdbseason="2" start="7" end="19" offset="-6"/>
+    <mapping anidbseason="1" tvdbseason="6" start="49" offset="-48"/>
+  </mapping-list>
+</anime>
+<anime anidbid="1431" tvdbid="79032" defaulttvdbseason="1" episodeoffset="">
+  <mapping-list><mapping anidbseason="0" tvdbseason="0">;1-0;101-3;102-4;103-5;201-1;401-2;</mapping></mapping-list>
+</anime>
+</anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type c struct {
+		aid, as, ep, s, n int
+		ok                bool
+	}
+	for _, x := range []c{
+		// TheMovieDb mappings don't move TVDB episodes; TheTVDB's apply.
+		{69, 1, 1, 1, 1, true}, {69, 1, 9, 2, 1, true}, {69, 1, 62, 5, 2, true}, {69, 1, 1155, 22, 70, true},
+		{69, 0, 1, 0, 27, true}, {69, 0, 6, 0, 0, false},
+		{69, 1, 1156, 23, 1, true}, {69, 1, 1200, 23, 45, true}, // range without end
+		{69, 1, 40, -1, 40, true}, // not in any TVDB range: the absolute default
+		{4880, 1, 200, 10, 4, true}, {4880, 1, 5, 1, 5, true}, {4880, 0, 1, 0, 0, false},
+		{377, 1, 1, 1, 1, true}, {377, 1, 2, 1, 2, true}, {377, 1, 60, 2, 6, true},
+		// offset without a range: the whole AniDB season, specials only
+		{9304, 0, 1, 0, 8, true}, {9304, 0, 99, 0, 106, true}, {9304, 0, 101, 0, 0, false},
+		{3427, 0, 1, 0, 30, true}, {3427, 0, 6, 0, 34, true}, {3427, 0, 2, 0, 7, true}, // pairs win, offset for the rest
+		{14086, 1, 10, 2, 4, true}, {14086, 1, 49, 6, 1, true}, {14086, 1, 60, 6, 12, true}, {14086, 1, 3, -1, 3, true},
+		// credits C1..C3 = 101..103, trailer T1 = 201, other O1 = 401
+		{1431, 0, 102, 0, 4, true}, {1431, 0, 201, 0, 1, true}, {1431, 0, 401, 0, 2, true},
+	} {
+		s, n, ok := list[x.aid].TVDBEpisode(x.as, x.ep)
+		if ok != x.ok || (ok && (s != x.s || n != x.n)) {
+			t.Errorf("aid %d AniDB %d/%d: got S%d E%d ok=%v, want S%d E%d ok=%v", x.aid, x.as, x.ep, s, n, ok, x.s, x.n, x.ok)
+		}
+	}
+	if !list[9304].HasException(0, 3) || list[9304].HasException(1, 3) {
+		t.Error("an offset-only mapping lists every episode of its AniDB season, and only those")
+	}
+	dst := map[int]Entry{9304: {AID: 9304}}
+	merge(dst, list)
+	if len(dst[9304].Ranges) != 1 {
+		t.Errorf("merge must carry the open ranges with the TVDB id: %+v", dst[9304])
+	}
+}
