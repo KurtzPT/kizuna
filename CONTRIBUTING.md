@@ -4,9 +4,9 @@
 
 # Kizuna · Contributing
 
-**Bug reports, mapping fixes, code and docs are all welcome.**
+**Bug fixes, mapping fixes, new features and docs are all welcome.**
 
-[🐛 Issues](#-reporting-a-problem) &nbsp;·&nbsp; [🛠️ Setup](#%EF%B8%8F-development-setup) &nbsp;·&nbsp; [✅ Checks](#-checks) &nbsp;·&nbsp; [📐 Rules](#-ground-rules) &nbsp;·&nbsp; [🔀 Pull requests](#-pull-requests) &nbsp;·&nbsp; [🌿 Branches & releases](#-branches-and-releases) &nbsp;·&nbsp; [🗺️ Code map](#%EF%B8%8F-code-map)
+[🐛 Issues](#-reporting-a-problem) &nbsp;·&nbsp; [🛠️ Setup](#%EF%B8%8F-development-setup) &nbsp;·&nbsp; [📐 Rules](#-ground-rules) &nbsp;·&nbsp; [✅ Checks](#-checks) &nbsp;·&nbsp; [🔀 Pull requests](#-pull-requests) &nbsp;·&nbsp; [🗺️ Code map](#%EF%B8%8F-code-map)
 
 </div>
 
@@ -14,18 +14,9 @@
 
 ## 🐛 Reporting a problem
 
-Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the template that fits:
-
-| Template | For |
-|---|---|
-| 📺 **Wrong match or metadata** | wrong show, no match, wrong titles, episodes, seasons, artwork, specials |
-| 🛠️ **Migration script misread my files** | `kizuna-migrate.sh` planned a wrong hint, skipped files or failed |
-| 🐳 **Kizuna won't start, or Plex can't reach it** | startup, health check, Plex can't add the provider, rejected keys, AniDB bans |
-| ✨ **Idea or feature request** | something Kizuna could do, or do better |
-| 🐞 **Something else** | crashes, restarts, errors, memory or disk use, anything the others don't cover |
-
-**Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file names,
-your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
+Not writing code? Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the template that
+fits. **Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file
+names, your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
 already `***` in the logs, but remove any paths you don't want public.
 
 > [!IMPORTANT]
@@ -33,16 +24,19 @@ already `***` in the logs, but remove any paths you don't want public.
 
 > [!TIP]
 > **A show maps to the wrong TVDB season or episode?** The mapping usually comes from
-> [Anime-Lists](https://github.com/Anime-Lists/anime-lists). You can fix it for yourself right away with
-> [`anime-list-custom.xml`](SETUP.md#-fixing-a-wrong-mapping), and fixing it upstream fixes it for everyone.
+> [Anime-Lists](https://github.com/Anime-Lists/anime-lists), not from Kizuna's code. Fix it for yourself right away
+> with [`anime-list-custom.xml`](SETUP.md#-fixing-a-wrong-mapping), and send the fix upstream so it's fixed for
+> everyone.
 
 ## 🛠️ Development setup
 
 **You need:** Go (the version in [`go.mod`](go.mod) or newer). Docker and
 [ShellCheck](https://www.shellcheck.net) are optional.
 
+Fork the repository, then work from the **`dev`** branch, where all new work lands:
+
 ```bash
-git clone -b dev https://github.com/KurtzPT/kizuna.git
+git clone -b dev https://github.com/<you>/kizuna.git
 cd kizuna
 go test ./...
 go build -o kizuna ./cmd/kizuna
@@ -67,23 +61,6 @@ docker build -t kizuna .
 > library against AniDB: the [fair-use limits](README.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
 > The tests never call a real service, so `go test` is always safe.
 
-## ✅ Checks
-
-CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every push to `main` or `dev` and every pull request. Run
-them before you push:
-
-```bash
-gofmt -l .                       # must print nothing (fix with gofmt -w .)
-go vet ./...
-go test -race -count=1 ./...
-for f in scripts/*.sh; do bash -n "$f"; done
-shellcheck --severity=warning scripts/*.sh
-bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
-```
-
-The [`docker`](.github/workflows/docker.yml) workflow also builds the `amd64` and `arm64` images for a pull request,
-without publishing anything.
-
 ## 📐 Ground rules
 
 | | Rule | Why |
@@ -95,87 +72,41 @@ without publishing anything.
 | 🛡️ | **Keep the access checks** (`ALLOW_FROM`, `ALLOWED_HOSTS`) on every route | Kizuna has no login, see [SECURITY.md](SECURITY.md) |
 | 🧪 | **Tests stay offline**: fixtures and `httptest`, never a real API | CI and contributors have no keys |
 | 📖 | **Docs and code change together.** A new setting goes in [SETUP.md → Settings](SETUP.md#%EF%B8%8F-settings) | the docs are the only manual |
+| 🔢 | **Leave the Go version alone.** Upgrades to `go.mod` and the `Dockerfile` are automated | keeps your pull request to one change |
 
 The `anime-list-custom.xml` examples in [SETUP.md](SETUP.md#-fixing-a-wrong-mapping) are checked by
 `internal/mapping/docs_examples_test.go`. If you change one, change the other.
 
-**Upgrading Go** is automated: every Monday the [`go-update`](.github/workflows/go-update.yml) workflow checks go.dev and,
-when there's a new minor release, opens a pull request against `dev` that bumps both the `go` line in [`go.mod`](go.mod) and
-`ARG GO_VERSION` in the [`Dockerfile`](Dockerfile). To do it by hand, change both lines: CI reads the version from
-`go.mod`, the image build is passed it, and the `go` job fails if the Dockerfile default doesn't match.
-
 **Style:** `gofmt`, small packages under `internal/`, comments that say *why*. Docs follow the existing files: short
 sentences, tables over long paragraphs, examples with real anime.
+
+## ✅ Checks
+
+CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every pull request. Run them before you push:
+
+```bash
+gofmt -l .                       # must print nothing (fix with gofmt -w .)
+go vet ./...
+go test -race -count=1 ./...
+for f in scripts/*.sh; do bash -n "$f"; done
+shellcheck --severity=warning scripts/*.sh
+bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
+```
+
+The [`docker`](.github/workflows/docker.yml) workflow also builds the `amd64` and `arm64` images for your pull request,
+without publishing anything.
 
 ## 🔀 Pull requests
 
 1. **Something big?** Open an issue first, so the idea can be agreed on before you write it.
-2. Branch from **`dev`** and open the pull request **against `dev`**, not `main` (see
-   [branches](#-branches-and-releases)). Keep it to **one change**, and add or update tests for it.
+2. Branch from **`dev`** and open the pull request **against `dev`**, not `main`. `main` only holds released
+   versions. Keep it to **one change**, and add or update tests for it.
 3. Run the [checks](#-checks).
 4. Write the pull request **title as a short summary** and the **body as the why**. Pull requests are squash-merged,
-   so the title and body become the commit on `dev`.
+   so the title and body become the commit.
 5. Link the issue it fixes (`Fixes #123`).
 
-Release notes are generated from the labels on merged pull requests (`bug`, `enhancement`, `metadata`, `migration`,
-`running`, `documentation`, `dependencies`); a maintainer sets them.
-
 By contributing, you agree that your work is released under the [GPL-3.0](LICENSE), like the rest of Kizuna.
-
-## 🌿 Branches and releases
-
-| Branch | Holds |
-|---|---|
-| **`main`** (default) | the latest **stable** release, and the docs that match it |
-| **`dev`** | the next version: every merged pull request lands here first |
-
-```mermaid
-flowchart LR
-    F["feature PR<br/>(squash)"] --> D["dev<br/>→ :dev"]
-    D -- "release PR<br/>(merge commit)" --> M["main"]
-    M -- "tag v1.3.0" --> R["→ :latest, :1.3.0, :1.3"]
-    H["hotfix PR<br/>(squash)"] --> M
-    M -. "merge back" .-> D
-```
-
-**Releasing a stable version** (maintainer):
-
-1. Open a pull request from `dev` to `main`, titled `Release v1.3.0`, labelled `release`.
-2. Merge it with **Create a merge commit**, never squash. A squash gives `main` a commit `dev` doesn't have, and every
-   release after it conflicts.
-3. Tag and publish the release on `main`; the tag builds the stable image:
-
-   ```bash
-   gh release create v1.3.0 --target main --generate-notes
-   ```
-
-**A beta that testers can pin** (optional): tag `dev` with a pre-release version. It publishes `:1.3.0-beta.1`, never
-`:latest`:
-
-```bash
-gh release create v1.3.0-beta.1 --target dev --prerelease --generate-notes
-```
-
-**A hotfix** for the stable version, when `dev` already holds unreleased work:
-
-1. Branch from `main`, fix it, open a pull request against `main` (squash), then release `v1.3.1` as above.
-2. Merge `main` back into `dev` (`git switch dev && git merge main`) so the fix isn't lost.
-
-Dependabot **security** updates always open against `main` (GitHub doesn't let them target another branch), so they
-follow the hotfix path. Version updates and Go upgrades open against `dev`.
-
-The [`docker`](.github/workflows/docker.yml) workflow builds `linux/amd64` and `linux/arm64` images on GitHub
-Container Registry, each with a signed build provenance attestation:
-
-| Event | Image tags |
-|---|---|
-| push to `dev` (not docs-only) | `:dev`, `:sha-<short>` |
-| tag `v1.2.3` on `main` | `:1.2.3`, `:1.2`, `:latest`, `:sha-<short>` |
-| tag `v1.2.3-beta.1` | `:1.2.3-beta.1`, `:sha-<short>` |
-| push to `main`, pull request | build and test only, nothing pushed |
-
-It refuses to publish a stable tag (`v1.2.3` with no `-beta`) that isn't on `main`, so `:latest` is always something
-that was released.
 
 ## 🗺️ Code map
 

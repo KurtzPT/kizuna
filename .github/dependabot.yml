@@ -5,7 +5,8 @@
 #
 # Version updates go to dev and ship with the next release. Security updates
 # can't be redirected: GitHub always opens them against the default branch
-# (main), so treat one like a hotfix (see CONTRIBUTING.md).
+# (main), so treat one like a hotfix: squash it into main, release a patch
+# version, then merge main back into dev.
 version: 2
 updates:
   - package-ecosystem: github-actions
