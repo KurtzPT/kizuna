@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -55,6 +56,25 @@ func TestReadMatch(t *testing.T) {
 	}
 	if _, err := readMatch(httptest.NewRequest("POST", "/", strings.NewReader(`{"title":`))); err == nil {
 		t.Error("broken JSON: want an error (HTTP 400)")
+	}
+}
+
+// The query string is parsed once, not once per key: allocations grow with
+// the number of keys, not with its square.
+func TestReadMatchManyQueryKeys(t *testing.T) {
+	const n = 500
+	var q strings.Builder
+	for i := range n {
+		fmt.Fprintf(&q, "&k%d=1", i)
+	}
+	target := "/anidb/library/metadata/matches?title=Q" + q.String()
+	allocs := testing.AllocsPerRun(3, func() {
+		if got, err := readMatch(httptest.NewRequest("POST", target, strings.NewReader(`{"type":2}`))); err != nil || got.Title != "Q" {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+	if allocs > 10*n {
+		t.Errorf("%d query keys: %.0f allocs, want at most %d", n, allocs, 10*n)
 	}
 }
 

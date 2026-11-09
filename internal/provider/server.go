@@ -383,9 +383,9 @@ func readMatch(r *http.Request) (MatchRequest, error) {
 			fields[k] = form.Get(k)
 		}
 	}
-	for k := range r.URL.Query() {
+	for k, v := range r.URL.Query() { // parsed once: Query() parses on every call
 		if _, ok := fields[k]; !ok {
-			fields[k] = r.URL.Query().Get(k)
+			fields[k] = v[0]
 		}
 	}
 	num := func(k string) *int {
