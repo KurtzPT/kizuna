@@ -164,7 +164,7 @@ func TestEnvFileLog(t *testing.T) {
 // Only exact upper-case names count, on every OS: "min_score" must not set
 // MIN_SCORE (Windows env names ignore case) and is reported as unknown.
 func TestLowerCaseKeyIgnored(t *testing.T) {
-	writeEnvFile(t, "min_score=55\nMax_Episodes=9\nTVDB_API_KEY=secret-key\n")
+	writeEnvFile(t, "min_score=score-value\nMax_Episodes=9\nTVDB_API_KEY=secret-key\n")
 	unset(t, "MIN_SCORE", "min_score", "Max_Episodes", "TVDB_API_KEY")
 	f, err := LoadEnvFile()
 	if err != nil {
@@ -182,7 +182,7 @@ func TestLowerCaseKeyIgnored(t *testing.T) {
 			t.Errorf("no %q in %q", want, log)
 		}
 	}
-	for _, bad := range []string{"55", "secret-key"} {
+	for _, bad := range []string{"score-value", "secret-key"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}

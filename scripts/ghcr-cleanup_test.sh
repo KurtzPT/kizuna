@@ -84,6 +84,14 @@ check "nothing to keep: message" "$(tail -n 1 <<< "$out")" \
 out=$(run '[]' '{}')
 check "empty package" "$out" "no versions found for someone/kizuna: nothing to do"
 
+# without PACKAGE: the repository name, lower-cased, else kizuna
+out=$(env -u PACKAGE GITHUB_REPOSITORY=Someone/My-Kizuna OWNER=Someone \
+	VERSIONS_JSON='[]' MANIFESTS_JSON='{}' bash "$SCRIPT" 2>&1)
+check "package from repository" "$out" "no versions found for someone/my-kizuna: nothing to do"
+out=$(env -u PACKAGE -u GITHUB_REPOSITORY OWNER=Someone \
+	VERSIONS_JSON='[]' MANIFESTS_JSON='{}' bash "$SCRIPT" 2>&1)
+check "package default" "$out" "no versions found for someone/kizuna: nothing to do"
+
 # The real registry path, with curl and gh faked by exported functions:
 # curl answers from FAKE_MANIFESTS, needs the token, and fails for the token
 # when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken) or for the

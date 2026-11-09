@@ -13,7 +13,8 @@
 #
 # Dry run unless DELETE=true: it prints what it would delete and keep.
 #
-# Env: OWNER, PACKAGE (default kizuna), KEEP_COUNT (10), KEEP_DAYS (30),
+# Env: OWNER, PACKAGE (default: the repository name from GITHUB_REPOSITORY,
+# else kizuna; lower-cased like the image name), KEEP_COUNT (10), KEEP_DAYS (30),
 # MIN_AGE_HOURS (24), DELETE (false), GH_TOKEN for the gh CLI.
 # For tests: VERSIONS_JSON (what the versions API returns) instead of the API,
 # MANIFESTS_JSON ({"<digest>": <manifest>, ...}) instead of the registry, NOW
@@ -21,7 +22,10 @@
 set -euo pipefail
 
 OWNER=${OWNER:?OWNER is required}
-PACKAGE=${PACKAGE:-kizuna}
+repo=${GITHUB_REPOSITORY:-}
+repo=${repo#*/}
+PACKAGE=${PACKAGE:-${repo:-kizuna}}
+PACKAGE=${PACKAGE,,}
 KEEP_COUNT=${KEEP_COUNT:-10}
 KEEP_DAYS=${KEEP_DAYS:-30}
 MIN_AGE_HOURS=${MIN_AGE_HOURS:-24}

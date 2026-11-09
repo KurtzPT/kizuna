@@ -71,13 +71,16 @@ jobs:
         if: steps.major.outputs.major == 'false'
         run: |
           while :; do
-            state=$(gh pr view "$PR" --json state --jq .state)
+            # both in one call: a merge clears autoMergeRequest, so two calls
+            # could see OPEN and then no auto-merge. A failed gh call fails the job.
+            snap=$(gh pr view "$PR" --json state,autoMergeRequest --jq '"\(.state) \(.autoMergeRequest != null)"')
+            read -r state auto <<< "$snap"
             case $state in
               MERGED) break ;;
               CLOSED) echo "closed without a merge"; exit 0 ;;
             esac
             # auto-merge is turned off again when a check fails
-            if [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" != true ]; then
+            if [ "$auto" != true ]; then
               echo "::warning::auto-merge was turned off (a check failed?): look at the pull request"
               exit 0
             fi

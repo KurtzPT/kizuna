@@ -31,9 +31,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # check-latest: the newest patch release, not an older one from the
+      # runner's cache (govulncheck below checks that version's stdlib)
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          check-latest: true
 
       # the Dockerfile's GO_VERSION default is what a local docker build uses
       - name: Go version in sync
