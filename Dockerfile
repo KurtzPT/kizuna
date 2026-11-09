@@ -20,7 +20,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/kizuna /kizuna
 COPY --from=build --chown=1000:1000 /out/data /data
-ENV DATA_DIR=/data PORT=32600
+# no PORT here: the default is 32600, and PORT in kizuna.env must work too
+ENV DATA_DIR=/data
 VOLUME /data
 EXPOSE 32600
 USER 1000:1000
