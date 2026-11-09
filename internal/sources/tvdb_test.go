@@ -101,6 +101,19 @@ func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 	}
 }
 
+// A source that isn't set up may be nil: it's just off.
+func TestNilSourcesDisabled(t *testing.T) {
+	var (
+		a *AniDB
+		v *TVDB
+		d *TMDB
+		m *MAL
+	)
+	if a.Enabled() || v.Enabled() || d.Enabled() || m.Enabled() {
+		t.Error("a nil source says it's enabled")
+	}
+}
+
 // tokenNet is TheTVDB v4 with expiring tokens: login n hands out token "t<n>",
 // and data requests get a 401 unless they carry the good token.
 type tokenNet struct {

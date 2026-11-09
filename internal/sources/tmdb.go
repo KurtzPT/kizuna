@@ -26,7 +26,7 @@ func NewTMDB(f *fetch.Client, key string) *TMDB {
 	return &TMDB{f: f, key: key}
 }
 
-func (t *TMDB) Enabled() bool { return t.key != "" }
+func (t *TMDB) Enabled() bool { return t != nil && t.key != "" } // nil = not set up
 
 func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {

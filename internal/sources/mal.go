@@ -24,7 +24,7 @@ func NewMAL(f *fetch.Client, clientID string) *MAL {
 	return &MAL{f: f, clientID: clientID}
 }
 
-func (m *MAL) Enabled() bool { return m.clientID != "" }
+func (m *MAL) Enabled() bool { return m != nil && m.clientID != "" } // nil = not set up
 
 // MALAnime is the part of a MyAnimeList entry we use.
 type MALAnime struct {
