@@ -87,3 +87,25 @@ func TestTMDBSeasonArt(t *testing.T) {
 		t.Errorf("unknown show: %+v %v, want its 404", a, err)
 	}
 }
+
+// A movie's title and overview come from its details request: one request
+// and one cached file for Text and Details.
+func TestTMDBMovieTextFromDetails(t *testing.T) {
+	const u = "api.themoviedb.org/3/movie/99?api_key=key&language=en-US&append_to_response=credits,release_dates"
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		u: `{"title":"Movie","overview":"About it.","release_date":"2001-07-20","genres":[{"id":16,"name":"Animation"}]}`,
+	}}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	ctx := context.Background()
+	if name, overview, err := tm.Text(ctx, 99, true); err != nil || name != "Movie" || overview != "About it." {
+		t.Fatalf("text %q %q %v", name, overview, err)
+	}
+	if d, err := tm.Details(ctx, 99, true); err != nil || d.Date != "2001-07-20" || len(d.Genres) != 1 {
+		t.Fatalf("details %+v %v", d, err)
+	}
+	if len(n.asked) != 1 {
+		t.Errorf("asked %v, want only the details request", n.asked)
+	}
+}
