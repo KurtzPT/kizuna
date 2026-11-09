@@ -1296,3 +1296,84 @@ func TestFetchesDontWaitForAniDB(t *testing.T) {
 		}
 	}
 }
+
+// specialEpisodes guesses a special-only entry's episodes without AniDB's
+// details: one for a movie, up to the next entry's spot for an OVA (one
+// without a next entry), at most maxSpecialEpisodes, raised by an exception
+// that places a later episode.
+func TestSpecialEpisodesCount(t *testing.T) {
+	p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+	at := func(offset int, ex ...mapping.EpisodeMap) mapping.Entry {
+		return mapping.Entry{AID: 900, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: offset, Mapped: true, Episodes: ex}}
+	}
+	many := []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 12, Season: 0, Ep: 40}, {AniDBSeason: 1, AniDBEp: 30, Season: 0, Ep: 60}}
+	cases := []struct {
+		name  string
+		entry mapping.Entry
+		movie bool
+		want  int
+	}{
+		{"movie", at(0), true, 1},
+		{"OVA before the next entry", at(1), false, 2}, // 300's spot: 301 is at offset 3
+		{"OVA without a next entry", at(10), false, 1}, // past 301
+		{"exception places episode 5", at(10, mapping.EpisodeMap{AniDBSeason: 1, AniDBEp: 5, Season: 0, Ep: 20}), false, 5},
+		{"exception past the cap", at(10, many...), false, maxSpecialEpisodes},
+		{"exception on a special", at(10, mapping.EpisodeMap{AniDBSeason: 0, AniDBEp: 5, Season: 0, Ep: 20}), false, 1},
+	}
+	for _, c := range cases {
+		eps := p.specialEpisodes(c.entry, c.movie)
+		if len(eps) != c.want {
+			t.Errorf("%s: %d episodes, want %d", c.name, len(eps), c.want)
+		}
+		for i, ep := range eps {
+			if ep.Season != 1 || ep.Index != i+1 {
+				t.Errorf("%s: episode %d at S%02dE%02d", c.name, i, ep.Season, ep.Index)
+			}
+		}
+	}
+	far := mapping.Entry{AID: 901, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 4, Mapped: true}}
+	p.lists.SetForTest(map[int]mapping.Entry{901: far, 902: {AID: 902, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 40, Mapped: true}}})
+	if n := len(p.specialEpisodes(far, false)); n != maxSpecialEpisodes {
+		t.Errorf("next entry 36 episodes on: %d episodes, want the cap %d", n, maxSpecialEpisodes)
+	}
+}
+
+// finishSpecial keeps the episodes paired with TheTVDB's specials and takes
+// their average runtime and first air date where the show has none.
+func TestFinishSpecial(t *testing.T) {
+	s := &Show{Episodes: map[int][]Ep{1: {
+		{Index: 1, tvdbEp: 15, Minutes: 30},
+		{Index: 2},
+		{Index: 3, tvdbEp: 16, Minutes: 41, Date: "2020-02-01"},
+		{Index: 4, tvdbEp: 17, Date: "2020-03-01"},
+	}}}
+	finishSpecial(s)
+	if len(s.Episodes[1]) != 3 || s.Episodes[1][1].Index != 3 {
+		t.Errorf("episodes %+v, want 1, 3 and 4", s.Episodes[1])
+	}
+	if s.Minutes != 35 || s.Date != "2020-02-01" {
+		t.Errorf("runtime %d date %q, want 35 (episodes with one) and 2020-02-01", s.Minutes, s.Date)
+	}
+	s = &Show{Minutes: 90, Date: "2019-01-01", Episodes: map[int][]Ep{1: {{Index: 1, tvdbEp: 15, Minutes: 30, Date: "2020-01-01"}}}}
+	if finishSpecial(s); s.Minutes != 90 || s.Date != "2019-01-01" {
+		t.Errorf("runtime %d date %q, want the show's own kept", s.Minutes, s.Date)
+	}
+}
+
+// Without TheTVDB, a special-only OVA without AniDB details has no
+// TheTVDB specials to keep: only placeholders, which still match the files.
+func TestSpecialWithoutTheTVDBIsPlaceholders(t *testing.T) {
+	p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+	f := fetch.New(t.TempDir())
+	p.tvdb = sources.NewTVDB(f, "", "", "")
+	s, err := p.buildShow(context.Background(), "anidb-300")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Episodes[1]) != 0 || !s.Placeholders {
+		t.Fatalf("season 1 %+v placeholders %v, want placeholders only", s.Episodes[1], s.Placeholders)
+	}
+	if ep := s.Episode(1, 2); ep == nil || ep.Title != "" {
+		t.Errorf("S01E02 %+v, want a bare placeholder", ep)
+	}
+}

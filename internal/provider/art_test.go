@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"maps"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -428,5 +429,58 @@ func TestSeasonArtReport(t *testing.T) {
 	}
 	if f := fields["Specials posters"]; f.Offered["tvdb"] != "specials: 1 posters" {
 		t.Errorf("Specials posters %+v", f)
+	}
+}
+
+// tmdbSeasonPairs pairs a TheTVDB season with TheMovieDb's only when all
+// its episodes found there are in that one season, and no other TheTVDB
+// season's are.
+func TestTMDBSeasonPairs(t *testing.T) {
+	// tvdb: TheTVDB's episodes as season -> absolute numbers (specials: their
+	// number); tmdb: TheMovieDb's the same way.
+	type list map[int][]int
+	show := func(tvdb list) *Show {
+		s := &Show{Episodes: map[int][]Ep{}}
+		for n, abs := range tvdb {
+			for i, a := range abs {
+				s.Episodes[n] = append(s.Episodes[n], Ep{Season: n, Index: a, listed: spot{n, i + 1}})
+			}
+		}
+		return s
+	}
+	index := func(tmdb list) episodeIndex {
+		var eps []sources.Episode
+		for n, abs := range tmdb {
+			for i, a := range abs {
+				e := sources.Episode{Season: n, Number: i + 1}
+				if n > 0 {
+					e.Absolute = a
+				}
+				eps = append(eps, e)
+			}
+		}
+		return indexEpisodes(eps)
+	}
+	none := tvdbPairing{}
+	cases := []struct {
+		name       string
+		tvdb, tmdb list
+		pr         tvdbPairing
+		want       map[int]int
+	}{
+		{"1:1", list{1: {1, 2}, 2: {3}}, list{1: {1, 2}, 2: {3}}, none, map[int]int{1: 1, 2: 2}},
+		{"two TVDB seasons in one TMDB season", list{1: {1, 2}, 2: {3, 4}, 3: {5}}, list{1: {1, 2, 3, 4}, 2: {5}}, none, map[int]int{3: 2}},
+		{"one TVDB season split on TMDB", list{1: {1, 2, 3, 4}, 2: {5}}, list{1: {1, 2}, 2: {3, 4}, 3: {5}}, none, map[int]int{2: 3}},
+		{"specials", list{0: {1, 2}, 1: {1}}, list{0: {1, 2}, 1: {1}}, none, map[int]int{0: 0, 1: 1}},
+		{"no TMDB counterpart", list{1: {1, 2}, 2: {3}}, list{1: {1, 2}}, none, map[int]int{1: 1}},
+		{"on another TMDB show", list{1: {1, 2}, 2: {3}}, list{1: {1, 2}, 2: {3}},
+			tvdbPairing{other: map[spot]otherPlace{{2, 1}: {}}}, map[int]int{1: 1}},
+		{"paired through AniDB, not by number", list{1: {1, 2}, 2: {3}}, list{1: {1}, 2: {2, 3}},
+			tvdbPairing{other: map[spot]otherPlace{{1, 2}: {spot{1, 1}, true}}}, map[int]int{1: 1, 2: 2}},
+	}
+	for _, c := range cases {
+		if got := tmdbSeasonPairs(show(c.tvdb), index(c.tmdb), c.pr); !maps.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
 	}
 }
