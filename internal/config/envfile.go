@@ -26,6 +26,7 @@ const EnvFileVar = "KIZUNA_CONFIG"
 // values: the file has API keys.
 type EnvFile struct {
 	Path       string   // the file read; "" = none
+	NotFound   string   // the default file looked for, when it isn't there
 	Keys       []string // settings taken from the file
 	Overridden []string // in the file, but the environment sets them (the environment wins)
 	Problems   []string // lines that were skipped, and why
@@ -47,7 +48,7 @@ func LoadEnvFile() (EnvFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !explicit && errors.Is(err, fs.ErrNotExist) {
-			return EnvFile{}, nil
+			return EnvFile{NotFound: path}, nil
 		}
 		return EnvFile{}, fmt.Errorf("can't read the settings file (%s): %w", EnvFileVar, err)
 	}
@@ -68,10 +69,14 @@ func LoadEnvFile() (EnvFile, error) {
 	return f, nil
 }
 
-// Log reports the file at startup: which file, the settings the environment
+// Log reports the file at startup: which file (or that there is none), the settings the environment
 // overrode, skipped lines and names Kizuna doesn't know (typos). Call it
 // after Load, which marks the names Kizuna reads.
 func (f EnvFile) Log() {
+	if f.NotFound != "" {
+		slog.Info("no settings file; using environment variables and defaults", "path", f.NotFound)
+		return
+	}
 	if f.Path == "" {
 		return
 	}

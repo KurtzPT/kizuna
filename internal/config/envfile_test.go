@@ -104,8 +104,12 @@ func TestEarlySettingsFromFile(t *testing.T) {
 func TestMissingEnvFile(t *testing.T) {
 	unset(t, EnvFileVar)
 	t.Setenv("DATA_DIR", t.TempDir())
-	if f, err := LoadEnvFile(); err != nil || f.Path != "" {
-		t.Errorf("no default file: %+v, %v; want nothing and no error", f, err)
+	f, err := LoadEnvFile()
+	if err != nil || f.Path != "" || f.NotFound != filepath.Join(os.Getenv("DATA_DIR"), EnvFileName) {
+		t.Errorf("no default file: %+v, %v; want NotFound and no error", f, err)
+	}
+	if log := warnings(t, f.Log); !strings.Contains(log, "no settings file") || !strings.Contains(log, EnvFileName) {
+		t.Errorf("no default file: log %q, want a line naming the file", log)
 	}
 	t.Setenv(EnvFileVar, filepath.Join(t.TempDir(), "missing.env"))
 	if _, err := LoadEnvFile(); err == nil || !strings.Contains(err.Error(), EnvFileVar) {
