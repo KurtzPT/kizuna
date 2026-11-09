@@ -98,7 +98,7 @@ docker compose up -d
 
 ```bash
 docker run -d --name kizuna \
-  --restart unless-stopped \
+  --restart unless-stopped --stop-timeout 60 \
   --user 1000:1000 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -p 32600:32600 \

@@ -116,36 +116,56 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 	p = provider.New(cfg, titles, ad, lists, tvdb,
 		sources.NewTMDB(f, cfg.TMDBKey), sources.NewMAL(f, cfg.MALClientID), sources.NewANN(f))
 	load := func() {
-		if err := titles.Load(ctx, f); err != nil {
-			slog.Error("AniDB title list", "err", err)
-		}
-		if err := lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources); err != nil {
-			slog.Error("anime mapping", "err", err)
-		}
+		loadErr(ctx, "AniDB title list", titles.Load(ctx, f))
+		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources))
 	}
-	// Both lists refresh daily. Until both have loaded once (first start
-	// without a network: no cached copy to fall back on, so nothing matches)
-	// they are retried every 5 minutes instead.
 	keepLoaded = func(firstDone func()) {
-		load()
-		firstDone()
-		for {
-			wait := 24 * time.Hour
-			if !titles.Ready() || !lists.Ready() {
-				wait = 5 * time.Minute
-				slog.Warn("a list is missing (download failed, nothing cached yet); retrying", "in", wait,
-					"titles", titles.Ready(), "mapping", lists.Ready())
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait):
-				load()
-			}
-		}
+		keepFresh(ctx, load, func() (bool, bool) { return titles.Ready(), lists.Ready() }, firstDone)
 	}
 	return p, tvdb, keepLoaded
 }
+
+// loadErr logs a list that failed to load, unless Kizuna is stopping (the
+// load was cancelled, nothing is wrong).
+func loadErr(ctx context.Context, list string, err error) {
+	if err != nil && ctx.Err() == nil {
+		slog.Error(list, "err", err)
+	}
+}
+
+// keepFresh loads both lists now and then daily. Until both have loaded once
+// (first start without a network: no cached copy to fall back on, so
+// nothing matches) they are retried every 5 minutes instead. firstDone runs
+// after the first load, unless Kizuna started stopping during it: a load
+// cut short isn't "ready". Returns when ctx ends.
+func keepFresh(ctx context.Context, load func(), ready func() (titles, mapping bool), firstDone func()) {
+	load()
+	if ctx.Err() != nil {
+		return
+	}
+	firstDone()
+	for {
+		wait := 24 * time.Hour
+		if titles, mapping := ready(); !titles || !mapping {
+			wait = 5 * time.Minute
+			slog.Warn("a list is missing (download failed, nothing cached yet); retrying", "in", wait,
+				"titles", titles, "mapping", mapping)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+			load()
+		}
+	}
+}
+
+// drainTimeout is how long stopping waits for the requests still running.
+// A Plex request can wait up to provider's requestTimeout (25 s) for the
+// first list load and then run up to that again; a minute covers both with
+// room to spare (compose.yml sets stop_grace_period to match). Without
+// requests running, stopping is immediate.
+const drainTimeout = 55 * time.Second
 
 func serve(cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -181,7 +201,9 @@ func serve(cfg config.Config) error {
 	closed := make(chan struct{})
 	go func() {
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stop() // a second Ctrl+C (or SIGTERM) during the drain stops at once
+		slog.Info("stopping: waiting for running requests", "at_most", drainTimeout)
+		shutdown, cancel := context.WithTimeout(context.Background(), drainTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 		close(closed)

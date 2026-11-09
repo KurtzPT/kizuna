@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -80,6 +84,39 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("metadata from the machine's own address: HTTP %d, want 403 (ALLOW_FROM)", resp.StatusCode)
+	}
+}
+
+// Stopping during the first load doesn't count as loaded ("ready" isn't
+// logged); a finished first load does, and stopping later ends the loop.
+func TestKeepFreshStopping(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := false
+	keepFresh(ctx, cancel, func() (bool, bool) { return true, true }, func() { done = true })
+	if done {
+		t.Error("load cancelled by stopping, but firstDone ran")
+	}
+
+	ctx, cancel = context.WithCancel(context.Background())
+	loads := 0
+	keepFresh(ctx, func() { loads++ }, func() (bool, bool) { return true, true }, func() { done = true; cancel() })
+	if !done || loads != 1 {
+		t.Errorf("firstDone %v after %d loads, want it after 1", done, loads)
+	}
+}
+
+// A load cancelled by stopping isn't logged as an error; other failures are.
+func TestLoadErrQuietWhenStopping(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+	ctx, cancel := context.WithCancel(context.Background())
+	loadErr(ctx, "running", errors.New("boom"))
+	cancel()
+	loadErr(ctx, "stopping", context.Canceled)
+	if log := buf.String(); !strings.Contains(log, "running") || strings.Contains(log, "stopping") {
+		t.Errorf("log %q: want only the error before stopping", log)
 	}
 }
 
