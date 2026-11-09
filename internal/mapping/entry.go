@@ -30,6 +30,14 @@ type Entry struct {
 // counterpart ("2-0") doesn't count.
 func (e Entry) SpecialOnly() bool { return e.TVDB.specialsOnly() }
 
+// Movie reports whether the mapping makes the entry a movie: it has a
+// TheMovieDb movie id and isn't placed on a regular TheTVDB season (no TVDB
+// series, or its specials). Decided from the mapping alone, so a show's
+// GUIDs and TheMovieDb id are the same with and without AniDB details.
+func (e Entry) Movie() bool {
+	return e.TMDBMovie > 0 && (e.TVDB.ID <= 0 || e.TVDB.Season == 0)
+}
+
 // specialsOnly: every episode of the placement is in the series' specials
 // (see SpecialOnly).
 func (p Placement) specialsOnly() bool {

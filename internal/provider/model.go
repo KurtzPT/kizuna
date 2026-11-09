@@ -152,17 +152,18 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
-	tmdbID, movie := entry.TMDB.ID, false
-	// Without AniDB details, an entry with only a TMDB movie id is a movie.
-	isMovie := a != nil && a.IsMovie() || a == nil && entry.TMDB.ID == 0 && entry.TMDBMovie > 0
-	if isMovie && entry.TMDBMovie > 0 {
-		tmdbID, movie = entry.TMDBMovie, true
+	// movie: TheMovieDb's movie, by the mapping alone (mapping.Entry.Movie),
+	// so the GUIDs and TheMovieDb id are the same with and without AniDB
+	// details. isMovie: the show is one movie episode (AniDB's type too).
+	tmdbID, movie := entry.TMDB.ID, entry.Movie()
+	if movie {
+		tmdbID = entry.TMDBMovie
 	}
-	// The same GUIDs with and without AniDB details. A special-only entry
-	// isn't its TheTVDB series: its episodes carry their TheTVDB specials'
-	// GUIDs instead (episodeItem).
+	isMovie := movie || a != nil && a.IsMovie()
+	// A special-only entry isn't its TheTVDB series: its episodes carry
+	// their TheTVDB specials' GUIDs instead (episodeItem).
 	special := entry.SpecialOnly()
-	if entry.TVDB.ID > 0 && !isMovie && !special {
+	if entry.TVDB.ID > 0 && !movie && !special {
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
 	s.addGuids(tmdbID, entry.IMDB)

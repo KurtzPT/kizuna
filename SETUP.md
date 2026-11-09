@@ -470,7 +470,8 @@ movies closer than that are told apart by the year Plex sends (or a `(2022)` in 
 AniDB entry never goes by name. Without AniDB details (no `ANIDB_CLIENT`, or AniDB paused), such a show's episodes
 come from TheTVDB's specials at their mapped spots, so a `/tvdb` setup with only a TheTVDB key still gets a real
 movie. Its episodes carry their TheTVDB specials' GUIDs; the show has the movie's `tmdb://` and `imdb://`, not the
-series' `tvdb://`.
+series' `tvdb://`. Whether an entry is TheMovieDb's movie comes from the mapping alone, so its GUIDs are the same with
+and without AniDB details: it has a TheMovieDb movie id and isn't on a regular TheTVDB season.
 
 ## 🩹 Fixing a wrong mapping
 

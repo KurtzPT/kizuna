@@ -702,37 +702,57 @@ func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
 	}
 }
 
-// An /anidb movie has the same GUIDs whether AniDB has answered yet or not
-// (no tvdb:// for the TV series it is mapped to), and its one episode is
-// the movie, under the show's title, in both builds.
+// An /anidb movie has the same GUIDs whether AniDB has answered yet or not:
+// the mapping alone says whether it is TheMovieDb's movie (a movie id, not
+// on a regular TheTVDB season). Its one episode is the movie, under the
+// show's title, in both builds.
 func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
 	movie := movieXML(100, "Kizuna Test", "The movie.", 90, "2010-05-01")
-	var guids [2][]string
-	for i, details := range []bool{false, true} {
-		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
-			if path == "api.anidb.net/httpapi" {
-				if !details {
-					return 500, ""
+	for _, c := range []struct {
+		name  string
+		entry mapping.Entry
+		want  []string // the GUIDs
+		movie bool     // S01E01 is the movie in both builds
+	}{
+		{"among the specials", mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 0, Mapped: true}, TMDBMovie: 99},
+			[]string{"tmdb://99"}, true},
+		{"TV show and movie ids", mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 0, Mapped: true},
+			TMDB: mapping.Placement{ID: 77}, TMDBMovie: 99}, []string{"tmdb://99"}, true},
+		{"no TVDB series", mapping.Entry{AID: 100, TMDB: mapping.Placement{ID: 77}, TMDBMovie: 99}, []string{"tmdb://99"}, true},
+		{"on a regular TVDB season", mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
+			TMDB: mapping.Placement{ID: 77}, TMDBMovie: 99}, []string{"tvdb://500", "tmdb://77"}, false},
+	} {
+		var guids [2][]string
+		for i, details := range []bool{false, true} {
+			p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+				if path == "api.anidb.net/httpapi" {
+					if !details {
+						return 500, ""
+					}
+					return 200, movie
 				}
-				return 200, movie
+				return testSeries(path, q)
+			}})
+			p.lists.SetForTest(map[int]mapping.Entry{100: c.entry})
+			s, err := p.buildShow(context.Background(), "anidb-100")
+			if err != nil {
+				t.Fatal(err)
 			}
-			return testSeries(path, q)
-		}})
-		p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 0, Mapped: true}, TMDBMovie: 99}})
-		s, err := p.buildShow(context.Background(), "anidb-100")
-		if err != nil {
-			t.Fatal(err)
+			if s.Placeholders == details {
+				t.Fatalf("%s, details %v: placeholders %v", c.name, details, s.Placeholders)
+			}
+			guids[i] = s.Guids
+			if !c.movie && !details {
+				continue // AniDB's type isn't known yet: placeholder episodes
+			}
+			if ep := s.Episode(1, 1); ep == nil || ep.Title != s.Title || s.Title != "Kizuna Test" || ep.titleSrc != "show" {
+				t.Errorf("%s, details %v: S01E01 %+v, want the movie under the show's title %q (from the show, for the report)",
+					c.name, details, ep, s.Title)
+			}
 		}
-		if s.Placeholders == details {
-			t.Fatalf("details %v: placeholders %v", details, s.Placeholders)
+		if !slices.Equal(guids[0], c.want) || !slices.Equal(guids[1], c.want) {
+			t.Errorf("%s: guids without details %v, with %v: want %v in both", c.name, guids[0], guids[1], c.want)
 		}
-		guids[i] = s.Guids
-		if ep := s.Episode(1, 1); ep == nil || ep.Title != s.Title || s.Title != "Kizuna Test" || ep.titleSrc != "show" {
-			t.Errorf("details %v: S01E01 %+v, want the movie under the show's title %q (from the show, for the report)", details, ep, s.Title)
-		}
-	}
-	if !slices.Equal(guids[0], guids[1]) || slices.Contains(guids[0], "tvdb://500") || !slices.Contains(guids[0], "tmdb://99") {
-		t.Errorf("guids without details %v, with %v: want the same, tmdb://99 and no tvdb://500", guids[0], guids[1])
 	}
 }
 
