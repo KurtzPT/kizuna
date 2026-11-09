@@ -61,8 +61,8 @@ func TestOpenWhenArchivingFails(t *testing.T) {
 	if l == nil || err == nil {
 		t.Fatalf("got %v, %v; want a File and the archive error", l, err)
 	}
-	if _, err := l.Write([]byte("today\n")); err != nil { // tries again, fails again, keeps going
-		t.Errorf("write: %v", err)
+	if _, err := l.Write([]byte("today\n")); err != nil || l.day != "2026-11-06" { // tries again, fails again, keeps going
+		t.Errorf("write: %v, day %s; want no error (Open reported it), the file still of 2026-11-06", err, l.day)
 	}
 	l.Close()
 	if b, _ := os.ReadFile(cur); string(b) != "yesterday\ntoday\n" {
@@ -70,8 +70,10 @@ func TestOpenWhenArchivingFails(t *testing.T) {
 	}
 }
 
-// A failed rename on a new day keeps the lines in kizuna.log; a failed
-// reopen loses only the lines until the file can be opened again.
+// A failed rename on a new day keeps the lines in kizuna.log, which keeps
+// its day: the first failure is reported, and the file is dated again
+// retryDating later, as its own day. A failed reopen loses only the lines
+// until the file can be opened again.
 func TestWriteWhenRotatingFails(t *testing.T) {
 	dir := t.TempDir()
 	clock := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
@@ -82,11 +84,35 @@ func TestWriteWhenRotatingFails(t *testing.T) {
 	_, _ = l.Write([]byte("1 Nov\n"))
 	block(t, dir, "2026-11-01")
 	clock = clock.Add(24 * time.Hour)
-	if _, err := l.Write([]byte("2 Nov\n")); err != nil {
-		t.Errorf("rename failed: %v, want the line kept in kizuna.log", err)
+	if n, err := l.Write([]byte("2 Nov a\n")); err == nil || n != len("2 Nov a\n") {
+		t.Errorf("rename failed: wrote %d, %v; want the line kept in kizuna.log and the error", n, err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna.log")); string(b) != "1 Nov\n2 Nov\n" {
+	clock = clock.Add(retryDating - time.Second)
+	if _, err := l.Write([]byte("2 Nov b\n")); err != nil || l.retry.IsZero() {
+		t.Errorf("again within retryDating: %v, want no error, no try", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna.log")); string(b) != "1 Nov\n2 Nov a\n2 Nov b\n" {
 		t.Errorf("kizuna.log %q", b)
+	}
+	clock = clock.Add(time.Second)
+	if _, err := l.Write([]byte("2 Nov c\n")); err != nil {
+		t.Errorf("failing again: %v, want it reported only once", err)
+	}
+	if l.day != "2026-11-01" {
+		t.Errorf("kizuna.log's day %s, want 2026-11-01 until it is dated", l.day)
+	}
+	if err := os.Rename(filepath.Join(dir, "kizuna-2026-11-01.log"), filepath.Join(dir, "blocker")); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(retryDating)
+	if _, err := l.Write([]byte("2 Nov d\n")); err != nil {
+		t.Errorf("once the dated name is free: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna-2026-11-01.log")); string(b) != "1 Nov\n2 Nov a\n2 Nov b\n2 Nov c\n" {
+		t.Errorf("dated kizuna-2026-11-01.log %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna.log")); string(b) != "2 Nov d\n" || l.day != "2026-11-02" {
+		t.Errorf("kizuna.log %q of %s, want the new line of 2026-11-02", b, l.day)
 	}
 
 	l.dir = filepath.Join(dir, "later") // not there yet: kizuna.log can't be opened
