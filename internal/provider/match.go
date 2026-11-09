@@ -25,6 +25,9 @@ type MatchRequest struct {
 	ParentIndex      *int   `json:"parentIndex"`
 	Filename         string `json:"filename"`
 	Manual           int    `json:"manual"`
+	// IncludeChildren 1: a show or season answer carries its seasons or
+	// episodes inline, as .../children lists them.
+	IncludeChildren int `json:"includeChildren"`
 }
 
 var (
@@ -115,16 +118,17 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		return nil, err
 	}
 	var it *Item
+	withChildren := r.IncludeChildren == 1
 	switch r.Type {
 	case 3:
-		it = p.seasonItem(mode, s, deref(r.Index, 1), false)
+		it = p.seasonItem(mode, s, deref(r.Index, 1), withChildren)
 	case 4:
 		if ep := s.Episode(deref(r.ParentIndex, 1), deref(r.Index, 0)); ep != nil {
 			e := p.episodeItem(mode, s, ep)
 			it = &e
 		}
 	default:
-		sh := p.showItem(mode, s, false)
+		sh := p.showItem(mode, s, withChildren)
 		it = &sh
 	}
 	if it == nil { // the show has no such season or episode

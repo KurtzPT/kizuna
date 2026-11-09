@@ -398,9 +398,13 @@ func readMatch(r *http.Request) (MatchRequest, error) {
 		GUID: fields["guid"], Filename: fields["filename"], Index: num("index"), ParentIndex: num("parentIndex")}
 	req.Type = deref(num("type"), 2)
 	req.Year = deref(num("year"), 0)
-	if fields["manual"] == "1" || fields["manual"] == "true" {
-		req.Manual = 1
+	flag := func(k string) int {
+		if fields[k] == "1" || fields[k] == "true" {
+			return 1
+		}
+		return 0
 	}
+	req.Manual, req.IncludeChildren = flag("manual"), flag("includeChildren")
 	return req, nil
 }
 
