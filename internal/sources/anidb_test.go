@@ -69,20 +69,21 @@ func TestParseAniDBNumbering(t *testing.T) {
 }
 
 // fakeAniDB answers every request with the next scripted (status, body).
-func fakeAniDB(t *testing.T, answers ...[2]string) (*AniDB, *int) {
-	return fakeAniDBHeld(t, nil, answers...)
+// Every test that uses it asks one anime at a time.
+func fakeAniDB(t *testing.T, answers ...[2]string) (*AniDB, *atomic.Int32) {
+	var next atomic.Int32
+	return fakeAniDBServer(t, func(int) [2]string {
+		return answers[min(int(next.Add(1))-1, len(answers)-1)]
+	})
 }
 
-// fakeAniDBHeld is fakeAniDB whose answers wait until hold is closed (nil:
-// no wait).
-func fakeAniDBHeld(t *testing.T, hold <-chan struct{}, answers ...[2]string) (*AniDB, *int) {
-	calls := 0
+// fakeAniDBServer answers each request with answer(aid), and counts them.
+func fakeAniDBServer(t *testing.T, answer func(aid int) [2]string) (*AniDB, *atomic.Int32) {
+	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if hold != nil {
-			<-hold
-		}
-		a := answers[min(calls, len(answers)-1)]
-		calls++
+		calls.Add(1)
+		aid, _ := strconv.Atoi(r.URL.Query().Get("aid"))
+		a := answer(aid)
 		code, _ := strconv.Atoi(a[0])
 		w.WriteHeader(code)
 		_, _ = w.Write([]byte(a[1]))
@@ -101,11 +102,11 @@ func TestAniDBEntryErrorNotRetried(t *testing.T) {
 	if _, err := c.Anime(ctx, 1); err == nil {
 		t.Fatal("want error")
 	}
-	if _, err := c.Anime(ctx, 1); err == nil || *calls != 1 {
-		t.Fatalf("same anime asked again within 24 h: calls=%d err=%v", *calls, err)
+	if _, err := c.Anime(ctx, 1); err == nil || calls.Load() != 1 {
+		t.Fatalf("same anime asked again within 24 h: calls=%d err=%v", calls.Load(), err)
 	}
-	if a, err := c.Anime(ctx, 69); err != nil || a == nil || *calls != 2 {
-		t.Fatalf("another anime must still be allowed: calls=%d err=%v", *calls, err)
+	if a, err := c.Anime(ctx, 69); err != nil || a == nil || calls.Load() != 2 {
+		t.Fatalf("another anime must still be allowed: calls=%d err=%v", calls.Load(), err)
 	}
 }
 
@@ -113,8 +114,8 @@ func TestAniDBBackoff(t *testing.T) {
 	c, calls := fakeAniDB(t, [2]string{"500", "oops"}, [2]string{"200", anidbSample})
 	ctx := context.Background()
 	_, _ = c.Anime(ctx, 1)
-	if _, err := c.Anime(ctx, 2); !errors.Is(err, ErrAniDBUnavailable) || *calls != 1 {
-		t.Fatalf("backoff must stop all calls: calls=%d err=%v", *calls, err)
+	if _, err := c.Anime(ctx, 2); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+		t.Fatalf("backoff must stop all calls: calls=%d err=%v", calls.Load(), err)
 	}
 	if w := time.Until(c.state.RetryAt); w < 25*time.Second || w > 30*time.Second {
 		t.Errorf("first backoff step %v, want 30 s", w)
@@ -175,8 +176,8 @@ func TestAniDBBanAnswers(t *testing.T) {
 			t.Fatalf("%v must pause AniDB for 24 h, banned until %v", answer, c.state.BannedUntil)
 		}
 		_, _ = c.Anime(context.Background(), 2)
-		if *calls != 1 {
-			t.Fatalf("%v: calls during a ban: %d", answer, *calls)
+		if calls.Load() != 1 {
+			t.Fatalf("%v: calls during a ban: %d", answer, calls.Load())
 		}
 	}
 }
@@ -193,8 +194,8 @@ func TestAniDBClientRejectedPausesAll(t *testing.T) {
 			t.Fatalf("anime %d: want an error", aid)
 		}
 	}
-	if *calls != 1 {
-		t.Fatalf("%d calls, want 1: the client error stops every call", *calls)
+	if calls.Load() != 1 {
+		t.Fatalf("%d calls, want 1: the client error stops every call", calls.Load())
 	}
 	if _, failed := c.state.Failed[1]; failed {
 		t.Error("anime 1 marked failed: the error was about the client")
@@ -234,8 +235,8 @@ func TestAniDBStaleEntryParsedOnce(t *testing.T) {
 	if again, fresh := c.Peek(69); again != first || fresh {
 		t.Fatal("peek again: parsed again, want the kept copy")
 	}
-	if a, err := c.Anime(context.Background(), 69); err != nil || a != first || *calls != 0 {
-		t.Fatalf("anime while AniDB is paused: %v, %d calls, same copy %v", err, *calls, a == first)
+	if a, err := c.Anime(context.Background(), 69); err != nil || a != first || calls.Load() != 0 {
+		t.Fatalf("anime while AniDB is paused: %v, %d calls, same copy %v", err, calls.Load(), a == first)
 	}
 	write(190 * 24 * time.Hour) // a new copy (still stale)
 	if newer, _ := c.Peek(69); newer == nil || newer == first {
@@ -267,32 +268,41 @@ func (a admissions) Handle(_ context.Context, r slog.Record) error {
 // back, the anime not marked failed, the backoff not stepped up again.
 func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
 	for _, first := range [][2]string{{"200", "<error>Banned</error>"}, {"503", "Banned"}, {"500", "oops"}} {
-		hold := make(chan struct{})
-		c, calls := fakeAniDBHeld(t, hold, first, [2]string{"200", anidbSample})
+		out, hold := make(chan struct{}), make(chan struct{})
+		c, calls := fakeAniDBServer(t, func(aid int) [2]string {
+			if aid != 1 {
+				return [2]string{"200", anidbSample}
+			}
+			close(out)
+			<-hold
+			return first
+		})
 		u, err := url.Parse(anidbAPI)
 		if err != nil {
 			t.Fatal(err)
 		}
 		c.f.Throttle(u.Host, time.Hour) // the second call waits until the test opens the gap
-		admitted := make(admissions, 4)
-		old := slog.Default()
-		slog.SetDefault(slog.New(admitted))
 
 		ctx := context.Background()
 		firstDone := make(chan struct{})
 		go func() { _, _ = c.Anime(ctx, 1); close(firstDone) }() // goes out at once; its answer is held
-		<-admitted
+
+		<-out // on the server: the second call queues behind it
+		admitted := make(admissions, 4)
+		old := slog.Default()
+		slog.SetDefault(slog.New(admitted))
 		secondErr := make(chan error, 1)
 		go func() { _, err := c.Anime(ctx, 2); secondErr <- err }()
-		<-admitted // allowed and counted before the answer ahead of it
+		for <-admitted != 2 { // allowed and counted before the answer ahead of it
+		}
 		close(hold)
 		<-firstDone
 		c.f.Throttle(u.Host, 0) // its turn
 		err = <-secondErr
 		slog.SetDefault(old)
 
-		if !errors.Is(err, ErrAniDBUnavailable) || *calls != 1 {
-			t.Fatalf("after %v: second call err %v, %d requests, want it not sent", first, err, *calls)
+		if !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+			t.Fatalf("after %v: second call err %v, %d requests, want it not sent", first, err, calls.Load())
 		}
 		c.mu.Lock()
 		sent, failures, calling, failed := len(c.state.Sent), c.state.Failures, c.calling[2], c.state.Failed[2]
@@ -305,8 +315,8 @@ func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
 		c.mu.Lock()
 		c.state.BannedUntil, c.state.RetryAt = time.Time{}, time.Time{} // the pause is over
 		c.mu.Unlock()
-		if a, err := c.Anime(ctx, 2); err != nil || a == nil || *calls != 2 {
-			t.Fatalf("after the pause, anime 2: %v, %d requests", err, *calls)
+		if a, err := c.Anime(ctx, 2); err != nil || a == nil || calls.Load() != 2 {
+			t.Fatalf("after the pause, anime 2: %v, %d requests", err, calls.Load())
 		}
 	}
 }
@@ -440,8 +450,8 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 			t.Fatalf("blocked anime: err %v", err)
 		}
 	}
-	if *calls != 1 {
-		t.Fatalf("blocked anime was asked again: %d calls", *calls)
+	if calls.Load() != 1 {
+		t.Fatalf("blocked anime was asked again: %d calls", calls.Load())
 	}
 	s := logs.String()
 	if n := strings.Count(s, "level=INFO"); n != 1 {
@@ -482,8 +492,8 @@ func TestAniDBNoSecondCallAfterAnotherStored(t *testing.T) {
 		t.Fatalf("first call: %v %v", a, err)
 	}
 	// local found nothing (before the first call stored it); it asks now.
-	if a, err := c.ask(ctx, 69, false, nil, time.Now()); err != nil || a == nil || a.AID != 69 || *calls != 1 {
-		t.Fatalf("second caller: %v %v, %d requests, want the stored entry and 1", a, err, *calls)
+	if a, err := c.ask(ctx, 69, false, nil, time.Now()); err != nil || a == nil || a.AID != 69 || calls.Load() != 1 {
+		t.Fatalf("second caller: %v %v, %d requests, want the stored entry and 1", a, err, calls.Load())
 	}
 	// A caller that joined the call (allowed's shortcut) but whose own
 	// download started after it ended: its turn in the queue is refused.
@@ -512,8 +522,8 @@ func TestAniDBFailedCacheWriteNotAskedAgain(t *testing.T) {
 	c.mu.Lock()
 	clear(c.memo) // an hour later
 	c.mu.Unlock()
-	if _, err := c.Anime(ctx, 69); !errors.Is(err, ErrAniDBUnavailable) || *calls != 1 {
-		t.Fatalf("after the memo expired: %v, %d requests; want unavailable and 1", err, *calls)
+	if _, err := c.Anime(ctx, 69); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+		t.Fatalf("after the memo expired: %v, %d requests; want unavailable and 1", err, calls.Load())
 	}
 	if ok, _ := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(69, false); ok {
 		t.Error("after a restart: allowed")
