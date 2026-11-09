@@ -38,33 +38,40 @@ func spotName(e sources.Episode) string {
 // episode number.
 type spot struct{ season, number int }
 
-// episodeIndex finds a TVDB/TMDB episode by its spot.
+// episodeIndex finds a TVDB/TMDB episode by its spot. The maps hold
+// positions in eps: whole episodes would cost an allocation each.
 type episodeIndex struct {
-	bySpot map[spot]sources.Episode
-	byAbs  map[int]sources.Episode
+	eps    []sources.Episode
+	bySpot map[spot]int
+	byAbs  map[int]int
 	// posters: TheMovieDb's season posters, read with its episode list
 	// (nil for TheTVDB's).
 	posters map[int][]string
 }
 
 func indexEpisodes(eps []sources.Episode) episodeIndex {
-	x := episodeIndex{bySpot: map[spot]sources.Episode{}, byAbs: map[int]sources.Episode{}}
-	for _, e := range eps {
-		x.bySpot[spot{e.Season, e.Number}] = e
+	x := episodeIndex{eps: eps, bySpot: make(map[spot]int, len(eps)), byAbs: make(map[int]int, len(eps))}
+	for i, e := range eps {
+		x.bySpot[spot{e.Season, e.Number}] = i
 		if e.Season > 0 && e.Absolute > 0 {
-			x.byAbs[e.Absolute] = e
+			x.byAbs[e.Absolute] = i
 		}
 	}
 	return x
 }
 
 func (x episodeIndex) at(sp spot) (sources.Episode, bool) {
+	var i int
+	var ok bool
 	if sp.season == -1 {
-		e, ok := x.byAbs[sp.number]
-		return e, ok
+		i, ok = x.byAbs[sp.number]
+	} else {
+		i, ok = x.bySpot[sp]
 	}
-	e, ok := x.bySpot[sp]
-	return e, ok
+	if !ok {
+		return sources.Episode{}, false
+	}
+	return x.eps[i], true
 }
 
 // pairedList is one site's episode list, paired with a show: at gives each

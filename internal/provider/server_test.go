@@ -238,6 +238,17 @@ func TestEveryTenMinutes(t *testing.T) {
 	if !capped.due("c") || len(capped.at) != 1 || !capped.due("a") {
 		t.Errorf("past max: kept %v, want everything forgotten", capped.at)
 	}
+	// long keys are kept bounded, and distinct ones stay distinct
+	var long everyTenMinutes
+	a, b := strings.Repeat("x", 1<<20)+"a", strings.Repeat("x", 1<<20)+"b"
+	if !long.due(a) || long.due(a) || !long.due(b) {
+		t.Error("want each long key due once")
+	}
+	for k := range long.at {
+		if len(k) > maxDueKey {
+			t.Errorf("kept a key of %d bytes, want at most %d", len(k), maxDueKey)
+		}
+	}
 }
 
 // A show that isn't ready before the request's time runs out answers 503

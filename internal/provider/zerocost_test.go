@@ -32,7 +32,9 @@ func TestReportsOffAllocs(t *testing.T) {
 		p.Handler().ServeHTTP(httptest.NewRecorder(), req)
 	}
 	show := func() { serve("GET", "/tvdb/library/metadata/tvdb-500", "") }
+	anidbShow := func() { serve("GET", "/anidb/library/metadata/anidb-100", "") }
 	show() // fills the cache
+	anidbShow()
 	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	cases := []struct {
 		name   string
@@ -41,11 +43,17 @@ func TestReportsOffAllocs(t *testing.T) {
 	}{
 		{"show from memory", 135, show},
 		{"match", 181, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
-		{"show build", 503, func() {
+		{"show build", 497, func() {
 			p.mu.Lock()
 			clear(p.shows)
 			p.mu.Unlock()
 			show()
+		}},
+		{"anidb show build", 471, func() {
+			p.mu.Lock()
+			clear(p.shows)
+			p.mu.Unlock()
+			anidbShow()
 		}},
 	}
 	for _, c := range cases {

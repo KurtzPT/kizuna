@@ -418,6 +418,35 @@ func TestAnimeListsMappingForms(t *testing.T) {
 	}
 }
 
+// AIDFor picks a TMDB show's first entry by its TMDB placement, and the
+// lowest-id fallback skips special-only entries.
+func TestAIDForFirstEntry(t *testing.T) {
+	l := &Lists{}
+	l.SetForTest(map[int]Entry{
+		// one TVDB series, two TMDB shows; 480 is an OVA among both shows' specials
+		100: {AID: 100, TVDB: Placement{ID: 1, Season: 1, Mapped: true}, TMDB: Placement{ID: 10, Season: 1, Mapped: true}},
+		480: {AID: 480, TVDB: Placement{ID: 1, Season: 0, Offset: 3, Mapped: true}, TMDB: Placement{ID: 20, Season: 0, Mapped: true}, IMDB: "tt02"},
+		500: {AID: 500, TVDB: Placement{ID: 1, Season: 2, Mapped: true}, TMDB: Placement{ID: 20, Season: 1, Mapped: true}, IMDB: "tt02"},
+		// no TVDB id: the TMDB season 0 entry isn't the show's first
+		300: {AID: 300, TMDB: Placement{ID: 9, Season: 0, Mapped: true}},
+		301: {AID: 301, TMDB: Placement{ID: 9, Season: 1, Mapped: true}},
+		302: {AID: 302, TMDB: Placement{ID: 9, Season: 2, Mapped: true}},
+		// only a special-only entry: it is still found
+		700: {AID: 700, TVDB: Placement{ID: 7, Season: 0, Mapped: true}, IMDB: "tt07"},
+	})
+	for _, c := range []struct {
+		source, id string
+		want       int
+	}{
+		{"tmdb", "20", 500}, {"tmdb", "9", 301}, {"tmdb", "10", 100}, {"tvdb", "1", 100},
+		{"imdb", "tt02", 500}, {"imdb", "tt07", 700},
+	} {
+		if got := l.AIDFor(c.source, c.id); got != c.want {
+			t.Errorf("AIDFor(%s, %s) = %d, want %d", c.source, c.id, got, c.want)
+		}
+	}
+}
+
 // Lookups read one snapshot: before anything loaded they find nothing, ids
 // are matched as numbers (IMDb as text), and they never allocate.
 func TestLookups(t *testing.T) {

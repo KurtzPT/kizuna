@@ -79,7 +79,8 @@ func artOf(t *testing.T, entry mapping.Entry, series, movie bool, set func(*conf
 		set(&p.cfg)
 	}
 	a := &sources.AniDBAnime{Picture: "https://cdn.anidb.net/images/main/anidb-poster"}
-	ss := p.newSources(context.Background(), 100, a, entry, entry.TVDB.ID, entry.TMDB.ID, movie, firstEntry{series, series || movie})
+	ss := p.newSources(context.Background(), 100, entry, entry.TVDB.ID, entry.TMDB.ID, movie, firstEntry{series, series || movie})
+	ss.setAniDB(context.Background(), a, entry)
 	s := &Show{Episodes: map[int][]Ep{1: nil, 0: nil}}
 	ss.anidbTargets(entry, plexSeasons(s))
 	ss.fill(s)
@@ -387,7 +388,8 @@ func TestLegacySeasonArt(t *testing.T) {
 	p.tvdb = sources.NewTVDB(f, "", "", "legacy")
 	p.cfg.SeasonArtFallback = false
 	entry := mapping.Entry{TVDB: onTVDB(3)}
-	ss := p.newSources(context.Background(), 100, nil, entry, 500, 0, false, firstEntry{})
+	ss := p.newSources(context.Background(), 100, entry, 500, 0, false, firstEntry{})
+	ss.setAniDB(context.Background(), nil, entry)
 	s := &Show{Episodes: map[int][]Ep{1: nil}}
 	ss.anidbTargets(entry, plexSeasons(s))
 	ss.fill(s)
