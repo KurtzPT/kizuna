@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,65 @@ func TestCorruptGzipNotCached(t *testing.T) {
 	}
 	if _, _, ok := c.Cached("x"); ok {
 		t.Fatal("corrupt answer cached")
+	}
+}
+
+// Get: a fresh copy is answered without the network; an expired one is
+// downloaded again; when that fails (or the answer is rejected by Validate,
+// which also keeps it out of the cache) the stale copy is answered, unless
+// NoStale.
+func TestGetStaleFallback(t *testing.T) {
+	c := New(t.TempDir())
+	var calls atomic.Int32
+	status, body := 200, "v1"
+	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+	}))
+	ctx := context.Background()
+	r := Request{URL: "http://api.example/x", Key: "x", TTL: time.Hour,
+		Validate: func(b []byte) error {
+			if string(b) == "bad" {
+				return errors.New("bad answer")
+			}
+			return nil
+		}}
+	get := func(r Request) string {
+		t.Helper()
+		data, err := c.Get(ctx, r)
+		if err != nil {
+			return "error"
+		}
+		return string(data)
+	}
+	if got := get(r); got != "v1" || calls.Load() != 1 {
+		t.Fatalf("first get %q, %d calls", got, calls.Load())
+	}
+	if got := get(r); got != "v1" || calls.Load() != 1 {
+		t.Fatalf("fresh copy: %q, %d calls (want no new call)", got, calls.Load())
+	}
+
+	noStale := r
+	noStale.NoStale = true
+	for _, answer := range []struct {
+		status int
+		body   string
+	}{{500, "oops"}, {200, "bad"}} {
+		expire(t, c, r.Key)
+		status, body = answer.status, answer.body
+		if got := get(r); got != "v1" {
+			t.Errorf("%d %q: got %q, want the stale copy", answer.status, answer.body, got)
+		}
+		if got := get(noStale); got != "error" {
+			t.Errorf("%d %q with NoStale: got %q, want an error", answer.status, answer.body, got)
+		}
+		if data, _, _ := c.Cached(r.Key); string(data) != "v1" {
+			t.Errorf("%d %q: cache now holds %q", answer.status, answer.body, data)
+		}
+	}
+	status, body = 200, "v2"
+	if got := get(r); got != "v2" {
+		t.Fatalf("source back: %q", got)
 	}
 }
 

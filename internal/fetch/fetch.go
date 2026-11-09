@@ -108,31 +108,48 @@ func (c *Client) Cached(key string) ([]byte, time.Duration, bool) {
 		return nil, 0, false
 	}
 	p := c.path(key)
-	st, err := os.Stat(p)
-	if err != nil {
+	at, ok := modTime(p)
+	if !ok {
 		return nil, 0, false
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return nil, 0, false
 	}
-	return data, time.Since(st.ModTime()), true
+	return data, time.Since(at), true
+}
+
+// CachedAt returns when a cached file was last written, without reading it.
+func (c *Client) CachedAt(key string) (time.Time, bool) {
+	if key == "" {
+		return time.Time{}, false
+	}
+	return modTime(c.path(key))
+}
+
+func modTime(path string) (time.Time, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return st.ModTime(), true
 }
 
 // Get returns a fresh cached copy, or downloads it. When the download fails
 // a stale cached copy is returned instead (sources go down; old data beats none).
 func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	start := time.Now()
-	if data, age, ok := c.Cached(r.Key); ok && age < r.TTL {
-		slog.Debug("cache hit", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
+	if data, ok := c.fresh(ctx, r); ok {
 		observe(ctx, r, start, KindCache, nil)
 		return data, nil
-	} else if ok {
-		slog.Debug("cache expired", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
 	}
 	data, err := c.download(ctx, r)
 	if err != nil {
-		if stale, age, ok := c.Cached(r.Key); ok && !r.NoStale {
+		if r.NoStale {
+			observe(ctx, r, start, KindFail, err)
+			return nil, err
+		}
+		if stale, age, ok := c.Cached(r.Key); ok {
 			slog.Debug("download failed; using stale cache", "key", r.Key, "age", age.Round(time.Minute), "err", err)
 			observe(ctx, r, start, KindStale, err)
 			return stale, nil
@@ -142,6 +159,35 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	}
 	observe(ctx, r, start, KindNet, nil)
 	return data, nil
+}
+
+// fresh returns r's cached copy when it is younger than r.TTL. The file's
+// age is checked first: an expired copy is not read.
+func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
+	if r.TTL <= 0 || r.Key == "" {
+		return nil, false
+	}
+	p := c.path(r.Key)
+	at, ok := modTime(p)
+	if !ok {
+		return nil, false
+	}
+	age := time.Since(at)
+	debug := slog.Default().Enabled(ctx, slog.LevelDebug) // the log args aren't built otherwise
+	if age >= r.TTL {
+		if debug {
+			slog.Debug("cache expired", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
+		}
+		return nil, false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	if debug {
+		slog.Debug("cache hit", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
+	}
+	return data, true
 }
 
 // download runs at most one network request per key at a time; concurrent
