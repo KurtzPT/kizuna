@@ -228,9 +228,15 @@ func (ss *showSources) fill(s *Show) bool {
 	cfg := ss.p.cfg
 	done := ss.rec.Step("Show fields and artwork")
 	ss.warm()
-	used := []any{"root", s.Root, "first_entry", ss.series}
+	debug := debugOn(context.Background())
+	var used []any // the debug line, built only when it is logged
+	if debug {
+		used = []any{"root", s.Root, "first_entry", ss.series}
+	}
 	note := func(field, src string) {
-		used = append(used, field, cmp.Or(src, "-"))
+		if debug {
+			used = append(used, field, cmp.Or(src, "-"))
+		}
 	}
 
 	title, src := pick(cfg.TitleSources, ss.title)
@@ -292,7 +298,9 @@ func (ss *showSources) fill(s *Show) bool {
 	note("backgrounds", src)
 	s.Art.Logos, src = artField("Logos", cfg.LogoSources, func(a sources.Art) []string { return a.Logos })
 	note("logos", src)
-	slog.Debug("show fields: source used", used...)
+	if debug {
+		slog.Debug("show fields: source used", used...)
+	}
 	if failed := ss.failed(); len(failed) > 0 {
 		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
 		if ss.rec != nil { // the notes are built only for a match report
