@@ -238,27 +238,45 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
 		return json.Unmarshal(data, out)
 	}
-	token, tokenLegacy, err := t.login(ctx)
-	if err != nil {
-		return err
-	}
-	if tokenLegacy != legacy {
-		return errTVDBSwitched
-	}
-	headers := map[string]string{"Authorization": "Bearer " + token}
-	if legacy {
-		headers["Accept-Language"] = "en" // v3 picks the language by header
-	}
-	err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers}, out)
-	var se *fetch.StatusError
-	if errors.As(err, &se) && se.Code == http.StatusUnauthorized {
-		t.mu.Lock()
-		if t.token == token { // expired or revoked early: log in again on the next call
-			t.token = ""
+	for retried := false; ; retried = true {
+		token, tokenLegacy, err := t.login(ctx)
+		if err != nil {
+			return err
 		}
-		t.mu.Unlock()
+		if tokenLegacy != legacy {
+			return errTVDBSwitched
+		}
+		headers := map[string]string{"Authorization": "Bearer " + token}
+		if legacy {
+			headers["Accept-Language"] = "en" // v3 picks the language by header
+		}
+		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers,
+			// Done sees a 401 even when a stale copy answers the call.
+			Done: func(err error) {
+				if unauthorized(err) {
+					t.dropToken(token)
+				}
+			}}, out)
+		if retried || !unauthorized(err) {
+			return err
+		}
+		// No stale copy to answer with: try once more with a new token.
 	}
-	return err
+}
+
+func unauthorized(err error) bool {
+	var se *fetch.StatusError
+	return errors.As(err, &se) && se.Code == http.StatusUnauthorized
+}
+
+// dropToken forgets token (expired or revoked early), so the next call logs
+// in again. A newer token stays.
+func (t *TVDB) dropToken(token string) {
+	t.mu.Lock()
+	if t.token == token {
+		t.token = ""
+	}
+	t.mu.Unlock()
 }
 
 // Episodes returns all episodes in aired ("official") order with English
