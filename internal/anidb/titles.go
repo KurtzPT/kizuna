@@ -122,24 +122,13 @@ type Match struct {
 // A download is parsed in full before it's cached, so a broken one never
 // replaces the good cached copy; that parse is used, not repeated.
 func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
-	var checked struct { // Validate can run after Load gave up (fetch doesn't cancel downloads)
-		sync.Mutex
-		data  []byte
-		byAID map[int][]Title
-	}
+	checked := &fetch.Checked[map[int][]Title]{Parse: parseTitles}
 	data, err := f.Get(ctx, fetch.Request{URL: titlesURL, Key: "anidb/animetitles.xml", TTL: 24 * time.Hour, Revalidate: true,
 		Validate: func(b []byte) error {
 			if !bytes.Contains(b[:min(len(b), 500)], []byte("<animetitles")) {
 				return errors.New("not an AniDB title dump")
 			}
-			byAID, err := parseTitles(b)
-			if err != nil {
-				return err
-			}
-			checked.Lock()
-			checked.data, checked.byAID = b, byAID
-			checked.Unlock()
-			return nil
+			return checked.Validate(b)
 		}})
 	if err != nil {
 		return err
@@ -152,22 +141,14 @@ func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
 		slog.Debug("AniDB title list unchanged; keeping the loaded one")
 		return nil
 	}
-	checked.Lock()
-	byAID := checked.byAID
-	if len(checked.data) != len(data) || len(data) == 0 || &checked.data[0] != &data[0] {
-		byAID = nil // fetch answered with the cached copy, not the download Validate saw
-	}
-	checked.Unlock()
-	if byAID == nil {
+	byAID, ok := checked.Result(data)
+	if !ok { // fetch answered with the cached copy, not the download Validate saw
 		if byAID, err = parseTitles(data); err != nil {
 			return err
 		}
 	}
-	t.set(byAID)
-	t.mu.Lock()
-	t.sum = sum
-	t.mu.Unlock()
-	slog.Info("AniDB title list loaded", "anime", len(byAID), "titles", t.index.len())
+	n := t.set(byAID, sum)
+	slog.Info("AniDB title list loaded", "anime", len(byAID), "titles", n)
 	return nil
 }
 
@@ -193,14 +174,16 @@ func parseTitles(data []byte) (map[int][]Title, error) {
 }
 
 // SetForTest replaces the title list (for tests in other packages).
-func (t *Titles) SetForTest(byAID map[int][]Title) { t.set(byAID) }
+func (t *Titles) SetForTest(byAID map[int][]Title) { t.set(byAID, [32]byte{}) }
 
-// set swaps in a new title list and its search index.
-func (t *Titles) set(byAID map[int][]Title) {
+// set swaps in a new title list, its search index and the sum of the dump
+// it came from (zero: none). Returns how many titles the index holds.
+func (t *Titles) set(byAID map[int][]Title, sum [32]byte) int {
 	x := newIndex(byAID)
 	t.mu.Lock()
-	t.byAID, t.index, t.sum = byAID, x, [32]byte{}
+	t.byAID, t.index, t.sum = byAID, x, sum
 	t.mu.Unlock()
+	return x.len()
 }
 
 func (t *Titles) Ready() bool {

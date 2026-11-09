@@ -50,7 +50,7 @@ func FuzzSearch(f *testing.F) {
 	f.Fuzz(func(t *testing.T, a, b, query string, year, limit int) {
 		limit = max(limit, 0) % 10
 		var x Titles
-		x.set(map[int][]Title{1: {{Type: "main", Text: a}}, 2: {{Type: "official", Text: b}}, 3: {{Type: "syn", Text: b + " " + a}}})
+		x.SetForTest(map[int][]Title{1: {{Type: "main", Text: a}}, 2: {{Type: "official", Text: b}}, 3: {{Type: "syn", Text: b + " " + a}}})
 		got := x.Search(query, year, limit)
 		if len(got) > limit {
 			t.Fatalf("%d results for limit %d", len(got), limit)

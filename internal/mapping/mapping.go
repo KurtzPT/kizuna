@@ -23,7 +23,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"kizuna/internal/fetch"
@@ -65,41 +64,15 @@ var listSources = map[string]struct {
 	"fribb":      {getFribb, parseFribb},
 }
 
-// checked parses a download in full before fetch caches it, so a broken
-// download (a stray "&", a cut-off file) is rejected and the good cached
-// copy stays. It keeps the entries, so Load doesn't parse the same bytes
-// twice. Validate can still run after Load gave up (fetch doesn't cancel
-// downloads), hence the lock.
-type checked struct {
-	parse   func([]byte) (map[int]Entry, error)
-	mu      sync.Mutex
-	data    []byte
-	entries map[int]Entry
-}
-
-func (c *checked) validate(b []byte) error {
-	list, err := c.parse(b)
-	if err == nil && len(list) == 0 {
-		err = errors.New("no entries")
+// nonEmpty parses a list and rejects one without entries.
+func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]Entry, error) {
+	return func(b []byte) (map[int]Entry, error) {
+		list, err := parse(b)
+		if err == nil && len(list) == 0 {
+			err = errors.New("no entries")
+		}
+		return list, err
 	}
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.data, c.entries = b, list
-	c.mu.Unlock()
-	return nil
-}
-
-// entriesOf returns what validate parsed when data is those very bytes (not a
-// cached copy fetch answered with instead); nil otherwise.
-func (c *checked) entriesOf(data []byte) map[int]Entry {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(data) == 0 || len(c.data) != len(data) || &c.data[0] != &data[0] {
-		return nil
-	}
-	return c.entries
 }
 
 // Load downloads (daily) the lists named in order and merges them.
@@ -113,7 +86,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	type downloaded struct {
 		src  string
 		data []byte
-		list map[int]Entry // already parsed by checked; nil = parse data
+		list map[int]Entry // already parsed by fetch.Checked; nil = parse data
 	}
 	var got []downloaded
 	var errs []error
@@ -123,13 +96,14 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		if !ok {
 			continue
 		}
-		c := &checked{parse: ls.parse}
-		data, err := ls.get(ctx, f, c.validate)
+		c := &fetch.Checked[map[int]Entry]{Parse: nonEmpty(ls.parse)}
+		data, err := ls.get(ctx, f, c.Validate)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", src, err))
 			continue
 		}
-		got = append(got, downloaded{src, data, c.entriesOf(data)})
+		list, _ := c.Result(data)
+		got = append(got, downloaded{src, data, list})
 		fmt.Fprintf(h, "%s:%d:", src, len(data))
 		h.Write(data)
 	}

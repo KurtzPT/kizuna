@@ -15,7 +15,7 @@ import (
 const fribbURL = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json"
 
 // getFribb downloads the list; parse is the full check a download must also
-// pass before it's cached (see checked).
+// pass before it's cached (see fetch.Checked).
 func getFribb(ctx context.Context, f *fetch.Client, parse func([]byte) error) ([]byte, error) {
 	return f.Get(ctx, fetch.Request{URL: fribbURL, Key: "mapping/fribb-anime-list-mini.json", TTL: 24 * time.Hour, Revalidate: true,
 		Validate: func(b []byte) error {

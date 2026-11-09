@@ -36,7 +36,7 @@ func TestNormalize(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	ts := &Titles{byAID: map[int][]Title{1: {{"main", "x-jat", "Shingeki no Kyojin"}}, 2: {{"main", "x-jat", "Shingeki no Kyojin Season 2"}}}}
-	ts.set(ts.byAID)
+	ts.SetForTest(ts.byAID)
 	got := ts.Search("Shingeki no Kyojin (2013)", 0, 5)
 	if len(got) == 0 || got[0].AID != 1 || got[0].Score < 98 {
 		t.Fatalf("search: %+v", got)
@@ -71,7 +71,7 @@ func TestSearchYearPicksRemake(t *testing.T) {
 		1:    {{"main", "x-jat", "Hunter x Hunter"}},
 		8074: {{"main", "x-jat", "Hunter x Hunter (2011)"}, {"official", "en", "Hunter x Hunter"}},
 	}}
-	ts.set(ts.byAID)
+	ts.SetForTest(ts.byAID)
 	cases := []struct {
 		query string
 		year  int

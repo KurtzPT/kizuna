@@ -162,25 +162,6 @@ func TestLoadRejectsBrokenDownload(t *testing.T) {
 	}
 }
 
-// checked hands its parse back only for the bytes it validated, not for a
-// cached copy with the same content that fetch answered with instead.
-func TestCheckedReusesOnlyItsBytes(t *testing.T) {
-	c := &checked{parse: parseAnimeLists}
-	data := []byte(goodAnimeLists)
-	if err := c.validate(data); err != nil {
-		t.Fatal(err)
-	}
-	if got := c.entriesOf(data); got[1].TVDB.ID != 100 {
-		t.Errorf("same bytes: %v", got)
-	}
-	if got := c.entriesOf([]byte(goodAnimeLists)); got != nil {
-		t.Errorf("other bytes: %v, want nil", got)
-	}
-	if err := c.validate([]byte(brokenAnimeLists)); err == nil || c.entriesOf(data) == nil {
-		t.Errorf("broken: %v; the earlier parse must stay", err)
-	}
-}
-
 // Once Ready, a list that fails (here a cached copy that doesn't parse) keeps
 // the loaded mapping instead of replacing it with the other list alone. On a
 // first load the other list is still used.
