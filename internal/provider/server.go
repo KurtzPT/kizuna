@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"hash/maphash"
 	"io"
 	"log/slog"
 	"net/http"
@@ -105,7 +106,16 @@ type everyTenMinutes struct {
 	max int // past this many keys all are forgotten (0 = no limit): an internet scan's addresses can't fill memory
 }
 
+// maxDueKey bounds a kept key: a longer one (a match title can be as long as
+// the body cap) is kept as its start and a hash, so memory stays bounded.
+const maxDueKey = 256
+
+var dueSeed = maphash.MakeSeed()
+
 func (e *everyTenMinutes) due(key string) bool {
+	if len(key) > maxDueKey {
+		key = key[:maxDueKey-16] + strconv.FormatUint(maphash.String(dueSeed, key), 16)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if t, ok := e.at[key]; ok && time.Since(t) < 10*time.Minute {
