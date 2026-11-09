@@ -81,6 +81,10 @@ type Config struct {
 	// (the first source's best image is the default). false = only the first
 	// source that has any.
 	ArtAllSources bool
+	// SeasonArtFallback: a TheTVDB/TheMovieDb season without art of a kind
+	// gives that site's series art of the kind instead. false = nothing from
+	// that site: the next source in the order.
+	SeasonArtFallback bool
 
 	// CacheMinFree / CacheFreeTarget (bytes): when the cache disk has less
 	// than CacheMinFree free, the oldest cache files are deleted until
@@ -124,6 +128,7 @@ func Load() Config {
 		RatingCountries:    upperList(env("RATING_COUNTRY", "US")),
 		DateSources:        sourceList("DATE_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
 		ArtAllSources:      flag("ART_ALL_SOURCES", false),
+		SeasonArtFallback:  flag("SEASON_ART_FALLBACK", true),
 		AutoDefault:        oneOf("AUTO_DEFAULT", "anidb", "tvdb"),
 		EpisodeTitles:      sourceList("EPISODE_TITLES", "anidb,tvdb,tmdb", "anidb", "tvdb", "tmdb"),
 		CacheMinFree:       size("CACHE_MIN_FREE", 1<<30),
