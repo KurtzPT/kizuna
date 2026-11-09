@@ -44,8 +44,8 @@ AniDB account.
 | `/tvdb` | TheTVDB **or** TheMovieDb (TheTVDB is used when both are set) | seasons and episode lists |
 | `/auto` | AniDB **and** TheTVDB or TheMovieDb | both kinds of shows |
 
-With none of them (no `ANIDB_CLIENT`, no TheTVDB or TheMovieDb key) no mode can build episodes, so Kizuna doesn't
-start: it logs `can't start: no AniDB client and no TheTVDB or TheMovieDb key` and exits.
+Without `ANIDB_CLIENT` and without a TheTVDB key, Kizuna doesn't start: it logs `can't start: no AniDB client and
+no TheTVDB key` and exits. TheMovieDb, MyAnimeList and Anime News Network alone aren't enough.
 
 Without an AniDB client, shows still match by title (from AniDB's offline title list), but get no AniDB details.
 
@@ -745,7 +745,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | Symptom | Fix |
 |---|---|
 | `can't run: port 32600 is already in use by another program` | Something else has the port, often a second Kizuna. Stop it, or use another port: the host side of the port mapping in Docker, `PORT` outside Docker. Kizuna exits right away (code 1) instead of starting half-way |
-| `can't start: no AniDB client and no TheTVDB or TheMovieDb key` | No source that builds episodes is set. Set `ANIDB_CLIENT`, or a TheTVDB or TheMovieDb key ([which mode needs what](#-1-get-your-keys)). With a settings file, check the `settings file` line above it: the file may not be where Kizuna looks (`no settings file`) |
+| `can't start: no AniDB client and no TheTVDB key` | Set `ANIDB_CLIENT`, or a TheTVDB key ([which mode needs what](#-1-get-your-keys)). With a settings file, check the `settings file` line above it: the file may not be where Kizuna looks (`no settings file`) |
 | `can't start: can't read the settings file` | `KIZUNA_CONFIG` names a file that isn't there, or the file can't be read by the container's user |
 | `docker compose up` says *port is already allocated* | Docker found the host port taken before Kizuna started. Change the first number under `ports:` in `compose.yml` |
 | log says `can't write the log file` | Kizuna runs, but can't write to the data folder: no log file, no cache. Make it writable by the container's user (`1000:1000` by default) |
