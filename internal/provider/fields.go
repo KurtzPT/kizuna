@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -346,22 +347,55 @@ func (ss *showSources) finish(s *Show) bool {
 }
 
 // warm fetches, in parallel, everything fill will ask for whatever the
-// answers: the first source of every field (fallbacks are fetched only when
-// reached), and the artwork used, the Plex seasons' too (every listed source
-// in "all" mode, otherwise each image type's first choice). The lazy values
+// answers: per field, the first source in its order that needs a fetch,
+// past the sources whose answer is at hand and empty (AniDB's without
+// details, TheTVDB's details for a later entry...), which fill passes over
+// too (later fallbacks are fetched only when reached); and the artwork used,
+// the Plex seasons' too (every listed source in "all" mode, otherwise each
+// image type's first choice). Each source is warmed once. The lazy values
 // make fill's and fillSeasons' own calls free afterwards.
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
 	var jobs []func()
-	first := func(order []string, get func(string)) {
-		if len(order) > 0 {
-			jobs = append(jobs, func() { get(order[0]) })
+	var asked [10]warmer // the lazies warmed so far: one job each
+	na := 0
+	add := func(w warmer) {
+		if w == nil || slices.Contains(asked[:na], w) {
+			return
+		}
+		if na < len(asked) {
+			asked[na] = w
+			na++
+		}
+		jobs = append(jobs, w.warm)
+	}
+	// first: the first source of order that would be fetched, unless a
+	// source before it has the field at hand.
+	first := func(order []string, of func(string) warmer, has func(string) bool) {
+		for _, src := range order {
+			if w := of(src); w != nil && w.fetches() {
+				add(w)
+				return
+			}
+			if has(src) {
+				return
+			}
 		}
 	}
-	first(cfg.TitleSources, func(src string) { ss.title(src) })
-	first(cfg.SummarySources, func(src string) { ss.summary(src) })
-	for _, order := range [][]string{cfg.GenreSources, cfg.CastSources, cfg.StudioSources, cfg.CrewSources, cfg.RatingSources, cfg.DateSources} {
-		first(order, func(src string) { ss.details(src) })
+	first(cfg.TitleSources, ss.titleLazy, func(src string) bool { return ss.title(src) != "" })
+	first(cfg.SummarySources, ss.summaryLazy, func(src string) bool { return ss.summary(src) != "" })
+	for _, f := range [...]struct {
+		order []string
+		has   func(sources.Details) bool
+	}{
+		{cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 }},
+		{cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 }},
+		{cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" }},
+		{cfg.CrewSources, func(d sources.Details) bool { return len(d.Directors)+len(d.Writers) > 0 }},
+		{cfg.RatingSources, func(d sources.Details) bool { return d.Rating(cfg.RatingCountries) != "" }},
+		{cfg.DateSources, func(d sources.Details) bool { return d.Date != "" }},
+	} {
+		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
 	jobs = ss.warmArt(jobs)
 	var wg sync.WaitGroup
@@ -369,6 +403,65 @@ func (ss *showSources) warm() {
 		wg.Go(job)
 	}
 	wg.Wait()
+}
+
+// warmer is a lazy value warm can fetch ahead.
+type warmer interface {
+	fetches() bool // getting it downloads something
+	warm()
+}
+
+// titleLazy, summaryLazy, detailsLazy: what title, summary and details ask
+// src for, when that is a fetch (nil: the answer is at hand, AniDB's, or
+// none). Keep them in step with those three.
+func (ss *showSources) titleLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		return &ss.tvdbText
+	case "tmdb":
+		return &ss.tmdbText
+	case "ann":
+		return &ss.ann
+	}
+	return nil
+}
+
+func (ss *showSources) summaryLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		if !ss.series {
+			return &ss.tvdbSeason
+		}
+		return &ss.tvdbText
+	case "tmdb":
+		if !ss.series && !ss.movie {
+			return &ss.tmdbSeason
+		}
+		return &ss.tmdbText
+	case "mal":
+		return &ss.mal
+	case "ann":
+		return &ss.ann
+	}
+	return nil
+}
+
+func (ss *showSources) detailsLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		if ss.series {
+			return &ss.tvdbDetails
+		}
+	case "tmdb":
+		if ss.series || ss.movie {
+			return &ss.tmdbDetails
+		}
+	case "mal":
+		return &ss.mal
+	case "ann":
+		return &ss.ann
+	}
+	return nil
 }
 
 // pick returns the first non-empty value in source order, and its source.
@@ -428,6 +521,9 @@ func (l *lazy[T]) get() T {
 	})
 	return l.v
 }
+
+func (l *lazy[T]) fetches() bool { return l.f != nil }
+func (l *lazy[T]) warm()         { l.get() }
 
 // from sets f, unless the source can't have the show: no id for it (0), or
 // not configured (on false).
