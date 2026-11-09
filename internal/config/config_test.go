@@ -39,7 +39,8 @@ func TestLangsLowercase(t *testing.T) {
 }
 
 func TestSize(t *testing.T) {
-	cases := map[string]uint64{"": 7, "500": 500 << 20, "500MB": 500 << 20, "2gb": 2 << 30, "1.5 GB": 3 << 29, "1TB": 1 << 40, "0": 0, "lots": 7}
+	cases := map[string]uint64{"": 7, "500": 500 << 20, "500MB": 500 << 20, "2gb": 2 << 30, "1.5 GB": 3 << 29, "1TB": 1 << 40, "0": 0, "lots": 7,
+		"inf": 7, "+Inf": 7, "NaN": 7, "-1": 7, "1e30GB": 7, "1048576TB": 1 << 60, "1048577TB": 7}
 	for v, want := range cases {
 		t.Setenv("X_SIZE", v)
 		if got := size("X_SIZE", 7); got != want {

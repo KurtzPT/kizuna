@@ -370,7 +370,9 @@ func size(name string, def uint64) uint64 {
 		}
 	}
 	f, err := strconv.ParseFloat(raw, 64)
-	if err != nil || f < 0 {
+	// !(f >= 0) also catches NaN; past 1 EB the number is a typo (and
+	// would wrap the uint64).
+	if err != nil || !(f >= 0) || f*mult > 1<<60 {
 		slog.Warn("ignoring bad size; using the default", "setting", name, "value", env(name, ""), "default_mb", def>>20)
 		return def
 	}
