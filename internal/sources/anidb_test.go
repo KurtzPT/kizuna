@@ -94,7 +94,9 @@ func fakeAniDBServer(t *testing.T, answer func(aid int) [2]string) (*AniDB, *ato
 	anidbAPI = srv.URL + "/?client=%s&clientver=%s&aid=%d"
 	t.Cleanup(func() { anidbAPI = old })
 	dir := t.TempDir()
-	return NewAniDB(fetch.New(dir), dir, "test", "1"), &calls
+	c := NewAniDB(fetch.New(dir), dir, "test", "1")
+	c.f.Throttle(srv.Listener.Addr().String(), 0) // no 4 s gap unless a test sets one
+	return c, &calls
 }
 
 func TestAniDBEntryErrorNotRetried(t *testing.T) {
@@ -365,6 +367,7 @@ func TestAniDBPrefetchWorkers(t *testing.T) {
 	t.Cleanup(func() { anidbAPI = old })
 	dir := t.TempDir()
 	c := NewAniDB(fetch.New(dir), dir, "test", "1")
+	c.f.Throttle(srv.Listener.Addr().String(), 0)
 
 	aids := []int{1, 2, 3, 4, 5}
 	for _, aid := range aids {
@@ -649,13 +652,9 @@ func TestAniDBGapSurvivesRestart(t *testing.T) {
 		_, _ = w.Write([]byte(anidbSample))
 	}))
 	t.Cleanup(srv.Close)
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldAPI, oldHost := anidbAPI, anidbHost
-	anidbAPI, anidbHost = srv.URL+"/?client=%s&clientver=%s&aid=%d", u.Host
-	t.Cleanup(func() { anidbAPI, anidbHost = oldAPI, oldHost })
+	old := anidbAPI
+	anidbAPI = srv.URL + "/?client=%s&clientver=%s&aid=%d"
+	t.Cleanup(func() { anidbAPI = old })
 
 	dir := t.TempDir()
 	last := time.Now().Round(0).Add(-2 * time.Second) // the earlier run's last call, 2 s ago

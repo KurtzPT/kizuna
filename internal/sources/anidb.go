@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,10 +18,6 @@ import (
 
 // anidbAPI is a variable so tests can point it at a fake server.
 var anidbAPI = "http://api.anidb.net:9001/httpapi?request=anime&client=%s&clientver=%s&protover=1&aid=%d"
-
-// anidbHost is anidbAPI's host, the one the 4 s gap is kept on (a variable
-// for the same reason).
-var anidbHost = "api.anidb.net:9001"
 
 // ErrAniDBUnavailable: AniDB can't be asked right now (banned, daily limit, no
 // client configured). Callers fall back to the title dump.
@@ -149,7 +146,12 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	c.load()
 	// The gap counts from the last call an earlier run sent: a restart
 	// right after one must not send the next one sooner.
-	f.ThrottleFrom(anidbHost, anidbGap, c.lastSent())
+	// The host is read from anidbAPI, so the gap can't end up on another one.
+	u, err := url.Parse(fmt.Sprintf(anidbAPI, "", "", 0))
+	if err != nil {
+		panic("anidbAPI: " + err.Error()) // a fixed URL: only a bad edit gets here
+	}
+	f.ThrottleFrom(u.Host, anidbGap, c.lastSent())
 	if c.state.Failed == nil {
 		c.state.Failed = map[int]time.Time{}
 	}
