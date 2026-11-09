@@ -19,15 +19,15 @@ var renameWaits = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 
 // to (a cache read, a virus scanner): those readers are quick, so it is
 // tried again a few times, like Go's own robustio.
 func rename(from, to string) error {
-	return retryBusy(func() error { return os.Rename(from, to) }, time.Sleep)
+	return retryBusy(func() error { return os.Rename(from, to) }, func(err error) bool { return busy(err, to) }, time.Sleep)
 }
 
-// retryBusy runs op again after each of renameWaits while it fails because
-// the file is in use.
-func retryBusy(op func() error, sleep func(time.Duration)) error {
+// retryBusy runs op again after each of renameWaits while it fails with an
+// error inUse says is the file being in use.
+func retryBusy(op func() error, inUse func(error) bool, sleep func(time.Duration)) error {
 	err := op()
 	for _, wait := range renameWaits {
-		if !busy(err) {
+		if !inUse(err) {
 			return err
 		}
 		sleep(wait)
@@ -36,7 +36,23 @@ func retryBusy(op func() error, sleep func(time.Duration)) error {
 	return err
 }
 
-func busy(err error) bool {
+// busy: the rename onto to failed because someone has to open. A sharing
+// violation always says so. Access denied does too (a file being deleted, a
+// handle without FILE_SHARE_DELETE), but also comes from failures waiting
+// won't fix: to is read-only or a folder, or the rights are missing. Those
+// would hold every save for the whole of renameWaits, so access denied counts
+// only while to is a regular file that may be written.
+func busy(err error, to string) bool {
 	var errno syscall.Errno
-	return errors.As(err, &errno) && (errno == syscall.ERROR_ACCESS_DENIED || errno == errSharingViolation)
+	if !errors.As(err, &errno) {
+		return false
+	}
+	switch errno {
+	case errSharingViolation:
+		return true
+	case syscall.ERROR_ACCESS_DENIED:
+		st, err := os.Lstat(to)
+		return err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o200 != 0
+	}
+	return false
 }
