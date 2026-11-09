@@ -41,7 +41,7 @@ func TestReportsOffAllocs(t *testing.T) {
 	}{
 		{"show from memory", 135, show},
 		{"match", 181, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
-		{"show build", 503, func() {
+		{"show build", 497, func() {
 			p.mu.Lock()
 			clear(p.shows)
 			p.mu.Unlock()
