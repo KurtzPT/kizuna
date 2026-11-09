@@ -245,11 +245,7 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	now := time.Now()
 	var entry *anidbEntryError
 	var status *fetch.StatusError
-	if err == nil {
-		delete(c.failWhy, aid)
-	} else {
-		c.failWhy[aid] = err.Error()
-	}
+	delete(c.failWhy, aid)
 	retryAnime := now.Add(anidbRetry).Format(time.RFC3339)
 	switch {
 	case err == nil:
@@ -286,6 +282,11 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		c.state.RetryAt = now.Add(wait)
 		slog.Warn("AniDB call failed; backing off, and not asking about this anime again for 24 h (AniDB's rule)",
 			"aid", aid, "wait", wait, "retry_anime_at", retryAnime, "err", err)
+	}
+	// Only for an anime blocked now (not a client error): admit prunes it
+	// with its Failed entry.
+	if c.state.Failed[aid].Equal(now) {
+		c.failWhy[aid] = err.Error()
 	}
 	c.save()
 }

@@ -200,6 +200,9 @@ func TestAniDBClientRejectedPausesAll(t *testing.T) {
 	if _, failed := c.state.Failed[1]; failed {
 		t.Error("anime 1 marked failed: the error was about the client")
 	}
+	if len(c.failWhy) != 0 { // pruned only with a Failed entry
+		t.Errorf("failure reasons kept for a client error: %v", c.failWhy)
+	}
 	if s := logs.String(); strings.Count(s, "level=ERROR") != 1 || !strings.Contains(s, "ANIDB_CLIENTVER") {
 		t.Errorf("want one error naming the settings:\n%s", s)
 	}
