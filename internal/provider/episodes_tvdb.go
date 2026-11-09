@@ -70,6 +70,9 @@ type tvdbBuild struct {
 	tvdbID, tmdbID int                 // tmdbID 0 = no TheMovieDb show
 	first          *sources.AniDBAnime // the series' first AniDB entry (nil = not available)
 	eps            []sources.Episode   // TheTVDB's episode list, absolute numbers filled in
+	// tmdbEps: TheMovieDb's episode list, for the titles and the crew;
+	// fetched once by loadTMDB (empty when the show isn't there).
+	tmdbEps episodeIndex
 }
 
 func newTVDBBuild(tvdbID, tmdbID int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
@@ -80,6 +83,17 @@ func newTVDBBuild(tvdbID, tmdbID int, first *sources.AniDBAnime, eps []sources.E
 // show found there.
 func (b *tvdbBuild) tmdbOn(p *Provider) bool {
 	return p.tmdb.Enabled() && b.tmdbID > 0
+}
+
+// loadTMDB fetches TheMovieDb's episode list into b.tmdbEps. Returns false
+// when it failed or came back partial.
+func (b *tvdbBuild) loadTMDB(ctx context.Context, p *Provider) bool {
+	if !b.tmdbOn(p) {
+		return true
+	}
+	var ok bool
+	b.tmdbEps, ok = p.seriesEpisodes(ctx, "tmdb", b.tmdbID)
+	return ok
 }
 
 // onTMDBShow reports whether an entry has a place on the show on TheMovieDb.
@@ -141,8 +155,8 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 // tvdbEpisodeTitles adds every title EPISODE_TITLES may pick to a /tvdb show:
 // TheMovieDb's (TheTVDB's, from the episode list, is already set), paired
 // through AniDB (tvdbPairing), and AniDB's, through every AniDB entry of the
-// series. Returns the pairing for tvdbEpisodeCrew, and false while some
-// AniDB entries are still missing, or when TheMovieDb's list failed.
+// series. TheMovieDb's list is b.tmdbEps (loadTMDB). Returns the pairing for
+// tvdbEpisodeCrew, and false while some AniDB entries are still missing.
 func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild) (tvdbPairing, bool) {
 	order := p.cfg.EpisodeTitles
 	tmdbOn := b.tmdbOn(p)
@@ -163,9 +177,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 		}
 	}
 	if tmdbOn && slices.Contains(order, "tmdb") {
-		x, ok := p.seriesEpisodes(ctx, "tmdb", b.tmdbID)
-		ready = ready && ok
-		tm := pairedList{x, pr.otherAt}
+		tm := pairedList{b.tmdbEps, pr.otherAt}
 		s.eachEpisode(func(ep *Ep) {
 			if e, ok := tm.of(ep); ok {
 				ep.setTitle("tmdb", e.Title)
@@ -191,18 +203,9 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 
 // tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes from
 // its episode list (TheTVDB's) and TheMovieDb's, paired through AniDB like
-// the titles (pr). Returns false when TheMovieDb's list failed or episode
-// crew is still being fetched.
+// the titles (pr). Returns false while episode crew is still being fetched.
 func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
-	ready := true
 	tv := pairedList{indexEpisodes(b.eps), func(ep *Ep) (spot, bool) { return ep.listed, true }}
-	var x episodeIndex
-	if b.tmdbOn(p) {
-		var ok bool
-		x, ok = p.seriesEpisodes(ctx, "tmdb", b.tmdbID)
-		ready = ready && ok
-	}
-	tm := pairedList{x, pr.otherAt}
-	crewOK := p.episodeCrew(ctx, s, tv, tm)
-	return ready && crewOK
+	tm := pairedList{b.tmdbEps, pr.otherAt}
+	return p.episodeCrew(ctx, s, tv, tm)
 }

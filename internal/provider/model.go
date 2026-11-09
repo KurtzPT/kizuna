@@ -296,12 +296,14 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 
 // enrichTVDB adds the episode titles and crew and the show-level fields
 // (aid: the series' first AniDB entry). They touch different parts of s, so
-// both are fetched at once. Returns false while other AniDB entries or
+// both are fetched at once. TheMovieDb's episode list is fetched once, for
+// the titles and the crew. Returns false while other AniDB entries or
 // episode crew are still being fetched, or when a source failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid int) bool {
 	var wg sync.WaitGroup
-	var titlesReady, crewReady bool
+	var tmdbOK, titlesReady, crewReady bool
 	wg.Go(func() {
+		tmdbOK = b.loadTMDB(ctx, p)
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
 		p.pickEpisodeTitles(s)
@@ -309,7 +311,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid in
 	})
 	sourcesOK := p.newSources(ctx, aid, b.first, b.tvdbID, b.tmdbID, false, true).fill(s)
 	wg.Wait()
-	return titlesReady && crewReady && sourcesOK
+	return tmdbOK && titlesReady && crewReady && sourcesOK
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular

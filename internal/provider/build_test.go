@@ -644,6 +644,44 @@ func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
 	}
 }
 
+// A /tvdb build reads TheMovieDb's episode list once, for both the titles
+// and the crew, and a failed list still leaves the show incomplete.
+func TestTVDBReadsTMDBListOnce(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	var mu sync.Mutex
+	reads := 0
+	ctx := fetch.WithObserver(context.Background(), func(e fetch.Event) {
+		if e.Key == "tmdb/tv-77-s1.json" {
+			mu.Lock()
+			reads++
+			mu.Unlock()
+		}
+	})
+	s, err := p.buildShow(ctx, "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 {
+		t.Errorf("TMDB season 1 read %d times, want 1", reads)
+	}
+	if ep := s.Episode(1, 2); ep == nil || ep.titles["tmdb"] != "TMDB Two" || strings.Join(ep.Writers, ",") != "TMDB Writer" {
+		t.Errorf("S01E02: %+v, want TMDB's title and writer", ep)
+	}
+
+	for _, titles := range [][]string{{"tmdb", "tvdb"}, {"tvdb"}} { // the crew needs the list even when the titles don't
+		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			if path == "api.themoviedb.org/3/tv/77/season/2" {
+				return 502, `{}`
+			}
+			return testSeries(path, q)
+		}})
+		p.cfg.EpisodeTitles = titles
+		if s, err := p.buildShow(context.Background(), "tvdb-500"); err != nil || s.Complete {
+			t.Errorf("titles %v, TMDB season fails: complete %v err %v, want incomplete", titles, s != nil && s.Complete, err)
+		}
+	}
+}
+
 // captureLogs sends slog's lines to w until restore is called. slog.SetDefault
 // also redirects the log package, which restoring the old logger doesn't
 // undo, so its output and flags are put back too.
