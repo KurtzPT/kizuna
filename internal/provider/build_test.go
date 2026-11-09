@@ -583,6 +583,35 @@ func TestTVDBListOnlyFromTheTVDB(t *testing.T) {
 	}
 }
 
+// A TMDB mapping exception without a counterpart (episode 0) pairs the
+// episode with nothing on TheMovieDb, in both modes: in /tvdb it doesn't
+// fall back to the absolute number (TMDB S1E2 here).
+func TestTMDBExceptionWithoutCounterpartIsNotPaired(t *testing.T) {
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		p := newTestProvider(t, &fakeNet{answer: testSeries})
+		p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1,
+				Episodes: []mapping.EpisodeMap{{AniDBSeason: 1, AniDBEp: 2, Season: 1, Ep: 0}}}}})
+		s, err := p.buildShow(context.Background(), root)
+		if err != nil {
+			t.Fatalf("%s: %v", root, err)
+		}
+		if ep := s.Episode(1, 1); ep == nil || ep.titles["tmdb"] != "TMDB One" {
+			t.Errorf("%s S01E01: %+v, want paired with TMDB S1E1", root, ep)
+		}
+		ep := s.Episode(1, 2)
+		if ep == nil {
+			t.Fatalf("%s: S01E02 missing", root)
+		}
+		if ep.titles["tmdb"] != "" {
+			t.Errorf("%s S01E02: TMDB title %q, want none", root, ep.titles["tmdb"])
+		}
+		if w := strings.Join(ep.Writers, ","); w != "" {
+			t.Errorf("%s S01E02: writers %q, want none (TMDB's would be from an unrelated episode)", root, w)
+		}
+	}
+}
+
 // /tvdb works without ANIDB_CLIENT: the show has no AniDB details to wait
 // for, so it is complete and not rebuilt (and logged) every 2 minutes. With
 // AniDB set up but not answering, it is rebuilt soon.

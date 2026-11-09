@@ -20,7 +20,8 @@ import (
 // differ from TheTVDB's; an entry without them gets TheTVDB's season and
 // number. In /tvdb, TheMovieDb is paired through AniDB: the place on TheTVDB's
 // list gives the AniDB episode, and the mapping gives its place on TheMovieDb
-// (none when the entry is on another TMDB show); without an AniDB
+// (none when the entry is on another TMDB show, or a TMDB exception says the
+// episode has no counterpart); without an AniDB
 // counterpart, by absolute number (tvdbPairing.otherAt).
 
 // spotName is where an episode is on its list, for the match report: "S01E05",

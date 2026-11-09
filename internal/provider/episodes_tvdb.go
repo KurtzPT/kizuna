@@ -24,7 +24,8 @@ type tvdbPairing struct {
 }
 
 // otherPlace is an episode's place on TheMovieDb. on is false when the
-// mapping puts its AniDB entry on another show there: it pairs with nothing.
+// mapping puts its AniDB entry on another show there, or a TMDB exception
+// says the episode has no counterpart: it pairs with nothing.
 type otherPlace struct {
 	at spot
 	on bool
@@ -47,7 +48,8 @@ func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
 }
 
 // otherAt: an episode's place on TheMovieDb, through AniDB. An episode
-// whose AniDB entry is on another show there has none. Without an AniDB
+// whose AniDB entry is on another show there has none, nor has one a TMDB
+// exception says has no counterpart. Without an AniDB
 // counterpart (not cached yet, or a TheTVDB-only extra), a regular episode
 // goes by its absolute number, which doesn't depend on how either site
 // splits seasons (an absolute number the other site doesn't have pairs with
@@ -128,6 +130,8 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 				pr.other[sp] = otherPlace{}
 			} else if o, ok := es.at("tmdb", ae.Season, ae.ListIndex()); ok {
 				pr.other[sp] = otherPlace{o, true}
+			} else if es.tmdb.HasException(ae.Season, ae.ListIndex()) { // the mapping says it has none there
+				pr.other[sp] = otherPlace{}
 			}
 		}
 	}
