@@ -310,7 +310,8 @@ func container(mode Mode, items []Item, offset, total int) Container {
 
 // writePaged applies X-Plex-Container-Start/-Size (header or query) to n
 // items and builds only the ones on the page, in order (a long show's
-// episodes are asked for 20 at a time). Without them the spec asks for the first 20.
+// episodes are asked for 20 at a time). Without them the spec asks for the
+// first 20.
 func writePaged(w http.ResponseWriter, r *http.Request, mode Mode, n int, item func(i int) Item) {
 	start, _ := strconv.Atoi(param(r, "X-Plex-Container-Start"))
 	size, err := strconv.Atoi(param(r, "X-Plex-Container-Size"))
