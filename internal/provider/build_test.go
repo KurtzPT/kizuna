@@ -718,8 +718,8 @@ func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
 			t.Fatalf("details %v: placeholders %v", details, s.Placeholders)
 		}
 		guids[i] = s.Guids
-		if ep := s.Episode(1, 1); ep == nil || ep.Title != s.Title || s.Title != "Kizuna Test" {
-			t.Errorf("details %v: S01E01 %+v, want the movie under the show's title %q", details, ep, s.Title)
+		if ep := s.Episode(1, 1); ep == nil || ep.Title != s.Title || s.Title != "Kizuna Test" || ep.titleSrc != "show" {
+			t.Errorf("details %v: S01E01 %+v, want the movie under the show's title %q (from the show, for the report)", details, ep, s.Title)
 		}
 	}
 	if !slices.Equal(guids[0], guids[1]) || slices.Contains(guids[0], "tvdb://500") || !slices.Contains(guids[0], "tmdb://99") {

@@ -219,6 +219,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if isMovie && len(s.Episodes[1]) == 1 { // the movie itself: show its own title and summary
 		ep := &s.Episodes[1][0]
 		ep.Title, ep.Summary = s.Title, firstOf(s.Summary, ep.Summary)
+		ep.titleSrc = "show" // for the match report: the show's title, not the episode source picked above
 		if special && a == nil {
 			s.Summary = firstOf(s.Summary, ep.Summary) // what no source gave: TheTVDB's special's
 		}
