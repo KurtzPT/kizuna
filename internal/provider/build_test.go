@@ -106,8 +106,12 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
 		TMDB: mapping.Placement{ID: 77}}})
 	cfg := config.Load()
-	return New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
+	p := New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
 		sources.NewTVDB(f, "key", "", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
+	// No background fetch outlives the test: it would land in a later
+	// test's allocation count (TestReportsOffAllocs).
+	t.Cleanup(func() { p.anidb.WaitIdle(); p.tvdb.WaitIdle() })
+	return p
 }
 
 func TestBuildTVDBShow(t *testing.T) {
@@ -329,13 +333,9 @@ func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 		{0, 1, "", "", ""}, // no AniDB counterpart, no TMDB S00E01
 	})
 
-	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		if a, _ := p.anidb.Peek(200); a != nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("AniDB 200 never fetched in the background")
-		}
+	p.anidb.WaitIdle()
+	if a, _ := p.anidb.Peek(200); a == nil {
+		t.Fatal("AniDB 200 never fetched in the background")
 	}
 	if s, err = p.buildShow(context.Background(), "tvdb-500"); err != nil {
 		t.Fatal(err)
