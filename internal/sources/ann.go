@@ -122,10 +122,7 @@ func parseANN(data []byte, id int) (ANNAnime, error) {
 			}
 		}
 	}
-	if len(dates) > 0 { // the earliest is the original (Japanese) run
-		sort.Strings(dates)
-		a.Details.Date = dates[0]
-	}
+	a.Details.Date = earliestDate(dates)
 	for _, s := range x.Staff {
 		switch s.Task {
 		case "Director", "Series Director", "Chief Director":
@@ -145,6 +142,24 @@ func parseANN(data []byte, id int) (ANNAnime, error) {
 		}
 	}
 	return a, nil
+}
+
+// earliestDate picks the earliest of ANN's Vintage dates: the original
+// (Japanese) run. A date that one in it fills in ("1998" and "1998-04-03")
+// gives way to the more precise one.
+func earliestDate(dates []string) string {
+	if len(dates) == 0 {
+		return ""
+	}
+	sort.Strings(dates) // "1998" < "1998-04" < "1998-04-03" < "1998-09-25"
+	d := dates[0]
+	for _, next := range dates[1:] {
+		if !strings.HasPrefix(next, d) {
+			break
+		}
+		d = next
+	}
+	return d
 }
 
 // fullANNImage turns a thumbnail URL
