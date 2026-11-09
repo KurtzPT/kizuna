@@ -356,16 +356,18 @@ func TestTVDBLoginDownServesStale(t *testing.T) {
 }
 
 // A renewal that fails without rejecting the key leaves the old token in
-// use while TheTVDB still accepts it; a rejection drops it.
+// use while TheTVDB still accepts it; a rejection drops it. The renewal of
+// a valid token runs in the background, so the call that starts it still
+// gets the old token.
 func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 	cases := []struct {
 		login string
 		age   time.Duration
-		ok    bool
+		ok    [2]bool // the first and the second call
 	}{
-		{`503 {}`, 8 * 24 * time.Hour, true},
-		{`503 {}`, 29 * 24 * time.Hour, false}, // past its month
-		{`401 {"status":"failure"}`, 8 * 24 * time.Hour, false},
+		{`503 {}`, 8 * 24 * time.Hour, [2]bool{true, true}},
+		{`503 {}`, 29 * 24 * time.Hour, [2]bool{false, false}}, // past its month
+		{`401 {"status":"failure"}`, 8 * 24 * time.Hour, [2]bool{true, false}},
 	}
 	for _, c := range cases {
 		tv, n := newTVDBTest(t, map[string]string{
@@ -377,11 +379,12 @@ func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 		tv.token, tv.tokenAt = "t-old", time.Now().Add(-c.age)
 		tv.mu.Unlock()
 		ctx := context.Background()
-		for _, id := range []int{9, 8} { // the second call is in the login pause
+		for i, id := range []int{9, 8} { // the second call is in the login pause
 			name, _, err := tv.Overview(ctx, id)
-			if got := err == nil && name != ""; got != c.ok {
-				t.Errorf("login %s, token %v old, series %d: %q %v, want ok %v", c.login, c.age, id, name, err, c.ok)
+			if got := err == nil && name != ""; got != c.ok[i] {
+				t.Errorf("login %s, token %v old, series %d: %q %v, want ok %v", c.login, c.age, id, name, err, c.ok[i])
 			}
+			tv.WaitIdle() // the renewal's outcome is recorded
 		}
 		if logins := n.count(v4 + "/login"); logins != 1 {
 			t.Errorf("login %s, token %v old: %d logins, want 1", c.login, c.age, logins)
@@ -421,6 +424,48 @@ func TestTVDBRenewalDoesNotBlock(t *testing.T) {
 	close(n.release)
 	if err := <-renewed; err != nil {
 		t.Errorf("renewing call: %v", err)
+	}
+	tv.WaitIdle() // the renewal itself
+	tv.mu.Lock()
+	token := tv.token
+	tv.mu.Unlock()
+	if token != "t-new" {
+		t.Errorf("token %q after the renewal, want t-new", token)
+	}
+}
+
+// The call that starts a renewal doesn't wait for it either: with a login
+// that hangs, it and the calls after it go ahead with the old token, and
+// only one login goes out.
+func TestTVDBRenewerDoesNotStall(t *testing.T) {
+	f := fetch.New(t.TempDir())
+	n := slowLogin{&tvdbNet{answers: map[string]string{
+		v4 + "/login":                     `{"data":{"token":"t-new"}}`,
+		v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
+		v4 + "/series/8/translations/eng": `{"data":{"name":"Other"}}`,
+	}}, make(chan struct{}, 10), make(chan struct{})}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
+	tv.mu.Lock()
+	tv.token, tv.tokenAt = "t-old", time.Now().Add(-8*24*time.Hour) // due for renewal, valid for weeks
+	tv.mu.Unlock()
+
+	// Before the fix the first call waited on the login until its ctx ended.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for _, c := range []struct {
+		id   int
+		want string
+	}{{9, "Show"}, {8, "Other"}} {
+		if name, _, err := tv.Overview(ctx, c.id); err != nil || name != c.want {
+			t.Errorf("series %d while the login hangs: %q %v, want %s", c.id, name, err, c.want)
+		}
+	}
+	<-n.started // the renewal reached the network
+	close(n.release)
+	tv.WaitIdle()
+	if len(n.started) != 0 {
+		t.Errorf("%d more logins, want 1 in all", len(n.started))
 	}
 	tv.mu.Lock()
 	token := tv.token

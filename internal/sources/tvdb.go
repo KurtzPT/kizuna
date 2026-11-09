@@ -31,6 +31,7 @@ type TVDB struct {
 	tokenAt time.Time
 	// loggingIn: closed when the login under way ends (nil = none).
 	loggingIn chan struct{}
+	renewing  sync.WaitGroup // a background renewal under way (tests wait on it)
 	// A failed login is remembered until loginRetry, so a wrong key costs
 	// one request and one log line, not one per TVDB call of a library scan.
 	loginErr   error
@@ -156,7 +157,9 @@ func (t *TVDB) isLegacy() bool {
 
 // useLegacy says which API a call should use. With both keys, it first makes
 // sure the v4 key still works (a login, normally the remembered token), so a
-// rejected v4 key switches to the legacy one before the call picks its API.
+// rejected v4 key switches to the legacy one before the call picks its API
+// (a key rejected at a renewal, which runs in the background, from the next
+// call on).
 // While a login is under way it doesn't wait: a call answered from the cache
 // needs no token, and one that does waits in get, which notices a switch
 // (errTVDBSwitched). Nor does it log in when the call's v4 answer is
@@ -211,10 +214,11 @@ var errTVDBLogin = errors.New("tvdb login")
 
 // login returns a bearer token and whether it's for the legacy (v3) API. A
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
-// 20 hours); while a renewal fails without the key being rejected, the old
-// token is used as long as it's valid. t.mu is never held over the network:
-// one login runs at a time; callers meanwhile use the old token while it's
-// valid, or wait for the login (or for their ctx).
+// 20 hours). A renewal runs in the background (renew) and every caller, the
+// one that started it too, keeps the old token while it's valid; while a
+// renewal fails without the key being rejected, the old token stays in use.
+// t.mu is never held over the network: one login runs at a time; callers
+// without a valid token wait for it (or for their ctx).
 func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 	for {
 		t.mu.Lock()
@@ -251,6 +255,10 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 		t.loggingIn = done
 		t.mu.Unlock()
 
+		if token != "" && age < valid { // only due: renew in the background, keep the old token
+			t.renewing.Go(func() { t.renew(legacy, done) })
+			return token, legacy, nil
+		}
 		token, err := t.requestToken(ctx, legacy)
 
 		t.mu.Lock()
@@ -265,6 +273,23 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 		}
 	}
 }
+
+// renew is login's background renewal: it isn't tied to a build's ctx, so
+// every outcome is recorded (a pause, a rejected key, the switch to the
+// legacy key; the next call then logs in with it). done is t.loggingIn.
+func (t *TVDB) renew(legacy bool, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), tvdbRenewTimeout)
+	defer cancel()
+	token, err := t.requestToken(ctx, legacy)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.loggingIn = nil
+	close(done)
+	t.loginDone(context.Background(), legacy, token, err) // a timeout counts as a failed login
+}
+
+// tvdbRenewTimeout bounds a background renewal (fetch's HTTP timeout).
+const tvdbRenewTimeout = 30 * time.Second
 
 // requestToken logs in with the v4 or the legacy key.
 func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {

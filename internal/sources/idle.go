@@ -3,11 +3,12 @@ package sources
 // Hooks for tests that must not overlap a source's background work: an
 // allocation count or a check of what a background fetch cached.
 
-// WaitIdle returns once no background crew fetch is under way. Safe on a
-// nil TVDB (not set up).
+// WaitIdle returns once no background crew fetch or token renewal is under
+// way. Safe on a nil TVDB (not set up).
 func (t *TVDB) WaitIdle() {
 	if t != nil {
 		t.crewQueue.Wait()
+		t.renewing.Wait()
 	}
 }
 
