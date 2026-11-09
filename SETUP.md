@@ -41,8 +41,8 @@ AniDB account.
 | Mode | Required | For |
 |---|---|---|
 | `/anidb` | AniDB | episode lists, specials, summaries |
-| `/tvdb` | TheTVDB **or** TheMovieDb (TheTVDB is used when both are set) | seasons and episode lists |
-| `/auto` | AniDB **and** TheTVDB or TheMovieDb | both kinds of shows |
+| `/tvdb` | TheTVDB (TheMovieDb only fills in a show TheTVDB has no episodes for) | seasons and episode lists |
+| `/auto` | AniDB **and** TheTVDB | both kinds of shows |
 
 Without `ANIDB_CLIENT` and without a TheTVDB key, Kizuna doesn't start: it logs `can't start: no AniDB client and
 no TheTVDB key` and exits. TheMovieDb, MyAnimeList and Anime News Network alone aren't enough.
@@ -253,7 +253,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
 | `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB answers `pin required` without it |
 | `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or as a fallback when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives episodes (with their directors and writers), thumbnails, posters, backgrounds, cast, genres and the US content rating, but no clear logos, studio, or show directors and writers. TheTVDB may switch the v3 API off at any time |
-| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork and logos, and `/tvdb` episodes when there's no TVDB key |
+| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos and details, and `/tvdb` episodes for a show TheTVDB has none for |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
 
 ### 🎯 Matching & titles
