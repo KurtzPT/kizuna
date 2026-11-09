@@ -339,6 +339,58 @@ func TestFailedBuildAnswers(t *testing.T) {
 	}
 }
 
+// A failed build answers for its show for failTTL, so the requests of one
+// Plex refresh don't each build (download, warn) again; one out of time
+// isn't kept: the next request builds.
+func TestFailedBuildRemembered(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	builds := 0
+	fail := errors.New("TheTVDB down")
+	p.buildFn = func(context.Context, string) (*Show, error) { builds++; return nil, fail }
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	defer restore()
+	for range 3 {
+		if _, err := p.show(context.Background(), "tvdb-5"); !errors.Is(err, fail) {
+			t.Fatalf("got %v, want the build's error", err)
+		}
+	}
+	if builds != 1 || strings.Count(logs.String(), "show build failed") != 1 {
+		t.Errorf("%d builds, logs:\n%s\nwant one build and one warning", builds, logs.String())
+	}
+	p.mu.Lock()
+	f := p.failed["tvdb-5"]
+	f.at = time.Now().Add(-failTTL)
+	p.failed["tvdb-5"] = f
+	p.mu.Unlock()
+	if _, err := p.show(context.Background(), "tvdb-5"); !errors.Is(err, fail) || builds != 2 {
+		t.Errorf("after failTTL: %v, %d builds, want a new build", err, builds)
+	}
+
+	p.buildFn = func(ctx context.Context, _ string) (*Show, error) {
+		builds++
+		<-ctx.Done()
+		return nil, fail
+	}
+	p.mu.Lock()
+	clear(p.failed)
+	p.mu.Unlock()
+	for range 2 {
+		b := &build{done: make(chan struct{})}
+		p.mu.Lock()
+		p.builds["tvdb-6"] = b
+		p.mu.Unlock()
+		p.runBuild(context.Background(), time.Millisecond, "tvdb-6", b)
+	}
+	p.mu.Lock()
+	_, kept := p.failed["tvdb-6"]
+	p.mu.Unlock()
+	if kept || builds != 4 {
+		t.Errorf("out of time: kept %v after %d builds, want not kept", kept, builds)
+	}
+}
+
 // A build ends a little before the request that started it gives up, so
 // that request answers with what came back; one with little time left still
 // gets a build worth caching.

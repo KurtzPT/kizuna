@@ -151,6 +151,9 @@ func TestUnmatchedPageKeptUntilShow(t *testing.T) {
 		t.Errorf("after a failed build: %v, want the unmatched page kept", err)
 	}
 	p.buildFn = nil
+	p.mu.Lock()
+	clear(p.failed) // the failure would answer for 2 minutes
+	p.mu.Unlock()
 	serve("POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`)
 	store.Flush()
 	if _, err := os.Stat(page); !os.IsNotExist(err) {

@@ -81,9 +81,10 @@ type Provider struct {
 	loaded chan struct{} // closed once the first list load is over (see Loading)
 
 	mu       sync.Mutex
-	shows    map[string]cachedShow // root -> built model
-	builds   map[string]*build     // root -> build in progress (dedupes Plex's request bursts)
-	prunedAt time.Time             // last sweep of expired shows
+	shows    map[string]cachedShow  // root -> built model
+	failed   map[string]failedBuild // root -> last build's failure, for failTTL
+	builds   map[string]*build      // root -> build in progress (dedupes Plex's request bursts)
+	prunedAt time.Time              // last sweep of expired shows
 
 	buildFn func(ctx context.Context, root string) (*Show, error) // nil = buildShow; tests swap it
 }
@@ -92,6 +93,19 @@ type cachedShow struct {
 	show *Show
 	at   time.Time
 }
+
+// failedBuild is a build that failed for another reason than time: one
+// Plex refresh asks for a show several times, and each would download (and
+// warn) again.
+type failedBuild struct {
+	err   error
+	build string // its report's build id
+	at    time.Time
+}
+
+// failTTL: how long a failed build answers for its show, like an incomplete
+// one (showTTL).
+const failTTL = 2 * time.Minute
 
 type build struct {
 	done chan struct{}
@@ -115,7 +129,7 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	loaded := make(chan struct{})
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
-		access: access, loaded: loaded, shows: map[string]cachedShow{}, builds: map[string]*build{}}
+		access: access, loaded: loaded, shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
 }
 
 // Loading marks the lists as still loading for the first time: /health
@@ -153,6 +167,15 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 			}
 			return c.show, nil
 		}
+	}
+	if f, ok := p.failed[root]; ok && time.Since(f.at) < failTTL {
+		p.mu.Unlock()
+		age := time.Since(f.at).Round(time.Second)
+		slog.Debug("show build failed lately", "root", root, "age", age, "err", f.err)
+		if rq := report.RequestFrom(ctx); rq != nil {
+			rq.Build, rq.Answer = f.build, "failed "+age.String()+" ago, rebuilt after "+failTTL.String()
+		}
+		return nil, f.err
 	}
 	b, running := p.builds[root]
 	if !running {
@@ -236,8 +259,12 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		}
 		p.mu.Lock()
 		delete(p.builds, root)
-		if b.err == nil {
+		delete(p.failed, root)
+		switch {
+		case b.err == nil:
 			p.shows[root] = cachedShow{b.show, time.Now()}
+		case !timedOut(b.err): // out of time: the next request tries again
+			p.failed[root] = failedBuild{b.err, rec.ID(), time.Now()}
 		}
 		p.pruneShows()
 		p.mu.Unlock()
@@ -275,7 +302,8 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		"complete", s.Complete, "took", took)
 }
 
-// pruneShows drops expired models, at most every 5 minutes; caller holds p.mu.
+// pruneShows drops expired models and failures, at most every 5 minutes;
+// caller holds p.mu.
 func (p *Provider) pruneShows() {
 	if time.Since(p.prunedAt) < 5*time.Minute {
 		return
@@ -284,6 +312,11 @@ func (p *Provider) pruneShows() {
 	for root, c := range p.shows {
 		if time.Since(c.at) >= showTTL(c.show) {
 			delete(p.shows, root)
+		}
+	}
+	for root, f := range p.failed {
+		if time.Since(f.at) >= failTTL {
+			delete(p.failed, root)
 		}
 	}
 }
