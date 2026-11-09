@@ -254,7 +254,8 @@ func TestTimedOutShowAnswers503(t *testing.T) {
 }
 
 // A build that runs out of its own time without a show fails with a
-// context error (the handlers answer 503); any other failure is a 404.
+// context error (the handlers answer 503); a show that doesn't exist is a
+// 404.
 func TestBuildOutOfTime(t *testing.T) {
 	dir := t.TempDir()
 	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
@@ -268,13 +269,73 @@ func TestBuildOutOfTime(t *testing.T) {
 	if !timedOut(b.err) {
 		t.Errorf("build out of time: err %v, want a context error", b.err)
 	}
-	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("anidb 2 unknown") }
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, noShowError{errors.New("anidb 2 unknown")} }
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/anidb/library/metadata/anidb-2", nil)
 	req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
 	p.Handler().ServeHTTP(rec, req)
 	if rec.Code != 404 {
 		t.Errorf("failed build: %d %s, want 404", rec.Code, rec.Body)
+	}
+}
+
+// Only a show that doesn't exist answers 404 and "no match" (Plex keeps
+// both): a source that can't answer now, or a key not set, answers 503 with
+// the reason, so Plex asks again later.
+func TestFailedBuildAnswers(t *testing.T) {
+	tvdbDown := func(path string, q map[string][]string) (int, string) {
+		if strings.HasPrefix(path, "api4.thetvdb.com/v4/series/500/episodes") {
+			return 500, ""
+		}
+		return testSeries(path, q)
+	}
+	tvdbEmpty := func(path string, q map[string][]string) (int, string) {
+		if strings.HasPrefix(path, "api4.thetvdb.com/v4/series/500/episodes") {
+			return 404, ""
+		}
+		return testSeries(path, q)
+	}
+	const match = `{"type":2,"title":"Kizuna Test"}`
+	cases := []struct {
+		name         string
+		answer       func(string, map[string][]string) (int, string)
+		noTVDB       bool
+		method, path string
+		code         int
+		why          string // in a 503's body
+	}{
+		{"TheTVDB down", tvdbDown, false, "GET", "/tvdb/library/metadata/tvdb-500", 503, "no episode list from TheTVDB"},
+		{"TheTVDB down, match", tvdbDown, false, "POST", "/tvdb/library/metadata/matches", 503, "no episode list from TheTVDB"},
+		{"no episodes on TheTVDB", tvdbEmpty, false, "GET", "/tvdb/library/metadata/tvdb-500", 404, ""},
+		{"no episodes on TheTVDB, match", tvdbEmpty, false, "POST", "/tvdb/library/metadata/matches", 200, ""},
+		{"no TVDB key, /anidb", testSeries, true, "GET", "/anidb/library/metadata/tvdb-500", 503, "TVDB_API_KEY"},
+		{"no TVDB key, /auto", testSeries, true, "GET", "/auto/library/metadata/tvdb-500-s1", 503, "TVDB_API_KEY"},
+		{"unknown AniDB id", testSeries, false, "GET", "/anidb/library/metadata/anidb-999", 404, ""},
+	}
+	for _, c := range cases {
+		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			if path == "api.anidb.net/httpapi" && !slices.Equal(q["aid"], []string{"100"}) {
+				return 0, "" // 404
+			}
+			return c.answer(path, q)
+		}})
+		if c.noTVDB {
+			dir := t.TempDir()
+			p.tvdb = sources.NewTVDB(fetch.New(dir), "", "", "")
+		}
+		var logs strings.Builder
+		restore := captureLogs(&logs) // the failed builds' warnings
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(c.method, c.path, strings.NewReader(match))
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		p.Handler().ServeHTTP(rec, req)
+		restore()
+		if rec.Code != c.code || !strings.Contains(rec.Body.String(), c.why) {
+			t.Errorf("%s: %d %s, want %d %q", c.name, rec.Code, rec.Body, c.code, c.why)
+		}
+		if c.code == 200 && strings.Contains(rec.Body.String(), "tvdb-500") {
+			t.Errorf("%s: %s, want no match", c.name, rec.Body)
+		}
 	}
 }
 

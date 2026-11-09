@@ -52,7 +52,8 @@ type candidate struct {
 //  3. AniDB title search
 //
 // err is the show build's error when the best candidate couldn't be built
-// (then items is empty): a timed-out one answers 503, not "no match".
+// (then items is empty): only a show that doesn't exist (noShow) is "no
+// match"; any other failure answers 503.
 func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items []Item, err error) {
 	title := r.Title
 	switch r.Type {

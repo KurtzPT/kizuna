@@ -199,8 +199,8 @@ func (p *Provider) match(w http.ResponseWriter, r *http.Request, mode Mode) {
 		return
 	}
 	items, err := p.Match(r.Context(), mode, req)
-	if timedOut(err) {
-		writeTimedOut(w)
+	if err != nil && !noShow(err) {
+		writeUnavailable(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, container(mode, items, 0, len(items)))
@@ -211,11 +211,17 @@ func timedOut(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
-// writeTimedOut answers a show that wasn't ready in time with a 503, like a
-// request that outwaited the first list load: Plex keeps what it has (no
-// "no match", no lost item) and asks again; the build goes on and is cached.
-func writeTimedOut(w http.ResponseWriter) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the show wasn't ready in time; it is still being built, try again"})
+// writeUnavailable answers a show that couldn't be built, but may exist,
+// with a 503, like a request that outwaited the first list load: Plex keeps
+// what it has (no "no match", no lost item) and asks again. A show that
+// wasn't ready in time is still being built and is cached; for any other
+// failure the answer names the reason (a source down, a key not set).
+func writeUnavailable(w http.ResponseWriter, err error) {
+	why := "the show wasn't ready in time; it is still being built, try again"
+	if !timedOut(err) {
+		why = "the show can't be built now, try again later: " + err.Error()
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": why})
 }
 
 // keyRe is a rating key: a show key (rootPattern), plus a season and an episode.
@@ -235,8 +241,8 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	s, err := p.show(ctx, m[1])
 	if err != nil {
 		slog.Debug("metadata: show not available", "key", r.PathValue("key"), "err", err)
-		if timedOut(err) {
-			writeTimedOut(w)
+		if !noShow(err) {
+			writeUnavailable(w, err)
 			return
 		}
 		http.NotFound(w, r)

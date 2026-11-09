@@ -15,6 +15,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -304,17 +305,46 @@ func parseRoot(root string) (site string, id int, ok bool) {
 	return site, id, true
 }
 
+// noShowError is a build error for a show that doesn't exist: the handlers
+// answer 404 and "no match", which Plex keeps. Any other build error is a
+// source that can't answer now (TheTVDB down, a key not set): 503 with the
+// reason, so Plex keeps what it has and asks again.
+type noShowError struct{ error }
+
+func (e noShowError) Unwrap() error { return e.error }
+
+// noShow: err says the show doesn't exist (see noShowError).
+func noShow(err error) bool {
+	var e noShowError
+	return errors.As(err, &e)
+}
+
+// buildShow builds a show and sorts its failures: a show that doesn't exist
+// is a noShowError, see there.
 func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 	site, id, ok := parseRoot(root)
 	if !ok {
-		return nil, fmt.Errorf("bad key %q", root)
+		return nil, noShowError{fmt.Errorf("bad key %q", root)}
 	}
 	var s *Show
 	var err error
-	if site == "anidb" {
-		s, err = p.buildAniDB(ctx, id)
-	} else {
-		s, err = p.buildTVDB(ctx, id)
+	switch {
+	case site == "anidb":
+		// Its one failure: neither the title list nor AniDB knows the id.
+		// Without the title list (it failed to load) that says nothing.
+		if s, err = p.buildAniDB(ctx, id); s == nil && err != nil && p.titles.Ready() {
+			err = noShowError{err}
+		}
+	case p.modeOff(Modes["tvdb"]) != "":
+		// A tvdb-N key asked through /anidb or /auto, with TheTVDB not set
+		// up: like /tvdb itself (withMode), a 503 with the reason.
+		return nil, fmt.Errorf("%s needs TheTVDB, which is off: %s", root, p.modeOff(Modes["tvdb"]))
+	default:
+		// buildTVDB wraps TheTVDB's error (%w) when it couldn't answer, and
+		// none when it answered without episodes: the show doesn't exist.
+		if s, err = p.buildTVDB(ctx, id); s == nil && err != nil && errors.Unwrap(err) == nil {
+			err = noShowError{err}
+		}
 	}
 	if s != nil && ctx.Err() != nil {
 		// Out of time: some source may have been skipped without saying so.
