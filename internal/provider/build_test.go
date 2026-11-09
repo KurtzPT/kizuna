@@ -814,3 +814,35 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 		}
 	}
 }
+
+// /tvdb without AniDB details still has an original title (the title
+// dump's) and a runtime: the average of TheTVDB's regular episodes.
+func TestTVDBWithoutAniDBDetails(t *testing.T) {
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+			return 200, `{"data":{"episodes":[
+				{"id":11,"seasonNumber":1,"number":1,"name":"TVDB One","runtime":24},
+				{"id":12,"seasonNumber":1,"number":2,"name":"TVDB Two","runtime":26},
+				{"id":13,"seasonNumber":2,"number":1,"name":"TVDB Three"},
+				{"id":14,"seasonNumber":0,"number":1,"name":"TVDB Special","runtime":90}]},"links":{"next":null}}`
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net)
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(net)
+	p.anidb = sources.NewAniDB(f, dir, "", "1") // AniDB not configured
+	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"},
+		{Type: "official", Lang: "ja", Text: "絆テスト"}}})
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OriginalTitle != "絆テスト" {
+		t.Errorf("original title %q, want the title dump's", s.OriginalTitle)
+	}
+	if s.Minutes != 25 {
+		t.Errorf("runtime %d, want 25 (TheTVDB's regular episodes; the special doesn't count)", s.Minutes)
+	}
+}

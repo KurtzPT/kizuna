@@ -211,6 +211,21 @@ func averageRuntime(s *Show, a *sources.AniDBAnime) {
 	}
 }
 
+// listRuntime: the average runtime of an episode list's regular episodes
+// (0 = none has one), for a /tvdb show without AniDB's.
+func listRuntime(eps []sources.Episode) int {
+	total, n := 0, 0
+	for _, e := range eps {
+		if e.Season > 0 && e.Minutes > 0 {
+			total, n = total+e.Minutes, n+1
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return total / n
+}
+
 // --- Mode "tvdb": TVDB seasons, absolute episode numbers -----------------
 
 // buildTVDB: seasons follow TheTVDB, but every regular episode keeps its
@@ -262,11 +277,14 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	sources.FillAbsolute(eps)
 	b := newTVDBBuild(tvdbID, tmdbID, aid, a, eps)
 	episodesFromList(s, b)
+	s.OriginalTitle = p.originalTitle(p.showTitles(aid, a)) // without details, from the title dump
 	if a != nil {
-		s.OriginalTitle = p.originalTitle(a.Titles)
 		averageRuntime(s, a)
 	} else if p.anidb.Enabled() && len(p.titles.Of(aid)) > 0 {
 		s.Complete = false // AniDB details missing: rebuild soon (without ANIDB_CLIENT there are none to wait for)
+	}
+	if s.Minutes == 0 { // no AniDB details, or no runtimes there
+		s.Minutes = listRuntime(b.eps)
 	}
 	if !p.enrichTVDB(ctx, s, b, entry) {
 		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
