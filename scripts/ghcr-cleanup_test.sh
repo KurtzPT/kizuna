@@ -86,12 +86,14 @@ check "empty package" "$out" "no versions found for someone/kizuna: nothing to d
 
 # The real registry path, with curl and gh faked by exported functions:
 # curl answers from FAKE_MANIFESTS, needs the token, and fails for the token
-# when FAKE_FAIL=token or for the manifest FAKE_FAIL names; gh only prints.
+# when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken) or for the
+# manifest FAKE_FAIL names; gh only prints.
 curl() {
 	local url=${!#}
 	case $url in
 	*/token?*)
 		[[ ${FAKE_FAIL:-} == token ]] && return 22
+		[[ ${FAKE_FAIL:-} == notoken ]] && echo '{}' && return
 		echo '{"token":"T"}'
 		;;
 	*/manifests/*)
@@ -109,10 +111,15 @@ out=$(run "$versions" '')
 check "registry: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "6 8 7 12 "
 
 # a failed lookup stops the run before anything is planned or deleted
-for fail in token sha256:dev sha256:devatt; do
+for fail in token notoken sha256:dev sha256:devatt; do
 	out=$(FAKE_FAIL=$fail DELETE=true run "$versions" '')
 	check "registry fails ($fail): stopped" "$(($? != 0))" 1
 	check "registry fails ($fail): nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")" 0
+	case $fail in
+	*token) want="::error::no registry token for someone/kizuna: stopping (nothing deleted)" ;;
+	*) want="::error::manifest $fail: lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" ;;
+	esac
+	check "registry fails ($fail): says why" "$(tail -n 1 <<< "$out")" "$want"
 done
 
 echo "$CHECKS checks, $FAILS failed"
