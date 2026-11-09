@@ -253,6 +253,9 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 	start := time.Now()
 	data, status, waited, err := c.do(r, t)
+	if err == nil && !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return data, nil // nothing to log: the args (Redact parses the URL) aren't built
+	}
 	took := time.Since(start) - waited
 	attrs := []any{"method", cmp.Or(r.Method, http.MethodGet), "url", Redact(r.URL), "status", status,
 		"bytes", len(data), "took", took.Round(time.Millisecond), "throttled", waited.Round(time.Millisecond)}
