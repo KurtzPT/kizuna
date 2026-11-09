@@ -3,6 +3,8 @@ package provider
 import (
 	"fmt"
 	"strconv"
+
+	"kizuna/internal/sources"
 )
 
 // Rating keys:
@@ -40,7 +42,7 @@ func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
 	for _, g := range s.Guids {
 		it.Guid = append(it.Guid, GuidTag{g})
 	}
-	it.Image = showImages(s)
+	it.Image = s.images
 	if len(s.Art.Posters) > 0 {
 		it.Thumb = s.Art.Posters[0]
 	}
@@ -57,19 +59,36 @@ func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
 	return it
 }
 
-func showImages(s *Show) []Image {
-	var out []Image
-	add := func(typ string, urls []string) {
-		for i, u := range urls {
-			if i == 10 { // plenty to choose from in Plex's Edit dialog
-				break
+// setImages makes the show's and its seasons' image lists, once, when the
+// build is done: every request shares them.
+func (s *Show) setImages() {
+	s.images = artImages(s.Art, s.Title)
+	if len(s.SeasonArt) > 0 {
+		s.seasonImages = make(map[int][]Image, len(s.SeasonArt))
+		for n, a := range s.SeasonArt {
+			if imgs := artImages(a, s.Title); imgs != nil {
+				s.seasonImages[n] = imgs
 			}
-			out = append(out, Image{Type: typ, URL: u, Alt: s.Title})
 		}
 	}
-	add("coverPoster", s.Art.Posters)
-	add("background", s.Art.Backgrounds)
-	add("clearLogo", s.Art.Logos)
+}
+
+// artImages lists up to 10 images of each kind, in Plex's image types.
+func artImages(a sources.Art, alt string) []Image {
+	const most = 10 // plenty to choose from in Plex's Edit dialog
+	size := min(len(a.Posters), most) + min(len(a.Backgrounds), most) + min(len(a.Logos), most)
+	if size == 0 {
+		return nil
+	}
+	out := make([]Image, 0, size)
+	for _, k := range []struct {
+		typ  string
+		urls []string
+	}{{"coverPoster", a.Posters}, {"background", a.Backgrounds}, {"clearLogo", a.Logos}} {
+		for _, u := range k.urls[:min(len(k.urls), most)] {
+			out = append(out, Image{Type: k.typ, URL: u, Alt: alt})
+		}
+	}
 	return out
 }
 
@@ -92,7 +111,20 @@ func (p *Provider) seasonItem(mode Mode, s *Show, n int, withChildren bool) *Ite
 	it.ParentRatingKey, it.ParentKey = s.Root, metadataPath+"/"+s.Root
 	it.ParentGUID, it.ParentType, it.ParentTitle = mode.Identifier()+"://show/"+s.Root, "show", s.Title
 	if len(s.Art.Posters) > 0 {
-		it.Thumb, it.ParentThumb = s.Art.Posters[0], s.Art.Posters[0]
+		it.ParentThumb = s.Art.Posters[0]
+	}
+	// The season's own art (art.go). A season built without any (no
+	// SeasonArt for it) has the show's poster.
+	it.Image = s.seasonImages[n]
+	if a, ok := s.SeasonArt[n]; ok {
+		if len(a.Posters) > 0 {
+			it.Thumb = a.Posters[0]
+		}
+		if len(a.Backgrounds) > 0 {
+			it.Art = a.Backgrounds[0]
+		}
+	} else {
+		it.Thumb = it.ParentThumb
 	}
 	for _, e := range eps { // season date = first aired episode
 		if e.Date != "" {

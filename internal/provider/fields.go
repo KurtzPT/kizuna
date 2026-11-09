@@ -39,6 +39,23 @@ type showSources struct {
 	mal                      lazy[sources.MALAnime]
 	ann                      lazy[sources.ANNAnime]
 
+	// show, seasons: what the show's and each Plex season's art is of
+	// (art.go); set by the build before fill.
+	show    artTarget
+	seasons []plexSeason
+	// seasonArts: TheTVDB and TheMovieDb season art, each fetched once on
+	// first use, with seasonArtOf; TheTVDB's by the season ids (sid) its
+	// series record gave with tvdbDetails (tvdbSeasonIDs: read it only after
+	// tvdbDetails.get).
+	tvdbSeasonIDs map[int]int
+	seasonMu      sync.Mutex
+	seasonArts    []*seasonFetch
+	seasonArtOf   func(src string, n, sid int) (sources.Art, error)
+	// tmdbPosters: TheMovieDb's season posters, when its episode list
+	// brought them (tmdbListed: a /tvdb build, whose list has every season).
+	tmdbPosters map[int][]string
+	tmdbListed  bool
+
 	rec *report.Recorder // match report of the build; nil = none
 }
 
@@ -47,8 +64,13 @@ type text struct{ title, summary string }
 // newSources: entry is aid's mapping entry, for the ANN and MAL ids when
 // AniDB has no link to them or no details.
 func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, entry mapping.Entry, tvdb, tmdb int, movie, series bool) *showSources {
-	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series, rec: report.RecorderFrom(ctx)}
-	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) { return p.tvdb.Details(ctx, tvdb) })
+	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series, rec: report.RecorderFrom(ctx),
+		show: seriesTarget}
+	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) {
+		d, ids, err := p.tvdb.DetailsAndSeasons(ctx, tvdb)
+		ss.tvdbSeasonIDs = ids
+		return d, err
+	})
 	ss.tmdbDetails.from(tmdb, p.tmdb.Enabled(), func() (sources.Details, error) { return p.tmdb.Details(ctx, tmdb, movie) })
 	ss.tvdbText.from(tvdb, p.tvdb.Enabled(), func() (text, error) {
 		n, o, err := p.tvdb.Overview(ctx, tvdb)
@@ -63,6 +85,12 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 	}
 	ss.tvdbArt.from(tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
 	ss.tmdbArt.from(tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
+	ss.seasonArtOf = func(src string, n, sid int) (sources.Art, error) {
+		if src == "tvdb" {
+			return p.tvdb.SeasonArt(ctx, tvdb, n, sid)
+		}
+		return p.tmdb.SeasonArt(ctx, tmdb, n)
+	}
 	annID, malID := entry.ANN, entry.MAL
 	if a != nil && len(a.ANNIDs) > 0 {
 		annID = a.ANNIDs[0]
@@ -108,7 +136,7 @@ func (ss *showSources) failed() []string {
 			out = append(out, l.name)
 		}
 	}
-	return out
+	return append(out, ss.seasonsFailed()...)
 }
 
 func (ss *showSources) title(src string) string {
@@ -284,20 +312,11 @@ func (ss *showSources) fill(s *Show) bool {
 	note("date", src)
 	detail("First aired", cfg.DateSources, src, func(d sources.Details) string { return d.Date })
 
-	all := cfg.ArtAllSources
-	artField := func(name string, order []string, pick func(sources.Art) []string) ([]string, string) {
-		urls, counts := images(order, all, func(src string) []string { return pick(ss.art(src)) })
-		ss.recordField(name, order, counts, all && counts != "", func(src string) string {
-			return countOf(len(pick(ss.art(src))), strings.ToLower(name))
-		})
-		return urls, counts
-	}
-	s.Art.Posters, src = artField("Posters", cfg.PosterSources, func(a sources.Art) []string { return a.Posters })
-	note("posters", src)
-	s.Art.Backgrounds, src = artField("Backgrounds", cfg.BackgroundSources, func(a sources.Art) []string { return a.Backgrounds })
-	note("backgrounds", src)
-	s.Art.Logos, src = artField("Logos", cfg.LogoSources, func(a sources.Art) []string { return a.Logos })
-	note("logos", src)
+	art, by := ss.pickArt(ss.show, "", debug || ss.rec != nil)
+	s.Art = art
+	note("posters", by[posterArt])
+	note("backgrounds", by[backgroundArt])
+	note("logos", by[logoArt])
 	if debug {
 		slog.Debug("show fields: source used", used...)
 	}
@@ -317,9 +336,9 @@ func (ss *showSources) fill(s *Show) bool {
 
 // warm fetches, in parallel, everything fill will ask for whatever the
 // answers: the first source of every field (fallbacks are fetched only when
-// reached), and the artwork used (every listed source in "all" mode,
-// otherwise each image type's first choice). The lazy values make fill's
-// own calls free afterwards.
+// reached), and the artwork used, the Plex seasons' too (every listed source
+// in "all" mode, otherwise each image type's first choice). The lazy values
+// make fill's and fillSeasons' own calls free afterwards.
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
 	var jobs []func()
@@ -333,15 +352,7 @@ func (ss *showSources) warm() {
 	for _, order := range [][]string{cfg.GenreSources, cfg.CastSources, cfg.StudioSources, cfg.CrewSources, cfg.RatingSources, cfg.DateSources} {
 		first(order, func(src string) { ss.details(src) })
 	}
-	for _, order := range [][]string{cfg.PosterSources, cfg.BackgroundSources, cfg.LogoSources} {
-		if cfg.ArtAllSources {
-			for _, src := range order {
-				jobs = append(jobs, func() { ss.art(src) })
-			}
-		} else {
-			first(order, func(src string) { ss.art(src) })
-		}
-	}
+	jobs = ss.warmArt(jobs)
 	var wg sync.WaitGroup
 	for _, job := range jobs {
 		wg.Go(job)
@@ -360,21 +371,26 @@ func pick(order []string, get func(src string) string) (string, string) {
 }
 
 // images joins image URLs in source order (all=true) or returns the first
-// source that has any (all=false). Duplicates are dropped. The second value
-// counts images per source, e.g. "tmdb:12,tvdb:5".
-func images(order []string, all bool, get func(src string) []string) ([]string, string) {
+// source that has any (all=false). get gives a source's images in two parts
+// (a season's and its series', artParts), both used. Duplicates are
+// dropped. With count, the second value counts images per source, e.g.
+// "tmdb:12,tvdb:5".
+func images(order []string, all, count bool, get func(src string) (a, b []string)) ([]string, string) {
 	var out, counts []string
 	seen := map[string]bool{}
 	for _, src := range order {
 		n := 0
-		for _, u := range get(src) {
-			if u != "" && !seen[u] {
-				seen[u] = true
-				out = append(out, u)
-				n++
+		a, b := get(src)
+		for _, part := range [2][]string{a, b} {
+			for _, u := range part {
+				if u != "" && !seen[u] {
+					seen[u] = true
+					out = append(out, u)
+					n++
+				}
 			}
 		}
-		if n > 0 {
+		if n > 0 && count {
 			counts = append(counts, fmt.Sprintf("%s:%d", src, n))
 		}
 		if !all && len(out) > 0 {

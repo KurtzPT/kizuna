@@ -42,10 +42,13 @@ type spot struct{ season, number int }
 type episodeIndex struct {
 	bySpot map[spot]sources.Episode
 	byAbs  map[int]sources.Episode
+	// posters: TheMovieDb's season posters, read with its episode list
+	// (nil for TheTVDB's).
+	posters map[int][]string
 }
 
 func indexEpisodes(eps []sources.Episode) episodeIndex {
-	x := episodeIndex{map[spot]sources.Episode{}, map[int]sources.Episode{}}
+	x := episodeIndex{bySpot: map[spot]sources.Episode{}, byAbs: map[int]sources.Episode{}}
 	for _, e := range eps {
 		x.bySpot[spot{e.Season, e.Number}] = e
 		if e.Season > 0 && e.Absolute > 0 {
@@ -98,18 +101,21 @@ func (l pairedList) title(ep *Ep, src string, record bool) (sources.Episode, boo
 // series the source doesn't have (404) counts as complete.
 func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x episodeIndex, complete bool) {
 	var eps []sources.Episode
+	var posters map[int][]string
 	var err error
 	switch src {
 	case "tvdb":
 		eps, err = p.tvdb.Episodes(ctx, id)
 	case "tmdb":
-		eps, err = p.tmdb.Episodes(ctx, id)
+		eps, posters, err = p.tmdb.EpisodesAndPosters(ctx, id)
 	}
 	if err != nil {
 		slog.Debug("episode list not available", "source", src, "id", id, "err", err)
 	}
 	sources.FillAbsolute(eps)
-	return indexEpisodes(eps), err == nil || fetch.IsNotFound(err)
+	x = indexEpisodes(eps)
+	x.posters = posters
+	return x, err == nil || fetch.IsNotFound(err)
 }
 
 // spotOn returns where an AniDB episode (season 1 regular, 0 = S special)

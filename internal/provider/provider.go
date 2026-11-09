@@ -404,5 +404,8 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		s.Complete = false
 		slog.Info("show build ran out of time; using what came back, rebuilt in 2 min", "root", root)
 	}
+	if s != nil {
+		s.setImages()
+	}
 	return s, err
 }

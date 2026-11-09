@@ -24,13 +24,14 @@ func TestPickFallsBack(t *testing.T) {
 
 func TestImagesAllAndFirst(t *testing.T) {
 	art := map[string][]string{"tmdb": nil, "tvdb": {"a", "b"}, "anidb": {"c", "a"}}
-	get := func(src string) []string { return art[src] }
+	series := map[string][]string{"tvdb": {"d", "a"}}
+	get := func(src string) ([]string, []string) { return art[src], series[src] }
 	order := []string{"tmdb", "tvdb", "anidb"}
-	if got, _ := images(order, true, get); !slices.Equal(got, []string{"a", "b", "c"}) {
-		t.Errorf("all: %v", got)
+	if got, counts := images(order, true, true, get); !slices.Equal(got, []string{"a", "b", "d", "c"}) || counts != "tvdb:3,anidb:1" {
+		t.Errorf("all: %v %q", got, counts)
 	}
-	if got, _ := images(order, false, get); !slices.Equal(got, []string{"a", "b"}) {
-		t.Errorf("first: %v", got)
+	if got, counts := images(order, false, false, get); !slices.Equal(got, []string{"a", "b", "d"}) || counts != "" {
+		t.Errorf("first: %v %q", got, counts)
 	}
 }
 

@@ -41,7 +41,9 @@ type Show struct {
 	Roles         []sources.Person // actor + character
 	Guids         []string         // tvdb://1, tmdb://2, imdb://tt3
 	Art           sources.Art
-	Episodes      map[int][]Ep // season -> episodes sorted by index
+	// SeasonArt: each Plex season's art (art.go), by season number.
+	SeasonArt map[int]sources.Art
+	Episodes  map[int][]Ep // season -> episodes sorted by index
 	// Complete: false when something was missing (AniDB details, a failed or
 	// partial TVDB/TMDB episode list, a failed show-level source, the build's
 	// time running out): the model is cached briefly and rebuilt. Without
@@ -61,6 +63,11 @@ type Show struct {
 	episodeGuids bool
 
 	build string // match report build that made it (report.Recorder.ID)
+
+	// images, seasonImages: the show's and each season's Plex image list,
+	// made once by setImages when the build is done (items.go).
+	images       []Image
+	seasonImages map[int][]Image
 }
 
 // Ep is one episode at the season/index Plex's scanner gives the file.
@@ -185,13 +192,17 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 
+	ss := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid))
+	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
 	var wg sync.WaitGroup
 	episodesOK := true
 	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
-	sourcesOK := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
+	sourcesOK := ss.fill(s)
+	ss.fillSeasons(s)
 	wg.Wait()
+	sourcesOK = sourcesOK && len(ss.seasonsFailed()) == 0
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
 	}
@@ -443,18 +454,24 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 // other AniDB entries or episode crew are still being fetched, or when a
 // source failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, entry mapping.Entry) bool {
+	ss := p.newSources(ctx, b.aid, b.first, entry, b.tvdbID, b.tmdbID, false, true)
+	ss.tvdbTargets(plexSeasons(s))
 	var wg sync.WaitGroup
 	var tmdbOK, titlesReady, crewReady bool
+	var pairs map[int]int
 	wg.Go(func() {
 		tmdbOK = b.loadTMDB(ctx, p)
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
+		pairs = tmdbSeasonPairs(s, b.tmdbEps, pr)
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
-	sourcesOK := p.newSources(ctx, b.aid, b.first, entry, b.tvdbID, b.tmdbID, false, true).fill(s)
+	sourcesOK := ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
-	return tmdbOK && titlesReady && crewReady && sourcesOK
+	ss.pairTMDB(pairs, b.tmdbEps.posters)
+	ss.fillSeasons(s)
+	return tmdbOK && titlesReady && crewReady && sourcesOK && len(ss.seasonsFailed()) == 0
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular
