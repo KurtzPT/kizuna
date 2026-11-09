@@ -106,6 +106,10 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 			nil, 0, 0, "tag [anidb-69]: /anidb is off"},
 		{"two tags, manual", p, Modes["anidb"], MatchRequest{Title: "Correct Title [anidb-69] [anidb-5]", Manual: 1},
 			[]string{"anidb-70"}, 0, 0, "id tags [anidb-69] [anidb-5]: only one is allowed; title search"},
+		{"two tags, manual season", p, Modes["anidb"], MatchRequest{Type: 3, Title: "Correct Title [anidb-69] [anidb-5]", Manual: 1},
+			nil, 0, 0, "id tags [anidb-69] [anidb-5]: only one is allowed"},
+		{"tag mode off, manual episode", tvdbOn, Modes["auto"], MatchRequest{Type: 4, Title: "Correct Title [anidb-69]", Manual: 1},
+			nil, 0, 0, "tag [anidb-69]: /anidb is off"},
 	}
 	for _, c := range cases {
 		got, how := c.p.searchCandidates(c.mode, c.r.Title, c.r, nil)
