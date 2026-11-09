@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/mapping"
@@ -75,6 +76,14 @@ type tvdbBuild struct {
 	// tmdbEps: TheMovieDb's episode list, for the titles and the crew;
 	// fetched once by loadTMDB (empty when the show isn't there).
 	tmdbEps episodeIndex
+	// prefetched: prefetch started TheMovieDb's episode list (into tmdbEps
+	// and tmdbOK, done with tmdbWG) and TheTVDB's crew records (into crew
+	// and crewPending, done with crewWG); else they are fetched when used.
+	prefetched     bool
+	tmdbWG, crewWG sync.WaitGroup
+	tmdbOK         bool
+	crew           map[int]sources.Crew
+	crewPending    bool
 }
 
 func newTVDBBuild(tvdbID, tmdbID, aid int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
@@ -87,11 +96,38 @@ func (b *tvdbBuild) tmdbOn(p *Provider) bool {
 	return p.tmdb.Enabled() && b.tmdbID > 0
 }
 
+// prefetch starts what the build needs whatever AniDB answers: TheMovieDb's
+// episode list (loadTMDB) and TheTVDB's crew records for the episode list's
+// episodes (tvdbEpisodeCrew). Both are always used: wait waits for them.
+func (b *tvdbBuild) prefetch(ctx context.Context, p *Provider) {
+	b.prefetched = true
+	ids := make([]int, 0, len(b.eps))
+	for _, e := range b.eps {
+		if e.ID > 0 {
+			ids = append(ids, e.ID)
+		}
+	}
+	b.crewWG.Go(func() { b.crew, b.crewPending = p.tvdb.EpisodeCrew(ctx, ids) })
+	if b.tmdbOn(p) {
+		b.tmdbWG.Go(func() { b.tmdbEps, b.tmdbOK = p.seriesEpisodes(ctx, "tmdb", b.tmdbID) })
+	}
+}
+
+// wait waits for what prefetch started.
+func (b *tvdbBuild) wait() {
+	b.tmdbWG.Wait()
+	b.crewWG.Wait()
+}
+
 // loadTMDB fetches TheMovieDb's episode list into b.tmdbEps. Returns false
 // when it failed or came back partial.
 func (b *tvdbBuild) loadTMDB(ctx context.Context, p *Provider) bool {
 	if !b.tmdbOn(p) {
 		return true
+	}
+	if b.prefetched {
+		b.tmdbWG.Wait()
+		return b.tmdbOK
 	}
 	var ok bool
 	b.tmdbEps, ok = p.seriesEpisodes(ctx, "tmdb", b.tmdbID)
@@ -211,5 +247,11 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 // its episode list (TheTVDB's) and TheMovieDb's, paired through AniDB like
 // the titles (pr). Returns false while episode crew is still being fetched.
 func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
-	return p.episodeCrew(ctx, s, pairedList{b.tmdbEps, pr.otherAt}) // TheTVDB's crew is on the episodes already (episodesFromList)
+	tm := pairedList{b.tmdbEps, pr.otherAt} // TheTVDB's list's crew is on the episodes already (episodesFromList)
+	if !b.prefetched {
+		return p.episodeCrew(ctx, s, tm)
+	}
+	b.crewWG.Wait()
+	applyCrew(s, b.crew, tm)
+	return !b.crewPending
 }

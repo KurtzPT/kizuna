@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -57,6 +58,11 @@ type showSources struct {
 	tmdbListed  bool
 
 	rec *report.Recorder // match report of the build; nil = none
+
+	// early: warmEarly started TheTVDB's and TheMovieDb's art (in earlyWG),
+	// so warm leaves them out.
+	early   bool
+	earlyWG sync.WaitGroup
 }
 
 type text struct{ title, summary string }
@@ -91,6 +97,17 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 		}
 		return p.tmdb.SeasonArt(ctx, tmdb, n)
 	}
+	ss.setAniDB(ctx, a, entry)
+	return ss
+}
+
+// setAniDB sets AniDB's details (nil = none) and the ANN and MAL entries
+// they link to (else the mapping's). A /tvdb build sets them once AniDB has
+// answered: only after that may the sources be asked anything but art
+// (warmEarly).
+func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entry mapping.Entry) {
+	p := ss.p
+	ss.a = a
 	annID, malID := entry.ANN, entry.MAL
 	if a != nil && len(a.ANNIDs) > 0 {
 		annID = a.ANNIDs[0]
@@ -98,9 +115,13 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 	if a != nil && len(a.MALIDs) > 0 {
 		malID = a.MALIDs[0]
 	}
-	ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
-	ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
-	return ss
+	ss.ann.f, ss.mal.f = nil, nil
+	if annID != 0 { // the closures only when used: they allocate
+		ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
+	}
+	if malID != 0 {
+		ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
+	}
 }
 
 // seasonSummaries sets up the season summaries of an entry that doesn't
@@ -249,10 +270,9 @@ func (ss *showSources) pickDetails(order []string, has func(sources.Details) boo
 
 // fill sets every source-selectable field from the configured source orders.
 // A value already on s is kept only when no source has one. At debug, one
-// line per show says which source supplied each field ("-" = none). Returns
-// false when a source it asked failed (an error or the build's time running
-// out), so the show is rebuilt soon instead of being kept an hour without it.
-func (ss *showSources) fill(s *Show) bool {
+// line per show says which source supplied each field ("-" = none). Whether
+// a source failed is told by finish, after fillSeasons.
+func (ss *showSources) fill(s *Show) {
 	cfg := ss.p.cfg
 	done := ss.rec.Step("Show fields and artwork")
 	ss.warm()
@@ -320,44 +340,164 @@ func (ss *showSources) fill(s *Show) bool {
 	if debug {
 		slog.Debug("show fields: source used", used...)
 	}
-	if failed := ss.failed(); len(failed) > 0 {
-		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
-		if ss.rec != nil { // the notes are built only for a match report
-			list := strings.Join(failed, ", ")
-			done("failed: " + list)
-			ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + list, Cause: true,
-				Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+	why := ""
+	if ss.rec != nil { // the step notes what failed so far; finish tells the rest
+		if failed := ss.failed(); len(failed) > 0 {
+			why = "failed: " + strings.Join(failed, ", ")
 		}
-		return false
 	}
-	done("")
-	return true
+	done(why)
+}
+
+// finish reports whether every source fill and fillSeasons asked answered.
+// When one failed (an error or the build's time running out), it is logged
+// and noted in the match report, and the show is rebuilt soon instead of
+// being kept an hour without it. Call it after fillSeasons.
+func (ss *showSources) finish(s *Show) bool {
+	failed := ss.failed()
+	if len(failed) == 0 {
+		return true
+	}
+	slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
+	if ss.rec != nil {
+		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
+			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+	}
+	return false
 }
 
 // warm fetches, in parallel, everything fill will ask for whatever the
-// answers: the first source of every field (fallbacks are fetched only when
-// reached), and the artwork used, the Plex seasons' too (every listed source
-// in "all" mode, otherwise each image type's first choice). The lazy values
+// answers: per field, the first source in its order that needs a fetch,
+// past the sources whose answer is at hand and empty (AniDB's without
+// details, TheTVDB's details for a later entry...), which fill passes over
+// too (later fallbacks are fetched only when reached); and the artwork used,
+// the Plex seasons' too (every listed source in "all" mode, otherwise each
+// image type's first choice). Each source is warmed once. The lazy values
 // make fill's and fillSeasons' own calls free afterwards.
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
 	var jobs []func()
-	first := func(order []string, get func(string)) {
-		if len(order) > 0 {
-			jobs = append(jobs, func() { get(order[0]) })
+	var asked [10]warmer // the lazies warmed so far: one job each
+	na := 0
+	add := func(w warmer) {
+		if w == nil || slices.Contains(asked[:na], w) {
+			return
+		}
+		if na < len(asked) {
+			asked[na] = w
+			na++
+		}
+		jobs = append(jobs, w.warm)
+	}
+	// first: the first source of order that would be fetched, unless a
+	// source before it has the field at hand.
+	first := func(order []string, of func(string) warmer, has func(string) bool) {
+		for _, src := range order {
+			if w := of(src); w != nil && w.fetches() {
+				add(w)
+				return
+			}
+			if has(src) {
+				return
+			}
 		}
 	}
-	first(cfg.TitleSources, func(src string) { ss.title(src) })
-	first(cfg.SummarySources, func(src string) { ss.summary(src) })
-	for _, order := range [][]string{cfg.GenreSources, cfg.CastSources, cfg.StudioSources, cfg.CrewSources, cfg.RatingSources, cfg.DateSources} {
-		first(order, func(src string) { ss.details(src) })
+	first(cfg.TitleSources, ss.titleLazy, func(src string) bool { return ss.title(src) != "" })
+	first(cfg.SummarySources, ss.summaryLazy, func(src string) bool { return ss.summary(src) != "" })
+	for _, f := range [...]struct {
+		order []string
+		has   func(sources.Details) bool
+	}{
+		{cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 }},
+		{cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 }},
+		{cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" }},
+		{cfg.CrewSources, func(d sources.Details) bool { return len(d.Directors)+len(d.Writers) > 0 }},
+		{cfg.RatingSources, func(d sources.Details) bool { return d.Rating(cfg.RatingCountries) != "" }},
+		{cfg.DateSources, func(d sources.Details) bool { return d.Date != "" }},
+	} {
+		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
-	jobs = ss.warmArt(jobs)
+	jobs = ss.warmArt(jobs, ss.notEarly)
 	var wg sync.WaitGroup
 	for _, job := range jobs {
 		wg.Go(job)
 	}
 	wg.Wait()
+	ss.earlyWG.Wait()
+}
+
+// warmEarly starts warming the art of the sources that don't depend on
+// AniDB's details, TheTVDB's and TheMovieDb's, before those are in
+// (setAniDB). Set the targets first; warm waits for it.
+func (ss *showSources) warmEarly() {
+	ss.early = true
+	for _, job := range ss.warmArt(nil, earlySource) {
+		ss.earlyWG.Go(job)
+	}
+}
+
+func earlySource(src string) bool { return src == "tvdb" || src == "tmdb" }
+
+// notEarly: a source warmEarly didn't warm.
+func (ss *showSources) notEarly(src string) bool { return !ss.early || !earlySource(src) }
+
+// warmer is a lazy value warm can fetch ahead.
+type warmer interface {
+	fetches() bool // getting it downloads something
+	warm()
+}
+
+// titleLazy, summaryLazy, detailsLazy: what title, summary and details ask
+// src for, when that is a fetch (nil: the answer is at hand, AniDB's, or
+// none). Keep them in step with those three.
+func (ss *showSources) titleLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		return &ss.tvdbText
+	case "tmdb":
+		return &ss.tmdbText
+	case "ann":
+		return &ss.ann
+	}
+	return nil
+}
+
+func (ss *showSources) summaryLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		if !ss.series {
+			return &ss.tvdbSeason
+		}
+		return &ss.tvdbText
+	case "tmdb":
+		if !ss.series && !ss.movie {
+			return &ss.tmdbSeason
+		}
+		return &ss.tmdbText
+	case "mal":
+		return &ss.mal
+	case "ann":
+		return &ss.ann
+	}
+	return nil
+}
+
+func (ss *showSources) detailsLazy(src string) warmer {
+	switch src {
+	case "tvdb":
+		if ss.series {
+			return &ss.tvdbDetails
+		}
+	case "tmdb":
+		if ss.series || ss.movie {
+			return &ss.tmdbDetails
+		}
+	case "mal":
+		return &ss.mal
+	case "ann":
+		return &ss.ann
+	}
+	return nil
 }
 
 // pick returns the first non-empty value in source order, and its source.
@@ -417,6 +557,9 @@ func (l *lazy[T]) get() T {
 	})
 	return l.v
 }
+
+func (l *lazy[T]) fetches() bool { return l.f != nil }
+func (l *lazy[T]) warm()         { l.get() }
 
 // from sets f, unless the source can't have the show: no id for it (0), or
 // not configured (on false).

@@ -334,12 +334,13 @@ function renderEpisodes(b, newest) {
       pre = `<tr class="seasonrow" data-season><td colspan="5">${e.s ? "Season "+e.s : "Specials"} <span class="mono dim">${n} episode${n === 1 ? "" : "s"}</span></td></tr>`;
     }
     const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `<span>${chip(s, name(s)+" "+v)}</span>`).join("");
-    const others = Object.entries(e.titles || {}).filter(([s]) => s !== e.from).map(([s, t]) => `${name(s)}: ${t}`).join("\n");
+    const otherTitles = Object.entries(e.titles || {}).filter(([s]) => s !== e.from);
+    const others = otherTitles.map(([s, t]) => `${name(s)}: ${t}`).join("\n");
     return pre + `<tr class="${e.issue ? "issue" : ""}" data-issue="${e.issue ? 1 : 0}">
       <td class="nowrap">${se(e.s, e.e)}</td>
       <td><div class="pairs">${pairs || '<span class="dim">none</span>'}</div></td>
       <td class="prose"${others ? ` title="${esc(others)}"` : ""}>${e.title ? esc(e.title) : `<span class="dim">Episode ${e.e}</span>`}${e.issue ? `<span class="flag">${esc(e.issue)}</span>` : ""}</td>
-      <td>${e.from ? chip(e.from) : '<span class="dim">none</span>'}${others ? ` <span class="dim" title="${esc(others)}">+${Object.keys(e.titles).length - (e.from ? 1 : 0)}</span>` : ""}</td>
+      <td>${e.from ? chip(e.from) : '<span class="dim">none</span>'}${others ? ` <span class="dim" title="${esc(others)}">+${otherTitles.length}</span>` : ""}</td>
       <td class="nowrap">${e.date ? esc(e.date) : '<span class="dim">none</span>'}</td></tr>`;
   }).join("");
   return `<div class="panel">

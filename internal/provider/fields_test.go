@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"kizuna/internal/config"
 	"kizuna/internal/mapping"
@@ -61,6 +63,52 @@ func TestSeriesGuard(t *testing.T) {
 }
 
 func pd(d sources.Details, _ string) sources.Details { return d }
+
+// Without AniDB details, the fallbacks fill will reach are fetched at once,
+// not one after another: each fetch here only returns once the other one has
+// started. With details, AniDB has the fields: no fallback is fetched.
+func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
+	cfg := config.Config{SummarySources: []string{"anidb", "tvdb"}, GenreSources: []string{"anidb", "tmdb"},
+		DateSources: []string{"anidb", "tvdb", "tmdb"}}
+	newSS := func(a *sources.AniDBAnime) (*showSources, func() []string) {
+		ss := &showSources{p: &Provider{cfg: cfg}, a: a, series: true, show: seriesTarget}
+		var mu sync.Mutex
+		var asked []string
+		started := map[string]chan struct{}{"tvdb": make(chan struct{}), "tmdb": make(chan struct{})}
+		both := func(src, other string) {
+			mu.Lock()
+			asked = append(asked, src)
+			mu.Unlock()
+			close(started[src])
+			select {
+			case <-started[other]:
+			case <-time.After(20 * time.Second): // only when the fetches run one after another
+				t.Errorf("%s: fetched alone, not alongside %s", src, other)
+			}
+		}
+		ss.tvdbText.f = func() (text, error) { both("tvdb", "tmdb"); return text{summary: "From TheTVDB."}, nil }
+		ss.tmdbDetails.f = func() (sources.Details, error) {
+			both("tmdb", "tvdb")
+			return sources.Details{Genres: []string{"TMDB"}, Date: "2004-01-01"}, nil
+		}
+		return ss, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
+	}
+
+	ss, _ := newSS(nil)
+	s := &Show{}
+	ss.fill(s)
+	if s.Summary != "From TheTVDB." || !slices.Equal(s.Genres, []string{"TMDB"}) || s.Date != "2004-01-01" {
+		t.Errorf("summary %q genres %v date %q, want the fallbacks'", s.Summary, s.Genres, s.Date)
+	}
+
+	ss, asked := newSS(&sources.AniDBAnime{Description: "From AniDB.", StartDate: "2003-01-01",
+		Genres: []string{"AniDB"}})
+	s = &Show{}
+	ss.fill(s)
+	if got := asked(); len(got) != 0 || s.Summary != "From AniDB." {
+		t.Errorf("with AniDB details: fetched %v (summary %q), want nothing", got, s.Summary)
+	}
+}
 
 // AniDB's details (its cast built from the characters) are built once per
 // show, not once per field that asks.
