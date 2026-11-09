@@ -388,3 +388,44 @@ func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 		}
 	}
 }
+
+// A renewal still waiting on the network doesn't hold up calls: the old
+// token is still valid, so they go ahead with it.
+func TestTVDBRenewalDoesNotBlock(t *testing.T) {
+	f := fetch.New(t.TempDir())
+	n := slowLogin{&tvdbNet{answers: map[string]string{
+		v4 + "/login":                     `{"data":{"token":"t-new"}}`,
+		v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
+		v4 + "/series/8/translations/eng": `{"data":{"name":"Other"}}`,
+	}}, make(chan struct{}, 10), make(chan struct{})}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
+	tv.mu.Lock()
+	tv.token, tv.tokenAt = "t-old", time.Now().Add(-8*24*time.Hour) // due for renewal, valid for weeks
+	tv.mu.Unlock()
+
+	renewed := make(chan error, 1)
+	go func() {
+		_, _, err := tv.Overview(context.Background(), 9) // starts the renewal
+		renewed <- err
+	}()
+	<-n.started // the renewal is now waiting on the network
+
+	// Before the fix this waited for the renewal until its ctx ended.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	name, _, err := tv.Overview(ctx, 8)
+	if err != nil || name != "Other" {
+		t.Errorf("during the renewal: %q %v, want Other", name, err)
+	}
+	close(n.release)
+	if err := <-renewed; err != nil {
+		t.Errorf("renewing call: %v", err)
+	}
+	tv.mu.Lock()
+	token := tv.token
+	tv.mu.Unlock()
+	if token != "t-new" {
+		t.Errorf("token %q after the renewal, want t-new", token)
+	}
+}

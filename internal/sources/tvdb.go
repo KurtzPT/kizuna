@@ -213,8 +213,8 @@ var errTVDBLogin = errors.New("tvdb login")
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
 // 20 hours); while a renewal fails without the key being rejected, the old
 // token is used as long as it's valid. t.mu is never held over the network:
-// one login runs at a time, and callers that need a token meanwhile wait for
-// it (or for their ctx).
+// one login runs at a time; callers meanwhile use the old token while it's
+// valid, or wait for the login (or for their ctx).
 func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 	for {
 		t.mu.Lock()
@@ -237,6 +237,9 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 		}
 		if running := t.loggingIn; running != nil {
 			t.mu.Unlock()
+			if token != "" && age < valid { // only due for renewal: don't wait for it
+				return token, legacy, nil
+			}
 			select {
 			case <-running:
 				continue // its outcome is in t now
