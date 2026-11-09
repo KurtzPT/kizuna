@@ -105,9 +105,9 @@ func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry,
 }
 
 // setAniDB sets AniDB's details (nil = none) and the ANN and MAL entries
-// they link to (else the mapping's). A /tvdb build sets them once AniDB has
-// answered: only after that may the sources be asked anything but art
-// (warmEarly).
+// they link to (else the mapping's), once per build. A /tvdb build sets them
+// once AniDB has answered: only after that may the sources be asked anything
+// but art (warmEarly).
 func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entry mapping.Entry) {
 	p := ss.p
 	ss.a = a
@@ -118,7 +118,6 @@ func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entr
 	if a != nil && len(a.MALIDs) > 0 {
 		malID = a.MALIDs[0]
 	}
-	ss.ann.f, ss.mal.f = nil, nil
 	if annID != 0 { // the closures only when used: they allocate
 		ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
 	}
