@@ -156,6 +156,39 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 	}
 }
 
+// Stopping during the first list load answers the waiting requests 503
+// "stopping" at once, not after their 25 s; once the lists are loaded,
+// requests are served until the server stops taking them.
+func TestStopDuringFirstLoad(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
+	done := p.Loading()
+	get := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/anidb/library/metadata/anidb-1", nil)
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		p.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	answered := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answered <- get() }() // waiting for the load, or not there yet: the same answer
+	p.Stop()
+	p.Stop() // again: nothing
+	select {
+	case rec := <-answered:
+		if rec.Code != 503 || !strings.Contains(rec.Body.String(), `"stopping"`) {
+			t.Errorf("stopped while loading: %d %s, want 503 stopping", rec.Code, rec.Body)
+		}
+	case <-time.After(requestTimeout / 2):
+		t.Fatal("still waiting after Stop")
+	}
+	done()
+	if rec := get(); rec.Code != 200 {
+		t.Errorf("loaded, then stopping: %d %s, want the show", rec.Code, rec.Body)
+	}
+}
+
 // A mode whose source isn't set up answers 503 with the reason (Plex keeps
 // what it has) and logs it once per 10 minutes (the global logger isn't
 // swapped here: that would change later tests' allocation counts); its description still

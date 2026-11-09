@@ -138,15 +138,24 @@ func (r *recorder) Write(b []byte) (int, error) {
 // waitLoaded holds a request until the first list load is over: before it,
 // nothing matches and shows are built without their ids, and Plex would keep
 // what it got. A load that outlasts requestTimeout gets a 503 "starting",
-// which Plex treats as a failed request, not as an answer. It also starts
-// the request's requestTimeout: h gets what the wait left of it.
+// which Plex treats as a failed request, not as an answer; so does one
+// waiting when Kizuna stops (Stop), at once. It also starts the request's
+// requestTimeout: h gets what the wait left of it.
 func (p *Provider) waitLoaded(h modeHandler) modeHandler {
 	return func(w http.ResponseWriter, r *http.Request, mode Mode) {
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
 		select {
+		case <-p.loaded: // loaded: served, even while stopping (the drain lets it finish)
+			h(w, r.WithContext(ctx), mode)
+			return
+		default:
+		}
+		select {
 		case <-p.loaded:
 			h(w, r.WithContext(ctx), mode)
+		case <-p.stopping:
+			writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "stopping", Version: Version})
 		case <-ctx.Done():
 			writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "starting", Version: Version})
 		}
@@ -154,7 +163,7 @@ func (p *Provider) waitLoaded(h modeHandler) modeHandler {
 }
 
 type healthAnswer struct {
-	Status  string   `json:"status"` // ok, starting, degraded
+	Status  string   `json:"status"` // ok, starting, degraded; stopping (waitLoaded only)
 	Missing []string `json:"missing,omitempty"`
 	Version string   `json:"version"`
 }

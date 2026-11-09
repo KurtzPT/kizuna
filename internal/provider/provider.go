@@ -79,7 +79,9 @@ type Provider struct {
 	access  Access        // ALLOW_FROM / ALLOWED_HOSTS
 	reports *report.Store // match reports; nil = off
 
-	loaded chan struct{} // closed once the first list load is over (see Loading)
+	loaded   chan struct{} // closed once the first list load is over (see Loading)
+	stopping chan struct{} // closed by Stop
+	stopOnce sync.Once
 
 	mu       sync.Mutex
 	shows    map[string]cachedShow  // root -> built model
@@ -130,7 +132,7 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	loaded := make(chan struct{})
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
-		tagsLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
+		tagsLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
 }
 
 // Loading marks the lists as still loading for the first time: /health
@@ -146,6 +148,14 @@ func (p *Provider) Loading() (done func()) {
 // debugOn: debug lines are logged. A hot path asks before slog.Debug, whose
 // arguments allocate even when the line is dropped.
 func debugOn(ctx context.Context) bool { return slog.Default().Enabled(ctx, slog.LevelDebug) }
+
+// Stop marks the provider as shutting down: requests still waiting for the
+// first list load answer 503 "stopping" at once instead of at the end of
+// their time, so the server's drain doesn't wait for them. Call it once the
+// shutdown starts; later calls do nothing.
+func (p *Provider) Stop() {
+	p.stopOnce.Do(func() { close(p.stopping) })
+}
 
 // showTTL: how long a built model is served from memory (shorter when
 // something was missing, see Show.Complete, so it is retried soon).

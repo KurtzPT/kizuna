@@ -201,6 +201,7 @@ func serve(cfg config.Config) error {
 	closed := make(chan struct{})
 	go func() {
 		<-ctx.Done()
+		p.Stop()
 		stop() // a second Ctrl+C (or SIGTERM) during the drain stops at once
 		slog.Info("stopping: waiting for running requests", "at_most", drainTimeout)
 		shutdown, cancel := context.WithTimeout(context.Background(), drainTimeout)
