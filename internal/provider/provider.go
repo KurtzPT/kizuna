@@ -143,6 +143,10 @@ func (p *Provider) Loading() (done func()) {
 	return sync.OnceFunc(func() { close(loaded) })
 }
 
+// debugOn: debug lines are logged. A hot path asks before slog.Debug, whose
+// arguments allocate even when the line is dropped.
+func debugOn(ctx context.Context) bool { return slog.Default().Enabled(ctx, slog.LevelDebug) }
+
 // showTTL: how long a built model is served from memory (shorter when
 // something was missing, see Show.Complete, so it is retried soon).
 func showTTL(s *Show) time.Duration {
@@ -162,7 +166,9 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 		if ttl := showTTL(c.show); time.Since(c.at) < ttl {
 			p.mu.Unlock()
 			age := time.Since(c.at).Round(time.Second)
-			slog.Debug("show from memory", "root", root, "age", age, "ttl", ttl)
+			if debugOn(ctx) { // its args would be boxed for nothing
+				slog.Debug("show from memory", "root", root, "age", age, "ttl", ttl)
+			}
 			if rq := report.RequestFrom(ctx); rq != nil {
 				rq.Build, rq.Answer = c.show.build, "memory, "+age.String()
 			}

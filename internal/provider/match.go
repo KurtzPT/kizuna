@@ -150,6 +150,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
 	year, guid, manual := r.Year, r.GUID, r.Manual == 1
 	query := tagRe.ReplaceAllString(title, "")
+	debug := debugOn(context.Background())
 	switch tags := idTags(title, r.Filename); {
 	case len(tags) > 1: // which one the user meant is a guess: no tag, GUID or title search
 		names := make([]string, len(tags))
@@ -173,14 +174,18 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 		if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
 			return []candidate{{root, 100}}, "tag " + m[0]
 		}
-		slog.Debug("match: id tag not in the mapping", "tag", m[0])
+		if debug {
+			slog.Debug("match: id tag not in the mapping", "tag", m[0])
+		}
 	}
 	for _, re := range []*regexp.Regexp{guidRe, otherGUIDRe} {
 		if m := re.FindStringSubmatch(guid); m != nil {
 			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "guid " + guid
 			}
-			slog.Debug("match: GUID id not in the mapping", "guid", guid)
+			if debug {
+				slog.Debug("match: GUID id not in the mapping", "guid", guid)
+			}
 		}
 	}
 
@@ -193,15 +198,19 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 	titleRules := p.rules(mode, "")
 	results := p.titles.Search(query, year, 20)
 	for i, m := range results {
-		if i < 5 {
+		if i < 5 && (debug || noted != nil) { // the title only for these
 			t := p.mainTitle(m.AID)
-			slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score, "title", t)
+			if debug {
+				slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score, "title", t)
+			}
 			if noted != nil {
 				*noted = append(*noted, report.Candidate{AID: m.AID, Title: t, Score: m.Score})
 			}
 		}
 		if !manual && m.Score < p.cfg.MinScore {
-			slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
+			if debug {
+				slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
+			}
 			break
 		}
 		root := p.rootFor(titleRules, "anidb", m.AID)
@@ -332,7 +341,9 @@ func (p *Provider) rootForID(mode Mode, source, id, title string, year int) stri
 	case source == "imdb" || (err == nil && n > 0):
 		if aid := p.aidFor(source, id, title, year); aid > 0 {
 			root := p.rootFor(mode, "anidb", aid)
-			slog.Debug("match: id mapped", "source", source, "id", id, "aid", aid, "show", root)
+			if debugOn(context.Background()) {
+				slog.Debug("match: id mapped", "source", source, "id", id, "aid", aid, "show", root)
+			}
 			return root
 		}
 	}
