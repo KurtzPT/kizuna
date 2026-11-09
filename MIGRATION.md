@@ -401,9 +401,11 @@ flowchart LR
     B -->|"[mal-N], [imdb-tt…]…, or none"| E["ask Kizuna's<br/>/auto provider<br/><i>AUTO_DEFAULT + mapping</i>"]
 ```
 
-The tag can also be in a file name, as Kizuna reads it. `tvdb`-rule folders need Kizuna with a TheTVDB key
-(`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`); without it, Kizuna in Plex gives a `[tvdb-…]` folder no match. Without
-Kizuna, only `[anidb-N]` folders are planned; every other folder is reported as skipped.
+The tag can also be in a file name, as Kizuna reads it. Keep one id tag per show: the script follows the first one,
+but Kizuna in Plex gives a show with two different tags no match ([README](README.md#-how-a-show-is-found)).
+`tvdb`-rule folders need Kizuna with a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`); without it, Kizuna in
+Plex gives a `[tvdb-…]` folder no match. Without Kizuna, only `[anidb-N]` folders are planned; every other folder is
+reported as skipped.
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has: a HAMA
