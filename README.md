@@ -183,6 +183,9 @@ The first piece of evidence that names a show wins:
 Only one id tag is allowed: two different ones (`Show [anidb-1234]/Show [tvdb-5678] - 01.mkv`) give no match and a
 warning. The same tag again (the folder's tag in the file name too) is fine.
 
+Plex's *Fix Match* lists the show the tag or GUID names first, then the title search results for the title you
+type, so a wrong match can be changed without unmatching first.
+
 A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
 become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
 several AniDB entries (a TVDB series with one entry per season) gives the series' first entry. A movie or special
