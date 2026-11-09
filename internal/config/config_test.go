@@ -22,6 +22,22 @@ func TestSourceList(t *testing.T) {
 	}
 }
 
+// Language codes are lowercased, like the source lists: "EN" is "en".
+func TestLangsLowercase(t *testing.T) {
+	t.Setenv("TITLE_LANGS", "Main, EN")
+	t.Setenv("EPISODE_LANGS", "X-JAT,En")
+	t.Setenv("ORIGINAL_TITLE_LANGS", "JA,zh-Hans")
+	c := Load()
+	if !slices.Equal(c.TitleLangs, []string{"main", "en"}) || !slices.Equal(c.EpisodeLangs, []string{"x-jat", "en"}) ||
+		!slices.Equal(c.OriginalTitleLangs, []string{"ja", "zh-hans"}) {
+		t.Errorf("title %v, episode %v, original %v", c.TitleLangs, c.EpisodeLangs, c.OriginalTitleLangs)
+	}
+	t.Setenv("ORIGINAL_TITLE_LANGS", "None")
+	if got := Load().OriginalTitleLangs; got != nil {
+		t.Errorf("None: %v", got)
+	}
+}
+
 func TestSize(t *testing.T) {
 	cases := map[string]uint64{"": 7, "500": 500 << 20, "500MB": 500 << 20, "2gb": 2 << 30, "1.5 GB": 3 << 29, "1TB": 1 << 40, "0": 0, "lots": 7}
 	for v, want := range cases {

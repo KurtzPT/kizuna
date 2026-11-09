@@ -38,6 +38,10 @@ func TestOfficialOnlyAndFind(t *testing.T) {
 	if got := FindTitle(titles, []string{"x-jat", "ja"}, true); got != "Romaji" {
 		t.Errorf("original x-jat: got %q", got)
 	}
+	// AniDB writes some codes with capitals ("zh-Hans"); settings are lowercase.
+	if got := FindTitle([]Title{{"official", "zh-Hans", "中文"}}, []string{"zh-hans"}, true); got != "中文" {
+		t.Errorf("zh-Hans: got %q", got)
+	}
 }
 
 func TestSearchYearPicksRemake(t *testing.T) {

@@ -17,8 +17,9 @@ type Title struct {
 // typeRank: lower is better when a language has several titles.
 var typeRank = map[string]int{"main": 1, "official": 2, "kana": 3, "card": 4, "syn": 5, "synonym": 5, "": 6}
 
-// FindTitle returns the best title for a language priority list, or "" if
-// no listed language has one: the first language with a title wins; "main"
+// FindTitle returns the best title for a language priority list (lowercase
+// codes; AniDB's match ignoring case), or "" if no listed language has one:
+// the first language with a title wins; "main"
 // means AniDB's main title; "short" titles are never used. With
 // officialOnly, only main and official titles count (no synonyms). AniDB's
 // backtick apostrophes come back as plain ones ("Journey`s" -> "Journey's").
@@ -36,8 +37,9 @@ func findTitle(titles []Title, langs []string, officialOnly bool) string {
 		if t.Type == "main" {
 			main = t.Text
 		}
-		if cur, ok := best[t.Lang]; !ok || rank(t.Type) < rank(cur.Type) {
-			best[t.Lang] = t
+		lang := strings.ToLower(t.Lang) // AniDB has "zh-Hans"; langs are lowercase
+		if cur, ok := best[lang]; !ok || rank(t.Type) < rank(cur.Type) {
+			best[lang] = t
 		}
 	}
 	for _, l := range langs {

@@ -104,10 +104,10 @@ func Load() Config {
 		TMDBKey:            env("TMDB_API_KEY", ""),
 		MALClientID:        env("MAL_CLIENT_ID", ""),
 		MappingSources:     mappingSources(),
-		TitleLangs:         list(env("TITLE_LANGS", "main,x-jat,en")),
+		TitleLangs:         lowerList(env("TITLE_LANGS", "main,x-jat,en")),
 		TitleOfficialOnly:  flag("TITLE_OFFICIAL_ONLY", false),
 		OriginalTitleLangs: langList("ORIGINAL_TITLE_LANGS", "ja"),
-		EpisodeLangs:       list(env("EPISODE_LANGS", "en,x-jat")),
+		EpisodeLangs:       lowerList(env("EPISODE_LANGS", "en,x-jat")),
 		MinScore:           num("MIN_SCORE", 80, 0, 100),
 
 		TitleSources:       sourceList("TITLE_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
@@ -315,10 +315,13 @@ func upperList(s string) []string {
 	return out
 }
 
+// lowerList is a comma-separated list in lowercase (language codes: "EN" is "en").
+func lowerList(s string) []string { return list(strings.ToLower(s)) }
+
 // langList is a comma-separated language list; "none" means empty.
 func langList(name, def string) []string {
 	if v := env(name, def); !strings.EqualFold(v, "none") {
-		return list(v)
+		return lowerList(v)
 	}
 	return nil
 }
