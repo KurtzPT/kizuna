@@ -119,7 +119,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	entry := p.lists.ByAID(aid)
 	tmdbID, movie := entry.TMDB.ID, false
-	if a != nil && a.IsMovie() && entry.TMDBMovie > 0 {
+	// Without AniDB details, an entry with only a TMDB movie id is a movie.
+	isMovie := a != nil && a.IsMovie() || a == nil && entry.TMDB.ID == 0
+	if isMovie && entry.TMDBMovie > 0 {
 		tmdbID, movie = entry.TMDBMovie, true
 	}
 	if entry.TVDB.ID > 0 && (a == nil || !a.IsMovie()) {

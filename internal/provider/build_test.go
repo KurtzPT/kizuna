@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -609,6 +610,36 @@ func TestTMDBExceptionWithoutCounterpartIsNotPaired(t *testing.T) {
 		if w := strings.Join(ep.Writers, ","); w != "" {
 			t.Errorf("%s S01E02: writers %q, want none (TMDB's would be from an unrelated episode)", root, w)
 		}
+	}
+}
+
+// An /anidb movie built before AniDB answers already uses its TMDB movie:
+// an entry with only a TMDB movie id is taken for a movie.
+func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		switch path {
+		case "api.anidb.net/httpapi":
+			return 500, ""
+		case "api.themoviedb.org/3/movie/99":
+			return 200, `{"title":"TMDB Movie","overview":"From TMDB's movie."}`
+		case "api.themoviedb.org/3/movie/99/images":
+			return 200, `{"posters":[{"file_path":"/movie.jpg"}]}`
+		}
+		return testSeries(path, q)
+	}})
+	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TMDBMovie: 99}})
+	s, err := p.buildShow(context.Background(), "anidb-100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Summary != "From TMDB's movie." {
+		t.Errorf("summary %q, want TMDB's movie's", s.Summary)
+	}
+	if len(s.Art.Posters) == 0 || s.Art.Posters[0] != "https://image.tmdb.org/t/p/original/movie.jpg" {
+		t.Errorf("posters %v, want TMDB's movie poster", s.Art.Posters)
+	}
+	if !slices.Contains(s.Guids, "tmdb://99") {
+		t.Errorf("guids %v, want tmdb://99", s.Guids)
 	}
 }
 
