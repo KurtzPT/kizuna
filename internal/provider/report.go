@@ -301,8 +301,12 @@ var episodeProblems = []struct {
 func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 	var out []report.Check
 	if s.Placeholders {
+		text := "AniDB's details were not available, so every episode is a bare \"Episode N\" until the next build."
+		if s.Complete { // only without ANIDB_CLIENT: no details to wait for, no rebuild
+			text = "AniDB isn't set up (no ANIDB_CLIENT), so every episode is a bare \"Episode N\". Set ANIDB_CLIENT for the real episode list."
+		}
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Placeholder episodes", Cause: true,
-			Text: "AniDB's details were not available, so every episode is a bare \"Episode N\" until the next build.", Section: report.SectionEpisodes})
+			Text: text, Section: report.SectionEpisodes})
 	}
 	cause := func(c report.Check) bool { return c.Cause }
 	if !s.Complete && !slices.ContainsFunc(out, cause) && !slices.ContainsFunc(b.Checks, cause) { // else a check already says why

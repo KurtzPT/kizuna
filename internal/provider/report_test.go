@@ -234,3 +234,19 @@ func TestBuildChecksIncomplete(t *testing.T) {
 		t.Error("placeholder episodes already say why: no generic check")
 	}
 }
+
+// Placeholder episodes wait for the next build only when AniDB is set up;
+// without ANIDB_CLIENT the show is complete and the check says what to set.
+func TestBuildChecksPlaceholders(t *testing.T) {
+	for _, c := range []struct {
+		complete bool
+		want     string
+	}{{false, "until the next build"}, {true, "Set ANIDB_CLIENT"}} {
+		s := &Show{Title: "Show", Complete: c.complete, Placeholders: true}
+		cs := buildChecks(s, &report.Build{}, nil)
+		i := slices.IndexFunc(cs, func(c report.Check) bool { return c.Title == "Placeholder episodes" })
+		if i < 0 || !strings.Contains(cs[i].Text, c.want) || c.complete && strings.Contains(cs[i].Text, "next build") {
+			t.Errorf("complete %v: checks %+v, want placeholder text with %q", c.complete, cs, c.want)
+		}
+	}
+}
