@@ -1317,6 +1317,27 @@ func TestFetchesDontWaitForAniDB(t *testing.T) {
 	}
 }
 
+// With AniDB's answer fresh in the cache, a movie's episode lists aren't
+// fetched ahead: AniDB answers at once, and a movie isn't paired.
+func TestCachedMovieSkipsEarlyLists(t *testing.T) {
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 200, movieXML(100, "Kizuna Test", "The movie.", 90, "2010-05-01")
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net) // its entry has a TMDB TV id, as for a series
+	if _, err := p.anidb.Anime(context.Background(), 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.buildShow(context.Background(), "anidb-100"); err != nil {
+		t.Fatal(err)
+	}
+	if n := net.count("api4.thetvdb.com/v4/series/500/episodes/official/eng"); n != 0 {
+		t.Errorf("TheTVDB episode list fetched %d times, want none for a cached movie", n)
+	}
+}
+
 // specialEpisodes guesses a special-only entry's episodes without AniDB's
 // details: one for a movie, up to the next entry's spot for an OVA (one
 // without a next entry), at most maxSpecialEpisodes, raised by an exception

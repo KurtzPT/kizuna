@@ -39,13 +39,17 @@ func (l episodeLists) start(wg *sync.WaitGroup) {
 // AniDB answers, which can take seconds (its fair-use gap): AniDB may be
 // asked, and the lists will likely be paired with its episodes (any entry
 // but a movie known by its TMDB movie id alone; a special-only one is
-// paired too, as TheTVDB's special).
+// paired too, as TheTVDB's special). With AniDB's answer fresh in the cache,
+// its type decides: a movie isn't paired.
 func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 	if !p.anidb.Enabled() {
 		return false // the answer is at hand: no details
 	}
 	if _, blocked := p.anidb.BlockedUntil(aid); blocked {
 		return false
+	}
+	if a, fresh := p.anidb.Peek(aid); a != nil && fresh {
+		return !a.IsMovie() || entry.SpecialOnly()
 	}
 	return entry.SpecialOnly() || entry.TMDB.ID > 0 || entry.TMDBMovie == 0
 }
