@@ -110,6 +110,11 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 			nil, 0, 0, "id tags [anidb-69] [anidb-5]: only one is allowed"},
 		{"tag mode off, manual episode", tvdbOn, Modes["auto"], MatchRequest{Type: 4, Title: "Correct Title [anidb-69]", Manual: 1},
 			nil, 0, 0, "tag [anidb-69]: /anidb is off"},
+		// a manual season or episode match whose tag or GUID matches skips the title search
+		{"tag, manual season", p, Modes["anidb"], MatchRequest{Type: 3, Title: "Correct Title", Filename: "/a/One Piece [anidb-69]/01.mkv", Manual: 1},
+			[]string{"anidb-69"}, 0, 0, "tag [anidb-69]"},
+		{"guid, manual episode", p, Modes["anidb"], MatchRequest{Type: 4, Title: "Correct Title", GUID: guid, Manual: 1},
+			[]string{"anidb-69"}, 0, 0, "guid " + guid},
 	}
 	for _, c := range cases {
 		got, how := c.p.searchCandidates(c.mode, c.r.Title, c.r, nil)

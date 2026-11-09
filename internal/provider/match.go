@@ -153,18 +153,19 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 // no match. In /auto, an AniDB or TVDB tag whose mode is off is no match.
 // A manual show match (Fix Match) lists the id match, if any, first and then
 // the title search results: a tag that gives no match there still leaves the
-// typed title's results. A manual season or episode match isn't a list: a
-// tag that gives no match stays no match. title is the show's title in r (Match picks it by
-// r.Type); how says which of them decided. The first title search results
+// typed title's results. A manual season or episode match isn't a list: an
+// id match is the answer, and a tag that gives no match stays no match.
+// title is the show's title in r (Match picks it by r.Type); how says which
+// of them decided. The first title search results
 // are added to noted (when not nil) for the match report.
 func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
 	query := tagRe.ReplaceAllString(title, "")
 	c, how, stop := p.idCandidate(mode, title, query, r)
-	if r.Manual != 1 || stop && r.Type > 2 {
+	if r.Manual != 1 || r.Type > 2 {
 		if c != nil || stop {
 			return listOf(c), how
 		}
-		return p.titleCandidates(mode, query, r.Year, false, nil, noted)
+		return p.titleCandidates(mode, query, r.Year, r.Manual == 1, nil, noted)
 	}
 	out, thow := p.titleCandidates(mode, query, r.Year, true, c, noted)
 	if c == nil && !stop {
