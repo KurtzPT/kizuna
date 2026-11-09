@@ -133,9 +133,10 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 
 // searchCandidates: an id tag in the show title or the file path (which
 // includes the show folder) wins, then the GUID Plex already has, then title
-// search. In /auto, an AniDB or TVDB tag whose mode is off is no match. title is the show's title in r (Match picks it by r.Type); how
-// says which of them decided. The first title search results are added to
-// noted (when not nil) for the match report.
+// search. In /auto, an AniDB or TVDB tag whose mode is off is no match.
+// title is the show's title in r (Match picks it by r.Type); how says which
+// of them decided. The first title search results are added to noted (when
+// not nil) for the match report.
 func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
 	year, guid, manual := r.Year, r.GUID, r.Manual == 1
 	query := tagRe.ReplaceAllString(title, "")
