@@ -296,8 +296,12 @@ func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
 }
 
 // SeasonOverview returns the English overview of a TV show's season, from
-// the same request and cached file as the episode list.
+// the same request and cached file as the episode list. A season the show
+// doesn't list gives none and costs no request (see listsSeason).
 func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, error) {
+	if ok, err := t.listsSeason(ctx, id, season); !ok {
+		return "", err
+	}
 	var r struct {
 		Overview string `json:"overview"`
 	}
@@ -307,11 +311,9 @@ func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 
 // SeasonArt returns the posters of a TV show's season, English or textless
 // first, as TMDB orders them by votes. TMDB seasons have no backgrounds or
-// logos. A season the show doesn't list (often Specials) gives none and
-// costs no request: TMDB would answer 404, which isn't cached.
+// logos. A season the show doesn't list gives none and costs no request.
 func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
-	show, err := t.TV(ctx, id)
-	if err != nil || !slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }) {
+	if ok, err := t.listsSeason(ctx, id, season); !ok {
 		return Art{}, err
 	}
 	var r seasonImages
@@ -319,6 +321,17 @@ func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
 		return Art{}, err
 	}
 	return Art{Posters: r.posters()}, nil
+}
+
+// listsSeason: the show lists the season. One it doesn't (often Specials)
+// isn't asked for: TMDB would answer 404, which isn't cached. The show's
+// file is cached, and usually read already.
+func (t *TMDB) listsSeason(ctx context.Context, id, season int) (bool, error) {
+	show, err := t.TV(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }), nil
 }
 
 // seasonImages is the images part of a season file.
