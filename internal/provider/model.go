@@ -284,7 +284,7 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 		if e.Season == 0 {
 			ep.Index = e.Number
 		}
-		ep.setTitle(b.list, e.Title)
+		ep.setTitle("tvdb", e.Title)
 		s.Episodes[ep.Season] = append(s.Episodes[ep.Season], ep)
 	}
 	for n := range s.Episodes {

@@ -353,33 +353,25 @@ func TestTVDBPairingPerSite(t *testing.T) {
 	first := &sources.AniDBAnime{AID: 100, Episodes: []sources.AniDBEpisode{
 		{Season: 1, Index: 1, Titles: []anidb.Title{{Lang: "en", Text: "Entry 100"}}}}}
 
-	cases := []struct {
-		list   string
-		titles map[spot]string
-		other  map[spot]otherPlace
-	}{
-		{"tvdb",
-			map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"},
-			// 200 is on another TMDB show: no pairing, not the absolute-number fallback
-			map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}, {3, 1}: {spot{3, 1}, true}}},
+	titles := map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"}
+	// 200 is on another TMDB show: no pairing, not the absolute-number fallback
+	other := map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}, {3, 1}: {spot{3, 1}, true}}
+
+	pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, first, nil), false)
+	if !ready {
+		t.Error("every entry is cached, want ready")
 	}
-	for _, c := range cases {
-		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, first, nil), false)
-		if !ready {
-			t.Errorf("%s list: every entry is cached, want ready", c.list)
+	if len(pr.titles) != len(titles) || len(pr.other) != len(other) {
+		t.Errorf("titles %v other %v, want %v %v", pr.titles, pr.other, titles, other)
+	}
+	for sp, w := range titles {
+		if got := pr.titles[sp].title; got != w {
+			t.Errorf("title at %v = %q, want %q", sp, got, w)
 		}
-		if len(pr.titles) != len(c.titles) || len(pr.other) != len(c.other) {
-			t.Errorf("%s list: titles %v other %v, want %v %v", c.list, pr.titles, pr.other, c.titles, c.other)
-		}
-		for sp, w := range c.titles {
-			if got := pr.titles[sp].title; got != w {
-				t.Errorf("%s list: title at %v = %q, want %q", c.list, sp, got, w)
-			}
-		}
-		for sp, w := range c.other {
-			if got, ok := pr.other[sp]; !ok || got != w {
-				t.Errorf("%s list: other site's spot for %v = %v (%v), want %v", c.list, sp, got, ok, w)
-			}
+	}
+	for sp, w := range other {
+		if got, ok := pr.other[sp]; !ok || got != w {
+			t.Errorf("TheMovieDb spot for %v = %v (%v), want %v", sp, got, ok, w)
 		}
 	}
 }
