@@ -2,7 +2,6 @@ package sources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -34,11 +33,7 @@ func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Durati
 		return fmt.Errorf("tmdb: no api key")
 	}
 	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
-	data, err := t.f.Get(ctx, fetch.Request{URL: url, Key: key, TTL: ttl})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, out)
+	return t.f.GetJSON(ctx, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
 }
 
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).

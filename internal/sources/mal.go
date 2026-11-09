@@ -2,7 +2,6 @@ package sources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -56,16 +55,13 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 		Start  string `json:"start_date"`
 		Rating string `json:"rating"`
 	}
-	data, err := m.f.Get(ctx, fetch.Request{
+	err := m.f.GetJSON(ctx, fetch.Request{
 		URL:     fmt.Sprintf("%s/anime/%d?fields=synopsis,main_picture,mean,genres,studios,start_date,rating", malAPI, id),
 		Key:     fmt.Sprintf("mal/v2-%d-full.json", id),
 		TTL:     30 * 24 * time.Hour,
 		Headers: map[string]string{"X-MAL-CLIENT-ID": m.clientID},
-	})
+	}, &r)
 	if err != nil {
-		return MALAnime{}, err
-	}
-	if err := json.Unmarshal(data, &r); err != nil {
 		return MALAnime{}, err
 	}
 	syn := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(r.Synopsis), "[Written by MAL Rewrite]"))

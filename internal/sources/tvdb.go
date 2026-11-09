@@ -249,7 +249,7 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 	if legacy {
 		headers["Accept-Language"] = "en" // v3 picks the language by header
 	}
-	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers})
+	err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers}, out)
 	var se *fetch.StatusError
 	if errors.As(err, &se) && se.Code == http.StatusUnauthorized {
 		t.mu.Lock()
@@ -258,10 +258,7 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 		}
 		t.mu.Unlock()
 	}
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, out)
+	return err
 }
 
 // Episodes returns all episodes in aired ("official") order with English
