@@ -36,7 +36,8 @@ type Show struct {
 	Episodes      map[int][]Ep // season -> episodes sorted by index
 	// Complete: false when something was missing (AniDB details, a failed or
 	// partial TVDB/TMDB episode list, a failed show-level source, the build's
-	// time running out): the model is cached briefly and rebuilt.
+	// time running out): the model is cached briefly and rebuilt. Without
+	// ANIDB_CLIENT, AniDB details are nothing to wait for.
 	Complete bool
 	// Placeholders: the episode list is unknown (an /anidb show built without
 	// AniDB details), so any S01/S00 episode Plex asks for is a bare
@@ -112,7 +113,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if len(titles) == 0 {
 		return nil, fmt.Errorf("anidb %d unknown: %v", aid, err)
 	}
-	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil}
+	// Without ANIDB_CLIENT there are no details to wait for: the show is
+	// complete as it is (as in buildTVDB), not rebuilt every 2 minutes.
+	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil || !p.anidb.Enabled()}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	entry := p.lists.ByAID(aid)
 	tmdbID, movie := entry.TMDB.ID, false
@@ -127,8 +130,12 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	if a == nil {
-		slog.Info("AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
-			"aid", aid, "why", err)
+		if p.anidb.Enabled() {
+			slog.Info("AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
+				"aid", aid, "why", err)
+		} else {
+			slog.Debug("AniDB not configured; using titles, other sources and placeholder episodes", "aid", aid)
+		}
 		s.Episodes[1] = nil
 		s.Placeholders = true
 	} else {

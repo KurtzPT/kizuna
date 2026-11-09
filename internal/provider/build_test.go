@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -770,6 +771,61 @@ func captureLogs(w io.Writer) (restore func()) {
 		slog.SetDefault(old)
 		log.SetOutput(out)
 		log.SetFlags(flags)
+	}
+}
+
+// loggedFor reports whether a captured line has msg and is about aid. Other
+// tests' background work may log into the capture too (the logger is
+// global), so a test looks only at its own aid's lines.
+func loggedFor(logs, msg string, aid int) bool {
+	field := "aid=" + strconv.Itoa(aid)
+	for line := range strings.Lines(logs) {
+		if strings.Contains(line, msg) && slices.Contains(strings.Fields(line), field) {
+			return true
+		}
+	}
+	return false
+}
+
+// An AniDB entry without a TheTVDB series is an anidb-N show in /tvdb too.
+// Without ANIDB_CLIENT its placeholder episodes are all there will be: the
+// show is complete, not rebuilt (and logged) every 2 minutes. With AniDB set
+// up but not answering, it is rebuilt soon.
+func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
+	const aid = 7200 // only this test's: its log lines are told apart by it
+	for name, c := range map[string]struct {
+		client   string
+		complete bool
+	}{
+		"AniDB not configured": {"", true},
+		"AniDB not answering":  {"kizunatest", false},
+	} {
+		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			if path == "api.anidb.net/httpapi" {
+				return 500, ""
+			}
+			return testSeries(path, q)
+		}}
+		p := newTestProvider(t, net)
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		f.SetTransport(net)
+		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
+		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
+		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TMDB: mapping.Placement{ID: 77}}})
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		s, err := p.buildShow(context.Background(), "anidb-7200")
+		restore()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if s.Complete != c.complete || !s.Placeholders {
+			t.Errorf("%s: complete %v placeholders %v, want %v true", name, s.Complete, s.Placeholders, c.complete)
+		}
+		if logged := loggedFor(logs.String(), "AniDB details not available", aid); logged == c.complete {
+			t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
+		}
 	}
 }
 
