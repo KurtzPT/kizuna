@@ -104,13 +104,11 @@ type AniDB struct {
 		ClientRejected   string    `json:"client_rejected,omitempty"`
 		ClientRejectedAt time.Time `json:"client_rejected_at,omitzero"`
 	}
-	memo     map[int]anidbMemo
-	prunedAt time.Time          // last sweep of expired memo entries
-	queued   map[int]bool       // background fetches waiting or running
-	pending  []int              // background fetches waiting for a worker, in order
-	workers  int                // prefetch workers running
-	working  sync.WaitGroup     // the same workers (tests wait on it)
-	calling  map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
+	queued  map[int]bool       // background fetches waiting or running
+	pending []int              // background fetches waiting for a worker, in order
+	workers int                // prefetch workers running
+	working sync.WaitGroup     // the same workers (tests wait on it)
+	calling map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
 	// failWhy: why an anime's last call failed (memory only: unknown after
 	// a restart). told: the failure whose 24 h block was already logged at
 	// Info, so a show rebuilt every 2 minutes doesn't repeat it.
@@ -119,6 +117,13 @@ type AniDB struct {
 	// backedOffAt: when the last failure stepped the backoff up. A call
 	// that went out before it and fails too is the same outage.
 	backedOffAt time.Time
+
+	// memoMu guards memo and prunedAt, apart from mu: mu is held over the
+	// state file's writes, which reading an entry from memory must not
+	// wait for. Never held together with mu.
+	memoMu   sync.Mutex
+	memo     map[int]anidbMemo
+	prunedAt time.Time // last sweep of expired memo entries
 }
 
 // anidbMemo is a parsed entry kept in memory. A stale one is kept too, so
@@ -171,9 +176,9 @@ func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
 // memory, and (read from disk) the cache file's age. What it parses is kept
 // in memory, fresh or not, so the next build needn't parse it again.
 func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Duration) {
-	c.mu.Lock()
+	c.memoMu.Lock()
 	m, kept := c.memo[aid]
-	c.mu.Unlock()
+	c.memoMu.Unlock()
 	kept = kept && time.Since(m.at) < time.Hour
 	if kept && m.fresh {
 		return m.anime, true, true, 0
@@ -349,8 +354,8 @@ func (c *AniDB) again(ctx context.Context, aid int, start time.Time) *AniDBAnime
 // one's cache file write time. No size limit: expired entries are swept
 // out every few minutes.
 func (c *AniDB) remember(a *AniDBAnime, fresh bool, mod time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.memoMu.Lock()
+	defer c.memoMu.Unlock()
 	now := time.Now()
 	c.memo[a.AID] = anidbMemo{a, now, fresh, mod}
 	if now.Sub(c.prunedAt) < 5*time.Minute {
