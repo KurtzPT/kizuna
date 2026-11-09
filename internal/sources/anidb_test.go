@@ -509,8 +509,9 @@ func captureLogs(t *testing.T) *logBuffer {
 	return logs
 }
 
-// A failed anime is blocked for 24 h: the failure says so, and the first
-// skip afterwards is logged at info, once, with when and why.
+// An anime AniDB answered with an error is blocked for 24 h: the failure
+// says so, and the first skip afterwards is logged at info, once, with when
+// and why.
 func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	logs := captureLogs(t)
 	c, calls := fakeAniDB(t, [2]string{"200", "<error>Anime not found</error>"})
@@ -519,9 +520,6 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	if s := logs.String(); !strings.Contains(s, "retry_anime_at=") {
 		t.Fatalf("failure warning lacks retry_anime_at:\n%s", s)
 	}
-	c.mu.Lock()
-	c.state.RetryAt = time.Time{} // no global backoff; the anime's block stands
-	c.mu.Unlock()
 	for range 3 { // rebuilds of the same show
 		if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) {
 			t.Fatalf("blocked anime: err %v", err)
@@ -541,9 +539,9 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	}
 }
 
-// BlockedUntil tells an anime in its 24 h block after a failed call from
-// one AniDB can't be asked about for a shorter while (a backoff, the daily
-// limit), and ends with the block.
+// BlockedUntil tells an anime in its 24 h block after AniDB answered with
+// an error from one AniDB can't be asked about for a shorter while (a
+// backoff, the daily limit), and ends with the block.
 func TestAniDBBlockedUntil(t *testing.T) {
 	var none *AniDB
 	if _, blocked := none.BlockedUntil(1); blocked {
@@ -555,9 +553,7 @@ func TestAniDBBlockedUntil(t *testing.T) {
 	}
 	_, _ = c.Anime(context.Background(), 1) // AniDB answers with an error: aid 1 blocked
 	c.mu.Lock()
-	c.state.RetryAt = c.state.RetryAt.Add(time.Hour) // and another anime under a backoff
-	c.mu.Unlock()
-	c.mu.Lock()
+	c.state.RetryAt = time.Now().Add(time.Hour) // and every other anime under a backoff
 	failedAt := c.state.Failed[1]
 	c.mu.Unlock()
 	if until, blocked := c.BlockedUntil(1); !blocked || !until.Equal(failedAt.Add(anidbRetry)) {
