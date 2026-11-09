@@ -2,6 +2,7 @@ package provider
 
 import (
 	"cmp"
+	"context"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -15,13 +16,22 @@ var genericTitle = regexp.MustCompile(`(?i)^\s*(?:(?:episode|ep\.?)\s*\d+|tba|tb
 // pickEpisodeTitles sets every episode's title per EPISODE_TITLES and logs
 // (debug) how many titles each source gave.
 func (p *Provider) pickEpisodeTitles(s *Show) {
-	used := map[string]int{}
+	debug := debugOn(context.Background())
+	var used map[string]int // for the debug line, built only when it is logged
+	if debug {
+		used = map[string]int{}
+	}
 	s.eachEpisode(func(ep *Ep) {
 		var src string
 		ep.Title, src = episodeTitle(ep, p.cfg.EpisodeTitles)
 		ep.titleSrc = src
-		used[cmp.Or(src, "-")]++
+		if debug {
+			used[cmp.Or(src, "-")]++
+		}
 	})
+	if !debug {
+		return
+	}
 	attrs := []any{"root", s.Root, "order", p.cfg.EpisodeTitles}
 	for _, src := range append(slices.Clone(p.cfg.EpisodeTitles), "-") {
 		attrs = append(attrs, src, used[src])

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -101,7 +100,7 @@ func (s *Show) Seasons() []int {
 	for n := range s.Episodes {
 		out = append(out, n)
 	}
-	sort.Ints(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -444,7 +443,7 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 		s.Episodes[ep.Season] = append(s.Episodes[ep.Season], ep)
 	}
 	for n := range s.Episodes {
-		sort.Slice(s.Episodes[n], func(i, j int) bool { return s.Episodes[n][i].Index < s.Episodes[n][j].Index })
+		slices.SortStableFunc(s.Episodes[n], func(a, b Ep) int { return cmp.Compare(a.Index, b.Index) }) // sort.Slice allocates
 	}
 }
 
