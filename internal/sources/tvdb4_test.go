@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"kizuna/internal/fetch"
 )
@@ -211,5 +212,37 @@ func TestTVDBSeasonOverview(t *testing.T) {
 		if c := n.count(v4 + "/seasons/" + id + "/translations/eng"); c != 0 {
 			t.Errorf("season record %s fetched %d times", id, c)
 		}
+	}
+}
+
+// A season with no English text is asked once per seasonTTL, not on every
+// build, and its 400 is no warning: it's an answer, not a failure.
+func TestTVDBSeasonWithoutEnglishOnce(t *testing.T) {
+	logs := captureLogs(t)
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login":                        `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/extended":       v4SeriesExtended,
+		v4 + "/seasons/501/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	const u = v4 + "/seasons/501/translations/eng"
+	for range 2 { // two builds of the same entry
+		if got, err := tv.SeasonOverview(ctx, 267440, 1); got != "" || err != nil {
+			t.Fatalf("season 1: %q %v, want none", got, err)
+		}
+	}
+	if c := n.count(u); c != 1 {
+		t.Errorf("asked %d times, want 1", c)
+	}
+	if s := logs.String(); s != "" {
+		t.Errorf("logged above debug:\n%s", s)
+	}
+
+	tv.seasonMu.Lock()
+	tv.noEnglish[501] = time.Now().Add(-time.Second) // its time is up
+	tv.seasonMu.Unlock()
+	_, _ = tv.SeasonOverview(ctx, 267440, 1)
+	if c := n.count(u); c != 2 {
+		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
 	}
 }

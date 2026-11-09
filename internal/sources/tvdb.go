@@ -42,7 +42,15 @@ type TVDB struct {
 	crewQueued map[int]bool
 	crewFailed map[int]time.Time
 	crewQueue  sync.WaitGroup // background fetches under way (tests wait on it)
+
+	// noEnglish: season ids TheTVDB has no English text for, and until when
+	// that answer stands (seasonTTL), so they aren't asked on every build.
+	seasonMu  sync.Mutex
+	noEnglish map[int]time.Time
 }
+
+// seasonTTL: how long a season's text, or its lack of one, is kept.
+const seasonTTL = 7 * 24 * time.Hour
 
 // tvdbLoginPause: how long a failed login is remembered. A rejected key
 // won't fix itself; a network error may be gone in a moment.
@@ -58,7 +66,7 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
-		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}}
+		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}}
 }
 
 func (t *TVDB) Enabled() bool { return t != nil && (t.key != "" || t.legacyKey != "") } // nil = not set up
@@ -233,6 +241,12 @@ var errTVDBSwitched = errors.New("tvdb: switched to the legacy key during the ca
 // get fetches path (relative to the root of the v3 or v4 API) through the
 // cache; key is the cache file name without the tvdb/ or tvdb3/ folder.
 func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.Duration, out any) error {
+	return t.getAs(ctx, legacy, false, path, key, ttl, out)
+}
+
+// getAs is get; quiet: the caller logs the request's failures itself (fetch
+// only logs them at debug).
+func (t *TVDB) getAs(ctx context.Context, legacy, quiet bool, path, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tvdb: no api key")
 	}
@@ -255,7 +269,7 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 		if legacy {
 			headers["Accept-Language"] = "en" // v3 picks the language by header
 		}
-		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers,
+		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: quiet,
 			// Done sees a 401 even when a stale copy answers the call.
 			Done: func(err error) {
 				if unauthorized(err) {
@@ -382,7 +396,7 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 		return "", nil
 	}
 	sid, err := t.seasonID(ctx, id, season)
-	if sid == 0 {
+	if sid == 0 || t.knownNoEnglish(sid) {
 		return "", err
 	}
 	var r struct {
@@ -390,11 +404,32 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	err = t.get(ctx, false, fmt.Sprintf("/seasons/%d/translations/eng", sid), fmt.Sprintf("%d/season-%d-eng.json", id, sid), 7*24*time.Hour, &r)
-	if noTranslation(err) {
+	path, key := fmt.Sprintf("/seasons/%d/translations/eng", sid), fmt.Sprintf("%d/season-%d-eng.json", id, sid)
+	err = t.getAs(ctx, false, true, path, key, seasonTTL, &r)
+	switch {
+	case noTranslation(err):
+		t.seasonMu.Lock()
+		t.noEnglish[sid] = time.Now().Add(seasonTTL)
+		t.seasonMu.Unlock()
+		slog.Debug("tvdb: no English season text", "series", id, "season", season, "retry_in", seasonTTL, "err", err)
 		return "", nil
+	case err != nil && ctx.Err() == nil && !errors.Is(err, errTVDBLogin) && !errors.Is(err, errTVDBSwitched):
+		slog.Warn("tvdb: season text not fetched", "series", id, "season", season, "err", err) // quiet request: logged here
 	}
 	return r.Data.Overview, err
+}
+
+// knownNoEnglish: TheTVDB answered, within seasonTTL, that the season has no
+// English text. Expired answers are dropped here.
+func (t *TVDB) knownNoEnglish(sid int) bool {
+	t.seasonMu.Lock()
+	defer t.seasonMu.Unlock()
+	until, ok := t.noEnglish[sid]
+	if ok && !time.Now().Before(until) {
+		delete(t.noEnglish, sid)
+		return false
+	}
+	return ok
 }
 
 // seasonID finds a season's aired-order id in the extended series record
