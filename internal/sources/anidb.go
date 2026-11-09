@@ -98,7 +98,9 @@ type AniDB struct {
 	}
 	memo     map[int]anidbMemo
 	prunedAt time.Time          // last sweep of expired memo entries
-	queued   map[int]bool       // background fetches running
+	queued   map[int]bool       // background fetches waiting or running
+	pending  []int              // background fetches waiting for a worker, in order
+	workers  int                // prefetch workers running
 	calling  map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
 	// failWhy: why an anime's last call failed (memory only: unknown after
 	// a restart). told: the failure whose 24 h block was already logged at
@@ -165,7 +167,8 @@ func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
 // and only while fewer than anidbBackgroundLimit calls were made in 24 h.
 // Its API call waits behind every call Plex is waiting for (a foreground
 // one), keeping the same 4 s gap. It returns at once; the entry is in the
-// cache for the next show build.
+// cache for the next show build. A few workers fetch the waiting entries in
+// order, so a big series doesn't start a goroutine for each.
 func (c *AniDB) Prefetch(aid int) {
 	if c.client == "" {
 		return
@@ -176,16 +179,42 @@ func (c *AniDB) Prefetch(aid int) {
 		return
 	}
 	c.queued[aid] = true
+	c.pending = append(c.pending, aid)
+	start := c.workers < anidbPrefetchWorkers
+	if start {
+		c.workers++
+	}
 	c.mu.Unlock()
-	go func() {
-		_, err := c.anime(context.Background(), aid, true)
-		if err != nil {
+	if start {
+		go c.prefetchWorker()
+	}
+}
+
+// anidbPrefetchWorkers: background fetches run at most this many at a
+// time, however many entries a /tvdb series asks for (only one call goes
+// out every 4 s anyway).
+const anidbPrefetchWorkers = 2
+
+// prefetchWorker fetches the waiting background entries, in order, until
+// none is left.
+func (c *AniDB) prefetchWorker() {
+	for {
+		c.mu.Lock()
+		if len(c.pending) == 0 {
+			c.workers--
+			c.mu.Unlock()
+			return
+		}
+		aid := c.pending[0]
+		c.pending = c.pending[1:]
+		c.mu.Unlock()
+		if _, err := c.anime(context.Background(), aid, true); err != nil {
 			slog.Debug("anidb: background fetch skipped", "aid", aid, "why", err)
 		}
 		c.mu.Lock()
 		delete(c.queued, aid)
 		c.mu.Unlock()
-	}()
+	}
 }
 
 func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnime, error) {

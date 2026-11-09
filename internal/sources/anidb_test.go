@@ -10,9 +10,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -244,6 +246,54 @@ func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
 		if a, err := c.Anime(ctx, 2); err != nil || a == nil || *calls != 2 {
 			t.Fatalf("after the pause, anime 2: %v, %d requests", err, *calls)
 		}
+	}
+}
+
+// Background fetches run at most anidbPrefetchWorkers at a time, the rest
+// wait their turn in order, and every one is fetched in the end.
+func TestAniDBPrefetchWorkers(t *testing.T) {
+	hold := make(chan struct{})
+	arrived := make(chan struct{}, 8)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrived <- struct{}{}
+		<-hold
+		calls.Add(1)
+		aid := r.URL.Query().Get("aid")
+		_, _ = w.Write([]byte(strings.Replace(anidbSample, `id="69"`, `id="`+aid+`"`, 1)))
+	}))
+	t.Cleanup(srv.Close)
+	old := anidbAPI
+	anidbAPI = srv.URL + "/?client=%s&clientver=%s&aid=%d"
+	t.Cleanup(func() { anidbAPI = old })
+	dir := t.TempDir()
+	c := NewAniDB(fetch.New(dir), dir, "test", "1")
+
+	aids := []int{1, 2, 3, 4, 5}
+	for _, aid := range aids {
+		c.Prefetch(aid)
+	}
+	c.Prefetch(3) // already waiting: not twice
+	for range anidbPrefetchWorkers {
+		<-arrived
+	}
+	c.mu.Lock()
+	workers, pending := c.workers, slices.Clone(c.pending)
+	c.mu.Unlock()
+	if workers != anidbPrefetchWorkers || !slices.Equal(pending, aids[anidbPrefetchWorkers:]) {
+		t.Fatalf("%d workers, waiting %v; want %d, %v", workers, pending, anidbPrefetchWorkers, aids[anidbPrefetchWorkers:])
+	}
+	close(hold)
+	for range len(aids) - anidbPrefetchWorkers {
+		<-arrived
+	}
+	for _, aid := range aids { // joins each download (or reads its cache) once it ended
+		if a, err := c.Anime(context.Background(), aid); err != nil || a.AID != aid {
+			t.Fatalf("anime %d: %v %v", aid, a, err)
+		}
+	}
+	if int(calls.Load()) != len(aids) {
+		t.Fatalf("%d calls, want %d", calls.Load(), len(aids))
 	}
 }
 
