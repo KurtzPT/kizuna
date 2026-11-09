@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"kizuna/internal/report"
 )
@@ -235,18 +236,25 @@ func TestBuildChecksIncomplete(t *testing.T) {
 	}
 }
 
-// Placeholder episodes wait for the next build only when AniDB is set up;
-// without ANIDB_CLIENT the show is complete and the check says what to set.
+// Placeholder episodes wait for the next build only when AniDB is set up
+// and may answer; without ANIDB_CLIENT the show is complete and the check
+// says what to set, and for an anime in its 24 h block, until when.
 func TestBuildChecksPlaceholders(t *testing.T) {
+	until := time.Date(2026, 11, 10, 18, 30, 0, 0, time.UTC)
 	for _, c := range []struct {
 		complete bool
+		blocked  time.Time
 		want     string
-	}{{false, "until the next build"}, {true, "Set ANIDB_CLIENT"}} {
-		s := &Show{Title: "Show", Complete: c.complete, Placeholders: true}
+	}{{false, time.Time{}, "until the next build"}, {true, time.Time{}, "Set ANIDB_CLIENT"},
+		{true, until, "block asking again until 2026-11-10 18:30 UTC"}} {
+		s := &Show{Title: "Show", Complete: c.complete, Placeholders: true, anidbBlocked: c.blocked}
 		cs := buildChecks(s, &report.Build{}, nil)
 		i := slices.IndexFunc(cs, func(c report.Check) bool { return c.Title == "Placeholder episodes" })
 		if i < 0 || !strings.Contains(cs[i].Text, c.want) || c.complete && strings.Contains(cs[i].Text, "next build") {
-			t.Errorf("complete %v: checks %+v, want placeholder text with %q", c.complete, cs, c.want)
+			t.Errorf("complete %v blocked %v: checks %+v, want placeholder text with %q", c.complete, c.blocked, cs, c.want)
+		}
+		if slices.ContainsFunc(cs, func(c report.Check) bool { return c.Title == "Built with something missing" }) {
+			t.Errorf("complete %v blocked %v: the placeholder check already says why: no generic check", c.complete, c.blocked)
 		}
 	}
 }

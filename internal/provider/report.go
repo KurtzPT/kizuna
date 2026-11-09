@@ -302,7 +302,12 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 	var out []report.Check
 	if s.Placeholders {
 		text := "AniDB's details were not available, so every episode is a bare \"Episode N\" until the next build."
-		if s.Complete { // only without ANIDB_CLIENT: no details to wait for, no rebuild
+		switch {
+		case !s.anidbBlocked.IsZero(): // complete: no details to wait for until the block ends
+			text = "AniDB's last call for this anime failed, and AniDB's rules block asking again until " +
+				s.anidbBlocked.Format("2006-01-02 15:04 MST") + ", so every episode is a bare \"Episode N\". " +
+				"The first build after that asks AniDB again."
+		case s.Complete: // without ANIDB_CLIENT: no details to wait for, no rebuild
 			text = "AniDB isn't set up (no ANIDB_CLIENT), so every episode is a bare \"Episode N\". Set ANIDB_CLIENT for the real episode list."
 		}
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Placeholder episodes", Cause: true,

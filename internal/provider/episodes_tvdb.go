@@ -108,8 +108,9 @@ func (b *tvdbBuild) onTMDBShow(e mapping.Entry) bool {
 // tvdbPairing walks every AniDB entry of a /tvdb series. b.first (b.aid's)
 // is already fetched: the first entry isn't looked up again, so a mapping
 // reload during the build can't pair with another entry's details. Other entries come from the cache; missing ones are fetched in the
-// background for the next build, and ready is false meanwhile. record notes
-// those missing entries in pr.loading, for the match report.
+// background for the next build, and ready is false meanwhile (not for an
+// entry in its 24 h block after a failed call: no build before then gets
+// it). record notes those missing entries in pr.loading, for the match report.
 func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready bool) {
 	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}
 	ready = true
@@ -119,9 +120,11 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 			var fresh bool
 			if a, fresh = p.anidb.Peek(aid); !fresh && p.anidb.Enabled() {
 				p.anidb.Prefetch(aid)
-				ready = ready && a != nil
-				if a == nil && record {
-					pr.loading = append(pr.loading, aid)
+				if _, blocked := p.anidb.BlockedUntil(aid); a == nil && !blocked {
+					ready = false
+					if record {
+						pr.loading = append(pr.loading, aid)
+					}
 				}
 			}
 		}

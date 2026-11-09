@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/fetch"
@@ -50,6 +51,10 @@ type Show struct {
 	// "Episode N" and the files still match. The next refresh with AniDB
 	// details replaces them.
 	Placeholders bool
+	// anidbBlocked: an /anidb show built without AniDB details because the
+	// anime is in its 24 h block after a failed call (zero = not): complete
+	// all the same, as no build before then can get them.
+	anidbBlocked time.Time
 
 	build string // match report build that made it (report.Recorder.ID)
 }
@@ -120,9 +125,15 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if len(titles) == 0 {
 		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, err)
 	}
-	// Without ANIDB_CLIENT there are no details to wait for: the show is
-	// complete as it is (as in buildTVDB), not rebuilt every 2 minutes.
+	// Without ANIDB_CLIENT, or while the anime is in its 24 h block after a
+	// failed call, there are no details to wait for: the show is complete as
+	// it is (as in buildTVDB), not rebuilt every 2 minutes.
 	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil || !p.anidb.Enabled()}
+	if a == nil && p.anidb.Enabled() {
+		if until, blocked := p.anidb.BlockedUntil(aid); blocked {
+			s.Complete, s.anidbBlocked = true, until
+		}
+	}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	entry := p.lists.ByAID(aid)
 	tmdbID, movie := entry.TMDB.ID, false
@@ -137,10 +148,14 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	if a == nil {
-		if p.anidb.Enabled() {
+		switch {
+		case !s.anidbBlocked.IsZero(): // the block itself is logged once, at Info (sources.AniDB)
+			slog.Debug("AniDB details not available; using titles, other sources and placeholder episodes until the anime's 24 h block ends",
+				"aid", aid, "blocked_until", s.anidbBlocked.Format(time.RFC3339), "why", err)
+		case p.anidb.Enabled():
 			slog.Info("AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
 				"aid", aid, "why", err)
-		} else {
+		default:
 			slog.Debug("AniDB not configured; using titles, other sources and placeholder episodes", "aid", aid)
 		}
 		s.Episodes[1] = nil
@@ -261,11 +276,18 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 
 	var wg sync.WaitGroup
 	var a *sources.AniDBAnime
+	var blocked bool // a is nil because the anime is in its 24 h block after a failed call
 	if aid > 0 {
 		wg.Go(func() {
 			var err error
 			if a, err = p.anidb.Anime(ctx, aid); a == nil && p.anidb.Enabled() {
-				slog.Info("AniDB details not available; using titles and other sources, retried in 2 min", "aid", aid, "why", err)
+				var until time.Time
+				if until, blocked = p.anidb.BlockedUntil(aid); blocked { // the block itself is logged once, at Info (sources.AniDB)
+					slog.Debug("AniDB details not available; using titles and other sources until the anime's 24 h block ends",
+						"aid", aid, "blocked_until", until.Format(time.RFC3339), "why", err)
+				} else {
+					slog.Info("AniDB details not available; using titles and other sources, retried in 2 min", "aid", aid, "why", err)
+				}
 			}
 		})
 	}
@@ -294,10 +316,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.OriginalTitle = p.originalTitle(p.showTitles(aid, a)) // without details, from the title dump
 	if a != nil {
 		averageRuntime(s, a)
-	} else if p.anidb.Enabled() && aid > 0 {
-		// AniDB details missing: rebuild soon (without ANIDB_CLIENT there are
-		// none to wait for). Also for an entry the title dump doesn't list
-		// yet: a new one, which AniDB has before the next dump.
+	} else if p.anidb.Enabled() && aid > 0 && !blocked {
+		// AniDB details missing: rebuild soon (without ANIDB_CLIENT, or while
+		// the anime is in its 24 h block after a failed call, there are none
+		// to wait for). Also for an entry the title dump doesn't list yet: a
+		// new one, which AniDB has before the next dump.
 		s.Complete = false
 	}
 	if s.Minutes == 0 { // no AniDB details, or no runtimes there

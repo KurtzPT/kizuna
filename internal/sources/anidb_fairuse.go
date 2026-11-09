@@ -192,6 +192,25 @@ func (c *AniDB) fetchedLately(aid int) bool {
 	return ok && time.Since(at) < anidbRetry
 }
 
+// BlockedUntil reports whether aid is in its 24 h block after a failed call
+// (AniDB's rule: no call for it until then), and when the block ends. No
+// build before then can get its details, so they are nothing to wait for.
+// Other reasons not to call (a ban, a backoff, the daily limit) pass sooner
+// and don't count. nil = AniDB not set up: never blocked.
+func (c *AniDB) BlockedUntil(aid int) (time.Time, bool) {
+	if c == nil {
+		return time.Time{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, failed := c.state.Failed[aid]
+	if !failed {
+		return time.Time{}, false
+	}
+	until := at.Add(anidbRetry)
+	return until, time.Now().Before(until)
+}
+
 // uncount takes a call that never went out off state.Sent. Caller holds c.mu.
 func (c *AniDB) uncount(call *anidbCall) {
 	if i := slices.IndexFunc(c.state.Sent, call.at.Equal); i >= 0 {

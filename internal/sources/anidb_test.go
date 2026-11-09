@@ -488,6 +488,36 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	}
 }
 
+// BlockedUntil tells an anime in its 24 h block after a failed call from
+// one AniDB can't be asked about for a shorter while (a backoff, the daily
+// limit), and ends with the block.
+func TestAniDBBlockedUntil(t *testing.T) {
+	var none *AniDB
+	if _, blocked := none.BlockedUntil(1); blocked {
+		t.Error("nil AniDB: want not blocked")
+	}
+	c, _ := fakeAniDB(t, [2]string{"500", "oops"})
+	if _, blocked := c.BlockedUntil(1); blocked {
+		t.Error("never asked: want not blocked")
+	}
+	_, _ = c.Anime(context.Background(), 1) // fails: aid 1 blocked, and a backoff for every anime
+	c.mu.Lock()
+	failedAt := c.state.Failed[1]
+	c.mu.Unlock()
+	if until, blocked := c.BlockedUntil(1); !blocked || !until.Equal(failedAt.Add(anidbRetry)) {
+		t.Errorf("failed anime: blocked %v until %v, want true until %v", blocked, until, failedAt.Add(anidbRetry))
+	}
+	if _, blocked := c.BlockedUntil(2); blocked {
+		t.Error("another anime under the backoff: want not blocked")
+	}
+	c.mu.Lock()
+	c.state.Failed[1] = time.Now().Add(-anidbRetry) // the block just ended
+	c.mu.Unlock()
+	if _, blocked := c.BlockedUntil(1); blocked {
+		t.Error("block over: want not blocked")
+	}
+}
+
 // Callers that ask for the same anime at once join one download, and each
 // gets the entry: the one that started it reuses validate's parse, the
 // others parse it themselves (CI runs this with -race).

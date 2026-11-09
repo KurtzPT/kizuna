@@ -2,15 +2,19 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
@@ -790,7 +794,7 @@ func loggedFor(logs, msg string, aid int) bool {
 // An AniDB entry without a TheTVDB series is an anidb-N show in /tvdb too.
 // Without ANIDB_CLIENT its placeholder episodes are all there will be: the
 // show is complete, not rebuilt (and logged) every 2 minutes. With AniDB set
-// up but not answering, it is rebuilt soon.
+// up but backing off, it is rebuilt soon.
 func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
 	const aid = 7200 // only this test's: its log lines are told apart by it
 	for name, c := range map[string]struct {
@@ -798,19 +802,11 @@ func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
 		complete bool
 	}{
 		"AniDB not configured": {"", true},
-		"AniDB not answering":  {"kizunatest", false},
+		"AniDB backing off":    {"kizunatest", false},
 	} {
-		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
-			if path == "api.anidb.net/httpapi" {
-				return 500, ""
-			}
-			return testSeries(path, q)
-		}}
+		net := &fakeNet{answer: failingAniDB}
 		p := newTestProvider(t, net)
-		dir := t.TempDir()
-		f := fetch.New(dir)
-		f.SetTransport(net)
-		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
+		p.anidb = anidbWithState(t, net, c.client, anidbBackingOff())
 		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
 		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TMDB: mapping.Placement{ID: 77}}})
 		var logs strings.Builder
@@ -831,28 +827,19 @@ func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
 
 // /tvdb works without ANIDB_CLIENT: the show has no AniDB details to wait
 // for, so it is complete and not rebuilt (and logged) every 2 minutes. With
-// AniDB set up but not answering, it is rebuilt soon.
+// AniDB set up but backing off, it is rebuilt soon.
 func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 	const aid = 7100 // only this test's: its log lines are told apart by it
-	failing := func(path string, q map[string][]string) (int, string) {
-		if path == "api.anidb.net/httpapi" {
-			return 500, ""
-		}
-		return testSeries(path, q)
-	}
 	for name, c := range map[string]struct {
 		client   string
 		complete bool
 	}{
 		"AniDB not configured": {"", true},
-		"AniDB not answering":  {"kizunatest", false},
+		"AniDB backing off":    {"kizunatest", false},
 	} {
-		net := &fakeNet{answer: failing}
+		net := &fakeNet{answer: failingAniDB}
 		p := newTestProvider(t, net)
-		dir := t.TempDir()
-		f := fetch.New(dir)
-		f.SetTransport(net)
-		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
+		p.anidb = anidbWithState(t, net, c.client, anidbBackingOff())
 		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
 		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
 			TMDB: mapping.Placement{ID: 77}}})
@@ -876,15 +863,12 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 }
 
 // A /tvdb series whose first AniDB entry is too new for the title dump is
-// still rebuilt soon while AniDB doesn't answer, not kept an hour without
-// AniDB's data.
+// still rebuilt soon while AniDB can't be asked yet (a backoff), not kept
+// an hour without AniDB's data.
 func TestTVDBNewEntryWithoutAniDBIsIncomplete(t *testing.T) {
-	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
-		if path == "api.anidb.net/httpapi" {
-			return 500, ""
-		}
-		return testSeries(path, q)
-	}})
+	net := &fakeNet{answer: failingAniDB}
+	p := newTestProvider(t, net)
+	p.anidb = anidbWithState(t, net, "kizunatest", anidbBackingOff())
 	p.titles.SetForTest(map[int][]anidb.Title{}) // not in the dump yet
 	s, err := p.buildShow(context.Background(), "tvdb-500")
 	if err != nil {
@@ -924,5 +908,156 @@ func TestTVDBWithoutAniDBDetails(t *testing.T) {
 	}
 	if s.Minutes != 25 {
 		t.Errorf("runtime %d, want 25 (TheTVDB's regular episodes; the special doesn't count)", s.Minutes)
+	}
+}
+
+// failingAniDB is testSeries with AniDB answering every call with a 500.
+func failingAniDB(path string, q map[string][]string) (int, string) {
+	if path == "api.anidb.net/httpapi" {
+		return 500, ""
+	}
+	return testSeries(path, q)
+}
+
+// anidbState: the fields of AniDB's state file (anidb-state.json) these
+// tests start from.
+type anidbState struct {
+	RetryAt  time.Time         `json:"retry_at,omitzero"` // a backoff
+	Failures int               `json:"failures,omitempty"`
+	Sent     []time.Time       `json:"sent,omitempty"`   // calls in the last 24 h
+	Failed   map[int]time.Time `json:"failed,omitempty"` // aid -> its failed call
+}
+
+// anidbBackingOff: a backoff for another hour, after failed calls.
+func anidbBackingOff() anidbState { return anidbState{RetryAt: time.Now().Add(time.Hour), Failures: 3} }
+
+// anidbWithState is an AniDB client on net that starts from state, as
+// after a restart.
+func anidbWithState(t *testing.T, net *fakeNet, client string, state anidbState) *sources.AniDB {
+	t.Helper()
+	dir := t.TempDir()
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "anidb-state.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := fetch.New(dir)
+	f.SetTransport(net)
+	return sources.NewAniDB(f, dir, client, "1")
+}
+
+// An anime in its 24 h block after a failed call (AniDB's rule) has no
+// details to wait for: its show is complete (kept the usual hour), in /anidb
+// and /tvdb, and isn't logged at Info on every build (the block is, once).
+// A shorter pause (a backoff, the daily limit) still rebuilds soon, and so
+// does a block that ended, until AniDB's details are in.
+func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
+	const aid = 7300 // only this test's: its log lines are told apart by it
+	entry := strings.Replace(anidbXML, `id="100"`, `id="7300"`, 1)
+	now := time.Now()
+	daily := make([]time.Time, 200)
+	for i := range daily {
+		daily[i] = now.Add(-time.Hour)
+	}
+	ended := map[int]time.Time{aid: now.Add(-25 * time.Hour)}
+	for _, mode := range []string{"anidb", "tvdb"} {
+		for name, c := range map[string]struct {
+			state    anidbState
+			fail     bool // AniDB answers a call with a 500
+			complete bool
+			calls    int  // AniDB calls the build makes
+			details  bool // the build has AniDB's details
+		}{
+			"failed in this build":       {anidbState{}, true, true, 1, false},
+			"blocked":                    {anidbState{Failed: map[int]time.Time{aid: now.Add(-time.Hour)}}, false, true, 0, false},
+			"backing off":                {anidbBackingOff(), false, false, 0, false},
+			"daily limit":                {anidbState{Sent: daily}, false, false, 0, false},
+			"block ended, still pausing": {anidbState{Failed: ended, RetryAt: now.Add(time.Hour), Failures: 1}, false, false, 0, false},
+			"block ended":                {anidbState{Failed: ended}, false, true, 1, true},
+		} {
+			net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+				if path == "api.anidb.net/httpapi" {
+					if c.fail {
+						return 500, ""
+					}
+					return 200, entry
+				}
+				return testSeries(path, q)
+			}}
+			p := newTestProvider(t, net)
+			p.anidb = anidbWithState(t, net, "kizunatest", c.state)
+			p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
+			e := mapping.Entry{AID: aid, TMDB: mapping.Placement{ID: 77}}
+			root := "anidb-7300"
+			if mode == "tvdb" {
+				e.TVDB, root = mapping.Placement{ID: 500, Season: 1, Mapped: true}, "tvdb-500"
+			}
+			p.lists.SetForTest(map[int]mapping.Entry{aid: e})
+			var logs strings.Builder
+			restore := captureLogs(&logs)
+			s, err := p.buildShow(context.Background(), root)
+			p.anidb.WaitIdle()
+			restore()
+			name := mode + ": " + name
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if s.Complete != c.complete {
+				t.Errorf("%s: complete %v, want %v", name, s.Complete, c.complete)
+			}
+			if n := net.count("api.anidb.net/httpapi"); n != c.calls {
+				t.Errorf("%s: %d AniDB calls, want %d", name, n, c.calls)
+			}
+			if got := s.Summary == "From AniDB."; got != c.details {
+				t.Errorf("%s: AniDB details %v (summary %q), want %v", name, got, s.Summary, c.details)
+			}
+			// Without details, only a build that may get them soon says so at Info.
+			soon := !c.complete && !c.details
+			if logged := loggedFor(logs.String(), "retried in 2 min", aid); logged != soon {
+				t.Errorf("%s: \"retried in 2 min\" logged %v, want %v:\n%s", name, logged, soon, logs.String())
+			}
+			if blocked := name == mode+": blocked"; blocked != loggedFor(logs.String(), "not asking about this anime again until", aid) {
+				t.Errorf("%s: block logged %v, want %v:\n%s", name, !blocked, blocked, logs.String())
+			}
+		}
+	}
+}
+
+// A later AniDB entry of a /tvdb series keeps the show incomplete while it
+// is fetched in the background, but not once its call failed: then it is in
+// its 24 h block, and no rebuild before that gets it.
+func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" && q["aid"][0] == "200" {
+			return 500, ""
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net)
+	p.lists.SetForTest(map[int]mapping.Entry{
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+	})
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Complete {
+		t.Error("AniDB 200 being fetched: want an incomplete show")
+	}
+	p.anidb.WaitIdle()
+	if _, blocked := p.anidb.BlockedUntil(200); !blocked {
+		t.Fatal("AniDB 200's failed call didn't block it")
+	}
+	if s, err = p.buildShow(context.Background(), "tvdb-500"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Complete {
+		t.Error("AniDB 200 blocked for 24 h: want a complete show")
+	}
+	if n := net.count("api.anidb.net/httpapi"); n != 2 {
+		t.Errorf("%d AniDB calls, want 2 (100, and 200 once)", n)
 	}
 }
