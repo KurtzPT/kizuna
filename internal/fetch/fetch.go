@@ -61,10 +61,11 @@ type Request struct {
 	// cached copy (for callers that track failures themselves).
 	NoStale bool
 	// Before, if set, runs when the request's turn on its host comes, right
-	// before it goes out. An error stops it there (nothing is sent; the
-	// host's slot is used all the same) and is the download's error. For a
-	// source whose own rules may have changed while the request waited (an
-	// AniDB ban brought by the answer ahead of it).
+	// before it goes out; the host's next request waits until it returns.
+	// An error stops it there (nothing is sent; the host's slot is used all
+	// the same) and is the download's error. For a source whose own rules
+	// may have changed while the request waited (an AniDB ban brought by the
+	// answer ahead of it).
 	Before func() error
 	// Done, if set, gets the outcome of the network request once it ends,
 	// even when the caller stopped waiting (ctx). Not called on a cache hit.
@@ -322,10 +323,13 @@ func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 
 func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.Duration, err error) {
 	waited = t.wait()
+	var stop error
 	if r.Before != nil {
-		if err := r.Before(); err != nil {
-			return nil, 0, waited, err
-		}
+		stop = r.Before()
+	}
+	t.sent() // the next request on the host waits until gap from now
+	if stop != nil {
+		return nil, 0, waited, stop
 	}
 
 	method := cmp.Or(r.Method, http.MethodGet)

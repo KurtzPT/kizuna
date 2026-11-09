@@ -10,12 +10,15 @@ import (
 // requests go out one at a time, foreground ones first, each in arrival
 // order: a background request (an AniDB prefetch) only takes a slot when
 // no foreground request (one Plex is waiting for) is queued. The gap is
-// measured from the moment the previous request was let through, whatever
-// the order, so priority never shortens it.
+// measured from the moment the previous request went out (ticket.sent),
+// whatever the order, so priority never shortens it, and the next request
+// isn't let through before then: a slow Before (an AniDB state write) can't
+// make two requests go out together.
 type hostLimit struct {
 	mu      sync.Mutex
 	gap     time.Duration
-	last    time.Time     // when the last request was let through
+	last    time.Time     // when the last request went out
+	going   bool          // a request was let through but hasn't gone out yet
 	fg, bg  []*ticket     // waiting requests, in arrival order
 	changed chan struct{} // closed (and replaced) when last or the queues change
 
@@ -105,9 +108,10 @@ func (t *ticket) promote() {
 	}
 }
 
-// wait blocks until it is t's turn and at least gap has passed since the
-// last request was let through, and returns how long it waited. A nil
-// ticket doesn't wait.
+// wait blocks until it is t's turn, the request let through before it has
+// gone out and at least gap has passed since then, and returns how long it
+// waited. The caller calls sent once the request goes out (or is dropped).
+// A nil ticket doesn't wait.
 func (t *ticket) wait() time.Duration {
 	if t == nil {
 		return 0
@@ -118,14 +122,14 @@ func (t *ticket) wait() time.Duration {
 	for {
 		now := time.Now()
 		at := l.last.Add(l.gap)
-		first := l.head() == t
+		first := l.head() == t && !l.going
 		if first && !now.Before(at) {
 			if t.background {
 				l.bg = l.bg[1:]
 			} else {
 				l.fg = l.fg[1:]
 			}
-			l.last = now
+			l.last, l.going = now, true
 			if l.released != nil {
 				l.released(t, now)
 			}
@@ -147,4 +151,18 @@ func (t *ticket) wait() time.Duration {
 		}
 		l.mu.Lock()
 	}
+}
+
+// sent notes that t's request, let through by wait, goes out now (or won't
+// go at all): the gap to the next one counts from here. A nil ticket is
+// left alone.
+func (t *ticket) sent() {
+	if t == nil {
+		return
+	}
+	l := t.l
+	l.mu.Lock()
+	l.last, l.going = time.Now(), false
+	l.signal()
+	l.mu.Unlock()
 }

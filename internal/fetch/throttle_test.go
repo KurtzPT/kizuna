@@ -39,17 +39,23 @@ func releases(l *hostLimit, names []string, tickets []*ticket) []string {
 	open(l)
 	var wg sync.WaitGroup
 	for _, t := range tickets {
-		wg.Go(func() { t.wait() })
+		wg.Go(func() { send(t) })
 	}
 	wg.Wait()
 	return order()
+}
+
+// send waits for t's turn and sends its request at once.
+func send(t *ticket) {
+	t.wait()
+	t.sent()
 }
 
 // A foreground request queued after background ones goes first; then the
 // background ones go in arrival order.
 func TestThrottleForegroundFirst(t *testing.T) {
 	l := newHostLimit(time.Hour)
-	l.enqueue(false).wait() // the slot is now taken: the rest queue up
+	send(l.enqueue(false)) // the slot is now taken: the rest queue up
 	tickets := []*ticket{l.enqueue(true), l.enqueue(true), l.enqueue(false)}
 	order := releases(l, []string{"bg1", "bg2", "fg"}, tickets)
 	if got := strings.Join(order, ","); got != "fg,bg1,bg2" {
@@ -61,7 +67,7 @@ func TestThrottleForegroundFirst(t *testing.T) {
 // of the other background ones.
 func TestThrottlePromote(t *testing.T) {
 	l := newHostLimit(time.Hour)
-	l.enqueue(false).wait()
+	send(l.enqueue(false))
 	bg1, bg2 := l.enqueue(true), l.enqueue(true)
 	bg2.promote()
 	order := releases(l, []string{"bg1", "bg2"}, []*ticket{bg1, bg2})
@@ -81,7 +87,7 @@ func TestThrottleSpacingHolds(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 12 {
 		tk := l.enqueue(i%3 != 0)
-		wg.Go(func() { tk.wait() })
+		wg.Go(func() { send(tk) })
 		if i%4 == 1 {
 			tk.promote()
 		}
@@ -100,6 +106,32 @@ func TestThrottleSpacingHolds(t *testing.T) {
 	}
 }
 
+// The next request isn't let through while the one let through before it
+// hasn't gone out (its Before is slow), and the gap counts from when it
+// went out. Only a lower bound is checked; the pause only gives a wrong
+// release its chance.
+func TestThrottleGapFromSent(t *testing.T) {
+	const gap = 30 * time.Millisecond
+	l := newHostLimit(gap)
+	var second time.Time
+	a, b := l.enqueue(false), l.enqueue(false)
+	l.released = func(tk *ticket, at time.Time) {
+		if tk == b {
+			second = at
+		}
+	}
+	a.wait()
+	done := make(chan struct{})
+	go func() { send(b); close(done) }()
+	time.Sleep(3 * gap) // a's Before takes its time
+	sentAt := time.Now()
+	a.sent()
+	<-done
+	if d := second.Sub(sentAt); d < gap {
+		t.Errorf("second request let through %v after the first went out, want at least %v", d, gap)
+	}
+}
+
 // ThrottleFrom carries an earlier run's last request over: the first
 // request waits until gap after it. An earlier time than the one known is
 // ignored.
@@ -112,7 +144,7 @@ func TestThrottleFrom(t *testing.T) {
 	l := c.limits["api.example"]
 	var at time.Time
 	l.released = func(_ *ticket, t time.Time) { at = t }
-	l.enqueue(false).wait()
+	send(l.enqueue(false))
 	if at.Before(last.Add(gap)) {
 		t.Errorf("first request let through %v after the last one, want at least %v", at.Sub(last), gap)
 	}

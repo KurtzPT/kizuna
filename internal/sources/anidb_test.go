@@ -290,6 +290,46 @@ func (a admissions) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
+// A slow state write (an fsync on a spun-down disk, here c.mu held) delays
+// the call let through first; the one queued behind it still reaches AniDB
+// at least the gap after it, not together with it. Only a lower bound is
+// checked, at the server.
+func TestAniDBGapCountsFromSend(t *testing.T) {
+	var mu sync.Mutex
+	var at []time.Time
+	c, _ := fakeAniDBServer(t, func(aid int) [2]string {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		return [2]string{"200", strings.Replace(anidbSample, `id="69"`, `id="`+strconv.Itoa(aid)+`"`, 1)}
+	})
+	u, err := url.Parse(anidbAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const gap = 100 * time.Millisecond
+	c.f.ThrottleFrom(u.Host, time.Hour, time.Now()) // both queue up
+
+	var wg sync.WaitGroup
+	for aid := 1; aid <= 2; aid++ {
+		wg.Go(func() { _, _ = c.Anime(context.Background(), aid) })
+	}
+	for fg, _ := c.f.Waiting(u.Host); fg < 2; fg, _ = c.f.Waiting(u.Host) {
+		time.Sleep(time.Millisecond)
+	}
+	c.mu.Lock() // the slow write
+	c.f.ThrottleFrom(u.Host, gap, time.Now())
+	time.Sleep(4 * gap)
+	c.mu.Unlock()
+	wg.Wait()
+	if len(at) != 2 {
+		t.Fatalf("%d requests, want 2", len(at))
+	}
+	if d := at[1].Sub(at[0]); d < gap {
+		t.Errorf("requests reached AniDB %v apart, want at least %v", d, gap)
+	}
+}
+
 // A call waiting in the 4 s queue when the answer ahead of it brings a ban
 // or a backoff is not sent when its turn comes: no request, its count given
 // back, the anime not marked failed, the backoff not stepped up again.
