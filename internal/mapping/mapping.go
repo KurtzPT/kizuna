@@ -403,3 +403,14 @@ func first(s string) string {
 	s, _, _ = strings.Cut(s, ",")
 	return strings.TrimSpace(s)
 }
+
+// imdbID returns the first IMDb title id ("tt…") of ids, or "": an id of
+// another kind, or an empty one, may come before it.
+func imdbID(ids ...string) string {
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); strings.HasPrefix(id, "tt") {
+			return id
+		}
+	}
+	return ""
+}

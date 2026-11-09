@@ -63,11 +63,8 @@ func parseAnimeLists(data []byte) (map[int]Entry, error) {
 			TVDB: Placement{ID: atoi(tvdb), Season: listSeason(a.Season), Offset: atoi(a.Offset), Mapped: true},
 			TMDB: Placement{ID: atoi(a.TMDBTV), Season: listSeason(a.TMDBSn), Offset: atoi(a.TMDBOf),
 				Mapped: strings.TrimSpace(a.TMDBSn) != ""},
-			TMDBMovie: atoi(first(a.TMDB)), IMDB: first(a.IMDB)}
+			TMDBMovie: atoi(first(a.TMDB)), IMDB: imdbID(strings.Split(a.IMDB, ",")...)}
 		e.noTVDB = e.TVDB.ID == 0 && tvdb != "" && !strings.EqualFold(tvdb, "unknown")
-		if !strings.HasPrefix(e.IMDB, "tt") {
-			e.IMDB = ""
-		}
 		// A <mapping> is for TheTVDB (tvdbseason), TheMovieDb (tmdbseason) or both.
 		for _, m := range a.Maps {
 			if strings.TrimSpace(m.TVDBSeason) != "" {

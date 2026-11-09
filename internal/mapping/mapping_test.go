@@ -401,3 +401,29 @@ func TestLookups(t *testing.T) {
 		t.Errorf("AIDsForTVDB(100) = %v (cap %d): want all three, clipped so an append can't write into the mapping", aids, cap(aids))
 	}
 }
+
+// Both lists give an entry the first IMDb title id ("tt…") they list, also
+// when another kind of id comes first.
+func TestFirstIMDbTitleID(t *testing.T) {
+	al, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="1" tvdbid="1" imdbid="nm0000001,tt0000002,tt0000003"/>
+<anime anidbid="2" tvdbid="1" imdbid=" tt0000004 "/>
+<anime anidbid="3" tvdbid="1" imdbid="nm0000001"/>
+<anime anidbid="4" tvdbid="1" imdbid=""/></anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fr, err := parseFribb([]byte(`[{"anidb_id": 1, "imdb_id": ["", "nm0000001", "tt0000002", "tt0000003"]},
+{"anidb_id": 2, "imdb_id": ["tt0000004"]}, {"anidb_id": 3, "imdb_id": ["nm0000001"]}, {"anidb_id": 4}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for aid, want := range map[int]string{1: "tt0000002", 2: "tt0000004", 3: "", 4: ""} {
+		if got := al[aid].IMDB; got != want {
+			t.Errorf("animelists %d: IMDb %q, want %q", aid, got, want)
+		}
+		if got := fr[aid].IMDB; got != want {
+			t.Errorf("fribb %d: IMDb %q, want %q", aid, got, want)
+		}
+	}
+}

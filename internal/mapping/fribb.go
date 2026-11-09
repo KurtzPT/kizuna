@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"kizuna/internal/fetch"
@@ -74,9 +73,7 @@ func parseFribb(data []byte) (map[int]Entry, error) {
 		if len(a.TMDB.Movie) > 0 {
 			e.TMDBMovie = a.TMDB.Movie[0]
 		}
-		if len(a.IMDB) > 0 && strings.HasPrefix(a.IMDB[0], "tt") {
-			e.IMDB = a.IMDB[0]
-		}
+		e.IMDB = imdbID(a.IMDB...)
 		out[a.AID] = e
 	}
 	return out, nil
