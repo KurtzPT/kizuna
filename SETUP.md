@@ -295,7 +295,7 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
 | `TITLE_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
-| `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
+| `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | In `/anidb`, a later entry of a series gets its season's summary from TheTVDB and TheMovieDb: see below |
 | `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
 | `CAST_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
 | `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | The show's directors and writers, both from the same source. Episodes get their own: see below |
@@ -305,7 +305,11 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
 In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
-date they're only used on the AniDB entry that starts the series (a TheMovieDb movie is always its own entry).
+date they're only used on the AniDB entry that starts the series (a TheMovieDb movie is always its own entry). For the
+summary, a later entry gets the summary of the season the [id mapping](README.md#-id-mapping) puts it in: TheTVDB's
+aired-order season, else TheMovieDb's. With no such season (absolute order, specials, no mapped season, or a season
+without an English summary) those two are skipped, and MAL and ANN come next. The legacy TheTVDB key has no season
+summaries.
 
 **Episode directors and writers** come from TheTVDB, else TheMovieDb (each field on its own), in both modes; AniDB has
 none per episode. With a v4 TheTVDB key they're in one record per episode: Kizuna fetches them for up to 8 seconds
