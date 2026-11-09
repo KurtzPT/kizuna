@@ -209,6 +209,19 @@ func TestTVDBV4KeyWins(t *testing.T) {
 	}
 }
 
+// The legacy v3 API has no season records (its only season data is the
+// season numbers of /series/{id}/episodes/summary), so a season gives no
+// text and costs no request.
+func TestTVDBLegacySeasonOverview(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{v3 + "/login": `{"token":"t3"}`}, "", "", "legacy")
+	if got, err := tv.SeasonOverview(context.Background(), 9, 2); got != "" || err != nil {
+		t.Errorf("v3 season: %q %v, want none", got, err)
+	}
+	if len(n.asked) != 0 {
+		t.Errorf("asked %v, want nothing", n.asked)
+	}
+}
+
 func TestTVDBNoKey(t *testing.T) {
 	tv, _ := newTVDBTest(t, nil, "", "", "")
 	if tv.Enabled() || tv.API() != "" {

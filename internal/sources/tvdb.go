@@ -371,6 +371,66 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 	return r.Data.Name, r.Data.Overview, err
 }
 
+// SeasonOverview returns the English overview of a season in aired
+// ("official") order: the season's id is in the extended series record
+// (shared with Details), its text in the season's translation. Season 0
+// (specials) or less (absolute order) has none. A season TheTVDB doesn't
+// list or has no English text for gives "" and no error. The legacy v3 API
+// has no season records, so it gives "" too.
+func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, error) {
+	if season <= 0 || t.useLegacy(ctx) {
+		return "", nil
+	}
+	sid, err := t.seasonID(ctx, id, season)
+	if sid == 0 {
+		return "", err
+	}
+	var r struct {
+		Data struct {
+			Overview string `json:"overview"`
+		} `json:"data"`
+	}
+	err = t.get(ctx, false, fmt.Sprintf("/seasons/%d/translations/eng", sid), fmt.Sprintf("%d/season-%d-eng.json", id, sid), 7*24*time.Hour, &r)
+	if noTranslation(err) {
+		return "", nil
+	}
+	return r.Data.Overview, err
+}
+
+// seasonID finds a season's aired-order id in the extended series record
+// (0 if it isn't listed).
+func (t *TVDB) seasonID(ctx context.Context, id, season int) (int, error) {
+	var r struct {
+		Data struct {
+			Seasons []struct {
+				ID     int `json:"id"`
+				Number int `json:"number"`
+				Type   struct {
+					Type string `json:"type"`
+				} `json:"type"`
+			} `json:"seasons"`
+		} `json:"data"`
+	}
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
+		return 0, err
+	}
+	for _, s := range r.Data.Seasons {
+		if s.Number == season && s.Type.Type == "official" {
+			return s.ID, nil
+		}
+	}
+	return 0, nil
+}
+
+// noTranslation: TheTVDB has no English text for the season. Its docs answer
+// a missing language with 400 ("language not found"), a missing season with
+// 404.
+func noTranslation(err error) bool {
+	var se *fetch.StatusError
+	return errors.As(err, &se) && !errors.Is(err, errTVDBLogin) &&
+		(se.Code == http.StatusBadRequest || se.Code == http.StatusNotFound)
+}
+
 // Details returns genres, people, studio, content rating and first air date
 // from the extended series record.
 func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {

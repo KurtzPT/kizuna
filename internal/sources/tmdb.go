@@ -231,8 +231,7 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 					} `json:"crew"`
 				} `json:"episodes"`
 			}
-			key := fmt.Sprintf("tmdb/tv-%d-s%d.json", id, season)
-			err := t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", id, season), "&language=en-US", key, 2*24*time.Hour, &r)
+			err := t.season(ctx, id, season, &r)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -266,6 +265,23 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 		return out, fmt.Errorf("%w: tmdb %d seasons %v: %v", ErrIncomplete, id, failed, last)
 	}
 	return out, nil
+}
+
+// season reads one season file of a TV show, which Episodes and
+// SeasonOverview share.
+func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
+	key := fmt.Sprintf("tmdb/tv-%d-s%d.json", id, season)
+	return t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", id, season), "&language=en-US", key, 2*24*time.Hour, out)
+}
+
+// SeasonOverview returns the English overview of a TV show's season, from
+// the same request and cached file as the episode list.
+func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, error) {
+	var r struct {
+		Overview string `json:"overview"`
+	}
+	err := t.season(ctx, id, season, &r)
+	return r.Overview, err
 }
 
 // Art returns images of a TV show (movie=false) or a movie (movie=true),

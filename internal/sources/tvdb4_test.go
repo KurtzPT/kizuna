@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"kizuna/internal/fetch"
 )
 
 // TheTVDB v4 answers shaped exactly as its API documentation describes them
@@ -138,6 +140,76 @@ func TestTVDBV4DocumentedAnswers(t *testing.T) {
 	for _, u := range n.asked {
 		if strings.HasPrefix(u, v3) {
 			t.Errorf("v4 key, but v3 was called: %s", u)
+		}
+	}
+}
+
+// season is a documented SeasonBaseRecord, as listed by /series/{id}/extended.
+func season(id, number int, kind, name string) string {
+	return `{"id": ` + strconv.Itoa(id) + `, "image": "", "imageType": 7, "lastUpdated": "2024-01-01 10:00:00",
+	  "name": "", "nameTranslations": null, "number": ` + strconv.Itoa(number) + `, "overviewTranslations": null,
+	  "companies": {"studio": null, "network": null, "production": null, "distributor": null, "special_effects": null},
+	  "seriesId": 267440, "type": {"alternateName": null, "id": 1, "name": "` + name + `", "type": "` + kind + `"}, "year": "2017"}`
+}
+
+// /series/{id}/extended: data is a SeriesExtendedRecord; its seasons list
+// every season type, each with its own id.
+var v4SeriesExtended = `{
+  "data": {
+    "abbreviation": null, "airsDays": {}, "airsTime": "", "aliases": [], "artworks": [], "averageRuntime": 24,
+    "characters": [], "contentRatings": [], "country": "jpn", "defaultSeasonType": 1, "episodes": null,
+    "firstAired": "2013-04-07", "lists": [], "genres": [], "id": 267440, "image": "", "isOrderRandomized": false,
+    "lastAired": "2023-11-05", "lastUpdated": "", "name": "Attack on Titan", "nameTranslations": ["eng"],
+    "companies": [], "nextAired": "", "originalCountry": "jpn", "originalLanguage": "jpn",
+    "seasons": [
+      ` + season(500, 0, "official", "Aired Order") + `,
+      ` + season(501, 1, "official", "Aired Order") + `,
+      ` + season(612, 2, "dvd", "DVD Order") + `,
+      ` + season(502, 2, "official", "Aired Order") + `,
+      ` + season(700, 1, "absolute", "Absolute Order") + `
+    ],
+    "seasonTypes": [{"alternateName": null, "id": 1, "name": "Aired Order", "type": "official"}],
+    "slug": "attack-on-titan", "status": {"id": 2, "keepUpdated": false, "name": "Ended", "recordType": "series"},
+    "translations": {"nameTranslations": [], "overviewTranslations": [], "alias": []}, "year": "2013"
+  },
+  "status": "success"
+}`
+
+// A season's overview is its aired-order ("official") season's English
+// translation; the series record that lists the seasons is the one Details
+// reads. A season TheTVDB doesn't list, or one with no English text
+// (documented as 400 "language not found", or a 404), gives no text and no
+// error.
+func TestTVDBSeasonOverview(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login":                  `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/extended": v4SeriesExtended,
+		v4 + "/seasons/502/translations/eng": `{"data": {"aliases": null, "isAlias": false, "isPrimary": true,
+		  "language": "eng", "name": "Season 2", "overview": "The Scouts face the Beast Titan.", "tagline": null},
+		  "status": "success"}`,
+		v4 + "/seasons/501/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	if got, err := tv.SeasonOverview(ctx, 267440, 2); err != nil || got != "The Scouts face the Beast Titan." {
+		t.Errorf("season 2: %q %v", got, err)
+	}
+	for _, s := range []int{1, 3, 0, -1} { // 1: no English; 3: not listed; 0, -1: no season of its own
+		if got, err := tv.SeasonOverview(ctx, 267440, s); err != nil || got != "" {
+			t.Errorf("season %d: %q %v, want none", s, got, err)
+		}
+	}
+	if got, err := tv.SeasonOverview(ctx, 99, 2); got != "" || !fetch.IsNotFound(err) {
+		t.Errorf("unknown series: %q %v, want its 404", got, err)
+	}
+	if _, err := tv.Details(ctx, 267440); err != nil {
+		t.Fatal(err)
+	}
+	if c := n.count(v4 + "/series/267440/extended"); c != 1 {
+		t.Errorf("series record asked %d times, want 1 (cached, shared with Details)", c)
+	}
+	for _, id := range []string{"500", "612", "700"} { // not the aired-order season asked for
+		if c := n.count(v4 + "/seasons/" + id + "/translations/eng"); c != 0 {
+			t.Errorf("season record %s fetched %d times", id, c)
 		}
 	}
 }
