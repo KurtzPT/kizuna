@@ -383,12 +383,10 @@ func (t *TVDB) stale(ctx context.Context, o getOpts, key string, start time.Time
 	if o.noStale || ctx.Err() != nil {
 		return err
 	}
-	data, age, ok := t.f.Cached(key)
+	data, ok := t.f.Stale(ctx, key, start, err)
 	if !ok {
 		return err
 	}
-	slog.Debug("tvdb login failed; using stale cache", "key", key, "age", age.Round(time.Minute), "err", err)
-	fetch.Observe(ctx, key, fetch.KindStale, start, err)
 	return json.Unmarshal(data, out)
 }
 

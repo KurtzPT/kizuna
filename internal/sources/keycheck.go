@@ -37,11 +37,8 @@ func (k *keyCheck) getJSON(ctx context.Context, f *fetch.Client, r fetch.Request
 			fetch.Observe(ctx, r.Key, fetch.KindCache, start, nil)
 			return json.Unmarshal(data, out)
 		}
-		if r.Key != "" {
-			if data, _, ok := f.Cached(r.Key); ok {
-				fetch.Observe(ctx, r.Key, fetch.KindStale, start, err)
-				return json.Unmarshal(data, out)
-			}
+		if data, ok := f.Stale(ctx, r.Key, start, err); ok {
+			return json.Unmarshal(data, out)
 		}
 		return err
 	}

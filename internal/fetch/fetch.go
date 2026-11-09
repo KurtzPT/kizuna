@@ -228,9 +228,7 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 			observe(ctx, r, start, KindFail, err)
 			return nil, err
 		}
-		if stale, age, ok := c.Cached(r.Key); ok {
-			slog.Debug("download failed; using stale cache", "key", r.Key, "age", age.Round(time.Minute), "err", err)
-			observe(ctx, r, start, KindStale, err)
+		if stale, ok := c.Stale(ctx, r.Key, start, err); ok {
 			return stale, nil
 		}
 		observe(ctx, r, start, KindFail, err)
@@ -238,6 +236,23 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	}
 	observe(ctx, r, start, KindNet, nil)
 	return data, nil
+}
+
+// Stale returns key's cached copy however old, for a call that failed with
+// err (a download, a login): old data beats none. It logs that at debug and
+// reports it to ctx's observer as KindStale.
+func (c *Client) Stale(ctx context.Context, key string, start time.Time, err error) ([]byte, bool) {
+	data, at, ok := c.CachedSince(key)
+	if !ok {
+		return nil, false
+	}
+	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		slog.Debug("request failed; using stale cache", "key", key, "age", time.Since(at).Round(time.Minute), "err", err)
+	}
+	if Observing(ctx) {
+		Observe(ctx, key, KindStale, start, err)
+	}
+	return data, true
 }
 
 // fresh returns r's cached copy when it is younger than r.TTL. The file's
