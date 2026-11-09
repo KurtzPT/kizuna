@@ -964,7 +964,7 @@ type anidbState struct {
 	RetryAt  time.Time         `json:"retry_at,omitzero"` // a backoff
 	Failures int               `json:"failures,omitempty"`
 	Sent     []time.Time       `json:"sent,omitempty"`   // calls in the last 24 h
-	Failed   map[int]time.Time `json:"failed,omitempty"` // aid -> its failed call
+	Failed   map[int]time.Time `json:"failed,omitempty"` // aid -> its call AniDB answered with an error
 }
 
 // anidbBackingOff: a backoff for another hour, after failed calls.
@@ -1005,26 +1005,24 @@ func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
 	for _, mode := range []string{"anidb", "tvdb"} {
 		for name, c := range map[string]struct {
 			state    anidbState
-			fail     int // AniDB answers a call with 1: an error about the anime, 2: a 500
+			code     int // AniDB's answer to a call (zero: the entry)
+			body     string
 			complete bool
 			calls    int  // AniDB calls the build makes
 			details  bool // the build has AniDB's details
 		}{
-			"failed in this build":       {anidbState{}, 1, true, 1, false},
-			"server error in this build": {anidbState{}, 2, false, 1, false},
-			"blocked":                    {anidbState{Failed: map[int]time.Time{aid: now.Add(-time.Hour)}}, 0, true, 0, false},
-			"backing off":                {anidbBackingOff(), 0, false, 0, false},
-			"daily limit":                {anidbState{Sent: daily}, 0, false, 0, false},
-			"block ended, still pausing": {anidbState{Failed: ended, RetryAt: now.Add(time.Hour), Failures: 1}, 0, false, 0, false},
-			"block ended":                {anidbState{Failed: ended}, 0, true, 1, true},
+			"error in this build":        {anidbState{}, 200, "<error>Anime not found</error>", true, 1, false},
+			"server error in this build": {anidbState{}, 500, "", false, 1, false},
+			"blocked":                    {anidbState{Failed: map[int]time.Time{aid: now.Add(-time.Hour)}}, 0, "", true, 0, false},
+			"backing off":                {anidbBackingOff(), 0, "", false, 0, false},
+			"daily limit":                {anidbState{Sent: daily}, 0, "", false, 0, false},
+			"block ended, still pausing": {anidbState{Failed: ended, RetryAt: now.Add(time.Hour), Failures: 1}, 0, "", false, 0, false},
+			"block ended":                {anidbState{Failed: ended}, 0, "", true, 1, true},
 		} {
 			net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 				if path == "api.anidb.net/httpapi" {
-					switch c.fail {
-					case 1:
-						return 200, "<error>Anime not found</error>"
-					case 2:
-						return 500, ""
+					if c.code != 0 {
+						return c.code, c.body
 					}
 					return 200, entry
 				}
@@ -1093,7 +1091,7 @@ func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
 	}
 	p.anidb.WaitIdle()
 	if _, blocked := p.anidb.BlockedUntil(200); !blocked {
-		t.Fatal("AniDB 200's failed call didn't block it")
+		t.Fatal("AniDB 200's error answer didn't block it")
 	}
 	if s, err = p.buildShow(context.Background(), "tvdb-500"); err != nil {
 		t.Fatal(err)

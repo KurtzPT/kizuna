@@ -145,8 +145,8 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if len(titles) == 0 {
 		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, err)
 	}
-	// Without ANIDB_CLIENT, or while the anime is in its 24 h block after a
-	// failed call, there are no details to wait for: the show is complete as
+	// Without ANIDB_CLIENT, or while the anime is in its 24 h block after an
+	// AniDB error, there are no details to wait for: the show is complete as
 	// it is (as in buildTVDB), not rebuilt every 2 minutes.
 	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil || !p.anidb.Enabled()}
 	if a == nil && p.anidb.Enabled() {
