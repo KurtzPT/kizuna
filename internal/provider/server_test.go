@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -195,5 +197,94 @@ func TestEveryTenMinutes(t *testing.T) {
 	e.at["a"] = time.Now().Add(-11 * time.Minute)
 	if !e.due("a") {
 		t.Error("want a key due again after 10 minutes")
+	}
+}
+
+// A show that isn't ready before the request's time runs out answers 503
+// (Plex keeps what it has), in match and metadata alike, and the build goes
+// on: the next request gets the show from memory.
+func TestTimedOutShowAnswers503(t *testing.T) {
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
+	lists := &mapping.Lists{}
+	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100}})
+	dir := t.TempDir()
+	for _, c := range []struct{ method, path, body string }{
+		{"GET", "/anidb/library/metadata/anidb-100", ""},
+		{"POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`},
+	} {
+		p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, nil, nil, nil, nil)
+		ctx, giveUp := context.WithCancel(context.Background())
+		release := make(chan struct{})
+		p.buildFn = func(context.Context, string) (*Show, error) {
+			giveUp() // the request runs out of time while the build runs
+			<-release
+			return &Show{Root: "anidb-100", Title: "Kizuna Test", Complete: true, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1}}}}, nil
+		}
+		serve := func(ctx context.Context) *httptest.ResponseRecorder {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(ctx, c.method, c.path, strings.NewReader(c.body))
+			req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+			p.Handler().ServeHTTP(rec, req)
+			return rec
+		}
+		if rec := serve(ctx); rec.Code != 503 || !strings.Contains(rec.Body.String(), "in time") {
+			t.Errorf("%s while the build runs: %d %s, want 503", c.path, rec.Code, rec.Body)
+		}
+		p.mu.Lock()
+		b := p.builds["anidb-100"]
+		p.mu.Unlock()
+		if b == nil {
+			t.Fatalf("%s: the build stopped with the request", c.path)
+		}
+		close(release)
+		<-b.done
+		if rec := serve(context.Background()); rec.Code != 200 || !strings.Contains(rec.Body.String(), "anidb-100") {
+			t.Errorf("%s after the build: %d %s, want the show", c.path, rec.Code, rec.Body)
+		}
+	}
+}
+
+// A build that runs out of its own time without a show fails with a
+// context error (the handlers answer 503); any other failure is a 404.
+func TestBuildOutOfTime(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
+		<-ctx.Done()
+		return nil, fmt.Errorf("anidb %s unknown", root)
+	}
+	b := &build{done: make(chan struct{})}
+	p.builds["anidb-1"] = b
+	p.runBuild(context.Background(), time.Millisecond, "anidb-1", b)
+	if !timedOut(b.err) {
+		t.Errorf("build out of time: err %v, want a context error", b.err)
+	}
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("anidb 2 unknown") }
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/anidb/library/metadata/anidb-2", nil)
+	req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+	p.Handler().ServeHTTP(rec, req)
+	if rec.Code != 404 {
+		t.Errorf("failed build: %d %s, want 404", rec.Code, rec.Body)
+	}
+}
+
+// A build ends a little before the request that started it gives up, so
+// that request answers with what came back; one with little time left still
+// gets a build worth caching.
+func TestBuildTime(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	if got := buildTime(ctx); got > requestTimeout-buildMargin || got < requestTimeout-2*buildMargin {
+		t.Errorf("full request: %v, want about %v", got, requestTimeout-buildMargin)
+	}
+	if got := buildTime(context.Background()); got != requestTimeout-buildMargin {
+		t.Errorf("no deadline: %v, want %v", got, requestTimeout-buildMargin)
+	}
+	late, cancelLate := context.WithTimeout(context.Background(), time.Second)
+	defer cancelLate()
+	if got := buildTime(late); got != minBuildTime {
+		t.Errorf("little time left: %v, want %v", got, minBuildTime)
 	}
 }

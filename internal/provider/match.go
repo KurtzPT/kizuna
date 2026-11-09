@@ -50,7 +50,10 @@ type candidate struct {
 //  1. an id tag in the folder or file name: [anidb-N], [tvdb-N], [mal-N]...
 //  2. a GUID Plex already has
 //  3. AniDB title search
-func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item {
+//
+// err is the show build's error when the best candidate couldn't be built
+// (then items is empty): a timed-out one answers 503, not "no match".
+func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items []Item, err error) {
 	title := r.Title
 	switch r.Type {
 	case 3:
@@ -80,7 +83,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 		if rq != nil {
 			rq.Answer, rq.Note = "no match", how
 		}
-		return nil
+		return nil, nil
 	}
 	slog.Info("match", append(attrs, "show", cands[0].root, "score", cands[0].score, "how", how, "candidates", len(cands))...)
 	if rq != nil {
@@ -95,7 +98,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 		for _, c := range cands {
 			out = append(out, p.lightItem(mode, c))
 		}
-		return out
+		return out, nil
 	}
 	// Only after the Fix Match list: it skips MIN_SCORE, so it finds
 	// candidates for titles that still don't match.
@@ -111,21 +114,21 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	s, err := p.show(ctx, root)
 	if err != nil {
 		slog.Debug("match: show not available", "root", root, "err", err)
-		return nil
+		return nil, err
 	}
 	switch r.Type {
 	case 3:
 		if it := p.seasonItem(mode, s, deref(r.Index, 1), false); it != nil {
-			return []Item{*it}
+			return []Item{*it}, nil
 		}
 	case 4:
 		if ep := s.Episode(deref(r.ParentIndex, 1), deref(r.Index, 0)); ep != nil {
-			return []Item{p.episodeItem(mode, s, ep)}
+			return []Item{p.episodeItem(mode, s, ep)}, nil
 		}
 	default:
-		return []Item{p.showItem(mode, s, false)}
+		return []Item{p.showItem(mode, s, false)}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // searchCandidates: an id tag in the show title or the file path (which

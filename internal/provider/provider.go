@@ -70,6 +70,8 @@ type Provider struct {
 	shows    map[string]cachedShow // root -> built model
 	builds   map[string]*build     // root -> build in progress (dedupes Plex's request bursts)
 	prunedAt time.Time             // last sweep of expired shows
+
+	buildFn func(ctx context.Context, root string) (*Show, error) // nil = buildShow; tests swap it
 }
 
 type cachedShow struct {
@@ -145,7 +147,7 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	if !running {
 		// The build belongs to every caller waiting on it, not to the first
 		// one: Plex dropping that request must not fail the others.
-		go p.runBuild(context.WithoutCancel(ctx), root, b)
+		go p.runBuild(context.WithoutCancel(ctx), buildTime(ctx), root, b)
 	}
 	rq := report.RequestFrom(ctx) // nil with the reports off
 	if rq != nil {
@@ -172,9 +174,27 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	}
 }
 
+// buildMargin: a build stops this long before the request that started it
+// gives up, so that request still answers with what came back.
+const buildMargin = 2 * time.Second
+
+// minBuildTime: a request with little time left (it waited for the first
+// list load) still starts a build worth caching; it answers 503 itself and
+// the next request gets the show.
+const minBuildTime = requestTimeout / 2
+
+// buildTime is how long a build started by a request with ctx may run.
+func buildTime(ctx context.Context) time.Duration {
+	left := requestTimeout
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	return max(left-buildMargin, minBuildTime)
+}
+
 // runBuild builds one show for everyone waiting on b and caches it.
-func (p *Provider) runBuild(ctx context.Context, root string, b *build) {
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root string, b *build) {
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	start := time.Now()
 	var rec *report.Recorder
 	if p.reports != nil {
@@ -205,7 +225,14 @@ func (p *Provider) runBuild(ctx context.Context, root string, b *build) {
 		}
 		close(b.done)
 	}()
-	b.show, b.err = p.buildShow(ctx, root)
+	if p.buildFn != nil {
+		b.show, b.err = p.buildFn(ctx, root)
+	} else {
+		b.show, b.err = p.buildShow(ctx, root)
+	}
+	if b.err != nil && ctx.Err() != nil {
+		b.err = fmt.Errorf("%w: %v", ctx.Err(), b.err) // out of time: the handlers answer 503
+	}
 	if b.show != nil {
 		b.show.build = rec.ID()
 	}

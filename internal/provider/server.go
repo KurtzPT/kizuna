@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,8 +22,9 @@ import (
 // Version is set at build time (-ldflags "-X kizuna/internal/provider.Version=1.2.3").
 var Version = "dev"
 
-// requestTimeout bounds one Plex request. A slow AniDB download that runs
-// past it keeps going in the background and is used on the next refresh.
+// requestTimeout bounds one Plex request, the wait for the first list load
+// included. A slow AniDB download that runs past it keeps going in the
+// background and is used on the next refresh.
 const requestTimeout = 25 * time.Second
 
 // Handler returns the HTTP routes, behind the ALLOW_FROM / ALLOWED_HOSTS
@@ -129,14 +131,15 @@ func (r *recorder) Write(b []byte) (int, error) {
 // waitLoaded holds a request until the first list load is over: before it,
 // nothing matches and shows are built without their ids, and Plex would keep
 // what it got. A load that outlasts requestTimeout gets a 503 "starting",
-// which Plex treats as a failed request, not as an answer.
+// which Plex treats as a failed request, not as an answer. It also starts
+// the request's requestTimeout: h gets what the wait left of it.
 func (p *Provider) waitLoaded(h modeHandler) modeHandler {
 	return func(w http.ResponseWriter, r *http.Request, mode Mode) {
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
 		select {
 		case <-p.loaded:
-			h(w, r, mode)
+			h(w, r.WithContext(ctx), mode)
 		case <-ctx.Done():
 			writeJSON(w, http.StatusServiceUnavailable, healthAnswer{Status: "starting", Version: Version})
 		}
@@ -188,10 +191,24 @@ func (p *Provider) match(w http.ResponseWriter, r *http.Request, mode Mode) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-	defer cancel()
-	items := p.Match(ctx, mode, req)
+	items, err := p.Match(r.Context(), mode, req)
+	if timedOut(err) {
+		writeTimedOut(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, container(mode, items, 0, len(items)))
+}
+
+// timedOut: the show wasn't ready before the request's time ran out.
+func timedOut(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+}
+
+// writeTimedOut answers a show that wasn't ready in time with a 503, like a
+// request that outwaited the first list load: Plex keeps what it has (no
+// "no match", no lost item) and asks again; the build goes on and is cached.
+func writeTimedOut(w http.ResponseWriter) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the show wasn't ready in time; it is still being built, try again"})
 }
 
 var keyRe = regexp.MustCompile(`^((?:anidb|tvdb)-\d+)(?:-s(\d+)(?:-e(\d+))?)?$`)
@@ -203,14 +220,17 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 		http.NotFound(w, r)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
-	defer cancel()
+	ctx := r.Context()
 	if rq := report.RequestFrom(ctx); rq != nil {
 		rq.Key = p.reportKey(m[1])
 	}
 	s, err := p.show(ctx, m[1])
 	if err != nil {
 		slog.Debug("metadata: show not available", "key", r.PathValue("key"), "err", err)
+		if timedOut(err) {
+			writeTimedOut(w)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
