@@ -780,7 +780,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | A request gets `503` `the show wasn't ready in time` | Its first build took longer than Plex's request may (25 s, often a slow AniDB answer or a queue of AniDB calls). Plex keeps what it has; the build goes on, and the next refresh gets the show |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
 | No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, rejected client, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
-| `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
+| `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`). With a key, `TheTVDB has no episodes for this show`: use `/anidb` (or `/auto`) for it |
 | Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
 | `source rejected the request: check its API key / client id` | That key or client id is wrong or expired |

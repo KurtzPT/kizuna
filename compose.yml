@@ -21,7 +21,7 @@ services:
       ANIDB_CLIENT: "<anidb-client-name>"
       ANIDB_CLIENTVER: "1"
 
-      # --- TVDB / TMDB (needed for /tvdb mode; extra artwork for both modes) ---
+      # --- TVDB / TMDB (TVDB is needed for /tvdb mode; both add artwork for both modes) ---
       # Set a key to "" to disable that source.
       TVDB_API_KEY: "<tvdb-api-key>"
       # TVDB_PIN: "<tvdb-pin>"       # only for subscriber keys

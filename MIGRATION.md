@@ -359,7 +359,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 | Topic | Rule |
 |---|---|
 | **Episode numbers** | stay absolute: `S02E26`, not `S02E01`. That's what Kizuna's `/tvdb` expects |
-| **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
+| **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) |
 | **Left alone** | files with `SxxEyy` in the name or in a `Season NN` folder (in `[tvdb3-…]` folders these are already absolute) |
 | **Episode numbers read from** | ` - 033`, `E33` / `Ep 33` / `Episode 33`, or a number ending the name; `[…]`, `(…)`, `{…}` groups don't count. A file with none is reported |
 | **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules |
@@ -401,7 +401,7 @@ flowchart LR
 ```
 
 The tag can also be in a file name, as Kizuna reads it. `tvdb`-rule folders need Kizuna with a TheTVDB key
-(`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY`. Without Kizuna, only `[anidb-N]` folders are planned; every other folder is reported as skipped.
+(`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`). Without Kizuna, only `[anidb-N]` folders are planned; every other folder is reported as skipped.
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has: a HAMA
