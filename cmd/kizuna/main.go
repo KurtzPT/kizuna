@@ -279,8 +279,12 @@ func healthURL(listen string) string {
 	return "http://" + net.JoinHostPort(host, port) + "/health"
 }
 
+// healthClient never uses a proxy (HTTP_PROXY): the check always asks this
+// machine, and through a proxy it would come from the proxy's address.
+var healthClient = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{Proxy: nil}}
+
 func health(cfg config.Config) int {
-	resp, err := (&http.Client{Timeout: 4 * time.Second}).Get(healthURL(cfg.Listen))
+	resp, err := healthClient.Get(healthURL(cfg.Listen))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kizuna health:", err)
 		return 1

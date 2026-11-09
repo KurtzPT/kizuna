@@ -56,6 +56,14 @@ func TestHealthURL(t *testing.T) {
 	}
 }
 
+// The health check ignores HTTP_PROXY: through a proxy, LISTEN=<ip> would be
+// asked from the proxy's address and refused (or not reached).
+func TestHealthClientNoProxy(t *testing.T) {
+	if tr, ok := healthClient.Transport.(*http.Transport); !ok || tr.Proxy != nil {
+		t.Error("the health client uses the environment's proxy")
+	}
+}
+
 // The health check against a real server bound to one of this machine's
 // non-loopback addresses (LISTEN=<ip>) with a narrowed ALLOW_FROM: /health
 // answers it, a metadata request from the same address is still refused.
