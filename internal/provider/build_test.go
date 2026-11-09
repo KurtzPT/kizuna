@@ -54,6 +54,13 @@ func (f *fakeNet) count(path string) int {
 	return f.hits[path]
 }
 
+// movieXML is an AniDB movie entry: one episode of minutes, desc "" = none.
+func movieXML(aid int, title, desc string, minutes int, start string) string {
+	return `<anime id="` + strconv.Itoa(aid) + `"><type>Movie</type><startdate>` + start + `</startdate>
+<titles><title type="main" xml:lang="x-jat">` + title + `</title></titles><description>` + desc + `</description>
+<episodes><episode><epno type="1">1</epno><length>` + strconv.Itoa(minutes) + `</length><title xml:lang="en">Complete Movie</title></episode></episodes></anime>`
+}
+
 // testSeries: AniDB 100 is TVDB 500 (TMDB 77) season 1 with two episodes;
 // season 2 has one, the specials one.
 const anidbXML = `<anime id="100"><type>TV Series</type><startdate>2009-04-01</startdate><enddate>2009-06-01</enddate>
@@ -355,16 +362,21 @@ func TestTVDBPairsTMDBThroughAniDB(t *testing.T) {
 // other site may split differently: TVDB S2E1 (absolute 3) is TMDB S1E3
 // here, not TMDB S2E1. An absolute number the other site doesn't have pairs
 // with nothing.
+// tmdbThreeInS1, tmdbWrongS2: TMDB 77 split differently from TVDB 500:
+// absolute episode 3 is TMDB S1E3, and TMDB S2E1 is some other episode.
+const (
+	tmdbThreeInS1 = `{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
+	{"episode_number":3,"name":"TMDB Three (right)","crew":[{"job":"Director","name":"Right Director"}]}]}`
+	tmdbWrongS2 = `{"episodes":[{"episode_number":1,"name":"TMDB S2E1 (wrong)","crew":[{"job":"Director","name":"Wrong Director"}]}]}`
+)
+
 func TestTVDBUnpairedEpisodeGoesByAbsoluteNumber(t *testing.T) {
-	wrong := `{"episodes":[{"episode_number":1,"name":"TMDB S2E1 (wrong)","crew":[{"job":"Director","name":"Wrong Director"}]}]}`
 	cases := map[string]struct {
 		season1   string // TMDB seasons 1 and 2
 		title     string // TMDB title of TVDB S2E1
 		directors string
 	}{
-		"other split": {`{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
-			{"episode_number":3,"name":"TMDB Three (right)","crew":[{"job":"Director","name":"Right Director"}]}]}`,
-			"TMDB Three (right)", "Right Director"},
+		"other split":           {tmdbThreeInS1, "TMDB Three (right)", "Right Director"},
 		"no absolute 3 on TMDB": {`{"episodes":[{"episode_number":1,"name":"TMDB One"}]}`, "", ""},
 	}
 	for name, c := range cases {
@@ -373,7 +385,7 @@ func TestTVDBUnpairedEpisodeGoesByAbsoluteNumber(t *testing.T) {
 			case "api.themoviedb.org/3/tv/77/season/1":
 				return 200, c.season1
 			case "api.themoviedb.org/3/tv/77/season/2":
-				return 200, wrong
+				return 200, tmdbWrongS2
 			}
 			return testSeries(path, q)
 		}})
@@ -406,10 +418,9 @@ func TestTVDBEntryWithoutTMDBSeasonGoesByAbsoluteNumber(t *testing.T) {
 		case path == "api.anidb.net/httpapi" && q["aid"][0] == "200":
 			return 200, second
 		case path == "api.themoviedb.org/3/tv/77/season/1":
-			return 200, `{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
-				{"episode_number":3,"name":"TMDB Three (right)","crew":[{"job":"Director","name":"Right Director"}]}]}`
+			return 200, tmdbThreeInS1
 		case path == "api.themoviedb.org/3/tv/77/season/2":
-			return 200, `{"episodes":[{"episode_number":1,"name":"TMDB S2E1 (wrong)","crew":[{"job":"Director","name":"Wrong Director"}]}]}`
+			return 200, tmdbWrongS2
 		}
 		return testSeries(path, q)
 	}})
@@ -695,9 +706,7 @@ func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
 // (no tvdb:// for the TV series it is mapped to), and its one episode is
 // the movie, under the show's title, in both builds.
 func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
-	movieXML := `<anime id="100"><type>Movie</type><startdate>2010-05-01</startdate>
-<titles><title type="main" xml:lang="x-jat">Kizuna Test</title></titles><description>The movie.</description>
-<episodes><episode><epno type="1">1</epno><length>90</length><title xml:lang="en">Complete Movie</title></episode></episodes></anime>`
+	movie := movieXML(100, "Kizuna Test", "The movie.", 90, "2010-05-01")
 	var guids [2][]string
 	for i, details := range []bool{false, true} {
 		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
@@ -705,7 +714,7 @@ func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
 				if !details {
 					return 500, ""
 				}
-				return 200, movieXML
+				return 200, movie
 			}
 			return testSeries(path, q)
 		}})
@@ -791,73 +800,54 @@ func loggedFor(logs, msg string, aid int) bool {
 	return false
 }
 
-// An AniDB entry without a TheTVDB series is an anidb-N show in /tvdb too.
-// Without ANIDB_CLIENT its placeholder episodes are all there will be: the
-// show is complete, not rebuilt (and logged) every 2 minutes. With AniDB set
-// up but backing off, it is rebuilt soon.
-func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
-	const aid = 7200 // only this test's: its log lines are told apart by it
-	for name, c := range map[string]struct {
-		client   string
-		complete bool
+// Without ANIDB_CLIENT a show has no AniDB details to wait for: it is
+// complete, not rebuilt (and logged) every 2 minutes. That holds for /tvdb,
+// and for an AniDB entry without a TheTVDB series (an anidb-N show in /tvdb
+// too), whose placeholder episodes are all there will be. With AniDB set up
+// but backing off, either is rebuilt soon.
+func TestWithoutAniDBClientIsComplete(t *testing.T) {
+	shows := []struct {
+		root  string
+		aid   int // only this case's: its log lines are told apart by it
+		entry mapping.Entry
 	}{
-		"AniDB not configured": {"", true},
-		"AniDB backing off":    {"kizunatest", false},
-	} {
-		net := &fakeNet{answer: failingAniDB}
-		p := newTestProvider(t, net)
-		p.anidb = anidbWithState(t, net, c.client, anidbBackingOff())
-		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
-		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TMDB: mapping.Placement{ID: 77}}})
-		var logs strings.Builder
-		restore := captureLogs(&logs)
-		s, err := p.buildShow(context.Background(), "anidb-7200")
-		restore()
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if s.Complete != c.complete || !s.Placeholders {
-			t.Errorf("%s: complete %v placeholders %v, want %v true", name, s.Complete, s.Placeholders, c.complete)
-		}
-		if logged := loggedFor(logs.String(), "AniDB details not available", aid); logged == c.complete {
-			t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
-		}
+		{"anidb-7200", 7200, mapping.Entry{AID: 7200, TMDB: mapping.Placement{ID: 77}}},
+		{"tvdb-500", 7100, mapping.Entry{AID: 7100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 77}}},
 	}
-}
-
-// /tvdb works without ANIDB_CLIENT: the show has no AniDB details to wait
-// for, so it is complete and not rebuilt (and logged) every 2 minutes. With
-// AniDB set up but backing off, it is rebuilt soon.
-func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
-	const aid = 7100 // only this test's: its log lines are told apart by it
-	for name, c := range map[string]struct {
-		client   string
-		complete bool
-	}{
-		"AniDB not configured": {"", true},
-		"AniDB backing off":    {"kizunatest", false},
-	} {
-		net := &fakeNet{answer: failingAniDB}
-		p := newTestProvider(t, net)
-		p.anidb = anidbWithState(t, net, c.client, anidbBackingOff())
-		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
-		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
-			TMDB: mapping.Placement{ID: 77}}})
-		var logs strings.Builder
-		restore := captureLogs(&logs)
-		s, err := p.buildShow(context.Background(), "tvdb-500")
-		restore()
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if s.Complete != c.complete {
-			t.Errorf("%s: complete %v, want %v", name, s.Complete, c.complete)
-		}
-		if s.Title != "Kizuna Test" {
-			t.Errorf("%s: title %q, want the title dump's", name, s.Title)
-		}
-		if logged := loggedFor(logs.String(), "AniDB details not available", aid); logged == c.complete {
-			t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
+	for _, sh := range shows {
+		for name, c := range map[string]struct {
+			client   string
+			complete bool
+		}{
+			"AniDB not configured": {"", true},
+			"AniDB backing off":    {"kizunatest", false},
+		} {
+			name = sh.root + ", " + name
+			net := &fakeNet{answer: failingAniDB}
+			p := newTestProvider(t, net)
+			p.anidb = anidbWithState(t, net, c.client, anidbBackingOff())
+			p.titles.SetForTest(map[int][]anidb.Title{sh.aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
+			p.lists.SetForTest(map[int]mapping.Entry{sh.aid: sh.entry})
+			var logs strings.Builder
+			restore := captureLogs(&logs)
+			s, err := p.buildShow(context.Background(), sh.root)
+			restore()
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if s.Complete != c.complete {
+				t.Errorf("%s: complete %v, want %v", name, s.Complete, c.complete)
+			}
+			if anidbShow := sh.entry.TVDB.ID == 0; s.Placeholders != anidbShow {
+				t.Errorf("%s: placeholders %v, want %v", name, s.Placeholders, anidbShow)
+			}
+			if s.Title != "Kizuna Test" {
+				t.Errorf("%s: title %q, want the title dump's", name, s.Title)
+			}
+			if logged := loggedFor(logs.String(), "AniDB details not available", sh.aid); logged == c.complete {
+				t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
+			}
 		}
 	}
 }
@@ -893,10 +883,7 @@ func TestTVDBWithoutAniDBDetails(t *testing.T) {
 		return testSeries(path, q)
 	}}
 	p := newTestProvider(t, net)
-	dir := t.TempDir()
-	f := fetch.New(dir)
-	f.SetTransport(net)
-	p.anidb = sources.NewAniDB(f, dir, "", "1") // AniDB not configured
+	p.anidb = anidbWithState(t, net, "", anidbState{}) // AniDB not configured
 	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"},
 		{Type: "official", Lang: "ja", Text: "絆テスト"}}})
 	s, err := p.buildShow(context.Background(), "tvdb-500")
@@ -1077,16 +1064,22 @@ func specialsSeries(path string, q map[string][]string) (int, string) {
 	return testSeries(path, q)
 }
 
+// specialMovieSeries is specialsSeries with AniDB's details of the movie
+// 16983.
+func specialMovieSeries(path string, q map[string][]string) (int, string) {
+	if path == "api.anidb.net/httpapi" {
+		return 200, movieXML(16983, "Kizuna Film Red", "From AniDB.", 115, "2022-08-06")
+	}
+	return specialsSeries(path, q)
+}
+
 // specialsProvider: TheTVDB only (no ANIDB_CLIENT, no TMDB key), with the
 // series (100), a movie in its specials (16983, S00E01) and an OVA (300,
 // S00E02-03) before an entry at S00E04 (301).
 func specialsProvider(t *testing.T, net *fakeNet) *Provider {
 	p := newTestProvider(t, net)
-	dir := t.TempDir()
-	f := fetch.New(dir)
-	f.SetTransport(net)
-	p.anidb = sources.NewAniDB(f, dir, "", "1")
-	p.tmdb = sources.NewTMDB(f, "")
+	p.anidb = anidbWithState(t, net, "", anidbState{})
+	p.tmdb = sources.NewTMDB(fetch.New(t.TempDir()), "")
 	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}},
 		16983: {{Type: "main", Lang: "x-jat", Text: "Kizuna Film Red"}}, 300: {{Type: "main", Lang: "x-jat", Text: "Kizuna OVA"}},
 		301: {{Type: "main", Lang: "x-jat", Text: "Kizuna Extra"}}})
@@ -1149,24 +1142,9 @@ func TestSpecialOVAWithoutAniDBFromTheTVDB(t *testing.T) {
 // With AniDB details, a special-only movie is still paired with its
 // TheTVDB special: the thumbnail and the TheTVDB episode.
 func TestSpecialMovieWithAniDBPairsTheTVDB(t *testing.T) {
-	movieXML := `<anime id="16983"><type>Movie</type><startdate>2022-08-06</startdate>
-<titles><title type="main" xml:lang="x-jat">Kizuna Film Red</title></titles><description>From AniDB.</description>
-<episodes><episode><epno type="1">1</epno><length>115</length><title xml:lang="en">Complete Movie</title></episode></episodes></anime>`
-	p := specialsProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
-		if path == "api.anidb.net/httpapi" {
-			return 200, movieXML
-		}
-		return specialsSeries(path, q)
-	}})
-	dir := t.TempDir()
-	f := fetch.New(dir)
-	f.SetTransport(&fakeNet{hits: map[string]int{}, answer: func(path string, q map[string][]string) (int, string) {
-		if path == "api.anidb.net/httpapi" {
-			return 200, movieXML
-		}
-		return 0, ""
-	}})
-	p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
+	net := &fakeNet{answer: specialMovieSeries}
+	p := specialsProvider(t, net)
+	p.anidb = anidbWithState(t, net, "kizunatest", anidbState{})
 	s, err := p.buildShow(context.Background(), "anidb-16983")
 	if err != nil {
 		t.Fatal(err)
@@ -1184,23 +1162,13 @@ func TestSpecialMovieWithAniDBPairsTheTVDB(t *testing.T) {
 // TheTVDB special carries that episode's tvdb://, the same with and without
 // AniDB details. A regular entry keeps the series' GUID and no episode GUIDs.
 func TestSpecialOnlyGuids(t *testing.T) {
-	movieXML := `<anime id="16983"><type>Movie</type><startdate>2022-08-06</startdate>
-<titles><title type="main" xml:lang="x-jat">Kizuna Film Red</title></titles>
-<episodes><episode><epno type="1">1</epno><length>115</length></episode></episodes></anime>`
 	type guids struct{ show, ep []string }
 	var got [2]guids
 	for i, details := range []bool{false, true} {
-		p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+		net := &fakeNet{answer: specialMovieSeries}
+		p := specialsProvider(t, net)
 		if details {
-			dir := t.TempDir()
-			f := fetch.New(dir)
-			f.SetTransport(&fakeNet{hits: map[string]int{}, answer: func(path string, q map[string][]string) (int, string) {
-				if path == "api.anidb.net/httpapi" {
-					return 200, movieXML
-				}
-				return 0, ""
-			}})
-			p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
+			p.anidb = anidbWithState(t, net, "kizunatest", anidbState{})
 		}
 		s, err := p.buildShow(context.Background(), "anidb-16983")
 		if err != nil {

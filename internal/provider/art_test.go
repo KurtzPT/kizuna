@@ -273,10 +273,7 @@ func TestSeasonOnlySourceFailureIsIncomplete(t *testing.T) {
 			return seasonArt(path, q)
 		}}
 		p := newTestProvider(t, net)
-		dir := t.TempDir()
-		f := fetch.New(dir)
-		f.SetTransport(net)
-		p.anidb = sources.NewAniDB(f, dir, "", "1") // no details: complete unless a source fails
+		p.anidb = anidbWithState(t, net, "", anidbState{}) // no details: complete unless a source fails
 		p.cfg.TitleSources, p.cfg.SummarySources = nil, nil
 		p.cfg.PosterSources, p.cfg.BackgroundSources, p.cfg.LogoSources = []string{"tvdb", "tmdb"}, []string{"tvdb", "tmdb"}, []string{"tvdb", "tmdb"}
 		p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: onTVDB(3), TMDB: onTMDB(2)}})
