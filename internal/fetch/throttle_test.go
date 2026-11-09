@@ -61,17 +61,12 @@ func TestThrottlePromote(t *testing.T) {
 func TestThrottleSpacingHolds(t *testing.T) {
 	const gap = 25 * time.Millisecond
 	l := newHostLimit(gap)
-	var mu sync.Mutex
-	var at []time.Time
+	var at []time.Time                                    // let-through times, recorded under the limit's lock
+	l.released = func(t time.Time) { at = append(at, t) } // so their order and spacing are exact
 	var wg sync.WaitGroup
 	for i := range 12 {
 		tk := l.enqueue(i%3 != 0)
-		wg.Go(func() {
-			tk.wait()
-			mu.Lock()
-			at = append(at, time.Now())
-			mu.Unlock()
-		})
+		wg.Go(func() { tk.wait() })
 		if i%4 == 1 {
 			tk.promote()
 		}
@@ -80,6 +75,9 @@ func TestThrottleSpacingHolds(t *testing.T) {
 		}
 	}
 	wg.Wait()
+	if len(at) != 12 {
+		t.Fatalf("%d requests let through, want 12", len(at))
+	}
 	for i := 1; i < len(at); i++ {
 		if d := at[i].Sub(at[i-1]); d < gap {
 			t.Errorf("requests %d and %d let through %v apart, want at least %v", i-1, i, d, gap)
