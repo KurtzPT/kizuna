@@ -195,6 +195,42 @@ func TestLoadKeepsMappingWhenAListFails(t *testing.T) {
 	}
 }
 
+// A list that has never loaded (Fribb down on a fresh install, nothing
+// cached) doesn't freeze the mapping the other list made: its updates and
+// custom file edits still apply on the daily reload.
+func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists}) // fribb: 404
+	order := []string{"animelists", "fribb"}
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir, order); err == nil {
+		t.Error("fribb failed: want an error to log")
+	}
+	if !l.Ready() || l.ByAID(1).TVDB.ID != 100 {
+		t.Fatalf("first load: ready %v, 1 %+v", l.Ready(), l.ByAID(1))
+	}
+
+	cached := filepath.Join(dir, "cache", "mapping", "anime-list-master.xml")
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(cached, old, old); err != nil {
+		t.Fatal(err)
+	}
+	f.SetTransport(lists{animeListsURL: `<anime-list><anime anidbid="1" tvdbid="300" defaulttvdbseason="1"/>` +
+		`<anime anidbid="3" tvdbid="400" defaulttvdbseason="1"/></anime-list>`})
+	custom := `<anime-list><anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`
+	if err := os.WriteFile(filepath.Join(dir, "anime-list-custom.xml"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := l.Load(context.Background(), f, dir, order)
+	if err == nil || strings.Contains(err.Error(), "keeping") {
+		t.Errorf("fribb still fails: %v, want its error but not the mapping kept", err)
+	}
+	if l.ByAID(1).TVDB.ID != 300 || l.ByAID(3).TVDB.ID != 400 || l.ByAID(5).TVDB.ID != 500 || !l.Ready() {
+		t.Errorf("changes not applied: 1 %+v, 3 %+v, 5 %+v", l.ByAID(1), l.ByAID(3), l.ByAID(5))
+	}
+}
+
 // A load cancelled while Kizuna stops doesn't parse or swap in what fetch
 // answered with (here the fresh cached copy).
 func TestLoadCancelledKeepsMapping(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ type snapshot struct {
 	sum    [32]byte                 // of everything it was loaded from (zero = load in full next time)
 	// customOnly: no list has loaded yet; byAID holds anime-list-custom.xml alone.
 	customOnly bool
+	from       []string // the lists it was built from
 }
 
 // empty answers lookups before anything loaded.
@@ -77,11 +79,13 @@ func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]E
 
 // Load downloads (daily) the lists named in order and merges them.
 // On the first load, a list that fails is skipped as long as another one
-// loads; once the mapping is Ready, any failed list keeps the loaded mapping
-// (the lists fill each other's gaps, so one alone would lose ids and
-// episode exceptions). When nothing changed since the last load (most days:
-// the lists answer 304 and the custom file is the same), the loaded mapping
-// is kept as is. A load cancelled while Kizuna stops changes nothing.
+// loads. Once the mapping is Ready, a failed list it was built from keeps it
+// as loaded (the lists fill each other's gaps, so one alone would lose ids
+// and episode exceptions); a failed list it never had doesn't hold back
+// changes to the others or to the custom file. When nothing changed since
+// the last load (most days: the lists answer 304 and the custom file is the
+// same), the loaded mapping is kept as is. A load cancelled while Kizuna
+// stops changes nothing.
 func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order []string) error {
 	type downloaded struct {
 		src  string
@@ -90,6 +94,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	}
 	var got []downloaded
 	var errs []error
+	var failed []string
 	h := sha256.New()
 	for _, src := range order {
 		ls, ok := listSources[src]
@@ -99,7 +104,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		c := &fetch.Checked[map[int]Entry]{Parse: nonEmpty(ls.parse)}
 		data, err := ls.get(ctx, f, c.Validate)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", src, err))
+			errs, failed = append(errs, fmt.Errorf("%s: %w", src, err)), append(failed, src)
 			continue
 		}
 		fmt.Fprintf(h, "%s:%d:", src, len(data))
@@ -126,6 +131,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	}
 
 	var entries map[int]Entry // the first list's own map: this load made it
+	var from []string
 	for i := range got {
 		g := &got[i]
 		list := g.list
@@ -134,7 +140,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 			list, err = listSources[g.src].parse(g.data)
 			g.data = nil
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", g.src, err))
+				errs, failed = append(errs, fmt.Errorf("%s: %w", g.src, err)), append(failed, g.src)
 				continue
 			}
 		}
@@ -144,13 +150,14 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		} else {
 			added, filled = merge(entries, list)
 		}
+		from = append(from, g.src)
 		slog.Info("mapping loaded", "list", g.src, "entries", len(list), "new", added, "filled", filled)
 	}
 	listsLoaded := len(entries) > 0
 	if !listsLoaded {
 		errs = append(errs, errors.New("no mapping list loaded"))
 	}
-	if len(errs) > 0 && l.Ready() { // keep the full mapping of an earlier load (custom entries included)
+	if l.keeps(listsLoaded, failed) { // keep the full mapping of an earlier load (custom entries included)
 		return errors.Join(append(errs, errors.New("keeping the mapping loaded earlier"))...)
 	}
 	if entries == nil {
@@ -175,8 +182,19 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	if len(errs) > 0 { // after a problem, load in full again: its error is logged until it's gone
 		sum = [32]byte{}
 	}
-	l.set(entries, !listsLoaded, sum)
+	l.set(&snapshot{byAID: entries, sum: sum, customOnly: !listsLoaded, from: from})
 	return errors.Join(errs...) // non-nil only to log a list that failed
+}
+
+// keeps reports whether a load whose lists failed as given should keep the
+// Ready mapping loaded earlier: when no list loaded, or when one that failed
+// went into that mapping (without it, the mapping would lose its ids).
+func (l *Lists) keeps(listsLoaded bool, failed []string) bool {
+	s := l.cur.Load()
+	if s == nil || s.customOnly {
+		return false
+	}
+	return !listsLoaded || slices.ContainsFunc(failed, func(src string) bool { return slices.Contains(s.from, src) })
 }
 
 // loadedFrom reports whether the current mapping was loaded from inputs
@@ -230,11 +248,10 @@ func merge(dst, src map[int]Entry) (added, filled int) {
 	return added, filled
 }
 
-// set swaps in a new mapping with its reverse indexes. sum is what it was
-// loaded from (zero: load in full next time).
-func (l *Lists) set(entries map[int]Entry, customOnly bool, sum [32]byte) {
-	s := &snapshot{byAID: entries, byNum: map[string]map[int][]int{}, byIMDB: map[string][]int{},
-		sum: sum, customOnly: customOnly}
+// set builds s's reverse indexes from s.byAID and swaps it in. s.sum is
+// what it was loaded from (zero: load in full next time).
+func (l *Lists) set(s *snapshot) {
+	s.byNum, s.byIMDB = map[string]map[int][]int{}, map[string][]int{}
 	add := func(src string, id, aid int) {
 		if id == 0 {
 			return
@@ -244,7 +261,7 @@ func (l *Lists) set(entries map[int]Entry, customOnly bool, sum [32]byte) {
 		}
 		s.byNum[src][id] = append(s.byNum[src][id], aid)
 	}
-	for aid, e := range entries {
+	for aid, e := range s.byAID {
 		add("tvdb", e.TVDB.ID, aid)
 		add("tmdb", e.TMDB.ID, aid)
 		add("tmdbmovie", e.TMDBMovie, aid)
@@ -275,7 +292,7 @@ func (l *Lists) Ready() bool {
 }
 
 // SetForTest replaces the mapping (for tests in other packages).
-func (l *Lists) SetForTest(entries map[int]Entry) { l.set(entries, false, [32]byte{}) }
+func (l *Lists) SetForTest(entries map[int]Entry) { l.set(&snapshot{byAID: entries}) }
 
 // --- lookups ----------------------------------------------------------------
 // Each one reads a single snapshot and does all its work on it.
