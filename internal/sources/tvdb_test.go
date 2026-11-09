@@ -272,3 +272,53 @@ func TestTVDBBothKeysCachedNoLogin(t *testing.T) {
 		t.Errorf("logged in %d times, want 1", c)
 	}
 }
+
+// With both keys, EpisodeCrew that finds the v4 key rejected says pending:
+// the build's episodes may have come from v4's cache, which has no crew,
+// and the rebuild takes v3's lists, which do.
+func TestTVDBCrewPendingOnKeySwitch(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login": `401 {"status":"failure"}`,
+		v3 + "/login": `{"token":"t3"}`,
+	}, "v4key", "", "legacy")
+	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}); crew != nil || !pending {
+		t.Fatalf("crew %v pending %v at the switch; want none, pending", crew, pending)
+	}
+	if tv.API() != "v3" {
+		t.Fatalf("API %q, want v3", tv.API())
+	}
+	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}); crew != nil || pending {
+		t.Errorf("crew %v pending %v after the switch; want none, not pending", crew, pending)
+	}
+	if c := n.count(v4 + "/episodes/7/extended"); c != 0 {
+		t.Errorf("v4 episode record asked %d times, want 0", c)
+	}
+}
+
+// Background crew fetches wait in the throttle's background queue, behind
+// every request a build waits for.
+func TestTVDBBackgroundCrewYields(t *testing.T) {
+	const host = "api4.thetvdb.com"
+	tv, _ := newTVDBTest(t, map[string]string{
+		v4 + "/login":               `{"data":{"token":"t4"}}`,
+		v4 + "/series/8/artworks":   `{"data":{"artworks":[]}}`,
+		v4 + "/episodes/7/extended": `{"data":{"characters":[]}}`,
+	}, "v4key", "", "")
+	if _, err := tv.Art(context.Background(), 8); err != nil { // logs in and takes the slot
+		t.Fatal(err)
+	}
+	tv.f.Throttle(host, time.Hour) // the record waits until the test opens the gap
+	tv.queueCrew([]int{7})
+	for {
+		fg, bg := tv.f.Waiting(host)
+		if fg+bg > 0 {
+			if fg != 0 || bg != 1 {
+				t.Errorf("%d foreground, %d background requests waiting; want 0, 1", fg, bg)
+			}
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tv.f.Throttle(host, 0)
+	tv.crewQueue.Wait()
+}
