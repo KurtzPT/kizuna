@@ -1,0 +1,51 @@
+package provider
+
+import (
+	"net/http/httptest"
+	"runtime/debug"
+	"strings"
+	"testing"
+)
+
+// With the match reports off, their hooks must cost nothing: a request
+// allocates exactly what it did before the reports existed. The budgets are
+// those counts (Go 1.27). A Go upgrade may move them: then run this test on
+// the code before the reports (commit ca59323) and take its counts; never
+// raise a budget to fit a change. Everything is cached (a download's timers
+// vary) and the GC is off (it empties the sync.Pools): the counts are steady.
+func TestReportsOffAllocs(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		switch path {
+		case "api4.thetvdb.com/v4/series/500/extended", "api4.thetvdb.com/v4/series/500/artworks":
+			return 200, `{"data":{}}` // cached, unlike a 404: no download, no throttle wait
+		}
+		return testSeries(path, q)
+	}})
+	serve := func(method, path, body string) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		p.Handler().ServeHTTP(httptest.NewRecorder(), req)
+	}
+	show := func() { serve("GET", "/tvdb/library/metadata/tvdb-500", "") }
+	show() // fills the cache
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+	cases := []struct {
+		name   string
+		budget float64
+		run    func()
+	}{
+		{"show from memory", 150, show},
+		{"match", 200, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
+		{"show build", 700, func() {
+			p.mu.Lock()
+			clear(p.shows)
+			p.mu.Unlock()
+			show()
+		}},
+	}
+	for _, c := range cases {
+		if got := testing.AllocsPerRun(5, c.run); got > c.budget {
+			t.Errorf("%s: %.0f allocations, want at most %.0f", c.name, got, c.budget)
+		}
+	}
+}

@@ -214,11 +214,13 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 	}
 	if ok, why := c.allowed(aid, background); !ok {
 		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", a != nil)
-		err := fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
 		if a != nil {
-			fetch.Observe(ctx, key, fetch.KindStale, start, err)
+			if fetch.Observing(ctx) { // the error is only built for a match report
+				fetch.Observe(ctx, key, fetch.KindStale, start, fmt.Errorf("%w: %s", ErrAniDBUnavailable, why))
+			}
 			return a, nil // stale beats nothing
 		}
+		err := fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
 		fetch.Observe(ctx, key, fetch.KindFail, start, err)
 		return nil, err
 	}

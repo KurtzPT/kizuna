@@ -377,7 +377,8 @@ func TestTraceCap(t *testing.T) {
 			sum = &b.Trace[i]
 		}
 	}
-	if sum == nil || sum.Label != "300 more like this" || sum.Src != "tvdb" {
+	last := fmt.Sprintf("last: crew/%d.json", MaxTraceRows+299)
+	if sum == nil || sum.Label != "300 more like this" || sum.Note != last || sum.Src != "tvdb" {
 		t.Errorf("summary row %+v", sum)
 	}
 }

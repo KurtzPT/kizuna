@@ -368,7 +368,7 @@ func TestTVDBPairingPerSite(t *testing.T) {
 			map[spot]otherPlace{{1, 2}: {spot{1, 1}, true}, {3, 1}: {spot{3, 1}, true}}},
 	}
 	for _, c := range cases {
-		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, c.list, first, nil))
+		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, c.list, first, nil), false)
 		if !ready {
 			t.Errorf("%s list: every entry is cached, want ready", c.list)
 		}

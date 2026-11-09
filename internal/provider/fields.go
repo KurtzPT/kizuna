@@ -290,9 +290,12 @@ func (ss *showSources) fill(s *Show) bool {
 	slog.Debug("show fields: source used", used...)
 	if failed := ss.failed(); len(failed) > 0 {
 		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
-		done("failed: " + strings.Join(failed, ", "))
-		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
-			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+		if ss.rec != nil { // the notes are built only for a match report
+			list := strings.Join(failed, ", ")
+			done("failed: " + list)
+			ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + list, Cause: true,
+				Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+		}
 		return false
 	}
 	done("")

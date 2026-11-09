@@ -18,11 +18,23 @@ type Recorder struct {
 	mu       sync.Mutex
 	start    time.Time
 	b        Build
-	head     ShowDoc        // title, original title, ids
-	finished time.Time      // when Finish ran; zero while the build runs
-	written  bool           // the store wrote it since its last change
-	requeue  func()         // set by the store: write the build again
-	more     map[string]int // src+kind -> index of its summary row, past MaxTraceRows
+	head     ShowDoc              // title, original title, ids
+	finished time.Time            // when Finish ran; zero while the build runs
+	written  bool                 // the store wrote it since its last change
+	requeue  func()               // set by the store: write the build again
+	more     map[moreKey]*moreRow // past MaxTraceRows: each source and kind's summary row
+}
+
+type moreKey struct {
+	src  string
+	kind SpanKind
+}
+
+// moreRow counts the rows a summary row stands for; its label is written
+// only by snapshot, so a counted row costs no formatting.
+type moreRow struct {
+	i, n int    // its index in the trace, rows counted
+	last string // the last one's label
 }
 
 // MaxTraceRows caps a build's trace: past it, rows are counted into one
@@ -79,24 +91,19 @@ func (r *Recorder) addSpan(sp Span) {
 		r.b.Trace = append(r.b.Trace, sp)
 		return
 	}
-	key := sp.Src + "|" + string(sp.Kind)
-	i, ok := r.more[key]
-	if !ok {
+	key := moreKey{sp.Src, sp.Kind}
+	m := r.more[key]
+	if m == nil {
 		if r.more == nil {
-			r.more = map[string]int{}
+			r.more = map[moreKey]*moreRow{}
 		}
-		i = len(r.b.Trace)
-		r.more[key] = i
+		m = &moreRow{i: len(r.b.Trace)}
+		r.more[key] = m
 		r.b.Trace = append(r.b.Trace, Span{Src: sp.Src, Kind: sp.Kind, Start: sp.Start, End: sp.End})
 	}
-	sum := &r.b.Trace[i]
+	sum := &r.b.Trace[m.i]
 	sum.Start, sum.End = min(sum.Start, sp.Start), max(sum.End, sp.End)
-	n := 1
-	if _, err := fmt.Sscanf(sum.Label, "%d more", &n); err == nil {
-		n++
-	}
-	sum.Label = fmt.Sprintf("%d more like this", n)
-	sum.Note = "last: " + sp.Label
+	m.n, m.last = m.n+1, sp.Label
 }
 
 // Step times a step of the build: call the returned func when it ends.
@@ -179,6 +186,10 @@ func (r *Recorder) snapshot(requeue func()) (Build, ShowDoc) {
 	r.written, r.requeue = true, requeue
 	b := r.b
 	b.Trace = slices.Clone(b.Trace)
+	for _, m := range r.more {
+		b.Trace[m.i].Label = fmt.Sprintf("%d more like this", m.n)
+		b.Trace[m.i].Note = "last: " + m.last
+	}
 	slices.SortStableFunc(b.Trace, func(x, y Span) int {
 		if x.Start != y.Start {
 			return int(x.Start - y.Start)

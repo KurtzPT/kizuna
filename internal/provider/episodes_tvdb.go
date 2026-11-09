@@ -106,8 +106,9 @@ func (b *tvdbBuild) onShow(site string, e mapping.Entry) bool {
 
 // tvdbPairing walks every AniDB entry of a /tvdb series. b.first is already
 // fetched. Other entries come from the cache; missing ones are fetched in the
-// background for the next build, and ready is false meanwhile.
-func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
+// background for the next build, and ready is false meanwhile. record notes
+// those missing entries in pr.loading, for the match report.
+func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready bool) {
 	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}
 	ready = true
 	firstAID := p.lists.FirstAID(b.tvdbID)
@@ -118,7 +119,7 @@ func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
 			if a, fresh = p.anidb.Peek(aid); !fresh && p.anidb.Enabled() {
 				p.anidb.Prefetch(aid)
 				ready = ready && a != nil
-				if a == nil {
+				if a == nil && record {
 					pr.loading = append(pr.loading, aid)
 				}
 			}
@@ -162,8 +163,8 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 	var pr tvdbPairing
 	ready := true
 	if otherOn || slices.Contains(order, "anidb") { // the other site's crew needs the pairing too
-		pr, ready = p.tvdbPairing(b)
-		if len(pr.loading) > 0 {
+		pr, ready = p.tvdbPairing(b, rec != nil)
+		if len(pr.loading) > 0 { // only when recording
 			ids := make([]string, len(pr.loading))
 			for i, aid := range pr.loading {
 				ids[i] = strconv.Itoa(aid)
