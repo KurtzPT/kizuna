@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -643,6 +644,19 @@ func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
 	}
 }
 
+// captureLogs sends slog's lines to w until restore is called. slog.SetDefault
+// also redirects the log package, which restoring the old logger doesn't
+// undo, so its output and flags are put back too.
+func captureLogs(w io.Writer) (restore func()) {
+	old, out, flags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, nil)))
+	return func() {
+		slog.SetDefault(old)
+		log.SetOutput(out)
+		log.SetFlags(flags)
+	}
+}
+
 // /tvdb works without ANIDB_CLIENT: the show has no AniDB details to wait
 // for, so it is complete and not rebuilt (and logged) every 2 minutes. With
 // AniDB set up but not answering, it is rebuilt soon.
@@ -667,10 +681,9 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 		f.SetTransport(net)
 		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
 		var logs strings.Builder
-		old := slog.Default()
-		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+		restore := captureLogs(&logs)
 		s, err := p.buildShow(context.Background(), "tvdb-500")
-		slog.SetDefault(old)
+		restore()
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
