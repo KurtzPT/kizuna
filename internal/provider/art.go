@@ -329,27 +329,34 @@ func (ss *showSources) fillSeasons(s *Show) {
 
 // warmArt adds jobs that fetch, in parallel, the art each target will ask
 // for first: each kind's first source (every listed one in "all" mode). One
-// job per distinct target.
+// job per distinct target and source.
 func (ss *showSources) warmArt(jobs []func()) []func() {
 	all := ss.p.cfg.ArtAllSources
-	warm := func(t artTarget) {
-		for _, k := range artKinds {
-			for i, src := range k.order(ss) {
-				if i > 0 && !all {
-					break
-				}
-				ss.artParts(src, k, t)
+	asks := func(k artKind, src string) bool { // the kind's order asks src first (or at all)
+		order := k.order(ss)
+		return all && slices.Contains(order, src) || len(order) > 0 && order[0] == src
+	}
+	add := func(t artTarget) {
+		for _, src := range [...]string{"tvdb", "tmdb", "anidb", "mal", "ann"} {
+			if asks(posterArt, src) || asks(backgroundArt, src) || asks(logoArt, src) {
+				jobs = append(jobs, func() {
+					for _, k := range artKinds {
+						if asks(k, src) {
+							ss.artParts(src, k, t)
+						}
+					}
+				})
 			}
 		}
 	}
-	jobs = append(jobs, func() { warm(ss.show) })
+	add(ss.show)
 	for i, s := range ss.seasons {
 		seen := s.t == ss.show
 		for _, o := range ss.seasons[:i] {
 			seen = seen || o.t == s.t
 		}
 		if !seen {
-			jobs = append(jobs, func() { warm(s.t) })
+			add(s.t)
 		}
 	}
 	return jobs
