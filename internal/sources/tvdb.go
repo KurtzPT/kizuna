@@ -41,6 +41,7 @@ type TVDB struct {
 	crewMu     sync.Mutex
 	crewQueued map[int]bool
 	crewFailed map[int]time.Time
+	crewQueue  sync.WaitGroup // background fetches under way (tests wait on it)
 }
 
 // tvdbLoginPause: how long a failed login is remembered. A rejected key

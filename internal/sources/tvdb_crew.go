@@ -186,7 +186,7 @@ func (t *TVDB) queueCrew(ids []int) {
 	if len(todo) == 0 {
 		return
 	}
-	go func() {
+	t.crewQueue.Go(func() {
 		for _, id := range todo {
 			if _, err := t.fetchCrew(context.Background(), id); crewAnswer(err) {
 				t.crewFail(id, err)
@@ -195,5 +195,5 @@ func (t *TVDB) queueCrew(ids []int) {
 			delete(t.crewQueued, id)
 			t.crewMu.Unlock()
 		}
-	}()
+	})
 }

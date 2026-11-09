@@ -169,16 +169,12 @@ func TestTVDBEpisodeCrewBackground(t *testing.T) {
 	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3, 1}); !pending || len(crew) != 0 {
 		t.Fatalf("over budget: crew %v pending %v, want none and pending", crew, pending)
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		tv.crewMu.Lock()
-		left := len(tv.crewQueued)
-		tv.crewMu.Unlock()
-		if left == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("background queue never drained")
-		}
+	tv.crewQueue.Wait()
+	tv.crewMu.Lock()
+	left := len(tv.crewQueued)
+	tv.crewMu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d records still queued after the background ended", left)
 	}
 	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3})
 	if pending || strings.Join(crew[1].Directors, ",") != "D1,D2" || strings.Join(crew[1].Writers, ",") != "W" {
