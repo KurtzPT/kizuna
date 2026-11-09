@@ -10,9 +10,11 @@ import (
 // With the match reports off, their hooks must cost nothing: a request
 // allocates no more than it did before the reports existed. The budgets
 // were those counts (Go 1.27), lowered since by changes that saved
-// allocations. A Go upgrade may move them: then take the counts of this
-// test on the code as it is; never raise a budget to fit a change. Everything is cached (a download's timers
-// vary) and the GC is off (it empties the sync.Pools): the counts are steady.
+// allocations. A Go upgrade may move them: then run this test under the new
+// Go on the commit that last set the budgets (git log -L on the budget
+// lines below finds it) and take its counts; never raise a budget to fit a
+// change. Everything is cached (a download's timers vary) and the GC is off
+// (it empties the sync.Pools): the counts are steady.
 func TestReportsOffAllocs(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are off under the race detector")
