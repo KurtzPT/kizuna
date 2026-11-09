@@ -117,11 +117,11 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	entry := p.lists.ByAID(aid)
 	tmdbID, movie := entry.TMDB.ID, false
 	// Without AniDB details, an entry with only a TMDB movie id is a movie.
-	isMovie := a != nil && a.IsMovie() || a == nil && entry.TMDB.ID == 0
+	isMovie := a != nil && a.IsMovie() || a == nil && entry.TMDB.ID == 0 && entry.TMDBMovie > 0
 	if isMovie && entry.TMDBMovie > 0 {
 		tmdbID, movie = entry.TMDBMovie, true
 	}
-	if entry.TVDB.ID > 0 && (a == nil || !a.IsMovie()) {
+	if entry.TVDB.ID > 0 && !isMovie { // the same GUIDs with and without AniDB details
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
 	s.addGuids(tmdbID, entry.IMDB)
@@ -158,7 +158,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
 	}
-	if a != nil && a.IsMovie() && len(s.Episodes[1]) == 1 { // the movie itself: show its own title and summary
+	if isMovie && a == nil { // a placeholder movie: its one episode is still the movie
+		s.Episodes[1] = []Ep{{Season: 1, Index: 1}}
+	}
+	if isMovie && len(s.Episodes[1]) == 1 { // the movie itself: show its own title and summary
 		s.Episodes[1][0].Title, s.Episodes[1][0].Summary = s.Title, s.Summary
 	}
 	return s, nil

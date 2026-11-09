@@ -686,6 +686,42 @@ func TestAniDBMovieWithoutDetailsUsesTMDBMovie(t *testing.T) {
 	}
 }
 
+// An /anidb movie has the same GUIDs whether AniDB has answered yet or not
+// (no tvdb:// for the TV series it is mapped to), and its one episode is
+// the movie, under the show's title, in both builds.
+func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
+	movieXML := `<anime id="100"><type>Movie</type><startdate>2010-05-01</startdate>
+<titles><title type="main" xml:lang="x-jat">Kizuna Test</title></titles><description>The movie.</description>
+<episodes><episode><epno type="1">1</epno><length>90</length><title xml:lang="en">Complete Movie</title></episode></episodes></anime>`
+	var guids [2][]string
+	for i, details := range []bool{false, true} {
+		p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			if path == "api.anidb.net/httpapi" {
+				if !details {
+					return 500, ""
+				}
+				return 200, movieXML
+			}
+			return testSeries(path, q)
+		}})
+		p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 0, Mapped: true}, TMDBMovie: 99}})
+		s, err := p.buildShow(context.Background(), "anidb-100")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Placeholders == details {
+			t.Fatalf("details %v: placeholders %v", details, s.Placeholders)
+		}
+		guids[i] = s.Guids
+		if ep := s.Episode(1, 1); ep == nil || ep.Title != s.Title || s.Title != "Kizuna Test" {
+			t.Errorf("details %v: S01E01 %+v, want the movie under the show's title %q", details, ep, s.Title)
+		}
+	}
+	if !slices.Equal(guids[0], guids[1]) || slices.Contains(guids[0], "tvdb://500") || !slices.Contains(guids[0], "tmdb://99") {
+		t.Errorf("guids without details %v, with %v: want the same, tmdb://99 and no tvdb://500", guids[0], guids[1])
+	}
+}
+
 // A /tvdb build reads TheMovieDb's episode list once, for both the titles
 // and the crew, and a failed list still leaves the show incomplete.
 func TestTVDBReadsTMDBListOnce(t *testing.T) {
