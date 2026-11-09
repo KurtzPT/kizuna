@@ -734,7 +734,7 @@ func TestTVDBReadsTMDBListOnce(t *testing.T) {
 	var mu sync.Mutex
 	reads := 0
 	ctx := fetch.WithObserver(context.Background(), func(e fetch.Event) {
-		if e.Key == "tmdb/tv-77-s1.json" {
+		if e.Key == "tmdb/tv-77-s1-images.json" {
 			mu.Lock()
 			reads++
 			mu.Unlock()

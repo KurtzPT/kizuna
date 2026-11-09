@@ -267,11 +267,13 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 	return out, nil
 }
 
-// season reads one season file of a TV show, which Episodes and
-// SeasonOverview share.
+// season reads one season file of a TV show, which Episodes, SeasonOverview
+// and SeasonArt share: the season's images come appended to it (TMDB's
+// append_to_response), so its posters cost no request of their own.
 func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
-	key := fmt.Sprintf("tmdb/tv-%d-s%d.json", id, season)
-	return t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", id, season), "&language=en-US", key, 2*24*time.Hour, out)
+	key := fmt.Sprintf("tmdb/tv-%d-s%d-images.json", id, season) // files from before the images had none: not read
+	return t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", id, season),
+		"&language=en-US&append_to_response=images&include_image_language=en,ja,null", key, 2*24*time.Hour, out)
 }
 
 // SeasonOverview returns the English overview of a TV show's season, from
@@ -282,6 +284,27 @@ func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 	}
 	err := t.season(ctx, id, season, &r)
 	return r.Overview, err
+}
+
+// SeasonArt returns the posters of a TV show's season, English or textless
+// first, as TMDB orders them by votes. TMDB seasons have no backgrounds or
+// logos.
+func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
+	var r struct {
+		Images struct {
+			Posters []struct {
+				FilePath string `json:"file_path"`
+			} `json:"posters"`
+		} `json:"images"`
+	}
+	if err := t.season(ctx, id, season, &r); err != nil {
+		return Art{}, err
+	}
+	var a Art
+	for _, p := range r.Images.Posters {
+		a.Posters = append(a.Posters, tmdbImg+p.FilePath)
+	}
+	return a, nil
 }
 
 // Art returns images of a TV show (movie=false) or a movie (movie=true),
