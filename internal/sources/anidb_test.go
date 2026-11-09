@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -459,8 +460,9 @@ func TestAniDBOverlappingFailuresOneStep(t *testing.T) {
 	for i, call := range calls {
 		c.result(i+1, call, failed)
 	}
-	if c.state.Failures != 1 || len(c.state.Failed) != 3 {
-		t.Fatalf("%d failures (want 1), %d anime marked failed (want 3: each was asked)", c.state.Failures, len(c.state.Failed))
+	if c.state.Failures != 1 || len(c.state.Failed) != 0 || len(c.state.Sent) != 3 {
+		t.Fatalf("%d failures (want 1), %d anime blocked (want 0: a server error is no anime's fault), %d calls counted (want 3)",
+			c.state.Failures, len(c.state.Failed), len(c.state.Sent))
 	}
 }
 
@@ -504,14 +506,14 @@ func captureLogs(t *testing.T) *logBuffer {
 // skip afterwards is logged at info, once, with when and why.
 func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	logs := captureLogs(t)
-	c, calls := fakeAniDB(t, [2]string{"500", "oops"})
+	c, calls := fakeAniDB(t, [2]string{"200", "<error>Anime not found</error>"})
 	ctx := context.Background()
 	_, _ = c.Anime(ctx, 1)
 	if s := logs.String(); !strings.Contains(s, "retry_anime_at=") {
 		t.Fatalf("failure warning lacks retry_anime_at:\n%s", s)
 	}
 	c.mu.Lock()
-	c.state.RetryAt = time.Time{} // the global backoff is over; the anime's block is not
+	c.state.RetryAt = time.Time{} // no global backoff; the anime's block stands
 	c.mu.Unlock()
 	for range 3 { // rebuilds of the same show
 		if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) {
@@ -525,7 +527,7 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 	if n := strings.Count(s, "level=INFO"); n != 1 {
 		t.Fatalf("want one info line about the block, got %d:\n%s", n, s)
 	}
-	for _, want := range []string{"aid=1", "blocked_until=", "HTTP 500"} {
+	for _, want := range []string{"aid=1", "blocked_until=", "Anime not found"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("info line lacks %q:\n%s", want, s)
 		}
@@ -540,11 +542,14 @@ func TestAniDBBlockedUntil(t *testing.T) {
 	if _, blocked := none.BlockedUntil(1); blocked {
 		t.Error("nil AniDB: want not blocked")
 	}
-	c, _ := fakeAniDB(t, [2]string{"500", "oops"})
+	c, _ := fakeAniDB(t, [2]string{"200", "<error>Anime not found</error>"})
 	if _, blocked := c.BlockedUntil(1); blocked {
 		t.Error("never asked: want not blocked")
 	}
-	_, _ = c.Anime(context.Background(), 1) // fails: aid 1 blocked, and a backoff for every anime
+	_, _ = c.Anime(context.Background(), 1) // AniDB answers with an error: aid 1 blocked
+	c.mu.Lock()
+	c.state.RetryAt = c.state.RetryAt.Add(time.Hour) // and another anime under a backoff
+	c.mu.Unlock()
 	c.mu.Lock()
 	failedAt := c.state.Failed[1]
 	c.mu.Unlock()
@@ -621,7 +626,7 @@ func TestAniDBNoCallBeforeLastOneRecorded(t *testing.T) {
 		t.Fatalf("second download's turn: %v, %d calls counted; want not sent, 1", err, len(c.state.Sent))
 	}
 	c.result(5, nil, notSent)
-	c.result(5, call, &fetch.StatusError{Code: 500, URL: "x"})
+	c.result(5, call, &anidbEntryError{msg: "Anime not found", answered: true})
 	if _, failed := c.state.Failed[5]; !failed || c.calling[5] != nil {
 		t.Fatalf("anime 5 failed %v, calling %v; want failed, none", failed, c.calling[5])
 	}
@@ -820,5 +825,47 @@ func TestAniDBStopEndsBackgroundCalls(t *testing.T) {
 	}
 	if a, err := c.Anime(context.Background(), 5); err != nil || a.AID != 5 || calls.Load() != 2 {
 		t.Fatalf("Plex's own call while stopping: %v, %d requests", err, calls.Load())
+	}
+}
+
+// A network or server error (not a ban) is AniDB's or the connection's
+// fault, not the anime's: no anime waits 24 h, the backoff holds every call,
+// and once it ends the same anime is asked again. A call that never reached
+// AniDB (no connection) isn't one of the day's; one that may have is.
+func TestAniDBOutageBlocksNoAnime(t *testing.T) {
+	c, calls := fakeAniDB(t, [2]string{"500", "oops"}, [2]string{"200", anidbSample})
+	ctx := context.Background()
+	if _, err := c.Anime(ctx, 1); err == nil {
+		t.Fatal("want an error")
+	}
+	if _, blocked := c.BlockedUntil(1); blocked || len(c.state.Sent) != 1 || c.state.Failures != 1 {
+		t.Fatalf("after a 500: blocked %v, %d calls counted, %d failures; want false, 1, 1", blocked, len(c.state.Sent), c.state.Failures)
+	}
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+		t.Fatalf("during the backoff: calls=%d err=%v; want 1, unavailable", calls.Load(), err)
+	}
+	c.mu.Lock()
+	c.state.RetryAt = time.Time{} // backoff over
+	c.mu.Unlock()
+	if a, err := c.Anime(ctx, 1); err != nil || a == nil || calls.Load() != 2 {
+		t.Fatalf("after the backoff: calls=%d err=%v; want the anime asked again", calls.Load(), err)
+	}
+}
+
+func TestAniDBNoConnectionNotCounted(t *testing.T) {
+	c, _ := fakeAniDB(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close() // nothing listens there: the connection is refused
+	anidbAPI = "http://" + addr + "/?client=%s&clientver=%s&aid=%d"
+	c.f.Throttle(addr, 0)
+	if _, err := c.Anime(context.Background(), 1); err == nil {
+		t.Fatal("want an error")
+	}
+	if _, blocked := c.BlockedUntil(1); blocked || len(c.state.Sent) != 0 || c.state.Failures != 1 {
+		t.Fatalf("no connection: blocked %v, %d calls counted, %d failures; want false, 0, 1", blocked, len(c.state.Sent), c.state.Failures)
 	}
 }

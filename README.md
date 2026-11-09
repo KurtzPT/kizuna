@@ -285,11 +285,11 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 | Rule | Details |
 |---|---|
 | Finding a show never calls the API | it searches the daily title list. Once that list has loaded, an AniDB id it doesn't have isn't asked about either (unless it's cached), so an entry added since waits for the next list |
-| One call every 4 s, at most 200 a day | AniDB's limits |
+| One call every 4 s, at most 200 a day | AniDB's limits. A call that couldn't connect (no network, no DNS) isn't counted |
 | Plex's calls go first | background fetches (other entries of a `/tvdb` show) wait behind them, still 4 s apart, and stop at 150 calls a day |
 | Every answer is cached | 6 days while airing and for 60 days after the end, then 180 days |
-| A failed anime waits 24 h | before it's asked again |
-| Backoff after errors | 30 s → 2 min → 15 min → 1 h → 6 h → 24 h; AniDB's next answer about an anime (its entry, or an error such as *not found*) starts it over |
+| Each anime at most once a day | once AniDB has answered about an anime (its entry, or an error such as *not found*), it isn't asked again for 24 h. A network or server error blocks no anime: the backoff covers it |
+| Backoff after network or server errors | 30 s → 2 min → 15 min → 1 h → 6 h → 24 h; AniDB's next answer about an anime (its entry, or an error such as *not found*) starts it over |
 | A ban pauses all calls for 24 h | more traffic would only extend it |
 | A rejected client pauses all calls for 24 h | when AniDB says `ANIDB_CLIENT` / `ANIDB_CLIENTVER` is wrong. A restart with new values asks again at once |
 | Queued calls are checked again | a call waiting for its 4 s turn isn't sent, or counted, once a ban, backoff or rejected client came in ahead of it |

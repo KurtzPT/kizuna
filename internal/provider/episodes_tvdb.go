@@ -138,7 +138,7 @@ func (b *tvdbBuild) onTMDBShow(e mapping.Entry) bool {
 // is already fetched: the first entry isn't looked up again, so a mapping
 // reload during the build can't pair with another entry's details. Other entries come from the cache; missing ones are fetched in the
 // background for the next build, and ready is false meanwhile (not for an
-// entry in its 24 h block after a failed call: no build before then gets
+// entry in its 24 h block after an AniDB error: no build before then gets
 // it). record notes those missing entries in pr.loading, for the match report.
 func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready bool) {
 	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}

@@ -54,7 +54,7 @@ type Show struct {
 	// details replaces them.
 	Placeholders bool
 	// anidbBlocked: an /anidb show built without AniDB details because the
-	// anime is in its 24 h block after a failed call (zero = not): complete
+	// anime is in its 24 h block after an AniDB error (zero = not): complete
 	// all the same, as no build before then can get them.
 	anidbBlocked time.Time
 	// episodeGuids: each episode paired with a TheTVDB episode carries its
@@ -387,7 +387,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	var wg sync.WaitGroup
 	defer wg.Wait() // a failed build too: AniDB's answer is cached for the next
 	var a *sources.AniDBAnime
-	var blocked bool // a is nil because the anime is in its 24 h block after a failed call
+	var blocked bool // a is nil because the anime is in its 24 h block after an AniDB error
 	if aid > 0 {
 		wg.Go(func() {
 			var err error
@@ -439,7 +439,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		averageRuntime(s, a)
 	} else if p.anidb.Enabled() && aid > 0 && !blocked {
 		// AniDB details missing: rebuild soon (without ANIDB_CLIENT, or while
-		// the anime is in its 24 h block after a failed call, there are none
+		// the anime is in its 24 h block after an AniDB error, there are none
 		// to wait for). Also for an entry the title dump doesn't list yet: a
 		// new one, which AniDB has before the next dump.
 		s.Complete = false

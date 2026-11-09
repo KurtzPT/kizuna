@@ -308,7 +308,7 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 		text := "AniDB's details were not available, so " + bare + " until the next build."
 		switch {
 		case !s.anidbBlocked.IsZero(): // complete: no details to wait for until the block ends
-			text = "AniDB's last call for this anime failed, and AniDB's rules block asking again until " +
+			text = "AniDB answered this anime's last call with an error, and AniDB's rules block asking again until " +
 				s.anidbBlocked.Format("2006-01-02 15:04 MST") + ", so " + bare + ". " +
 				"The first build after that asks AniDB again."
 		case s.Complete: // without ANIDB_CLIENT: no details to wait for, no rebuild

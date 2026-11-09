@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"slices"
 	"time"
@@ -36,7 +37,9 @@ const (
 // connections, server errors), as AniDB asks: 30 s, 2 min, 15 min... 24 h.
 var anidbBackoff = []time.Duration{30 * time.Second, 2 * time.Minute, 15 * time.Minute, time.Hour, 6 * time.Hour, 24 * time.Hour}
 
-// anidbRetry: an anime whose call failed is not asked again for this long.
+// anidbRetry: an anime AniDB answered (with its entry or an error about it)
+// is not asked again for this long. A network or server error blocks no
+// anime: the backoff covers it.
 const anidbRetry = 24 * time.Hour
 
 // anidbCall is one API call, from the moment it is allowed (and counted)
@@ -206,8 +209,8 @@ func (c *AniDB) fetchedLately(aid int) bool {
 	return ok && time.Since(at) < anidbRetry
 }
 
-// BlockedUntil reports whether aid is in its 24 h block after a failed call
-// (AniDB's rule: no call for it until then), and when the block ends. No
+// BlockedUntil reports whether aid is in its 24 h block after AniDB answered
+// its call with an error (AniDB's rule: no call for it until then), and when the block ends. No
 // build before then can get its details, so they are nothing to wait for.
 // Other reasons not to call (a ban, a backoff, the daily limit) pass sooner
 // and don't count. nil = AniDB not set up: never blocked.
@@ -244,7 +247,7 @@ func (c *AniDB) tellBlocked(aid int, failedAt time.Time) {
 	if why == "" {
 		why = "unknown (it failed before a restart)"
 	}
-	slog.Info("AniDB: not asking about this anime again until its 24 h block ends (AniDB's rule after a failed call); "+
+	slog.Info("AniDB: not asking about this anime again until its 24 h block ends (AniDB's rule after an error about it); "+
 		"its details stay cached or missing until then", "aid", aid, "blocked_until", failedAt.Add(anidbRetry).Format(time.RFC3339),
 		"failed_at", failedAt.Format(time.RFC3339), "failure", why)
 }
@@ -297,7 +300,6 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	var entry *anidbEntryError
 	var status *fetch.StatusError
 	delete(c.failWhy, aid)
-	retryAnime := now.Add(anidbRetry).Format(time.RFC3339)
 	switch {
 	case err == nil:
 		delete(c.state.Failed, aid)
@@ -321,21 +323,27 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		if entry.answered {
 			c.state.Failures = 0 // AniDB answered: an outage before it is over
 		}
-		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid, "retry_anime_at", retryAnime, "err", err)
-	case call != nil && call.at.Before(c.backedOffAt):
-		// It went out before the failure that started this backoff (a slow
-		// answer, 4 s behind it): the same outage, not one more step.
-		c.state.Failed[aid] = now
-		slog.Warn("AniDB call failed, like the one before it; not asking about this anime again for 24 h (AniDB's rule)",
-			"aid", aid, "retry_anime_at", retryAnime, "err", err)
+		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid,
+			"retry_anime_at", now.Add(anidbRetry).Format(time.RFC3339), "err", err)
 	default:
-		c.state.Failed[aid] = now
+		// A network error or a server error (not a ban): AniDB, or the
+		// connection to it, is down. That isn't this anime's fault, so it
+		// isn't blocked: the backoff keeps every call away until it ends.
+		// A call that never left (no connection) isn't one of the day's.
+		if call != nil && notConnected(err) {
+			c.uncount(call)
+		}
+		if call != nil && call.at.Before(c.backedOffAt) {
+			// It went out before the failure that started this backoff (a
+			// slow answer, 4 s behind it): the same outage, not one more step.
+			slog.Warn("AniDB call failed, like the one before it", "aid", aid, "err", err)
+			break
+		}
 		c.backedOffAt = now
 		c.state.Failures++
 		wait := anidbBackoff[min(c.state.Failures, len(anidbBackoff))-1]
 		c.state.RetryAt = now.Add(wait)
-		slog.Warn("AniDB call failed; backing off, and not asking about this anime again for 24 h (AniDB's rule)",
-			"aid", aid, "wait", wait, "retry_anime_at", retryAnime, "err", err)
+		slog.Warn("AniDB call failed; backing off", "aid", aid, "wait", wait, "err", err)
 	}
 	// Only for an anime blocked now (not a client error): admit prunes it
 	// with its Failed entry.
@@ -395,4 +403,12 @@ func (c *AniDB) save() {
 	if err := fetch.WriteFile(c.statePath, b); err != nil {
 		slog.Warn("AniDB state not saved; a restart now would forget the latest calls", "file", c.statePath, "err", err)
 	}
+}
+
+// notConnected reports whether err means the call never reached AniDB: no
+// address for its host, or no connection to it.
+func notConnected(err error) bool {
+	var dns *net.DNSError
+	var op *net.OpError
+	return errors.As(err, &dns) || errors.As(err, &op) && (op.Op == "dial" || op.Op == "proxyconnect")
 }

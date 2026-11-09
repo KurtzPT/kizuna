@@ -987,11 +987,12 @@ func anidbWithState(t *testing.T, net *fakeNet, client string, state anidbState)
 	return sources.NewAniDB(f, dir, client, "1")
 }
 
-// An anime in its 24 h block after a failed call (AniDB's rule) has no
-// details to wait for: its show is complete (kept the usual hour), in /anidb
-// and /tvdb, and isn't logged at Info on every build (the block is, once).
-// A shorter pause (a backoff, the daily limit) still rebuilds soon, and so
-// does a block that ended, until AniDB's details are in.
+// An anime in its 24 h block after AniDB answered with an error (AniDB's
+// rule) has no details to wait for: its show is complete (kept the usual
+// hour), in /anidb and /tvdb, and isn't logged at Info on every build (the
+// block is, once). A server error blocks no anime, and a shorter pause (a
+// backoff, the daily limit) still rebuilds soon, and so does a block that
+// ended, until AniDB's details are in.
 func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
 	const aid = 7300 // only this test's: its log lines are told apart by it
 	entry := strings.Replace(anidbXML, `id="100"`, `id="7300"`, 1)
@@ -1004,21 +1005,25 @@ func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
 	for _, mode := range []string{"anidb", "tvdb"} {
 		for name, c := range map[string]struct {
 			state    anidbState
-			fail     bool // AniDB answers a call with a 500
+			fail     int // AniDB answers a call with 1: an error about the anime, 2: a 500
 			complete bool
 			calls    int  // AniDB calls the build makes
 			details  bool // the build has AniDB's details
 		}{
-			"failed in this build":       {anidbState{}, true, true, 1, false},
-			"blocked":                    {anidbState{Failed: map[int]time.Time{aid: now.Add(-time.Hour)}}, false, true, 0, false},
-			"backing off":                {anidbBackingOff(), false, false, 0, false},
-			"daily limit":                {anidbState{Sent: daily}, false, false, 0, false},
-			"block ended, still pausing": {anidbState{Failed: ended, RetryAt: now.Add(time.Hour), Failures: 1}, false, false, 0, false},
-			"block ended":                {anidbState{Failed: ended}, false, true, 1, true},
+			"failed in this build":       {anidbState{}, 1, true, 1, false},
+			"server error in this build": {anidbState{}, 2, false, 1, false},
+			"blocked":                    {anidbState{Failed: map[int]time.Time{aid: now.Add(-time.Hour)}}, 0, true, 0, false},
+			"backing off":                {anidbBackingOff(), 0, false, 0, false},
+			"daily limit":                {anidbState{Sent: daily}, 0, false, 0, false},
+			"block ended, still pausing": {anidbState{Failed: ended, RetryAt: now.Add(time.Hour), Failures: 1}, 0, false, 0, false},
+			"block ended":                {anidbState{Failed: ended}, 0, true, 1, true},
 		} {
 			net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 				if path == "api.anidb.net/httpapi" {
-					if c.fail {
+					switch c.fail {
+					case 1:
+						return 200, "<error>Anime not found</error>"
+					case 2:
 						return 500, ""
 					}
 					return 200, entry
@@ -1065,12 +1070,12 @@ func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
 }
 
 // A later AniDB entry of a /tvdb series keeps the show incomplete while it
-// is fetched in the background, but not once its call failed: then it is in
-// its 24 h block, and no rebuild before that gets it.
+// is fetched in the background, but not once AniDB answered with an error:
+// then it is in its 24 h block, and no rebuild before that gets it.
 func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
 	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 		if path == "api.anidb.net/httpapi" && q["aid"][0] == "200" {
-			return 500, ""
+			return 200, "<error>Anime not found</error>"
 		}
 		return testSeries(path, q)
 	}}

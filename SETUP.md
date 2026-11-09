@@ -500,7 +500,7 @@ and Plex tokens are always shown as `***`.
 - one `show built` line per show. `complete=false` means something was missing, so the show is rebuilt in 2 minutes:
   AniDB details, part of an episode list, a source that failed or ran out of time, or a later AniDB entry or episode
   crew still being fetched. When AniDB was the missing part, an `AniDB details not available` line before it says
-  `why=`. Without `ANIDB_CLIENT` AniDB is never waited for. An anime in its 24 h block after a failed call is logged
+  `why=`. Without `ANIDB_CLIENT` AniDB is never waited for. An anime in its 24 h block after AniDB answered with an error is logged
   once (`not asking about this anime again`) and its show counts as complete until the block ends
 - failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff, bans and a rejected client
 
@@ -579,7 +579,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | A request gets `503` `the show can't be built now` | The reason follows: a source that didn't answer (`no episode list from TheTVDB`: TheTVDB is down and no older copy is cached), or a `tvdb-…` show asked through `/anidb` or `/auto` without a TheTVDB key (`needs TheTVDB, which is off`). Plex keeps what it has and asks again on a later refresh; for 2 minutes the failure is the answer, then the show is built again. Only a show that doesn't exist (an unknown AniDB id, `TheTVDB has no episodes for this show`) gets no match or a 404. A new AniDB entry is unknown until the next daily title list ([why](README.md#-anidb-fair-use)) |
 | A movie folder became the whole series, or `matched to an AniDB entry by name inside a TheTVDB id` | Tag the folder `[anidb-…]` or `[tmdb-…]` (the movie) instead of `[tvdb-…]` ([movies and specials](#-movies-and-specials)) |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids, the tag's or current GUID's show first, then the title you typed |
-| No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, rejected client, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again`. Its show is kept the usual hour meanwhile, and the first build after the block asks AniDB again |
+| No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, rejected client, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After AniDB answers with an error about an anime (e.g. *not found*), its rules keep that one anime from being asked again for 24 h (a network or server error doesn't): look for `not asking about this anime again`. Its show is kept the usual hour meanwhile, and the first build after the block asks AniDB again |
 | `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`). With a key, `TheTVDB has no episodes for this show`: use `/anidb` (or `/auto`) for it |
 | Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
