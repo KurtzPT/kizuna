@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,5 +196,42 @@ func TestMissingSeasonIsNoMatch(t *testing.T) {
 	store.Flush()
 	if _, err := os.Stat(page); !os.IsNotExist(err) {
 		t.Errorf("after a match with its season: %v, want the unmatched page gone", err)
+	}
+}
+
+// Requests for one show while it builds share that build: K at once start
+// one build and all get its show. One that comes after the build gets the
+// cached show, so the count holds however the goroutines are scheduled.
+func TestConcurrentRequestsBuildOnce(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	var builds atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	want := &Show{Root: "anidb-100", Title: "Kizuna Test", Complete: true}
+	p.buildFn = func(context.Context, string) (*Show, error) {
+		if builds.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		return want, nil
+	}
+	const k = 8
+	got := make(chan *Show, k)
+	errs := make(chan error, k)
+	for range k {
+		go func() {
+			s, err := p.show(context.Background(), "anidb-100")
+			got <- s
+			errs <- err
+		}()
+	}
+	<-started
+	close(release)
+	for range k {
+		if s, err := <-got, <-errs; s != want || err != nil {
+			t.Errorf("got %p, %v; want the one build's show", s, err)
+		}
+	}
+	if n := builds.Load(); n != 1 {
+		t.Errorf("%d builds, want 1", n)
 	}
 }
