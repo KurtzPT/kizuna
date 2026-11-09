@@ -57,6 +57,7 @@ field stays empty, and Kizuna warns at startup (`no usable source in these lists
 want it empty.
 
 Without an AniDB client, shows still match by title (from AniDB's offline title list), but get no AniDB details.
+The title and original title then come from that list, and in `/tvdb` the show's runtime from TheTVDB's episodes.
 
 **What each source can supply.** Every key you add is another source to pick from. You choose the order per field in
 [sources per field](#-sources-per-field), so any source can be first, not just a fallback:
@@ -414,7 +415,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily (every 5 min until the first download succeeds); an unchanged list isn't downloaded again |
-| Built shows (in memory) | 1 hour (2 min when something was missing: AniDB details, part of an episode list, a source that failed or ran out of time, or a later AniDB entry or episode crew still being fetched) |
+| Built shows (in memory) | 1 hour (2 min when something was missing: AniDB details (never waited for without `ANIDB_CLIENT`), part of an episode list, a source that failed or ran out of time, or a later AniDB entry or episode crew still being fetched) |
 
 ### 📝 Logging
 
@@ -468,7 +469,7 @@ downloaded.
 | `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` = TheTVDB's absolute order; `0` = TheTVDB's specials. **Always set it when `tvdbid` is a number**: left out, it counts as `0` |
 | `episodeoffset` | AniDB episode 1 is TVDB episode `1 + offset` in that season (default `0`) |
 | `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show · TheMovieDb movie · IMDb id (`tt…`) |
-| `tmdbseason` · `tmdboffset` | the same as `defaulttvdbseason` · `episodeoffset`, for the `tmdbtv` show, whose seasons often differ from TheTVDB's. Used for TheMovieDb's episode titles, directors and writers, in both modes. Left out, TheMovieDb is paired at the TVDB season and number |
+| `tmdbseason` · `tmdboffset` | the same as `defaulttvdbseason` · `episodeoffset`, for the `tmdbtv` show, whose seasons often differ from TheTVDB's. Used for TheMovieDb's episode titles, directors and writers, in both modes. Left out, TheMovieDb is paired at the TVDB season and number in `/anidb`, and by absolute episode number in `/tvdb` |
 
 > [!WARNING]
 > An entry **replaces** that AniDB id's whole entry from both lists, including the MyAnimeList, AniList, Kitsu and
