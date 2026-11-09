@@ -208,9 +208,12 @@ func (l *File) archive(day string) error {
 	return os.Remove(l.current())
 }
 
+// foreverDays and more keep every log: AddDate would overflow and wrap.
+const foreverDays = 100_000
+
 // cleanup deletes dated files more than keepDays days old.
 func (l *File) cleanup() {
-	if l.keepDays <= 0 {
+	if l.keepDays <= 0 || l.keepDays >= foreverDays {
 		return
 	}
 	oldest := l.now().AddDate(0, 0, -l.keepDays).Format(dateLayout)
