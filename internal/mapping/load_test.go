@@ -231,6 +231,44 @@ func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
 	}
 }
 
+// A custom file broken during a reload is reported, but the entries of its
+// last good version stay, also on the reloads after; fixed, it applies again.
+func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists})
+	order := []string{"animelists"}
+	path := filepath.Join(dir, "anime-list-custom.xml")
+	write := func(s string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := &Lists{}
+	write(`<anime-list><anime anidbid="1" tvdbid="200" defaulttvdbseason="1"/></anime-list>`)
+	if err := l.Load(context.Background(), f, dir, order); err != nil {
+		t.Fatal(err)
+	}
+	write(`<anime-list><anime anidbid="1" tvdbid="300" & defaulttvdbseason="1"/></anime-list>`)
+	for i := range 2 {
+		err := l.Load(context.Background(), f, dir, order)
+		if err == nil || !strings.Contains(err.Error(), "anime-list-custom.xml ignored") {
+			t.Errorf("reload %d with a broken custom file: %v, want it reported", i, err)
+		}
+		if l.ByAID(1).TVDB.ID != 200 || !l.Ready() {
+			t.Errorf("reload %d: the custom entry was dropped: %+v", i, l.ByAID(1))
+		}
+	}
+	write(`<anime-list><anime anidbid="1" tvdbid="400" defaulttvdbseason="1"/></anime-list>`)
+	if err := l.Load(context.Background(), f, dir, order); err != nil {
+		t.Fatal(err)
+	}
+	if l.ByAID(1).TVDB.ID != 400 {
+		t.Errorf("fixed custom file not applied: %+v", l.ByAID(1))
+	}
+}
+
 // A load cancelled while Kizuna stops doesn't parse or swap in what fetch
 // answered with (here the fresh cached copy).
 func TestLoadCancelledKeepsMapping(t *testing.T) {

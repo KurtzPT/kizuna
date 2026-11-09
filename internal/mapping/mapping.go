@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,7 +44,8 @@ type snapshot struct {
 	sum    [32]byte                 // of everything it was loaded from (zero = load in full next time)
 	// customOnly: no list has loaded yet; byAID holds anime-list-custom.xml alone.
 	customOnly bool
-	from       []string // the lists it was built from
+	from       []string      // the lists it was built from
+	custom     map[int]Entry // anime-list-custom.xml's entries, as it last parsed
 }
 
 // empty answers lookups before anything loaded.
@@ -163,16 +165,25 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	if entries == nil {
 		entries = map[int]Entry{}
 	}
-	if customErr == nil {
-		// A broken custom file is reported but never costs the downloaded lists.
-		if extra, err := parseAnimeLists(custom); err != nil {
-			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored (fix it and restart, or wait for the daily reload): %w", err))
-		} else {
-			for aid, e := range extra {
-				entries[aid] = e
-			}
-			slog.Info("mapping: custom entries applied", "entries", len(extra))
+	// A broken custom file is reported but never costs the downloaded lists,
+	// nor the custom entries it held the last time it parsed.
+	var extra map[int]Entry
+	switch {
+	case customErr == nil:
+		var err error
+		if extra, err = parseAnimeLists(custom); err != nil {
+			extra = l.get().custom
+			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", len(extra), err))
 		}
+	case !errors.Is(customErr, fs.ErrNotExist):
+		extra = l.get().custom
+		errs = append(errs, fmt.Errorf("anime-list-custom.xml unreadable, keeping the %d entries of its last good version: %w", len(extra), customErr))
+	}
+	for aid, e := range extra {
+		entries[aid] = e
+	}
+	if extra != nil {
+		slog.Info("mapping: custom entries applied", "entries", len(extra))
 	}
 	if len(entries) == 0 {
 		return errors.Join(errs...)
@@ -182,7 +193,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	if len(errs) > 0 { // after a problem, load in full again: its error is logged until it's gone
 		sum = [32]byte{}
 	}
-	l.set(&snapshot{byAID: entries, sum: sum, customOnly: !listsLoaded, from: from})
+	l.set(&snapshot{byAID: entries, sum: sum, customOnly: !listsLoaded, from: from, custom: extra})
 	return errors.Join(errs...) // non-nil only to log a list that failed
 }
 

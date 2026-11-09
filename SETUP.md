@@ -677,7 +677,9 @@ used for artwork and details:
 
 ### Checking a correction
 
-1. **Restart Kizuna** (`docker restart kizuna`), or wait for the daily mapping refresh.
+1. **Restart Kizuna** (`docker restart kizuna`), or wait for the daily mapping refresh. A file that doesn't parse
+   (an XML error) is logged as `anime-list-custom.xml ignored`; the daily refresh then keeps the entries of the
+   file's last good version, a restart starts without them.
 2. In Plex, run **Refresh Metadata** on the show.
 3. With `LOG_LEVEL=debug`, find the show's lines:
 
