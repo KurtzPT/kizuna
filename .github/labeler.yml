@@ -1,0 +1,35 @@
+# Area labels for pull requests, by the files they change (labeler workflow).
+# Release notes are grouped by these (release.yml); a pull request's type label
+# (bug, enhancement) is still set by hand. Labels are only ever added: removing
+# one by hand sticks.
+metadata:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/anidb/**
+          - internal/mapping/**
+          - internal/provider/**
+          - internal/report/**
+          - internal/sources/**
+
+migration:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/kizuna-migrate*
+          - MIGRATION.md
+
+running:
+  - changed-files:
+      - any-glob-to-any-file:
+          - cmd/**
+          - internal/config/**
+          - internal/fetch/**
+          - internal/logfile/**
+          - Dockerfile
+          - compose.yml
+          - SETUP.md
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - assets/**
