@@ -71,8 +71,10 @@ services:
       # --- who may talk to Kizuna (it has no login: Plex can't send one) ---
       # ALLOW_FROM: "private"         # client addresses: private (LAN, Docker, Tailscale), IPs, networks
                                       # e.g. "192.168.1.10" = only the Plex server; "any" = no limit
-      # ALLOWED_HOSTS: ""             # extra names Kizuna is reached by, e.g. "kizuna.example.com"
-                                      # (IPs, one-word names and .local/.lan/.home.arpa always work)
+      # ALLOWED_HOSTS: ""             # extra names Kizuna is reached by, e.g. "kizuna.example.com",
+                                      # ".example.com" (or "*.example.com") = it and every name under it;
+                                      # "any" (or "*") = no limit. Always allowed: IPs, localhost, one-word
+                                      # names, .local/.lan/.home/.home.arpa/.internal/.localdomain
       # PORT: "32600"               # port inside the container; to use another port on this machine,
                                     # change the FIRST number below instead (e.g. "32700:32600")
     ports:
