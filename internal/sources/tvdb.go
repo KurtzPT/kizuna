@@ -43,10 +43,12 @@ type TVDB struct {
 	crewFailed map[int]time.Time
 	crewQueue  sync.WaitGroup // background fetches under way (tests wait on it)
 
-	// noEnglish: season ids TheTVDB has no English text for, and until when
-	// that answer stands (seasonTTL), so they aren't asked on every build.
-	seasonMu  sync.Mutex
-	noEnglish map[int]time.Time
+	// noEnglish, noEnglishSeries: season and series ids TheTVDB has no
+	// English text for, and until when that answer stands (seasonTTL), so
+	// they aren't asked on every build.
+	seasonMu        sync.Mutex
+	noEnglish       map[int]time.Time
+	noEnglishSeries map[int]time.Time
 
 	// series: extended series records decoded lately (Details and
 	// SeasonOverview both read one in the same build), by series id.
@@ -116,7 +118,8 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
-		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}, series: map[int]seriesMemo{}}
+		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}, noEnglishSeries: map[int]time.Time{},
+		series: map[int]seriesMemo{}}
 }
 
 func (t *TVDB) Enabled() bool { return t != nil && (t.key != "" || t.legacyKey != "") } // nil = not set up
@@ -419,10 +422,15 @@ func episodePages(id, first int, read func(page int) (more bool, err error)) err
 	return nil
 }
 
-// Overview returns the English series name and summary.
+// Overview returns the English series name and summary. A series with no
+// English text (TheTVDB answers 400 "language not found", as for seasons)
+// gives "" and no error, and isn't asked again for seasonTTL.
 func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err error) {
 	if t.useLegacy(ctx) {
 		return t.overview3(ctx, id)
+	}
+	if t.knownNoEnglish(t.noEnglishSeries, id) {
+		return "", "", nil
 	}
 	var r struct {
 		Data struct {
@@ -430,7 +438,16 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	err = t.get(ctx, false, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id), 7*24*time.Hour, &r)
+	path, key := fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id)
+	err = t.getAs(ctx, false, true, path, key, 7*24*time.Hour, &r)
+	switch {
+	case noLanguage(err):
+		t.noEnglishUntil(t.noEnglishSeries, id)
+		slog.Debug("tvdb: no English series text", "series", id, "retry_in", seasonTTL, "err", err)
+		return "", "", nil
+	case err != nil && !fetch.IsNotFound(err) && worthWarning(ctx, err):
+		slog.Warn("tvdb: series text not fetched", "series", id, "err", err) // quiet request: logged here
+	}
 	return r.Data.Name, r.Data.Overview, err
 }
 
@@ -445,7 +462,7 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 		return "", nil
 	}
 	sid, err := t.seasonID(ctx, id, season)
-	if sid == 0 || t.knownNoEnglish(sid) {
+	if sid == 0 || t.knownNoEnglish(t.noEnglish, sid) {
 		return "", err
 	}
 	var r struct {
@@ -457,34 +474,48 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 	err = t.getAs(ctx, false, true, path, key, seasonTTL, &r)
 	switch {
 	case noTranslation(err):
-		t.seasonMu.Lock()
-		now := time.Now()
-		for sid, until := range t.noEnglish { // answers past their time, of seasons not asked again
-			if !now.Before(until) {
-				delete(t.noEnglish, sid)
-			}
-		}
-		t.noEnglish[sid] = now.Add(seasonTTL)
-		t.seasonMu.Unlock()
+		t.noEnglishUntil(t.noEnglish, sid)
 		slog.Debug("tvdb: no English season text", "series", id, "season", season, "retry_in", seasonTTL, "err", err)
 		return "", nil
-	case err != nil && ctx.Err() == nil && !errors.Is(err, errTVDBLogin) && !errors.Is(err, errTVDBSwitched):
+	case err != nil && worthWarning(ctx, err):
 		slog.Warn("tvdb: season text not fetched", "series", id, "season", season, "err", err) // quiet request: logged here
 	}
 	return r.Data.Overview, err
 }
 
-// knownNoEnglish: TheTVDB answered, within seasonTTL, that the season has no
-// English text. Expired answers are dropped here, and when one is kept.
-func (t *TVDB) knownNoEnglish(sid int) bool {
+// worthWarning: a failed quiet request the caller logs itself. A failed
+// login is logged by login; a caller that gave up or a switch to the legacy
+// key says nothing about the record.
+func worthWarning(ctx context.Context, err error) bool {
+	return ctx.Err() == nil && !errors.Is(err, errTVDBLogin) && !errors.Is(err, errTVDBSwitched)
+}
+
+// knownNoEnglish: TheTVDB answered, within seasonTTL, that the season or
+// series id in m (noEnglish or noEnglishSeries) has no English text. Expired
+// answers are dropped here, and when one is kept.
+func (t *TVDB) knownNoEnglish(m map[int]time.Time, id int) bool {
 	t.seasonMu.Lock()
 	defer t.seasonMu.Unlock()
-	until, ok := t.noEnglish[sid]
+	until, ok := m[id]
 	if ok && !time.Now().Before(until) {
-		delete(t.noEnglish, sid)
+		delete(m, id)
 		return false
 	}
 	return ok
+}
+
+// noEnglishUntil keeps TheTVDB's answer that id in m has no English text,
+// for seasonTTL. Answers past their time, of ids not asked again, go here.
+func (t *TVDB) noEnglishUntil(m map[int]time.Time, id int) {
+	t.seasonMu.Lock()
+	defer t.seasonMu.Unlock()
+	now := time.Now()
+	for id, until := range m {
+		if !now.Before(until) {
+			delete(m, id)
+		}
+	}
+	m[id] = now.Add(seasonTTL)
 }
 
 // seasonID finds a season's aired-order id in the extended series record
@@ -506,9 +537,14 @@ func (t *TVDB) seasonID(ctx context.Context, id, season int) (int, error) {
 // a missing language with 400 ("language not found"), a missing season with
 // 404.
 func noTranslation(err error) bool {
+	return noLanguage(err) || (fetch.IsNotFound(err) && !errors.Is(err, errTVDBLogin))
+}
+
+// noLanguage: TheTVDB answered 400 ("language not found") for a
+// translation; a 400 from the login (a missing PIN) isn't one.
+func noLanguage(err error) bool {
 	var se *fetch.StatusError
-	return errors.As(err, &se) && !errors.Is(err, errTVDBLogin) &&
-		(se.Code == http.StatusBadRequest || se.Code == http.StatusNotFound)
+	return errors.As(err, &se) && se.Code == http.StatusBadRequest && !errors.Is(err, errTVDBLogin)
 }
 
 // Details returns genres, people, studio, content rating and first air date

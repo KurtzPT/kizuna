@@ -387,3 +387,39 @@ func TestTVDBSeasonArt(t *testing.T) {
 		}
 	}
 }
+
+// A series with no English text: TheTVDB answers its translation as it does
+// a season's, 400 "language not found". That's no text and no error (a
+// failed source would rebuild the show for good), no warning, and it is
+// asked once per seasonTTL. An unknown series stays a 404.
+func TestTVDBSeriesWithoutEnglish(t *testing.T) {
+	logs := captureLogs(t)
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login":                          `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/400100/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	const u = v4 + "/series/400100/translations/eng"
+	for range 2 { // two builds of the same show
+		if name, overview, err := tv.Overview(ctx, 400100); name != "" || overview != "" || err != nil {
+			t.Fatalf("no English: %q %q %v, want none", name, overview, err)
+		}
+	}
+	if c := n.count(u); c != 1 {
+		t.Errorf("asked %d times, want 1", c)
+	}
+	if _, _, err := tv.Overview(ctx, 99); !fetch.IsNotFound(err) {
+		t.Errorf("unknown series: %v, want its 404", err)
+	}
+	if s := logs.String(); s != "" {
+		t.Errorf("logged above debug:\n%s", s)
+	}
+
+	tv.seasonMu.Lock()
+	tv.noEnglishSeries[400100] = time.Now().Add(-time.Second) // its time is up
+	tv.seasonMu.Unlock()
+	_, _, _ = tv.Overview(ctx, 400100)
+	if c := n.count(u); c != 2 {
+		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
+	}
+}
