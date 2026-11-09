@@ -73,6 +73,11 @@ jobs:
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
+      # TestReportsOffAllocs skips itself under -race (the race detector
+      # allocates on its own), so it runs here without it
+      - name: allocation budgets (not measurable under -race)
+        run: go test -count=1 -run '^TestReportsOffAllocs$' ./internal/provider
+
       - name: go test (race detector)
         run: go test -race -count=1 ./...
 

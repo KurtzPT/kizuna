@@ -14,6 +14,9 @@ import (
 // raise a budget to fit a change. Everything is cached (a download's timers
 // vary) and the GC is off (it empties the sync.Pools): the counts are steady.
 func TestReportsOffAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts are off under the race detector")
+	}
 	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 		switch path {
 		case "api4.thetvdb.com/v4/series/500/extended", "api4.thetvdb.com/v4/series/500/artworks":
