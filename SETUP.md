@@ -100,6 +100,20 @@ docker run -d --name kizuna \
 </td></tr>
 </table>
 
+<details>
+<summary><b>Unraid</b></summary>
+
+1. Create the folder `/mnt/user/appdata/kizuna` (through the `appdata` share, so it belongs to `nobody:users`).
+2. Copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in at least `ANIDB_CLIENT` and your keys.
+3. **Docker → Add Container**, and in *Template* paste
+   `https://raw.githubusercontent.com/KurtzPT/kizuna/main/unraid/kizuna.xml`. It only asks for the port and the data
+   folder; everything else comes from `kizuna.env`. Restart the container after editing the file.
+
+Unraid passes its own `TZ` to every container, and that wins over `TZ` in the file. It runs Kizuna as
+`nobody:users` (99:100), locked down like the Compose file.
+
+</details>
+
 | Image tag | Is | Use it |
 |---|---|---|
 | **`:latest`** | the newest **stable** release | normally |

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>kizuna</Name>
+  <Repository>ghcr.io/kurtzpt/kizuna:latest</Repository>
+  <Registry>https://github.com/KurtzPT/kizuna/pkgs/container/kizuna</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/KurtzPT/kizuna/issues</Support>
+  <Project>https://github.com/KurtzPT/kizuna</Project>
+  <Overview>An anime metadata provider for Plex that keeps your absolute episode numbers. Kizuna ("bond") ties AniDB, TheTVDB, TheMovieDb, MyAnimeList and Anime News Network together into one Plex custom metadata provider (Plex Media Server 1.43+).&#xD;
+&#xD;
+All settings go in kizuna.env in the data folder (default /mnt/user/appdata/kizuna/kizuna.env). Start from .env.sample in the repository: it lists every setting with its default. At least set ANIDB_CLIENT. Restart the container after editing the file.&#xD;
+&#xD;
+Then add the provider in Plex (Settings, Metadata Agents): http://[unraid-ip]:32600/anidb, /tvdb or /auto, depending on your library's layout. Check that it is up at http://[unraid-ip]:32600/health. Full guide: https://github.com/KurtzPT/kizuna/blob/main/SETUP.md</Overview>
+  <Category>MediaServer:Video Tools:Utilities</Category>
+  <WebUI/>
+  <TemplateURL>https://raw.githubusercontent.com/KurtzPT/kizuna/main/unraid/kizuna.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/KurtzPT/kizuna/main/assets/logo.png</Icon>
+  <ExtraParams>--user 99:100 --read-only --cap-drop ALL --security-opt no-new-privileges:true</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Create the data folder and put your kizuna.env in it before the first start. It must be writable by nobody:users (99:100), as folders made through an Unraid share are.</Requires>
+  <Config Name="Port" Target="32600" Default="32600" Mode="tcp" Description="Port Plex uses to reach Kizuna. To use another port, change this value, not the container port." Type="Port" Display="always" Required="true" Mask="false">32600</Config>
+  <Config Name="Data folder" Target="/data" Default="/mnt/user/appdata/kizuna" Mode="rw" Description="Settings (kizuna.env), cache, AniDB state, mapping corrections, logs and match reports." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/kizuna</Config>
+</Container>
