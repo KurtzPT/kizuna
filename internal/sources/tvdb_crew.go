@@ -114,7 +114,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 					mu.Unlock()
 					continue
 				}
-				c, err := t.fetchCrew(bctx, id)
+				c, err := t.fetchCrew(bctx, id, false)
 				mu.Lock()
 				switch {
 				case err == nil:
@@ -143,9 +143,12 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	return crew, pending
 }
 
-func (t *TVDB) fetchCrew(ctx context.Context, id int) (Crew, error) {
+// fetchCrew gets an episode record. background: a refresh nobody waits
+// for, whose failure must show (a stale copy would hide it, and the record
+// would be asked again at every build).
+func (t *TVDB) fetchCrew(ctx context.Context, id int, background bool) (Crew, error) {
 	var r episodeRecord
-	err := t.get(ctx, false, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), crewTTL, &r)
+	err := t.getAs(ctx, false, getOpts{noStale: background}, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), crewTTL, &r)
 	return r.crew(), err
 }
 
@@ -165,8 +168,9 @@ func (t *TVDB) crewFail(id int, err error) {
 }
 
 // queueCrew fetches episode records in the background, one at a time, so
-// they never hold up a show build for long. Failures past their time are
-// forgotten here.
+// they never hold up a show build for long. A record that failed isn't
+// asked again before its time (a stale cached copy keeps answering), and
+// failures past their time are forgotten here.
 func (t *TVDB) queueCrew(ids []int) {
 	t.crewMu.Lock()
 	now := time.Now()
@@ -177,7 +181,7 @@ func (t *TVDB) queueCrew(ids []int) {
 	}
 	var todo []int
 	for _, id := range ids {
-		if !t.crewQueued[id] {
+		if _, failed := t.crewFailed[id]; !failed && !t.crewQueued[id] {
 			t.crewQueued[id] = true
 			todo = append(todo, id)
 		}
@@ -188,7 +192,7 @@ func (t *TVDB) queueCrew(ids []int) {
 	}
 	t.crewQueue.Go(func() {
 		for _, id := range todo {
-			if _, err := t.fetchCrew(context.Background(), id); crewAnswer(err) {
+			if _, err := t.fetchCrew(context.Background(), id, true); crewAnswer(err) {
 				t.crewFail(id, err)
 			}
 			t.crewMu.Lock()

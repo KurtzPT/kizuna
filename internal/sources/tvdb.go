@@ -294,12 +294,17 @@ var errTVDBSwitched = errors.New("tvdb: switched to the legacy key during the ca
 // get fetches path (relative to the root of the v3 or v4 API) through the
 // cache; key is the cache file name without the tvdb/ or tvdb3/ folder.
 func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.Duration, out any) error {
-	return t.getAs(ctx, legacy, false, path, key, ttl, out)
+	return t.getAs(ctx, legacy, getOpts{}, path, key, ttl, out)
 }
 
-// getAs is get; quiet: the caller logs the request's failures itself (fetch
-// only logs them at debug).
-func (t *TVDB) getAs(ctx context.Context, legacy, quiet bool, path, key string, ttl time.Duration, out any) error {
+// getOpts: how getAs asks (fetch.Request's fields of the same names).
+type getOpts struct {
+	quiet   bool // the caller logs the request's failures itself (fetch only logs them at debug)
+	noStale bool // a failed download is the error, not answered by a stale copy
+}
+
+// getAs is get, asked the way o says.
+func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tvdb: no api key")
 	}
@@ -321,7 +326,7 @@ func (t *TVDB) getAs(ctx context.Context, legacy, quiet bool, path, key string, 
 		if legacy {
 			headers["Accept-Language"] = "en" // v3 picks the language by header
 		}
-		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: quiet,
+		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: o.quiet, NoStale: o.noStale,
 			// Done sees a 401 even when a stale copy answers the call.
 			Done: func(err error) {
 				if unauthorized(err) {
@@ -439,7 +444,7 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 		} `json:"data"`
 	}
 	path, key := fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id)
-	err = t.getAs(ctx, false, true, path, key, 7*24*time.Hour, &r)
+	err = t.getAs(ctx, false, getOpts{quiet: true}, path, key, 7*24*time.Hour, &r)
 	switch {
 	case noLanguage(err):
 		t.noEnglishUntil(t.noEnglishSeries, id)
@@ -471,7 +476,7 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 		} `json:"data"`
 	}
 	path, key := fmt.Sprintf("/seasons/%d/translations/eng", sid), fmt.Sprintf("%d/season-%d-eng.json", id, sid)
-	err = t.getAs(ctx, false, true, path, key, seasonTTL, &r)
+	err = t.getAs(ctx, false, getOpts{quiet: true}, path, key, seasonTTL, &r)
 	switch {
 	case noTranslation(err):
 		t.noEnglishUntil(t.noEnglish, sid)
