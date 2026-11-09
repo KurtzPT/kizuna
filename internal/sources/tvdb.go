@@ -146,15 +146,26 @@ func (t *TVDB) isLegacy() bool {
 // rejected v4 key switches to the legacy one before the call picks its API.
 // While a login is under way it doesn't wait: a call answered from the cache
 // needs no token, and one that does waits in get, which notices a switch
-// (errTVDBSwitched).
-func (t *TVDB) useLegacy(ctx context.Context) bool {
+// (errTVDBSwitched). Nor does it log in when the call's v4 answer is
+// cached and younger than ttl (key: its cache file, "" = none): that call
+// needs no token, and a login could hang on a TheTVDB that's down.
+func (t *TVDB) useLegacy(ctx context.Context, key string, ttl time.Duration) bool {
 	t.mu.Lock()
 	check := t.key != "" && t.legacyKey != "" && !t.legacy && t.loggingIn == nil
 	t.mu.Unlock()
-	if check {
+	if check && !t.v4Fresh(key, ttl) {
 		_, _, _ = t.login(ctx)
 	}
 	return t.isLegacy()
+}
+
+// v4Fresh: the v4 cache file key is younger than ttl (not read).
+func (t *TVDB) v4Fresh(key string, ttl time.Duration) bool {
+	if key == "" {
+		return false
+	}
+	at, ok := t.f.CachedAt(cacheFolder(false) + key)
+	return ok && time.Since(at) < ttl
 }
 
 func apiBase(legacy bool) string {
@@ -361,7 +372,7 @@ func (t *TVDB) dropToken(token string) {
 // Episodes returns all episodes in aired ("official") order with English
 // titles, sorted by season and number.
 func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
-	if t.useLegacy(ctx) {
+	if t.useLegacy(ctx, episodesKey(id, 0), episodesTTL) {
 		return t.episodes3(ctx, id)
 	}
 	type ep struct {
@@ -389,7 +400,7 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 			} `json:"links"`
 		}
 		path := fmt.Sprintf("/series/%d/episodes/official/eng?page=%d", id, page)
-		if err := t.get(ctx, false, path, fmt.Sprintf("%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
+		if err := t.get(ctx, false, path, episodesKey(id, page), episodesTTL, &r); err != nil {
 			return false, err
 		}
 		eps := r.Data.Episodes
@@ -408,6 +419,11 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 	sortEpisodes(out)
 	return out, err
 }
+
+// episodesTTL: how long a page of an episode list is cached.
+const episodesTTL = 2 * 24 * time.Hour
+
+func episodesKey(id, page int) string { return fmt.Sprintf("%d/episodes-%d.json", id, page) }
 
 // episodePages reads a paged TheTVDB episode list, at most 50 pages from
 // first (v4 counts from 0, v3 from 1). read fetches one page and says whether
@@ -434,7 +450,8 @@ func episodePages(id, first int, read func(page int) (more bool, err error)) err
 // English text (TheTVDB answers 400 "language not found", as for seasons)
 // gives "" and no error, and isn't asked again for seasonTTL.
 func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err error) {
-	if t.useLegacy(ctx) {
+	key := fmt.Sprintf("%d/eng.json", id)
+	if t.useLegacy(ctx, key, 7*24*time.Hour) {
 		return t.overview3(ctx, id)
 	}
 	if t.knownNoEnglish(t.noEnglishSeries, id) {
@@ -446,8 +463,7 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	path, key := fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id)
-	err = t.getAs(ctx, false, getOpts{quiet: true}, path, key, 7*24*time.Hour, &r)
+	err = t.getAs(ctx, false, getOpts{quiet: true}, fmt.Sprintf("/series/%d/translations/eng", id), key, 7*24*time.Hour, &r)
 	switch {
 	case noLanguage(err):
 		t.noEnglishUntil(t.noEnglishSeries, id)
@@ -466,7 +482,7 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 // list or has no English text for gives "" and no error. The legacy v3 API
 // has no season records, so it gives "" too.
 func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, error) {
-	if season <= 0 || t.useLegacy(ctx) {
+	if season <= 0 || t.useLegacy(ctx, seriesKey(id), seriesTTL) {
 		return "", nil
 	}
 	sid, err := t.seasonID(ctx, id, season)
@@ -566,7 +582,7 @@ func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
 // ("official") seasons by number (SeasonArt's), from the same record. The
 // legacy v3 API has no season ids (nil): its season art goes by number.
 func (t *TVDB) DetailsAndSeasons(ctx context.Context, id int) (Details, map[int]int, error) {
-	if t.useLegacy(ctx) {
+	if t.useLegacy(ctx, seriesKey(id), seriesTTL) {
 		d, err := t.details3(ctx, id)
 		return d, nil, err
 	}
@@ -615,10 +631,12 @@ func seriesDetails(r *tvdbSeries) Details {
 	return d
 }
 
+func seriesKey(id int) string { return fmt.Sprintf("%d/extended.json", id) }
+
 // seriesRecord returns the extended series record, decoded once while its
 // cache file stays the same (seriesMemo). It is shared: read it, don't change it.
 func (t *TVDB) seriesRecord(ctx context.Context, id int) (*tvdbSeries, error) {
-	key := fmt.Sprintf("%d/extended.json", id)
+	key := seriesKey(id)
 	t.seriesMu.Lock()
 	m, ok := t.series[id]
 	t.seriesMu.Unlock()
@@ -669,7 +687,8 @@ func byScore(arts []tvdbArtwork) {
 
 // Art returns posters, backgrounds and clear logos, highest score first.
 func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
-	if t.useLegacy(ctx) {
+	key := fmt.Sprintf("%d/artworks.json", id)
+	if t.useLegacy(ctx, key, 7*24*time.Hour) {
 		return t.art3(ctx, id)
 	}
 	var r struct {
@@ -677,7 +696,7 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 			Artworks []tvdbArtwork `json:"artworks"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), fmt.Sprintf("%d/artworks.json", id), 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), key, 7*24*time.Hour, &r); err != nil {
 		return Art{}, err
 	}
 	arts := r.Data.Artworks
@@ -709,7 +728,8 @@ func (t *TVDB) SeasonArt(ctx context.Context, id, season, sid int) (Art, error) 
 	if season < 0 {
 		return Art{}, nil
 	}
-	if t.useLegacy(ctx) {
+	key := fmt.Sprintf("%d/season-%d-extended.json", id, sid)
+	if t.useLegacy(ctx, key, seasonTTL) {
 		return t.seasonArt3(ctx, id, season)
 	}
 	if sid == 0 {
@@ -720,8 +740,7 @@ func (t *TVDB) SeasonArt(ctx context.Context, id, season, sid int) (Art, error) 
 			Artwork []tvdbArtwork `json:"artwork"`
 		} `json:"data"`
 	}
-	path, key := fmt.Sprintf("/seasons/%d/extended", sid), fmt.Sprintf("%d/season-%d-extended.json", id, sid)
-	if err := t.get(ctx, false, path, key, seasonTTL, &r); err != nil {
+	if err := t.get(ctx, false, fmt.Sprintf("/seasons/%d/extended", sid), key, seasonTTL, &r); err != nil {
 		return Art{}, err
 	}
 	arts := r.Data.Artwork

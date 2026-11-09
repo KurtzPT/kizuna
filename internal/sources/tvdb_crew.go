@@ -65,7 +65,7 @@ func (r episodeRecord) crew() Crew {
 // pending: some are still on their way, so the caller should rebuild soon.
 // With the legacy key it returns nothing: v3 episode lists carry the crew.
 func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, pending bool) {
-	if len(ids) == 0 || !t.Enabled() || t.useLegacy(ctx) {
+	if len(ids) == 0 || !t.Enabled() || t.useLegacy(ctx, "", 0) { // several records: no one cache file to go by
 		return nil, false
 	}
 	crew = map[int]Crew{}

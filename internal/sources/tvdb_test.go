@@ -242,3 +242,33 @@ func TestTVDBStaleCrewFailedNotRefreshed(t *testing.T) {
 		t.Errorf("refreshed record asked %d times, want 1 (fresh since)", c)
 	}
 }
+
+// With both keys, a call whose v4 answer is cached and fresh doesn't log in
+// first (that login could hang on a TheTVDB that's down); one that isn't
+// cached does, and gets its answer.
+func TestTVDBBothKeysCachedNoLogin(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
+		v4 + "/login":                      `{"data":{"token":"t4"}}`,
+		v4 + "/series/10/translations/eng": `{"data":{"name":"Ten"}}`,
+	}}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "legacykey")
+	if err := fetch.WriteFile(filepath.Join(dir, "tvdb", "9", "eng.json"), []byte(`{"data":{"name":"Cached"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if name, _, err := tv.Overview(ctx, 9); err != nil || name != "Cached" {
+		t.Fatalf("cached overview %q %v", name, err)
+	}
+	if c := n.count(v4 + "/login"); c != 0 {
+		t.Errorf("logged in %d times for a cached answer, want 0", c)
+	}
+	if name, _, err := tv.Overview(ctx, 10); err != nil || name != "Ten" {
+		t.Fatalf("overview %q %v", name, err)
+	}
+	if c := n.count(v4 + "/login"); c != 1 {
+		t.Errorf("logged in %d times, want 1", c)
+	}
+}
