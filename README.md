@@ -19,7 +19,7 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Setup →**](SETUP.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -38,6 +38,15 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 | 🖼️ **Your files win** | `poster.jpg`, `fanart.jpg`, `theme.mp3` next to your files override every online source |
 | 🤝 **Plays fair with AniDB** | [Rate limits, caching and ban handling](#-anidb-fair-use) built in, so your IP stays welcome |
 | 🪶 **Tiny** | One static Go binary, standard library only, a ~10 MB image |
+
+## 🚀 Quick start
+
+1. [Get an AniDB client name and the API keys](SETUP.md#-1-get-your-keys) for the sources you want.
+2. [Run Kizuna](SETUP.md#-2-run-kizuna) with Docker Compose, plain Docker or Unraid.
+3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
+4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
+
+Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
 
 ## 🧭 How it works
 
@@ -120,8 +129,7 @@ flowchart LR
 - **Episode thumbnails** come from TheTVDB, since AniDB has none, through [pairing](#%EF%B8%8F-episode-titles-and-pairing).
   Missing AniDB summaries and dates are filled the same way.
 - **Without AniDB details** (no client, ban, daily limit), every episode still exists as *Episode N*. A later
-  refresh fills it in. A movie or OVA that the mapping puts among a TVDB series' specials gets those episodes from
-  TheTVDB meanwhile.
+  refresh fills it in.
 
 ### `/tvdb`: one TVDB series per show
 
@@ -156,9 +164,6 @@ flowchart LR
     Q -- "other id, or none" --> DEF["AUTO_DEFAULT<br/><i>anidb unless set</i>"]
 ```
 
-An `[anidb-…]` or `[tvdb-…]` tag needs its mode set up: without it the show gets no match (*Fix Match* still lists
-the title you type, [see below](#-how-a-show-is-found)).
-
 ```text
 📁 Anime
  ├─ 📁 Hunter x Hunter (2011) [anidb-8550]     ← /anidb: Hunter x Hunter - 148.mkv
@@ -166,10 +171,9 @@ the title you type, [see below](#-how-a-show-is-found)).
  └─ 📁 Cowboy Bebop                            ← AUTO_DEFAULT
 ```
 
-> [!TIP]
-> **Coming from HAMA + Absolute Series Scanner?** Kizuna supports HAMA's `anidb`, `tvdb3` and plain `tvdb` modes,
-> without renaming files. [MIGRATION.md](MIGRATION.md) has a script that writes the `.plexmatch` hints Plex's
-> scanner needs.
+With only one of the two modes set up, every show gets that mode's rules (a GUID of the other site is converted
+through the [id mapping](#-id-mapping)), except a show with an `[anidb-…]` or `[tvdb-…]` tag: that tag needs its own
+mode, and without it the show gets no match ([below](#-how-a-show-is-found)).
 
 ## 🔍 How a show is found
 
@@ -181,21 +185,27 @@ The first piece of evidence that names a show wins:
 | 2 | **The GUID Plex already has** from another agent | `com.plexapp.agents.thetvdb://81797`, a HAMA `anidb-69` GUID, `imdb://tt0388629` |
 | 3 | **AniDB title search** in the offline title list (~1 ms, no API call) | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
 
-Only one id tag is allowed: two different ones (`Show [anidb-1234]/Show [tvdb-5678] - 01.mkv`) give no match and a
+**One id tag only.** Two different ones (`Show [anidb-1234]/Show [tvdb-5678] - 01.mkv`) give no match and a
 warning. The same tag again (the folder's tag in the file name too) is fine.
 
-Plex's *Fix Match* lists the show the tag or GUID names first, then the title search results for the title you
-type, so a wrong match can be changed without unmatching first. When a tag blocks the match (two different tags, or
-an `[anidb-…]` / `[tvdb-…]` tag whose mode is off), *Fix Match* for the show still lists the typed title's results;
-the automatic match, and *Fix Match* for a season or an episode, still give no match.
+**A tag that blocks the match** (two different tags, or in `/auto` an `[anidb-…]` / `[tvdb-…]` tag whose mode is
+off) gives no automatic match, without trying the GUID or the title. Plex's *Fix Match* for the show still lists the
+results for the title you type; *Fix Match* for a season or an episode gives no match either.
 
-A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
-become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers several AniDB entries (a
-TVDB series with one entry per season) gives the series' first entry, by that site's own placement (for `tmdb`,
-TheMovieDb's; for `imdb` and other ids, TheTVDB's, else TheMovieDb's); movies and specials count only when nothing
-else does. A movie or special that lives among a TVDB series' specials is its own show in every mode; inside a
-`[tvdb-…]` tag only a title or file name that clearly names it finds it, with a warning
-([movies and specials](SETUP.md#-movies-and-specials)).
+**Fix Match** otherwise lists the show the tag or GUID names first, then the title search results for the title you
+type, so a wrong match can be changed without unmatching first.
+
+**Ids from other sites** become an AniDB entry through the [id mapping](#-id-mapping):
+
+- A `[tmdb-…]` tag (or `tmdb://` GUID) is a TheMovieDb **TV show** id, as `{tmdb-…}` is in a Plex TV library.
+  TheMovieDb numbers movies separately, so a movie id is used only when no entry has that number as its TV show. When
+  one entry has it as a TV show and another as a movie, the title search decides; when it finds neither, the TV show
+  wins.
+- In `/anidb`, an id that covers several AniDB entries (a TVDB series with one entry per season) gives the series'
+  first entry, by that site's own placement (for `tmdb`, TheMovieDb's; for `imdb` and other ids, TheTVDB's, else
+  TheMovieDb's). Movies and specials count only when nothing else does.
+- Inside a `[tvdb-…]` tag, a movie or special among the series' specials is found only when the title or file name
+  clearly names it, with a warning ([movies and specials](SETUP.md#-movies-and-specials)).
 
 ---
 
@@ -213,8 +223,8 @@ Every field has its own source order, and any source can come first. Later sourc
 before them have nothing. By default AniDB comes first for show details and TheTVDB for artwork; TheTVDB always
 comes before TheMovieDb, and Anime News Network is the last fallback.
 
-**Setup:** [which keys each mode needs and what each source can supply](SETUP.md#-1-get-your-keys) ·
-[changing the order per field](SETUP.md#-sources-per-field).
+**Setup:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
+[what each source can supply, and changing the order per field](SETUP.md#-sources-per-field).
 
 ### 🏷️ Episode titles and pairing
 
@@ -266,7 +276,7 @@ in `MAPPING_SOURCES` wins:
 | [Anime-Lists](https://github.com/Anime-Lists/anime-lists) | TVDB, TMDB and IMDb ids, plus each entry's TVDB season, episode offset and per-episode exceptions |
 | [Fribb/anime-lists](https://github.com/Fribb/anime-lists) | MyAnimeList, AniList, Kitsu and ANN ids, plus TVDB, TMDB and IMDb ids Anime-Lists lacks |
 
-Wrong mapping? Correct it yourself with `anime-list-custom.xml` ([setup](SETUP.md#-fixing-a-wrong-mapping)).
+Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md](MAPPING.md).
 
 ### 🤝 AniDB fair use
 
@@ -281,7 +291,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 | A failed anime waits 24 h | before it's asked again |
 | Backoff after errors | 30 s → 2 min → 15 min → 1 h → 6 h → 24 h; AniDB's next answer about an anime (its entry, or an error such as *not found*) starts it over |
 | A ban pauses all calls for 24 h | more traffic would only extend it |
-| A rejected client pauses all calls for 24 h | when AniDB says `ANIDB_CLIENT` / `ANIDB_CLIENTVER` is wrong, one error names them. A restart with new values asks again at once |
+| A rejected client pauses all calls for 24 h | when AniDB says `ANIDB_CLIENT` / `ANIDB_CLIENTVER` is wrong. A restart with new values asks again at once |
 | Queued calls are checked again | a call waiting for its 4 s turn isn't sent, or counted, once a ban, backoff or rejected client came in ahead of it |
 | Stopping ends background calls | once Kizuna starts shutting down, no background call goes out (it could be cut off before its outcome is saved); Plex's calls still do |
 
@@ -294,7 +304,7 @@ written. While AniDB can't be asked, shows use cached AniDB data, then the other
 
 <div align="center">
 
-**[Set it up →](SETUP.md)** &nbsp;·&nbsp; [Contribute](CONTRIBUTING.md)
+**[Set it up →](SETUP.md)** &nbsp;·&nbsp; [Contribute](CONTRIBUTING.md) &nbsp;·&nbsp; [Security](SECURITY.md)
 
 <sub>Metadata from <a href="https://anidb.net">AniDB</a>, <a href="https://thetvdb.com">TheTVDB</a>,
 <a href="https://www.themoviedb.org">TheMovieDb</a>, <a href="https://myanimelist.net">MyAnimeList</a> and the
