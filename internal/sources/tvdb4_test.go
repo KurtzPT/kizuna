@@ -331,9 +331,10 @@ func artwork(id, kind, score int, image string) string {
 }
 
 // A season's art is the artwork of its aired-order season record
-// (/seasons/{id}/extended: data is a SeasonExtendedRecord), highest score
-// first: type 7 posters, 8 backgrounds; banners (6) and icons (10) are left
-// out. A season TheTVDB doesn't list, or absolute order, costs no request.
+// (/seasons/{id}/extended: data is a SeasonExtendedRecord), its id from the
+// series record that Details reads, highest score first: type 7 posters, 8
+// backgrounds; banners (6) and icons (10) are left out. A season TheTVDB
+// doesn't list (id 0), or absolute order, costs no request.
 func TestTVDBSeasonArt(t *testing.T) {
 	const img = "https://artworks.thetvdb.com/banners/v4/season/502/"
 	tv, n := newTVDBTest(t, map[string]string{
@@ -351,7 +352,11 @@ func TestTVDBSeasonArt(t *testing.T) {
 		  "status": "success"}`,
 	}, "v4key", "", "")
 	ctx := context.Background()
-	a, err := tv.SeasonArt(ctx, 267440, 2)
+	d, ids, err := tv.DetailsAndSeasons(ctx, 267440)
+	if err != nil || d.Date != "2013-04-07" || len(ids) != 3 || ids[0] != 500 || ids[1] != 501 || ids[2] != 502 { // aired order only
+		t.Fatalf("details %+v season ids %v %v", d, ids, err)
+	}
+	a, err := tv.SeasonArt(ctx, 267440, 2, ids[2])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,19 +364,22 @@ func TestTVDBSeasonArt(t *testing.T) {
 		strings.Join(a.Backgrounds, " ") != img+"backgrounds/d.jpg" || len(a.Logos) != 0 {
 		t.Errorf("season 2 art %+v", a)
 	}
-	if _, err := tv.SeasonArt(ctx, 267440, 2); err != nil {
+	if _, err := tv.SeasonArt(ctx, 267440, 2, ids[2]); err != nil {
 		t.Fatal(err)
 	}
 	if c := n.count(v4 + "/seasons/502/extended"); c != 1 {
 		t.Errorf("season record asked %d times, want 1 (cached)", c)
 	}
 	for _, s := range []int{3, -1} {
-		if a, err := tv.SeasonArt(ctx, 267440, s); err != nil || len(a.Posters)+len(a.Backgrounds) != 0 {
+		if a, err := tv.SeasonArt(ctx, 267440, s, ids[s]); err != nil || len(a.Posters)+len(a.Backgrounds) != 0 {
 			t.Errorf("season %d: %+v %v, want none", s, a, err)
 		}
 	}
-	if a, err := tv.SeasonArt(ctx, 267440, 1); len(a.Posters) != 0 || !fetch.IsNotFound(err) { // listed, record gone
+	if a, err := tv.SeasonArt(ctx, 267440, 1, ids[1]); len(a.Posters) != 0 || !fetch.IsNotFound(err) { // listed, record gone
 		t.Errorf("season 1: %+v %v, want its 404", a, err)
+	}
+	if c := n.count(v4 + "/series/267440/extended"); c != 1 {
+		t.Errorf("series record asked %d times, want 1", c)
 	}
 	for _, u := range n.asked {
 		if strings.Contains(u, "/seasons/") && !strings.HasSuffix(u, "/502/extended") && !strings.HasSuffix(u, "/501/extended") {

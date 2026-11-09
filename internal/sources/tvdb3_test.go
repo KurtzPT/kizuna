@@ -368,13 +368,16 @@ func TestTVDBLegacySeasonArt(t *testing.T) {
 			{"fileName":"seasons/9-2-2.jpg","keyType":"season","subKey":"2","ratingsInfo":{"average":8}}]}`,
 	}, "", "", "legacy")
 	ctx := context.Background()
-	a, err := tv.SeasonArt(ctx, 9, 2)
+	a, err := tv.SeasonArt(ctx, 9, 2, 0)
 	const b = "https://artworks.thetvdb.com/banners/seasons/"
 	if err != nil || strings.Join(a.Posters, " ") != b+"9-2-2.jpg "+b+"9-2.jpg" || len(a.Backgrounds) != 0 {
 		t.Errorf("season 2: %+v %v", a, err)
 	}
-	if a, err := tv.SeasonArt(ctx, 9, 3); err != nil || len(a.Posters) != 0 {
+	if a, err := tv.SeasonArt(ctx, 9, 3, 0); err != nil || len(a.Posters) != 0 {
 		t.Errorf("season 3: %+v %v, want none", a, err)
+	}
+	if _, ids, _ := tv.DetailsAndSeasons(ctx, 9); ids != nil {
+		t.Errorf("season ids %v, want none (v3 goes by number)", ids)
 	}
 	if c := n.count(v3 + "/series/9/images/query?keyType=season&subKey=2"); c != 1 {
 		t.Errorf("asked %d times, want 1", c)

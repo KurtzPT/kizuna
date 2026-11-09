@@ -514,13 +514,36 @@ func noTranslation(err error) bool {
 // Details returns genres, people, studio, content rating and first air date
 // from the extended series record.
 func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
+	d, _, err := t.DetailsAndSeasons(ctx, id)
+	return d, err
+}
+
+// DetailsAndSeasons is Details, plus the ids of the series' aired-order
+// ("official") seasons by number (SeasonArt's), from the same record. The
+// legacy v3 API has no season ids (nil): its season art goes by number.
+func (t *TVDB) DetailsAndSeasons(ctx context.Context, id int) (Details, map[int]int, error) {
 	if t.useLegacy(ctx) {
-		return t.details3(ctx, id)
+		d, err := t.details3(ctx, id)
+		return d, nil, err
 	}
 	r, err := t.seriesRecord(ctx, id)
 	if err != nil {
-		return Details{}, err
+		return Details{}, nil, err
 	}
+	var ids map[int]int // nil: no season listed
+	for _, s := range r.Seasons {
+		if s.Type.Type == "official" {
+			if ids == nil {
+				ids = map[int]int{}
+			}
+			ids[s.Number] = s.ID
+		}
+	}
+	return seriesDetails(r), ids, nil
+}
+
+// seriesDetails reads Details from the extended series record.
+func seriesDetails(r *tvdbSeries) Details {
 	d := Details{Date: r.FirstAired}
 	for _, g := range r.Genres {
 		d.Genres = append(d.Genres, g.Name)
@@ -545,7 +568,7 @@ func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
 	for _, c := range r.Ratings {
 		d.addRating(alpha2(c.Country), c.Name)
 	}
-	return d, nil
+	return d
 }
 
 // seriesRecord returns the extended series record, decoded once while its
@@ -633,20 +656,20 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 
 // SeasonArt returns the posters and backgrounds of a season in aired
 // ("official") order, highest score first: the artwork of its season record
-// (/seasons/{id}/extended), its id from the extended series record. TheTVDB
-// seasons have posters, backgrounds, banners and icons, no clear logos;
-// Plex has no image type for banners. A season TheTVDB doesn't list gives
-// none and no error. The legacy v3 API has season posters only.
-func (t *TVDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
+// (/seasons/{id}/extended). sid is the season's id, from DetailsAndSeasons
+// (0: TheTVDB doesn't list the season, so it has none). TheTVDB seasons have
+// posters, backgrounds, banners and icons, no clear logos; Plex has no image
+// type for banners. The legacy v3 API goes by the season number, and has
+// season posters only.
+func (t *TVDB) SeasonArt(ctx context.Context, id, season, sid int) (Art, error) {
 	if season < 0 {
 		return Art{}, nil
 	}
 	if t.useLegacy(ctx) {
 		return t.seasonArt3(ctx, id, season)
 	}
-	sid, err := t.seasonID(ctx, id, season)
 	if sid == 0 {
-		return Art{}, err
+		return Art{}, nil
 	}
 	var r struct {
 		Data struct {
