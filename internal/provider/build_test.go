@@ -486,39 +486,40 @@ func TestPartialEpisodeListIsIncomplete(t *testing.T) {
 // hour without posters or details. A source without the show (404), or one
 // that isn't configured, is nothing to wait for.
 func TestFailedShowSourceIsIncomplete(t *testing.T) {
-	failing := func(fail string, code int, wait time.Duration) func(string, map[string][]string) (int, string) {
-		return func(path string, q map[string][]string) (int, string) {
-			if path+"?"+strings.Join(q["append_to_response"], "") == fail {
-				time.Sleep(wait)
-				return code, `{}`
-			}
-			return testSeries(path, q)
-		}
-	}
 	cases := []struct {
-		name     string
-		answer   func(string, map[string][]string) (int, string)
-		timeout  time.Duration
-		complete bool
+		name, fail string // the request that fails: path?append_to_response
+		code       int
+		outOfTime  bool // the build's time runs out while fail is still being answered
+		complete   bool
 	}{
-		{"tmdb art 500", failing("api.themoviedb.org/3/tv/77/images?", 500, 0), 0, false},
-		{"tmdb details 503", failing("api.themoviedb.org/3/tv/77?aggregate_credits,content_ratings", 503, 0), 0, false},
-		{"out of time", failing("api.themoviedb.org/3/tv/77/images?", 200, 1500*time.Millisecond), time.Second, false},
-		{"404 and MAL not configured", failing("api.themoviedb.org/3/tv/77/images?", 404, 0), 0, true},
+		{"tmdb art 500", "api.themoviedb.org/3/tv/77/images?", 500, false, false},
+		{"tmdb details 503", "api.themoviedb.org/3/tv/77?aggregate_credits,content_ratings", 503, false, false},
+		{"out of time", "api.themoviedb.org/3/tv/77/images?", 200, true, false},
+		{"404 and MAL not configured", "api.themoviedb.org/3/tv/77/images?", 404, false, true},
 	}
 	for _, c := range cases {
 		for _, root := range []string{"tvdb-500", "anidb-100"} {
-			p := newTestProvider(t, &fakeNet{answer: c.answer})
+			// The time runs out when the slow request arrives, not after a
+			// fixed delay over the whole build, which a slow machine could
+			// spend before ever reaching it.
+			ctx, cancel := context.WithCancel(context.Background())
+			release := make(chan struct{})
+			p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+				if path+"?"+strings.Join(q["append_to_response"], "") == c.fail {
+					if c.outOfTime {
+						cancel()
+						<-release
+					}
+					return c.code, `{}`
+				}
+				return testSeries(path, q)
+			}})
 			p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
 				TMDB: mapping.Placement{ID: 77}, MAL: 5}})
 			p.cfg.PosterSources = []string{"mal", "tmdb", "tvdb"}
-			ctx := context.Background()
-			if c.timeout > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, c.timeout)
-				defer cancel()
-			}
 			s, err := p.buildShow(ctx, root)
+			close(release)
+			cancel()
 			if err != nil {
 				t.Fatalf("%s %s: %v", c.name, root, err)
 			}
@@ -833,6 +834,7 @@ func TestAniDBShowWithoutClientIsComplete(t *testing.T) {
 // for, so it is complete and not rebuilt (and logged) every 2 minutes. With
 // AniDB set up but not answering, it is rebuilt soon.
 func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
+	const aid = 7100 // only this test's: its log lines are told apart by it
 	failing := func(path string, q map[string][]string) (int, string) {
 		if path == "api.anidb.net/httpapi" {
 			return 500, ""
@@ -852,6 +854,9 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 		f := fetch.New(dir)
 		f.SetTransport(net)
 		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
+		p.titles.SetForTest(map[int][]anidb.Title{aid: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}}})
+		p.lists.SetForTest(map[int]mapping.Entry{aid: {AID: aid, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
+			TMDB: mapping.Placement{ID: 77}}})
 		var logs strings.Builder
 		restore := captureLogs(&logs)
 		s, err := p.buildShow(context.Background(), "tvdb-500")
@@ -865,7 +870,7 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 		if s.Title != "Kizuna Test" {
 			t.Errorf("%s: title %q, want the title dump's", name, s.Title)
 		}
-		if logged := strings.Contains(logs.String(), "AniDB details not available"); logged == c.complete {
+		if logged := loggedFor(logs.String(), "AniDB details not available", aid); logged == c.complete {
 			t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
 		}
 	}
