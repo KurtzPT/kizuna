@@ -120,30 +120,47 @@ func TestBadValuesWarnAndUseDefault(t *testing.T) {
 	}
 }
 
-// Kizuna needs AniDB or TheTVDB; TheMovieDb and MAL only add details,
-// unless EPISODE_SOURCES puts tmdb first.
-func TestCheckSources(t *testing.T) {
-	if err := (Config{}).CheckSources(); err == nil || !strings.Contains(err.Error(), "ANIDB_CLIENT") {
-		t.Errorf("nothing set: %v, want an error naming ANIDB_CLIENT", err)
+// A mode works when its episode source is usable: /anidb AniDB, /tvdb
+// TheTVDB, /auto either. Kizuna starts when one mode works.
+func TestModes(t *testing.T) {
+	cases := []struct {
+		name              string
+		c                 Config
+		anidb, tvdb, auto bool
+	}{
+		{"nothing", Config{}, false, false, false},
+		{"TheMovieDb and MAL only add details", Config{TMDBKey: "x", MALClientID: "x"}, false, false, false},
+		{"AniDB", Config{AniDBClient: "x"}, true, false, true},
+		{"TheTVDB v4", Config{TVDBKey: "x"}, false, true, true},
+		{"TheTVDB legacy", Config{TVDBLegacyKey: "x"}, false, true, true},
+		{"both", Config{AniDBClient: "x", TVDBKey: "x"}, true, true, true},
 	}
-	for _, c := range []Config{{AniDBClient: "x"}, {TVDBKey: "x"}, {TVDBLegacyKey: "x"}} {
-		if err := c.CheckSources(); err != nil {
-			t.Errorf("%+v: %v, want nil", c, err)
+	for _, c := range cases {
+		got := [3]bool{c.c.ModeOff("anidb") == "", c.c.ModeOff("tvdb") == "", c.c.ModeOff("auto") == ""}
+		if got != [3]bool{c.anidb, c.tvdb, c.auto} {
+			t.Errorf("%s: anidb, tvdb, auto ready = %v, want %v", c.name, got, [3]bool{c.anidb, c.tvdb, c.auto})
+		}
+		if err := c.c.CheckModes(); (err == nil) != c.auto {
+			t.Errorf("%s: CheckModes %v, want an error only when no mode works", c.name, err)
 		}
 	}
-	for _, c := range []Config{
-		{TMDBKey: "x", MALClientID: "x", EpisodeSources: []string{"tvdb", "tmdb"}}, // TMDB only a fallback
-		{TMDBKey: "x", EpisodeSources: nil},                                        // EPISODE_SOURCES=none
-		{EpisodeSources: []string{"tmdb"}},                                         // tmdb first, but no key
-	} {
-		if err := c.CheckSources(); err == nil {
-			t.Errorf("%+v: nil, want an error", c)
-		}
+}
+
+// Lists keep their order; sources without a key are skipped, ANN always
+// counts. A list with nothing usable left is reported; "none" isn't.
+func TestUsableSources(t *testing.T) {
+	c := Config{TMDBKey: "x", PosterSources: []string{"tvdb", "ann", "tmdb", "anidb"},
+		BackgroundSources: []string{"tvdb"}, LogoSources: nil, CastSources: []string{"anidb", "tvdb"}}
+	if got := c.UsableOf(c.PosterSources); !slices.Equal(got, []string{"ann", "tmdb"}) {
+		t.Errorf("posters: %v", got)
 	}
-	// The user chose TheMovieDb's episode order: its key is enough.
-	for _, eps := range [][]string{{"tmdb"}, {"tmdb", "tvdb"}} {
-		if err := (Config{TMDBKey: "x", EpisodeSources: eps}).CheckSources(); err != nil {
-			t.Errorf("TMDB key, EPISODE_SOURCES %v: %v, want nil", eps, err)
+	if got := c.emptyFields(); !slices.Equal(got, []string{"BACKGROUND_SOURCES", "CAST_SOURCES"}) {
+		t.Errorf("empty fields: %v", got)
+	}
+	log := warnings(t, func() { Config{AniDBClient: "x"}.LogModes() })
+	for _, want := range []string{"anidb=ready", `tvdb="off: no TVDB_API_KEY`, "only shows with AniDB rules"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("no %q in %q", want, log)
 		}
 	}
 }

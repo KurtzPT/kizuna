@@ -11,11 +11,14 @@ import (
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
+	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
+	"kizuna/internal/sources"
 )
 
 func TestChildrenArePaged(t *testing.T) {
-	p := New(config.Config{}, nil, nil, nil, nil, nil, nil, nil)
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
 	s := &Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}
 	for i := 1; i <= 45; i++ {
 		s.Episodes[1] = append(s.Episodes[1], Ep{Season: 1, Index: i})
@@ -109,7 +112,8 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
 	titles.SetForTest(map[int][]anidb.Title{1: {{Type: "main", Text: "A"}}})
 	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
-	p := New(config.Config{}, titles, nil, lists, nil, nil, nil, nil)
+	dir := t.TempDir()
+	p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, nil, nil, nil, nil)
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	done := p.Loading()
 	get := func(ctx context.Context, path string) *httptest.ResponseRecorder {
@@ -145,5 +149,51 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 	}
 	if rec := get(context.Background(), "/health"); rec.Code != 200 {
 		t.Errorf("health after the load: %d %s, want 200 ok", rec.Code, rec.Body)
+	}
+}
+
+// A mode whose source isn't set up answers 503 with the reason (Plex keeps
+// what it has) and logs it once per 10 minutes (the global logger isn't
+// swapped here: that would change later tests' allocation counts); its description still
+// answers, so Plex can add the provider. The other mode is unaffected.
+func TestModeOff(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil,
+		sources.NewTVDB(fetch.New(dir), "", "", ""), nil, nil, nil)
+	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		p.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	for range 3 {
+		if rec := get("/tvdb/library/metadata/tvdb-500"); rec.Code != 503 || !strings.Contains(rec.Body.String(), "TVDB_API_KEY") {
+			t.Errorf("/tvdb without a TVDB key: %d %s, want 503 naming TVDB_API_KEY", rec.Code, rec.Body)
+		}
+	}
+	if p.offLogged.due("tvdb") {
+		t.Error("/tvdb off: want it logged by the first request and not due again for 10 minutes")
+	}
+	if rec := get("/tvdb"); rec.Code != 200 {
+		t.Errorf("/tvdb description: %d, want 200", rec.Code)
+	}
+	if rec := get("/anidb/library/metadata/anidb-1"); rec.Code != 200 {
+		t.Errorf("/anidb with AniDB set up: %d %s, want 200", rec.Code, rec.Body)
+	}
+	if rec := get("/auto/library/metadata/anidb-1"); rec.Code != 200 {
+		t.Errorf("/auto with AniDB set up: %d %s, want 200", rec.Code, rec.Body)
+	}
+}
+
+func TestEveryTenMinutes(t *testing.T) {
+	var e everyTenMinutes
+	if !e.due("a") || e.due("a") || !e.due("b") {
+		t.Error("want each key due once")
+	}
+	e.at["a"] = time.Now().Add(-11 * time.Minute)
+	if !e.due("a") {
+		t.Error("want a key due again after 10 minutes")
 	}
 }

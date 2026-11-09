@@ -4,7 +4,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -57,7 +56,6 @@ type Config struct {
 	PosterSources     []string // tvdb, tmdb, anidb, mal, ann
 	BackgroundSources []string // tvdb, tmdb
 	LogoSources       []string // tvdb, tmdb
-	EpisodeSources    []string // tvdb, tmdb (episode list of the /tvdb mode)
 	// EpisodeFillSources: in /anidb mode, where missing episode thumbnails,
 	// summaries, dates and runtimes come from, matched through the
 	// mapping's TVDB season and episode offset. tvdb. (Titles follow
@@ -117,7 +115,6 @@ func Load() Config {
 		PosterSources:      sourceList("POSTER_SOURCES", "tvdb,tmdb,anidb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
 		BackgroundSources:  sourceList("BACKGROUND_SOURCES", "tvdb,tmdb", "tvdb", "tmdb"),
 		LogoSources:        sourceList("LOGO_SOURCES", "tvdb,tmdb", "tvdb", "tmdb"),
-		EpisodeSources:     sourceList("EPISODE_SOURCES", "tvdb,tmdb", "tvdb", "tmdb"),
 		EpisodeFillSources: sourceList("EPISODE_FILL_SOURCES", "tvdb", "tvdb"),
 		GenreSources:       sourceList("GENRE_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
 		CastSources:        sourceList("CAST_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
@@ -135,20 +132,108 @@ func Load() Config {
 	}
 }
 
-// CheckSources fails without AniDB (for /anidb and /auto) and TheTVDB (for
-// /tvdb): Kizuna is built around their episode orders. TheMovieDb and the
-// others only add details, unless EPISODE_SOURCES puts tmdb first: then
-// its key is enough for /tvdb.
-func (c Config) CheckSources() error {
-	if c.AniDBClient != "" || c.TVDBKey != "" || c.TVDBLegacyKey != "" {
-		return nil
+// Usable reports whether a source has what it needs to answer: AniDB a
+// client name, TheTVDB a v4 or legacy key, TheMovieDb a key, MyAnimeList a
+// client ID. Anime News Network needs nothing. Each source list uses the
+// first usable source that has a value; the others are skipped.
+func (c Config) Usable(source string) bool {
+	switch source {
+	case "anidb":
+		return c.AniDBClient != ""
+	case "tvdb":
+		return c.TVDBKey != "" || c.TVDBLegacyKey != ""
+	case "tmdb":
+		return c.TMDBKey != ""
+	case "mal":
+		return c.MALClientID != ""
 	}
-	if c.TMDBKey != "" && len(c.EpisodeSources) > 0 && c.EpisodeSources[0] == "tmdb" {
-		return nil
+	return source == "ann"
+}
+
+// UsableOf keeps the usable sources of a list, in order.
+func (c Config) UsableOf(list []string) []string {
+	return slices.DeleteFunc(slices.Clone(list), func(s string) bool { return !c.Usable(s) })
+}
+
+// What a mode is missing: /anidb takes its episodes from AniDB, /tvdb from
+// TheTVDB, /auto from either (per show).
+const (
+	noAniDB = "no ANIDB_CLIENT"
+	noTVDB  = "no TVDB_API_KEY or TVDB_LEGACY_API_KEY"
+)
+
+// ModeOff says why a mode ("anidb", "tvdb", "auto") can't build shows; ""
+// when it can. /auto works with either source, for the shows that use it.
+func (c Config) ModeOff(mode string) string {
+	return ModeOff(mode, c.Usable("anidb"), c.Usable("tvdb"))
+}
+
+// ModeOff is the rule behind Config.ModeOff, for callers that know which
+// sources are set up (the provider asks its sources).
+func ModeOff(mode string, anidb, tvdb bool) string {
+	switch {
+	case mode == "anidb" && !anidb:
+		return noAniDB
+	case mode == "tvdb" && !tvdb:
+		return noTVDB
+	case mode == "auto" && !anidb && !tvdb:
+		return noAniDB + " and " + noTVDB
 	}
-	return errors.New("no AniDB client and no TheTVDB key: " +
-		"set ANIDB_CLIENT (for /anidb and /auto), or TVDB_API_KEY or TVDB_LEGACY_API_KEY (for /tvdb; " +
-		"TMDB_API_KEY only counts with EPISODE_SOURCES starting with tmdb). See SETUP.md")
+	return ""
+}
+
+// CheckModes fails when no mode can build shows. One working mode is enough:
+// Kizuna can't know which ones Plex uses.
+func (c Config) CheckModes() error {
+	if why := c.ModeOff("auto"); why != "" {
+		return fmt.Errorf("no mode can build shows (%s): set ANIDB_CLIENT for /anidb, "+
+			"TVDB_API_KEY or TVDB_LEGACY_API_KEY for /tvdb, or both for /auto. See SETUP.md", why)
+	}
+	return nil
+}
+
+// LogModes logs, at startup, which modes are ready, and the source lists
+// left without a usable source (their field stays empty).
+func (c Config) LogModes() {
+	state := func(mode string) string {
+		if why := c.ModeOff(mode); why != "" {
+			return "off: " + why
+		}
+		return "ready"
+	}
+	auto := "ready"
+	switch {
+	case c.ModeOff("anidb") != "":
+		auto = "only shows with TVDB rules (" + noAniDB + ")"
+	case c.ModeOff("tvdb") != "":
+		auto = "only shows with AniDB rules (" + noTVDB + ")"
+	}
+	slog.Info("modes", "anidb", state("anidb"), "tvdb", state("tvdb"), "auto", auto)
+	if empty := c.emptyFields(); len(empty) > 0 {
+		slog.Warn("no usable source in these lists, so their fields stay empty; add a key, or set them to none",
+			"settings", empty)
+	}
+}
+
+// emptyFields: the source lists that name sources, none of them usable
+// ("none" turns a list off on purpose and isn't reported).
+func (c Config) emptyFields() []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		list []string
+	}{
+		{"TITLE_SOURCES", c.TitleSources}, {"SUMMARY_SOURCES", c.SummarySources}, {"POSTER_SOURCES", c.PosterSources},
+		{"BACKGROUND_SOURCES", c.BackgroundSources}, {"LOGO_SOURCES", c.LogoSources},
+		{"EPISODE_FILL_SOURCES", c.EpisodeFillSources}, {"EPISODE_TITLES", c.EpisodeTitles},
+		{"GENRE_SOURCES", c.GenreSources}, {"CAST_SOURCES", c.CastSources}, {"STUDIO_SOURCES", c.StudioSources},
+		{"CREW_SOURCES", c.CrewSources}, {"RATING_SOURCES", c.RatingSources}, {"DATE_SOURCES", c.DateSources},
+	} {
+		if len(f.list) > 0 && len(c.UsableOf(f.list)) == 0 {
+			out = append(out, f.name)
+		}
+	}
+	return out
 }
 
 // DefaultPort is Kizuna's port unless PORT or LISTEN says otherwise.

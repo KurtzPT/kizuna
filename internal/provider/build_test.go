@@ -388,29 +388,6 @@ func TestTVDBUnpairedEpisodeGoesByAbsoluteNumber(t *testing.T) {
 	}
 }
 
-// With the episode list from TheMovieDb (no usable TVDB key), AniDB titles
-// are placed by the mapping's TMDB seasons.
-func TestTMDBListPairsAniDBByTMDBSeasons(t *testing.T) {
-	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
-		if path == "api4.thetvdb.com/v4/login" {
-			return 401, `{}`
-		}
-		return testSeries(path, q)
-	}})
-	p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
-		TMDB: mapping.Placement{ID: 77, Mapped: true, Season: 1, Offset: 1}}})
-	s, err := p.buildShow(context.Background(), "tvdb-500")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ep := s.Episode(1, 2); ep == nil || ep.titles["tmdb"] != "TMDB Two" || ep.titles["anidb"] != "The Start" {
-		t.Errorf("TMDB S1E2: %+v, want AniDB episode 1's title", ep)
-	}
-	if ep := s.Episode(1, 1); ep == nil || ep.titles["anidb"] != "" {
-		t.Errorf("TMDB S1E1: %+v, want no AniDB title (AniDB 1 is TMDB S1E2)", ep)
-	}
-}
-
 // A partial episode list is used, but the show is rebuilt soon instead of
 // being kept for an hour with episodes missing.
 func TestPartialEpisodeListIsIncomplete(t *testing.T) {
@@ -506,7 +483,8 @@ func TestFailedShowSourceIsIncomplete(t *testing.T) {
 	}
 }
 
-// A rejected TVDB key is tried once, not once per TVDB call.
+// A rejected TVDB key is tried once, not once per TVDB call. /tvdb shows
+// then fail with the reason: TheMovieDb never stands in for TheTVDB's list.
 func TestRejectedTVDBKeyIsRemembered(t *testing.T) {
 	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 		if path == "api4.thetvdb.com/v4/login" {
@@ -516,12 +494,8 @@ func TestRejectedTVDBKeyIsRemembered(t *testing.T) {
 	}}
 	p := newTestProvider(t, net)
 	for range 3 {
-		s, err := p.buildShow(context.Background(), "tvdb-500") // falls back to TMDB's episode list
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ep := s.Episode(2, 3); ep == nil {
-			t.Fatalf("S02E03 from TMDB missing: %v", s.Episodes)
+		if s, err := p.buildShow(context.Background(), "tvdb-500"); err == nil || !strings.Contains(err.Error(), "401") {
+			t.Fatalf("show %v, err %v: want the TVDB login error", s != nil, err)
 		}
 	}
 	if n := net.count("api4.thetvdb.com/v4/login"); n != 1 {
@@ -585,5 +559,25 @@ func TestTVDBEpisodeOnOtherTMDBShowIsNotPaired(t *testing.T) {
 		if c.cached && ep.Title != "TVDB Three" {
 			t.Errorf("%s: S02E03 title %q, want TheTVDB's", name, ep.Title)
 		}
+	}
+}
+
+// /tvdb takes its episode list only from TheTVDB. Without a TheTVDB key, or
+// for a show TheTVDB doesn't have, the build fails with what to do, and
+// TheMovieDb (which has the show here) doesn't stand in.
+func TestTVDBListOnlyFromTheTVDB(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	p.tvdb = sources.NewTVDB(fetch.New(t.TempDir()), "", "", "")
+	if _, err := p.buildShow(context.Background(), "tvdb-500"); err == nil || !strings.Contains(err.Error(), "TVDB_API_KEY") {
+		t.Errorf("no TVDB key: %v, want an error naming TVDB_API_KEY", err)
+	}
+	p = newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+			return 404, `{}`
+		}
+		return testSeries(path, q)
+	}})
+	if _, err := p.buildShow(context.Background(), "tvdb-500"); err == nil || !strings.Contains(err.Error(), "use /anidb") {
+		t.Errorf("show not on TheTVDB: %v, want an error pointing to /anidb", err)
 	}
 }

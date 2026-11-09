@@ -81,10 +81,11 @@ func main() {
 	cfg := config.Load()
 	if !healthCheck {
 		envFile.Log()
-		if err := cfg.CheckSources(); err != nil {
+		if err := cfg.CheckModes(); err != nil {
 			slog.Error("can't start: " + err.Error())
 			os.Exit(1)
 		}
+		cfg.LogModes()
 	}
 	fetch.UserAgent = "kizuna/" + provider.Version + " (personal Plex metadata provider)"
 	if healthCheck {
@@ -192,13 +193,14 @@ func serve(cfg config.Config) error {
 
 // logReady logs the settings in effect once the first list load is over.
 func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time) {
+	u := cfg.UsableOf // each list as it works: sources without a key are skipped
 	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
 		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
-		"titles", cfg.TitleSources, "summaries", cfg.SummarySources, "posters", cfg.PosterSources,
-		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
-		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,
-		"rating", cfg.RatingSources, "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", cfg.DateSources,
-		"episode_fill", cfg.EpisodeFillSources, "episode_titles", cfg.EpisodeTitles, "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20,
+		"titles", u(cfg.TitleSources), "summaries", u(cfg.SummarySources), "posters", u(cfg.PosterSources),
+		"backgrounds", u(cfg.BackgroundSources), "logos", u(cfg.LogoSources), "art_all", cfg.ArtAllSources,
+		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
+		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", u(cfg.DateSources),
+		"episode_fill", u(cfg.EpisodeFillSources), "episode_titles", u(cfg.EpisodeTitles), "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20,
 		"match_reports", cfg.MatchReports)
 }
 

@@ -137,7 +137,7 @@ flowchart LR
 | **Seasons** | TheTVDB's. A `Season 02/` folder works, but the `S02` in the name is enough |
 | **Episode numbers** | keep counting across seasons: season 1 ends at 25, so season 2 starts at **26** |
 | **Specials** | season 0, with TheTVDB's numbers |
-| **Episode list** | TheTVDB; TheMovieDb only for a show TheTVDB has no episodes for |
+| **Episode list** | TheTVDB, always. A show TheTVDB doesn't have finds nothing in `/tvdb`: use `/anidb` for it |
 | **Show details** | the series' first AniDB entry |
 | **Episode titles** | AniDB by default, from *each season's own* AniDB entry ([pairing](#%EF%B8%8F-episode-titles-and-pairing)) |
 | **No TVDB series** | an entry without one (most movies, many OVAs) uses the `/anidb` rules |
@@ -188,7 +188,7 @@ several AniDB entries (a TVDB series with one entry per season) gives the series
 |---|---|
 | [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff |
 | [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, posters, backgrounds, logos |
-| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; `/tvdb` episodes for a show TheTVDB lacks |
+| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; episode titles and crew |
 | [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date |
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date |
 

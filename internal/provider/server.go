@@ -10,8 +10,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"kizuna/internal/config"
 	"kizuna/internal/fetch"
 	"kizuna/internal/report"
 )
@@ -52,6 +54,16 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
+		// A mode without its source answers 503 (Plex keeps what it has)
+		// with the reason. Its description still answers, so Plex can add
+		// the provider before the key is set.
+		if why := p.modeOff(mode); why != "" && r.URL.Path != "/"+mode.Path {
+			if p.offLogged.due(mode.Path) {
+				slog.Warn("a request for a mode that is off; set its key or use another mode", "mode", "/"+mode.Path, "why", why)
+			}
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "/" + mode.Path + " is off: " + why})
+			return
+		}
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
 		url := fetch.Redact(r.URL.RequestURI())
@@ -69,6 +81,32 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 			p.reports.AddRequest(*rq)
 		}
 	}
+}
+
+// modeOff says why a mode can't build shows ("" = it can), from the sources
+// as set up: the same rule as the startup check (config.ModeOff).
+func (p *Provider) modeOff(m Mode) string {
+	return config.ModeOff(m.Path, p.anidb.Enabled(), p.tvdb.Enabled())
+}
+
+// everyTenMinutes reports a key as due at most once every 10 minutes, so a
+// Plex library scan doesn't repeat one warning per show.
+type everyTenMinutes struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+func (e *everyTenMinutes) due(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if t, ok := e.at[key]; ok && time.Since(t) < 10*time.Minute {
+		return false
+	}
+	if e.at == nil {
+		e.at = map[string]time.Time{}
+	}
+	e.at[key] = time.Now()
+	return true
 }
 
 // recorder notes the status and size of an answer for the request log.

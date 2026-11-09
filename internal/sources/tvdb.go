@@ -60,7 +60,7 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}}
 }
 
-func (t *TVDB) Enabled() bool { return t.key != "" || t.legacyKey != "" }
+func (t *TVDB) Enabled() bool { return t != nil && (t.key != "" || t.legacyKey != "") } // nil = not set up
 
 // API names the TheTVDB API in use: "v4", "v3" (legacy key) or "" (off).
 func (t *TVDB) API() string {

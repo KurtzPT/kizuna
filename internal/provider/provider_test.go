@@ -306,7 +306,7 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}}
 	s.eachEpisode(func(ep *Ep) { ep.setTitle("tvdb", fmt.Sprintf("TVDB S%dE%d", ep.listed.season, ep.listed.number)) })
 
-	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, newTVDBBuild(500, 0, "tvdb", first, nil)); !ready {
+	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, newTVDBBuild(500, 0, first, nil)); !ready {
 		t.Error("no AniDB client: nothing can be fetched, so nothing to wait for")
 	}
 	p.pickEpisodeTitles(s)
@@ -323,10 +323,9 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}
 }
 
-// The /tvdb pairing walk places each entry on both sites, either of which
-// can hold the episode list: an entry of another TMDB show has no place on
-// this show's TMDB list, and an entry without a TMDB season is placed on
-// TheMovieDb like on TheTVDB.
+// The /tvdb pairing walk places each entry of TheTVDB's list on TheMovieDb
+// too: an entry of another TMDB show has no place there, and an entry
+// without a TMDB season is placed on TheMovieDb like on TheTVDB.
 func TestTVDBPairingPerSite(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(dir)
@@ -363,12 +362,9 @@ func TestTVDBPairingPerSite(t *testing.T) {
 			map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"},
 			// 200 is on another TMDB show: no pairing, not the absolute-number fallback
 			map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}, {3, 1}: {spot{3, 1}, true}}},
-		{"tmdb",
-			map[spot]string{{1, 2}: "Entry 100", {3, 1}: "Entry 300"}, // 200 isn't on this list
-			map[spot]otherPlace{{1, 2}: {spot{1, 1}, true}, {3, 1}: {spot{3, 1}, true}}},
 	}
 	for _, c := range cases {
-		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, c.list, first, nil), false)
+		pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, first, nil), false)
 		if !ready {
 			t.Errorf("%s list: every entry is cached, want ready", c.list)
 		}

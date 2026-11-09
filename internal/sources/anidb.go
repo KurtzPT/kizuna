@@ -127,7 +127,7 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	return c
 }
 
-func (c *AniDB) Enabled() bool { return c.client != "" }
+func (c *AniDB) Enabled() bool { return c != nil && c.client != "" } // nil = not set up
 
 // Anime returns the entry from memory, disk cache, or the API (in that order).
 // Waits at most until ctx is done; an unfinished download keeps going in the

@@ -66,17 +66,13 @@ func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
 // tvdbBuild is what the steps of a /tvdb build share.
 type tvdbBuild struct {
 	tvdbID, tmdbID int                 // tmdbID 0 = no TheMovieDb show
-	list, other    string              // the episode list's site ("tvdb" or "tmdb") and the other one
+	list, other    string              // the episode list's site (always "tvdb") and the other one ("tmdb")
 	first          *sources.AniDBAnime // the series' first AniDB entry (nil = not available)
 	eps            []sources.Episode   // the episode list, absolute numbers filled in
 }
 
-func newTVDBBuild(tvdbID, tmdbID int, list string, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
-	other := "tmdb"
-	if list == "tmdb" {
-		other = "tvdb"
-	}
-	return &tvdbBuild{tvdbID: tvdbID, tmdbID: tmdbID, list: list, other: other, first: first, eps: eps}
+func newTVDBBuild(tvdbID, tmdbID int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
+	return &tvdbBuild{tvdbID: tvdbID, tmdbID: tmdbID, list: "tvdb", other: "tmdb", first: first, eps: eps}
 }
 
 // id is the show's id on a site.

@@ -36,17 +36,25 @@ AniDB account.
 | **MyAnimeList** | Client ID | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | `MAL_CLIENT_ID` |
 | **Anime News Network** | none | – | – |
 
-**The minimum for each [mode](README.md#%EF%B8%8F-modes):**
+**Which keys you need.** Each [mode](README.md#%EF%B8%8F-modes) takes its episodes from one source, so that source
+must be set up. Everything else only adds details:
 
-| Mode | Required | For |
+| Mode | Episodes from | Works with |
 |---|---|---|
-| `/anidb` | AniDB | episode lists, specials, summaries |
-| `/tvdb` | TheTVDB (TheMovieDb only fills in a show TheTVDB has no episodes for) | seasons and episode lists |
-| `/auto` | AniDB **and** TheTVDB | both kinds of shows |
+| `/anidb` | AniDB | `ANIDB_CLIENT` |
+| `/tvdb` | TheTVDB | `TVDB_API_KEY` or `TVDB_LEGACY_API_KEY` |
+| `/auto` | AniDB or TheTVDB, per show | either; with only one, only the shows that use it |
 
-Without `ANIDB_CLIENT` and without a TheTVDB key, Kizuna doesn't start: it logs `can't start: no AniDB client and
-no TheTVDB key` and exits. TheMovieDb, MyAnimeList and Anime News Network alone aren't enough, except when you put
-TheMovieDb first for episodes (`EPISODE_SOURCES=tmdb` or `tmdb,tvdb`): then a `TMDB_API_KEY` is enough for `/tvdb`.
+Kizuna starts when at least one mode works, and logs which ones do:
+`modes anidb=ready tvdb="off: no TVDB_API_KEY or TVDB_LEGACY_API_KEY"`. A request to a mode that's off gets an
+error saying why (Plex keeps what it has). With no mode working, Kizuna doesn't start
+(`can't start: no mode can build shows`). TheMovieDb, MyAnimeList and Anime News Network never decide this: they
+only fill in fields.
+
+**Every other field** uses its source list ([sources per field](#-sources-per-field)): the first source in the list
+that is set up and has a value wins; a source without its key is skipped. If no source in a list is set up, that
+field stays empty, and Kizuna warns at startup (`no usable source in these lists`); set the list to `none` if you
+want it empty.
 
 Without an AniDB client, shows still match by title (from AniDB's offline title list), but get no AniDB details.
 
@@ -65,7 +73,7 @@ Without an AniDB client, shows still match by title (from AniDB's offline title 
 | Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
 | Poster | ✅ | ⭐ | ✅ | ✅ | ✅ |
 | Background, logo | | ⭐³ | ✅ | | |
-| Episode list (`/tvdb`) | | ⭐ | ✅ | | |
+| Episode list (`/tvdb`) | | ⭐ only | | | |
 | Episode titles | ⭐ | ✅ | ✅ | | |
 | Episode thumbnails (`/anidb`) | | ⭐ | | | |
 | Episode directors, writers | | ⭐ | ✅ | | |
@@ -254,7 +262,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
 | `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB answers `pin required` without it |
 | `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or as a fallback when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives episodes (with their directors and writers), thumbnails, posters, backgrounds, cast, genres and the US content rating, but no clear logos, studio, or show directors and writers. TheTVDB may switch the v3 API off at any time |
-| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos and details, and `/tvdb` episodes for a show TheTVDB has none for |
+| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos, details, episode titles and crew |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
 
 ### 🎯 Matching & titles
@@ -317,7 +325,6 @@ them. Refresh the show's metadata a few minutes later to fill them in. The legac
 
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
-| `EPISODE_SOURCES` | `tvdb,tmdb` | tvdb tmdb | `/tvdb`: where the episode list comes from |
 | `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes ([how titles are picked](README.md#%EF%B8%8F-episode-titles-and-pairing)). `tvdb,tmdb,anidb` = TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb` | tvdb | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `none` turns it off |
 
@@ -746,7 +753,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | Symptom | Fix |
 |---|---|
 | `can't run: port 32600 is already in use by another program` | Something else has the port, often a second Kizuna. Stop it, or use another port: the host side of the port mapping in Docker, `PORT` outside Docker. Kizuna exits right away (code 1) instead of starting half-way |
-| `can't start: no AniDB client and no TheTVDB key` | Set `ANIDB_CLIENT`, or a TheTVDB key (or, for TheMovieDb's episode order, `TMDB_API_KEY` with `EPISODE_SOURCES=tmdb`) ([which mode needs what](#-1-get-your-keys)). With a settings file, check the `settings file` line above it: the file may not be where Kizuna looks (`no settings file`) |
+| `can't start: no mode can build shows` | Set `ANIDB_CLIENT` (for `/anidb`), or a TheTVDB key (for `/tvdb`) ([which mode needs what](#-1-get-your-keys)). With a settings file, check the `settings file` line above it: the file may not be where Kizuna looks (`no settings file`) |
 | `can't start: can't read the settings file` | `KIZUNA_CONFIG` names a file that isn't there, or the file can't be read by the container's user |
 | `docker compose up` says *port is already allocated* | Docker found the host port taken before Kizuna started. Change the first number under `ports:` in `compose.yml` |
 | log says `can't write the log file` | Kizuna runs, but can't write to the data folder: no log file, no cache. Make it writable by the container's user (`1000:1000` by default) |

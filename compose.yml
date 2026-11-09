@@ -50,7 +50,6 @@ services:
       # POSTER_SOURCES: "tvdb,tmdb,anidb,mal,ann"
       # BACKGROUND_SOURCES: "tvdb,tmdb"
       # LOGO_SOURCES: "tvdb,tmdb"
-      # EPISODE_SOURCES: "tvdb,tmdb"   # /tvdb mode episode list
       # EPISODE_FILL_SOURCES: "tvdb"  # /anidb mode: episode thumbnails (+ summaries, dates, runtimes AniDB lacks); "none" = off
       # In /anidb mode, tvdb/tmdb are only used for these on a series' first AniDB entry:
       # GENRE_SOURCES: "anidb,tvdb,tmdb,mal,ann"

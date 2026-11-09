@@ -200,8 +200,13 @@ func averageRuntime(s *Show, a *sources.AniDBAnime) {
 // buildTVDB: seasons follow TheTVDB, but every regular episode keeps its
 // absolute number: if season 1 ends at 25, season 2 starts at 26
 // (Season 02/Show - S02E26.mkv). Specials stay in season 0 with TVDB numbers.
-// Show texts come from AniDB (first entry of the series) when known.
+// Show texts come from AniDB (first entry of the series) when known. The
+// episode list always comes from TheTVDB: the mapping places AniDB entries
+// on TheTVDB's seasons, and TheMovieDb often splits them differently.
 func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
+	if !p.tvdb.Enabled() {
+		return nil, fmt.Errorf("tvdb %d: TVDB rules need TheTVDB: set TVDB_API_KEY or TVDB_LEGACY_API_KEY", tvdbID)
+	}
 	s := &Show{Root: fmt.Sprintf("tvdb-%d", tvdbID), Episodes: map[int][]Ep{}, Complete: true,
 		Guids: []string{fmt.Sprintf("tvdb://%d", tvdbID)}}
 	aid := p.lists.FirstAID(tvdbID)
@@ -219,7 +224,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 			}
 		})
 	}
-	eps, listSrc, epsErr := p.pickEpisodeList(ctx, tvdbID, tmdbShow)
+	eps, epsErr := p.tvdb.Episodes(ctx, tvdbID)
 	wg.Wait()
 	tmdbID, findErr := tmdbShow()
 	if findErr != nil && !fetch.IsNotFound(findErr) {
@@ -231,8 +236,10 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		slog.Info("episode list incomplete; using what came back, rebuilt in 2 min", "root", s.Root, "err", epsErr)
 	}
 	if len(eps) == 0 {
-		return nil, fmt.Errorf("tvdb %d: no episode list from EPISODE_SOURCES %v (set TVDB_API_KEY, TVDB_LEGACY_API_KEY or TMDB_API_KEY): %v",
-			tvdbID, p.cfg.EpisodeSources, epsErr)
+		if epsErr == nil || fetch.IsNotFound(epsErr) {
+			return nil, fmt.Errorf("tvdb %d: TheTVDB has no episodes for this show; use /anidb for it (or /auto)", tvdbID)
+		}
+		return nil, fmt.Errorf("tvdb %d: no episode list from TheTVDB: %w", tvdbID, epsErr)
 	}
 	if tmdbID > 0 {
 		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", tmdbID))
@@ -242,7 +249,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 
 	sources.FillAbsolute(eps)
-	b := newTVDBBuild(tvdbID, tmdbID, listSrc, a, eps)
+	b := newTVDBBuild(tvdbID, tmdbID, a, eps)
 	episodesFromList(s, b)
 	if a != nil {
 		s.OriginalTitle = p.originalTitle(a.Titles)
@@ -266,26 +273,6 @@ func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Ent
 		}
 		return entry.TMDB.ID, nil
 	})
-}
-
-// pickEpisodeList returns the episode list of the first EPISODE_SOURCES
-// source that has one, and that source ("" when none has; err is then the
-// last source's error).
-func (p *Provider) pickEpisodeList(ctx context.Context, tvdbID int, tmdbShow func() (int, error)) (eps []sources.Episode, src string, err error) {
-	for _, src := range p.cfg.EpisodeSources {
-		switch {
-		case src == "tvdb" && p.tvdb.Enabled():
-			eps, err = p.tvdb.Episodes(ctx, tvdbID)
-		case src == "tmdb":
-			if id, _ := tmdbShow(); id > 0 {
-				eps, err = p.tmdb.Episodes(ctx, id)
-			}
-		}
-		if len(eps) > 0 {
-			return eps, src, err
-		}
-	}
-	return eps, "", err
 }
 
 // episodesFromList adds the episode list's episodes to s, at their season
