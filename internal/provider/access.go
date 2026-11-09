@@ -44,7 +44,7 @@ var localSuffixes = []string{".local", ".lan", ".home", ".home.arpa", ".internal
 type Access struct {
 	AnyClient bool           // ALLOW_FROM=any
 	Nets      []netip.Prefix // allowed client networks
-	AnyHost   bool           // ALLOWED_HOSTS=any
+	AnyHost   bool           // ALLOWED_HOSTS=any (or *)
 	Hosts     []string       // extra host names; ".example.com" = it and every name under it
 }
 
@@ -72,10 +72,13 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 		a.Nets = privateNets
 	}
 	for _, e := range allowedHosts {
-		v := strings.ToLower(strings.TrimSpace(e))
-		v = strings.TrimPrefix(v, "*") // "*.example.com" = ".example.com"
+		// a trailing dot is dropped, as from the Host (hostAllowed)
+		v := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
+		if v != "*" {
+			v = strings.TrimPrefix(v, "*") // "*.example.com" = ".example.com"
+		}
 		switch {
-		case v == "any" || v == "all":
+		case v == "any" || v == "all" || v == "*":
 			a.AnyHost = true
 		case v == "" || strings.ContainsAny(v, "/: "):
 			if v != "" {

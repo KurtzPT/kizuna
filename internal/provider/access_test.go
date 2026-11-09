@@ -50,8 +50,12 @@ func TestClientAllowed(t *testing.T) {
 
 func TestHostAllowed(t *testing.T) {
 	def, _ := ParseAccess(nil, nil)
-	custom, _ := ParseAccess(nil, []string{"kizuna.example.com", "*.mynas.net"})
+	custom, _ := ParseAccess(nil, []string{"kizuna.example.com", "*.mynas.net", "plex.example.org."})
 	anyHost, _ := ParseAccess(nil, []string{"any"})
+	star, bad := ParseAccess(nil, []string{" * "})
+	if !star.AnyHost || len(bad) != 0 {
+		t.Errorf("ALLOWED_HOSTS=*: any %v bad %v, want any host", star.AnyHost, bad)
+	}
 	cases := []struct {
 		access Access
 		host   string
@@ -73,6 +77,8 @@ func TestHostAllowed(t *testing.T) {
 		{custom, "mynas.net", true},
 		{custom, "evil.example.com", false},
 		{custom, "notmynas.net", false},
+		{custom, "plex.example.org:32600", true}, // listed with a trailing dot
+		{custom, "plex.example.org.", true},
 		{anyHost, "evil.example.com", true},
 	}
 	for _, c := range cases {
