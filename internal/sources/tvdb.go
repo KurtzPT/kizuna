@@ -457,7 +457,13 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 	switch {
 	case noTranslation(err):
 		t.seasonMu.Lock()
-		t.noEnglish[sid] = time.Now().Add(seasonTTL)
+		now := time.Now()
+		for sid, until := range t.noEnglish { // answers past their time, of seasons not asked again
+			if !now.Before(until) {
+				delete(t.noEnglish, sid)
+			}
+		}
+		t.noEnglish[sid] = now.Add(seasonTTL)
 		t.seasonMu.Unlock()
 		slog.Debug("tvdb: no English season text", "series", id, "season", season, "retry_in", seasonTTL, "err", err)
 		return "", nil
@@ -468,7 +474,7 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 }
 
 // knownNoEnglish: TheTVDB answered, within seasonTTL, that the season has no
-// English text. Expired answers are dropped here.
+// English text. Expired answers are dropped here, and when one is kept.
 func (t *TVDB) knownNoEnglish(sid int) bool {
 	t.seasonMu.Lock()
 	defer t.seasonMu.Unlock()

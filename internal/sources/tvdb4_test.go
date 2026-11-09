@@ -301,3 +301,25 @@ func TestTVDBSeriesRecordOnce(t *testing.T) {
 		t.Errorf("%d records kept, want only the new one", len(tv.series))
 	}
 }
+
+// Past their time, answers of seasons not asked again are dropped when the
+// next one is kept.
+func TestTVDBNoEnglishSwept(t *testing.T) {
+	tv, _ := newTVDBTest(t, map[string]string{
+		v4 + "/login":                        `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/extended":       v4SeriesExtended,
+		v4 + "/seasons/501/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
+	}, "v4key", "", "")
+	tv.seasonMu.Lock()
+	tv.noEnglish[900] = time.Now().Add(-time.Second) // its time is up
+	tv.noEnglish[901] = time.Now().Add(time.Hour)
+	tv.seasonMu.Unlock()
+	if _, err := tv.SeasonOverview(context.Background(), 267440, 1); err != nil {
+		t.Fatal(err)
+	}
+	tv.seasonMu.Lock()
+	defer tv.seasonMu.Unlock()
+	if _, ok := tv.noEnglish[900]; ok || len(tv.noEnglish) != 2 {
+		t.Errorf("noEnglish %v, want 901 and 501", tv.noEnglish)
+	}
+}
