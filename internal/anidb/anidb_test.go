@@ -12,6 +12,28 @@ func TestPickTitle(t *testing.T) {
 	}
 }
 
+func TestNormalize(t *testing.T) {
+	cases := map[string]string{
+		"Shingeki no Kyojin (2013)": "shingeki no kyojin",
+		"Hunter × Hunter [TV]":      "hunter hunter",
+		"Pokémon":                   "pokemon",      // é as one rune
+		"Pokémon":                  "pokemon",      // e + combining accent (macOS file names)
+		"İstanbul":                  "istanbul",     // İ lowercases to i + combining dot
+		"Ōkido's “Lab”":            "okidos lab",   // Ō decomposed; apostrophes join
+		"Journey`s End":             "journeys end", // AniDB's backtick apostrophe
+		"Re:Zero  kara":             "re zero kara", // punctuation and runs of spaces
+		"Straße":                    "strasse",
+		"́ lone mark":               "lone mark", // a mark with no letter before it
+		"ワンピース":                     "ワンピース",     // other scripts stay
+		"Love Live! School Idol":    "love live school idol",
+	}
+	for in, want := range cases {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestSearch(t *testing.T) {
 	ts := &Titles{byAID: map[int][]Title{1: {{"main", "x-jat", "Shingeki no Kyojin"}}, 2: {{"main", "x-jat", "Shingeki no Kyojin Season 2"}}}}
 	ts.set(ts.byAID)

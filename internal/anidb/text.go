@@ -105,6 +105,10 @@ func Normalize(s string) string {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 			space = false
+		} else if unicode.Is(unicode.Mn, r) {
+			// A combining accent (decomposed "é" from macOS, the dot of
+			// lowercased "İ") belongs to the letter before it: drop it.
+			continue
 		} else if !space {
 			b.WriteByte(' ')
 			space = true
