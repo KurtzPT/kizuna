@@ -249,10 +249,9 @@ func (ss *showSources) pickDetails(order []string, has func(sources.Details) boo
 
 // fill sets every source-selectable field from the configured source orders.
 // A value already on s is kept only when no source has one. At debug, one
-// line per show says which source supplied each field ("-" = none). Returns
-// false when a source it asked failed (an error or the build's time running
-// out), so the show is rebuilt soon instead of being kept an hour without it.
-func (ss *showSources) fill(s *Show) bool {
+// line per show says which source supplied each field ("-" = none). Whether
+// a source failed is told by finish, after fillSeasons.
+func (ss *showSources) fill(s *Show) {
 	cfg := ss.p.cfg
 	done := ss.rec.Step("Show fields and artwork")
 	ss.warm()
@@ -320,18 +319,30 @@ func (ss *showSources) fill(s *Show) bool {
 	if debug {
 		slog.Debug("show fields: source used", used...)
 	}
-	if failed := ss.failed(); len(failed) > 0 {
-		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
-		if ss.rec != nil { // the notes are built only for a match report
-			list := strings.Join(failed, ", ")
-			done("failed: " + list)
-			ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + list, Cause: true,
-				Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+	why := ""
+	if ss.rec != nil { // the step notes what failed so far; finish tells the rest
+		if failed := ss.failed(); len(failed) > 0 {
+			why = "failed: " + strings.Join(failed, ", ")
 		}
-		return false
 	}
-	done("")
-	return true
+	done(why)
+}
+
+// finish reports whether every source fill and fillSeasons asked answered.
+// When one failed (an error or the build's time running out), it is logged
+// and noted in the match report, and the show is rebuilt soon instead of
+// being kept an hour without it. Call it after fillSeasons.
+func (ss *showSources) finish(s *Show) bool {
+	failed := ss.failed()
+	if len(failed) == 0 {
+		return true
+	}
+	slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
+	if ss.rec != nil {
+		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
+			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
+	}
+	return false
 }
 
 // warm fetches, in parallel, everything fill will ask for whatever the

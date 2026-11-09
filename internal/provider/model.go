@@ -199,10 +199,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
-	sourcesOK := ss.fill(s)
+	ss.fill(s)
 	ss.fillSeasons(s)
+	sourcesOK := ss.finish(s)
 	wg.Wait()
-	sourcesOK = sourcesOK && len(ss.seasonsFailed()) == 0
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
 	}
@@ -467,11 +467,12 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, entry 
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
-	sourcesOK := ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
+	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
 	ss.pairTMDB(pairs, b.tmdbEps.posters)
 	ss.fillSeasons(s)
-	return tmdbOK && titlesReady && crewReady && sourcesOK && len(ss.seasonsFailed()) == 0
+	sourcesOK := ss.finish(s)
+	return tmdbOK && titlesReady && crewReady && sourcesOK
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular

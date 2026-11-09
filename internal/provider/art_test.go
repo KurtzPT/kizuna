@@ -253,6 +253,45 @@ func TestSeasonArtFetchedOnce(t *testing.T) {
 	}
 }
 
+// A source first asked for a Plex season's art (here TheMovieDb's series
+// art, the Specials' last fallback) that fails leaves the show incomplete,
+// as one fill asked does: it is rebuilt in 2 minutes, not kept an hour.
+func TestSeasonOnlySourceFailureIsIncomplete(t *testing.T) {
+	for _, code := range []int{500, 200} {
+		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			switch path {
+			case "api4.thetvdb.com/v4/seasons/600/extended": // Specials: no poster on TheTVDB
+				return 200, `{"data":{"artwork":[]}}`
+			case "api4.thetvdb.com/v4/series/500/artworks":
+				return 200, `{"data":{"artworks":[{"type":23,"image":"/tvdb-series-logo","score":1}]}}`
+			case "api.themoviedb.org/3/tv/77/images":
+				if code != 200 {
+					return code, ``
+				}
+			}
+			return seasonArt(path, q)
+		}}
+		p := newTestProvider(t, net)
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		f.SetTransport(net)
+		p.anidb = sources.NewAniDB(f, dir, "", "1") // no details: complete unless a source fails
+		p.cfg.TitleSources, p.cfg.SummarySources = nil, nil
+		p.cfg.PosterSources, p.cfg.BackgroundSources, p.cfg.LogoSources = []string{"tvdb", "tmdb"}, []string{"tvdb", "tmdb"}, []string{"tvdb", "tmdb"}
+		p.lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: onTVDB(3), TMDB: onTMDB(2)}})
+		s, err := p.buildShow(context.Background(), "anidb-100")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if net.count("api.themoviedb.org/3/tv/77/images") != 1 {
+			t.Fatalf("TMDB images %d: the Specials' fallback must ask it once", net.count("api.themoviedb.org/3/tv/77/images"))
+		}
+		if want := code == 200; s.Complete != want {
+			t.Errorf("TMDB art answers %d: complete %v, want %v", code, s.Complete, want)
+		}
+	}
+}
+
 // tvdbSeasonTests: TVDB 500's seasons 1 and 2 hold episodes 1-2 and 3, its
 // season 3 episodes 4-5; TMDB 77 splits them 1-2 and 3-5. Season 1 pairs
 // with TMDB's, seasons 2 and 3 share one there: no pair.
