@@ -343,6 +343,22 @@ func (c *AniDB) load() {
 		"retry_at", c.state.RetryAt.Format(time.RFC3339), "err", err)
 }
 
+// lastSent is the newest call in state.Sent (one cut off while queued
+// has its queue time: safe too, as nothing went out), but never later than
+// now: a clock set back would hold every call. Zero: none.
+func (c *AniDB) lastSent() time.Time {
+	var last time.Time
+	for _, t := range c.state.Sent {
+		if t.After(last) {
+			last = t
+		}
+	}
+	if now := time.Now(); last.After(now) {
+		return now
+	}
+	return last
+}
+
 // save writes the ban/limit state; caller holds c.mu. The write is atomic,
 // so a crash or a full disk leaves the last state, not a cut-off file.
 func (c *AniDB) save() {

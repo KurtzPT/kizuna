@@ -3,6 +3,7 @@ package sources
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -622,5 +623,40 @@ func TestAniDBEpisodeListIndex(t *testing.T) {
 		if got := c.ep.ListIndex(); got != c.want {
 			t.Errorf("%s: ListIndex %d, want %d", c.ep.EpNo, got, c.want)
 		}
+	}
+}
+
+// A restart keeps the 4 s gap from the last call the earlier run sent
+// (state.Sent): the first call after it waits for the rest of the gap.
+func TestAniDBGapSurvivesRestart(t *testing.T) {
+	arrived := make(chan time.Time, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrived <- time.Now()
+		_, _ = w.Write([]byte(anidbSample))
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldAPI, oldHost := anidbAPI, anidbHost
+	anidbAPI, anidbHost = srv.URL+"/?client=%s&clientver=%s&aid=%d", u.Host
+	t.Cleanup(func() { anidbAPI, anidbHost = oldAPI, oldHost })
+
+	dir := t.TempDir()
+	last := time.Now().Round(0).Add(-2 * time.Second) // the earlier run's last call, 2 s ago
+	state, err := json.Marshal(map[string]any{"sent": []time.Time{last, last.Add(-time.Minute)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "anidb-state.json"), state, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewAniDB(fetch.New(dir), dir, "test", "1")
+	if _, err := c.Anime(context.Background(), 69); err != nil {
+		t.Fatal(err)
+	}
+	if at := <-arrived; at.Before(last.Add(anidbGap)) {
+		t.Errorf("first call after the restart went out %v after the last one, want at least %v", at.Sub(last), anidbGap)
 	}
 }

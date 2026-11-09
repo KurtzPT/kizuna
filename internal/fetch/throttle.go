@@ -57,6 +57,16 @@ func (l *hostLimit) setGap(gap time.Duration) {
 	l.mu.Unlock()
 }
 
+// sentAt notes a request let through at t, unless a later one is known.
+func (l *hostLimit) sentAt(t time.Time) {
+	l.mu.Lock()
+	if t.After(l.last) {
+		l.last = t
+		l.signal()
+	}
+	l.mu.Unlock()
+}
+
 // signal wakes every waiter to look at the queue again. Needs l.mu.
 func (l *hostLimit) signal() {
 	close(l.changed)

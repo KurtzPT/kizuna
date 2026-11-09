@@ -104,13 +104,23 @@ func (c *Client) SetTransport(rt http.RoundTripper) { c.http.Transport = rt }
 // Throttle makes requests to host wait at least gap between each other.
 // Called again, it changes the gap; queued requests keep their place.
 func (c *Client) Throttle(host string, gap time.Duration) {
+	c.ThrottleFrom(host, gap, time.Time{})
+}
+
+// ThrottleFrom is Throttle, with last as the time of the last request to
+// host (one an earlier run sent): the first request waits until gap after
+// it. A later last than the one known moves it up; an earlier one is ignored.
+func (c *Client) ThrottleFrom(host string, gap time.Duration, last time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if l := c.limits[host]; l != nil {
+	l := c.limits[host]
+	if l == nil {
+		l = newHostLimit(gap)
+		c.limits[host] = l
+	} else {
 		l.setGap(gap)
-		return
 	}
-	c.limits[host] = newHostLimit(gap)
+	l.sentAt(last)
 }
 
 // Cached returns a cached file and its age, without any network access.

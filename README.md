@@ -276,9 +276,9 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 | A rejected client pauses all calls for 24 h | when AniDB says `ANIDB_CLIENT` / `ANIDB_CLIENTVER` is wrong, one error names them. A restart with new values asks again at once |
 | Queued calls are checked again | a call waiting for its 4 s turn isn't sent, or counted, once a ban, backoff or rejected client came in ahead of it |
 
-The state survives restarts (`anidb-state.json` in the data folder, replaced whole on every save). If that file can't
-be read, Kizuna can't know whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the
-file was last written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
+The state survives restarts (`anidb-state.json` in the data folder, replaced whole on every save), the 4 s gap
+included: the first call after a restart waits for the rest of it. If that file can't be read, Kizuna can't know
+whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the file was last written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
 
 ---
 

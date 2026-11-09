@@ -100,6 +100,24 @@ func TestThrottleSpacingHolds(t *testing.T) {
 	}
 }
 
+// ThrottleFrom carries an earlier run's last request over: the first
+// request waits until gap after it. An earlier time than the one known is
+// ignored.
+func TestThrottleFrom(t *testing.T) {
+	const gap = 50 * time.Millisecond
+	c := New(t.TempDir())
+	last := time.Now()
+	c.ThrottleFrom("api.example", gap, last)
+	c.ThrottleFrom("api.example", gap, last.Add(-time.Hour))
+	l := c.limits["api.example"]
+	var at time.Time
+	l.released = func(_ *ticket, t time.Time) { at = t }
+	l.enqueue(false).wait()
+	if at.Before(last.Add(gap)) {
+		t.Errorf("first request let through %v after the last one, want at least %v", at.Sub(last), gap)
+	}
+}
+
 // Through the client: background downloads queued on a throttled host
 // don't hold up a foreground download that arrives after them.
 func TestBackgroundRequestsYield(t *testing.T) {
