@@ -381,6 +381,42 @@ func expire(t *testing.T, c *Client, key string) {
 	}
 }
 
+// A cached file is read with its own time; Fresh reads it only while it is
+// younger than the TTL. A folder or a missing file is no copy.
+func TestCachedReads(t *testing.T) {
+	c := New(t.TempDir())
+	if err := WriteFile(c.path("a.json"), []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(c.path("a.json"), at, at); err != nil {
+		t.Fatal(err)
+	}
+	if data, got, ok := c.CachedSince("a.json"); !ok || string(data) != "abc" || !got.Equal(at) {
+		t.Errorf("CachedSince: %q, %v, %v; want abc at %v", data, got, ok, at)
+	}
+	if data, ok := c.Fresh(context.Background(), "a.json", 2*time.Hour); !ok || string(data) != "abc" {
+		t.Errorf("Fresh within the TTL: %q, %v", data, ok)
+	}
+	if data, ok := c.Fresh(context.Background(), "a.json", time.Minute); ok || data != nil {
+		t.Errorf("Fresh past the TTL: %q, %v; want nothing", data, ok)
+	}
+	if _, ok := c.Fresh(context.Background(), "a.json", 0); ok {
+		t.Error("Fresh with no TTL answered")
+	}
+	if err := os.Mkdir(c.path("dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"dir", "missing", ""} {
+		if _, _, ok := c.CachedSince(key); ok {
+			t.Errorf("CachedSince(%q) answered", key)
+		}
+		if _, ok := c.Fresh(context.Background(), key, time.Hour); ok {
+			t.Errorf("Fresh(%q) answered", key)
+		}
+	}
+}
+
 // An unchanged list is answered with 304: the cached copy is returned and
 // fresh again, without running Validate; a changed one replaces it and its ETag.
 func TestRevalidateNotModified(t *testing.T) {

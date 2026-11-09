@@ -128,16 +128,39 @@ func (c *Client) CachedSince(key string) ([]byte, time.Time, bool) {
 	if key == "" {
 		return nil, time.Time{}, false
 	}
-	p := c.path(key)
-	at, ok := modTime(p)
-	if !ok {
-		return nil, time.Time{}, false
-	}
-	data, err := os.ReadFile(p)
+	return readCache(c.path(key), nil)
+}
+
+// Fresh returns the cached file key when it is younger than ttl, without
+// any network access. Its age is checked first: an expired file isn't read.
+func (c *Client) Fresh(ctx context.Context, key string, ttl time.Duration) ([]byte, bool) {
+	return c.fresh(ctx, Request{Key: key, TTL: ttl})
+}
+
+// readCache reads a cache file and the time it was last written through one
+// open, so the time is always that of the bytes. When young (if set) says
+// the time is too old, the file isn't read: no bytes, its time, false. No
+// such file (or a failed read): the zero time.
+func readCache(path string, young func(time.Time) bool) ([]byte, time.Time, bool) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, time.Time{}, false
 	}
-	return data, at, true
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		return nil, time.Time{}, false
+	}
+	at := st.ModTime()
+	if young != nil && !young(at) {
+		return nil, at, false
+	}
+	var b bytes.Buffer
+	b.Grow(int(st.Size()) + bytes.MinRead) // room to see the end without growing, like os.ReadFile
+	if _, err := b.ReadFrom(f); err != nil {
+		return nil, time.Time{}, false
+	}
+	return b.Bytes(), at, true
 }
 
 // CachedAt returns when a cached file was last written, without reading it.
@@ -188,27 +211,17 @@ func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
 	if r.TTL <= 0 || r.Key == "" {
 		return nil, false
 	}
-	p := c.path(r.Key)
-	at, ok := modTime(p)
-	if !ok {
-		return nil, false
+	now := time.Now()
+	data, at, ok := readCache(c.path(r.Key), func(at time.Time) bool { return now.Sub(at) < r.TTL })
+	if at.IsZero() || !slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		return data, ok
 	}
-	age := time.Since(at)
-	debug := slog.Default().Enabled(ctx, slog.LevelDebug) // the log args aren't built otherwise
-	if age >= r.TTL {
-		if debug {
-			slog.Debug("cache expired", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
-		}
-		return nil, false
+	if age := now.Sub(at).Round(time.Minute); ok {
+		slog.Debug("cache hit", "key", r.Key, "age", age, "ttl", r.TTL)
+	} else {
+		slog.Debug("cache expired", "key", r.Key, "age", age, "ttl", r.TTL)
 	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return nil, false
-	}
-	if debug {
-		slog.Debug("cache hit", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
-	}
-	return data, true
+	return data, ok
 }
 
 // download runs at most one network request per key at a time; concurrent
