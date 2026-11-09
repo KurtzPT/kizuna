@@ -252,8 +252,7 @@ func (t *TVDB) getAs(ctx context.Context, legacy, quiet bool, path, key string, 
 	}
 	key = cacheFolder(legacy) + key
 	start := time.Now()
-	if data, age, ok := t.f.Cached(key); ok && age < ttl { // skip the login when cached
-		slog.Debug("cache hit", "key", key, "age", age.Round(time.Minute), "ttl", ttl)
+	if data, ok := t.f.Fresh(ctx, key, ttl); ok { // skip the login when cached; an expired file isn't read
 		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
 		return json.Unmarshal(data, out)
 	}
