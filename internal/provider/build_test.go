@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
