@@ -54,13 +54,14 @@ func main() {
 	// kizuna-YYYY-MM-DD.log and deleted after LOG_RETENTION_DAYS.
 	// A bad LOG_RETENTION_DAYS is reported before the log file is open, so
 	// that warning is held back and written once the real logger is set.
-	out, fileErr := io.Writer(os.Stdout), error(nil)
+	out, fileErr, archiveErr := io.Writer(os.Stdout), error(nil), error(nil)
 	var early bytes.Buffer
 	if !healthCheck {
 		slog.SetDefault(slog.New(slog.NewTextHandler(&early, nil)))
-		if f, err := logfile.Open(filepath.Join(config.DataDir(), "logs"), "kizuna", config.LogRetentionDays()); err == nil {
+		f, err := logfile.Open(filepath.Join(config.DataDir(), "logs"), "kizuna", config.LogRetentionDays())
+		if f != nil { // err alone: yesterday's file couldn't be dated, but logging works
 			defer f.Close()
-			out = io.MultiWriter(os.Stdout, f)
+			out, archiveErr = io.MultiWriter(os.Stdout, f), err
 		} else {
 			fileErr = err
 		}
@@ -69,6 +70,9 @@ func main() {
 	_, _ = out.Write(early.Bytes())
 	if fileErr != nil {
 		slog.Warn("can't write the log file; logging to standard output only (check the data folder's permissions)", "err", fileErr)
+	}
+	if archiveErr != nil {
+		slog.Warn("log file: another program may have it open", "err", archiveErr)
 	}
 	if envErr != nil {
 		slog.Error("can't start: " + envErr.Error())

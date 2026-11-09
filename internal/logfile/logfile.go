@@ -29,7 +29,10 @@ type File struct {
 }
 
 // Open opens dir/<base>.log for appending. keepDays is how many past days of
-// dated files are kept (0 = never delete).
+// dated files are kept (0 = never delete). When only dating an old
+// kizuna.log failed (e.g. a viewer holds it on Windows), Open still returns
+// a working File, appending to that file, along with the error to report;
+// the first line written tries again.
 func Open(dir, base string, keepDays int) (*File, error) {
 	return open(dir, base, keepDays, time.Now)
 }
@@ -41,18 +44,23 @@ func open(dir, base string, keepDays int, now func() time.Time) (*File, error) {
 	l := &File{dir: dir, base: base, keepDays: keepDays, now: now}
 	// A kizuna.log left from an earlier day (Kizuna was stopped over midnight)
 	// is dated by its last write.
+	var archErr error
+	oldDay := ""
 	if st, err := os.Stat(l.current()); err == nil {
 		if day := st.ModTime().Format(dateLayout); day != l.today() {
 			if err := l.archive(day); err != nil {
-				return nil, err
+				archErr, oldDay = fmt.Errorf("can't rename the old %s.log to its date; appending to it: %w", base, err), day
 			}
 		}
 	}
 	if err := l.openCurrent(); err != nil {
-		return nil, err
+		return nil, errors.Join(archErr, err)
+	}
+	if oldDay != "" {
+		l.day = oldDay // its lines are still in f: the first Write tries to date them again
 	}
 	l.cleanup()
-	return l, nil
+	return l, archErr
 }
 
 func (l *File) current() string { return filepath.Join(l.dir, l.base+".log") }
@@ -75,17 +83,19 @@ func (l *File) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if today := l.today(); today != l.day {
-		l.f.Close()
+		if l.f != nil {
+			l.f.Close()
+		}
 		// A failed rename (e.g. another program holds the file on Windows)
 		// keeps today's lines in kizuna.log rather than losing them.
 		archErr := l.archive(l.day)
 		if err := l.openCurrent(); err != nil {
-			l.f = nil
+			l.f, l.day = nil, today // the next line tries to open it again, below
 			return 0, errors.Join(archErr, err)
 		}
 		l.cleanup()
 	}
-	if l.f == nil { // reopening failed on an earlier day change: try again
+	if l.f == nil { // reopening failed on the day change: try again
 		if err := l.openCurrent(); err != nil {
 			return 0, err
 		}
