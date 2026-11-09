@@ -118,6 +118,23 @@ func TestThrottleFrom(t *testing.T) {
 	}
 }
 
+// ThrottleAll changes every throttled host's gap.
+func TestThrottleAll(t *testing.T) {
+	c := New(t.TempDir())
+	c.Throttle("a.example", time.Hour)
+	c.Throttle("b.example", time.Minute)
+	c.ThrottleAll(0)
+	for _, h := range []string{"a.example", "b.example"} {
+		l := c.limits[h]
+		l.mu.Lock()
+		gap := l.gap
+		l.mu.Unlock()
+		if gap != 0 {
+			t.Errorf("%s: gap %v, want 0", h, gap)
+		}
+	}
+}
+
 // Through the client: background downloads queued on a throttled host
 // don't hold up a foreground download that arrives after them.
 func TestBackgroundRequestsYield(t *testing.T) {
