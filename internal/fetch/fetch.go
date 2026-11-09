@@ -60,6 +60,12 @@ type Request struct {
 	// NoStale: report a failed download instead of answering with a stale
 	// cached copy (for callers that track failures themselves).
 	NoStale bool
+	// Before, if set, runs when the request's turn on its host comes, right
+	// before it goes out. An error stops it there (nothing is sent; the
+	// host's slot is used all the same) and is the download's error. For a
+	// source whose own rules may have changed while the request waited (an
+	// AniDB ban brought by the answer ahead of it).
+	Before func() error
 	// Done, if set, gets the outcome of the network request once it ends,
 	// even when the caller stopped waiting (ctx). Not called on a cache hit.
 	Done func(error)
@@ -96,10 +102,15 @@ func New(cacheDir string) *Client {
 func (c *Client) SetTransport(rt http.RoundTripper) { c.http.Transport = rt }
 
 // Throttle makes requests to host wait at least gap between each other.
+// Called again, it changes the gap; queued requests keep their place.
 func (c *Client) Throttle(host string, gap time.Duration) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if l := c.limits[host]; l != nil {
+		l.setGap(gap)
+		return
+	}
 	c.limits[host] = newHostLimit(gap)
-	c.mu.Unlock()
 }
 
 // Cached returns a cached file and its age, without any network access.
@@ -251,6 +262,11 @@ func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 
 func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.Duration, err error) {
 	waited = t.wait()
+	if r.Before != nil {
+		if err := r.Before(); err != nil {
+			return nil, 0, waited, err
+		}
+	}
 
 	method := cmp.Or(r.Method, http.MethodGet)
 	req, err := http.NewRequest(method, r.URL, bytes.NewReader(r.Body))

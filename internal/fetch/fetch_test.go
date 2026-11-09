@@ -86,6 +86,30 @@ func okTransport(body string) roundTrip {
 	}
 }
 
+// Before runs once the request's turn comes; an error stops it: nothing is
+// sent, nothing cached, and Done gets that error.
+func TestBeforeStopsRequest(t *testing.T) {
+	c := New(t.TempDir())
+	var calls atomic.Int32
+	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return okTransport("ok")(r)
+	}))
+	stop := errors.New("banned meanwhile")
+	var done error
+	_, err := c.Get(context.Background(), Request{URL: "http://api.example/x", Key: "x", NoStale: true,
+		Before: func() error { return stop }, Done: func(err error) { done = err }})
+	if !errors.Is(err, stop) || !errors.Is(done, stop) || calls.Load() != 0 {
+		t.Fatalf("err %v, Done got %v, %d requests sent", err, done, calls.Load())
+	}
+	if _, _, ok := c.Cached("x"); ok {
+		t.Fatal("cached")
+	}
+	if _, err := c.Get(context.Background(), Request{URL: "http://api.example/x", Before: func() error { return nil }}); err != nil || calls.Load() != 1 {
+		t.Fatalf("Before allowed it: err %v, %d requests sent", err, calls.Load())
+	}
+}
+
 // Done runs once the download is no longer in flight: a caller that comes
 // after it starts its own download instead of joining the ended one.
 func TestDoneAfterLeavingInflight(t *testing.T) {

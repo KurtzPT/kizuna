@@ -23,15 +23,10 @@ func recordReleases(l *hostLimit, names map[*ticket]string) func() []string {
 	}
 }
 
-// open drops l's gap, under its lock: requests queued behind an hour-long
-// gap (so none could slip through while the test queued them) now go, one
-// at a time, in the order the queue gives.
-func open(l *hostLimit) {
-	l.mu.Lock()
-	l.gap = 0
-	l.signal()
-	l.mu.Unlock()
-}
+// open drops l's gap: requests queued behind an hour-long gap (so none
+// could slip through while the test queued them) now go, one at a time, in
+// the order the queue gives.
+func open(l *hostLimit) { l.setGap(0) }
 
 // releases opens l, waits for every ticket in its own goroutine and returns
 // the names in the order they were let through.

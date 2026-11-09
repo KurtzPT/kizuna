@@ -49,6 +49,14 @@ func (l *hostLimit) enqueue(background bool) *ticket {
 	return t
 }
 
+// setGap changes the gap; waiting requests look at it again.
+func (l *hostLimit) setGap(gap time.Duration) {
+	l.mu.Lock()
+	l.gap = gap
+	l.signal()
+	l.mu.Unlock()
+}
+
 // signal wakes every waiter to look at the queue again. Needs l.mu.
 func (l *hostLimit) signal() {
 	close(l.changed)
