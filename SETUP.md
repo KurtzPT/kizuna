@@ -231,7 +231,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off |
 | `ANIDB_CLIENTVER` | `1` | The client version you registered |
 | `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
-| `TVDB_PIN` | – | Your TheTVDB subscriber PIN, for keys that need one: TheTVDB refuses such a key without it |
+| `TVDB_PIN` | – | Your TheTVDB subscriber PIN. Needed for a free user-supported key; a company key works without it |
 | `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty, or when TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`): Kizuna then logs a warning and keeps using the legacy key until it restarts. It gives less than v4 (see the [table's footnotes](#-sources-per-field)), and TheTVDB may switch the v3 API off at any time |
 | `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos, details, episode titles and crew |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
@@ -585,7 +585,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
 | `source rejected the request: check its API key / client id`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key or client id is wrong or expired. TMDB and MyAnimeList aren't asked again for 10 min (cached data still answers) |
 | `AniDB rejected the client` | AniDB doesn't know `ANIDB_CLIENT` / `ANIDB_CLIENTVER`: use the name and version of a client registered at anidb.net (protocol HTTP), then restart. Until then AniDB isn't asked for 24 h (cache only); new values are tried at once |
-| `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or a subscriber key without `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min (cached data still answers) |
+| `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or a user-supported key without `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min (cached data still answers) |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or show crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
 
 **Still stuck?** [Open an issue](CONTRIBUTING.md#-reporting-a-problem).
