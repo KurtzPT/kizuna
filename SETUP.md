@@ -816,7 +816,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 
 | Symptom | Fix |
 |---|---|
-| `can't run: port 32600 is already in use by another program` | Something else has the port, often a second Kizuna. Stop it, or use another port: the host side of the port mapping in Docker, `PORT` outside Docker. Kizuna exits right away (code 1) instead of starting half-way |
+| `can't run: port 32600 is already in use by another program` | Something else has the port, often a second Kizuna. Stop it, or use another port: the host side of the port mapping in Docker, else `PORT` (the binary, or Docker with host networking). Kizuna exits right away (code 1) instead of starting half-way |
 | `can't start: no mode can build shows` | Set `ANIDB_CLIENT` (for `/anidb`), or a TheTVDB key (for `/tvdb`) ([which mode needs what](#-1-get-your-keys)). With a settings file, check the `settings file` line above it: the file may not be where Kizuna looks (`no settings file`) |
 | `can't start: can't read the settings file` | `KIZUNA_CONFIG` names a file that isn't there, or the file can't be read by the container's user |
 | `docker compose up` says *port is already allocated* | Docker found the host port taken before Kizuna started. Change the first number under `ports:` in `compose.yml` |
