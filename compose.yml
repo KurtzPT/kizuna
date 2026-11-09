@@ -6,7 +6,7 @@ services:
     # build: .               # or build locally instead of pulling
     container_name: kizuna
     restart: unless-stopped
-    stop_grace_period: 1m    # lets running Plex requests finish on stop (Docker's default is 10s)
+    stop_grace_period: 35s   # lets running Plex requests finish on stop (Docker's default is 10s)
     user: "1000:1000"        # uid:gid that can write the data folder (/change/me)
     # Locked down: Kizuna only ever writes to /data, needs no Linux capabilities
     # and never gains privileges. Remove a line only if you know you need it.

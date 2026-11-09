@@ -161,11 +161,11 @@ func keepFresh(ctx context.Context, load func(), ready func() (titles, mapping b
 }
 
 // drainTimeout is how long stopping waits for the requests still running.
-// A Plex request can wait up to provider's requestTimeout (25 s) for the
-// first list load and then run up to that again; a minute covers both with
-// room to spare (compose.yml sets stop_grace_period to match). Without
-// requests running, stopping is immediate.
-const drainTimeout = 55 * time.Second
+// A Plex request gets one budget of provider's requestTimeout (25 s), the
+// wait for the first list load included; 30 s covers it with a margin
+// (compose.yml sets stop_grace_period to 35s to match). Without requests
+// running, stopping is immediate.
+const drainTimeout = 30 * time.Second
 
 func serve(cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

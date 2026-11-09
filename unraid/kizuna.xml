@@ -17,7 +17,7 @@ Then add the provider in Plex (Settings, Metadata Agents): http://[unraid-ip]:32
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/KurtzPT/kizuna/main/unraid/kizuna.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/KurtzPT/kizuna/main/assets/logo.png</Icon>
-  <ExtraParams>--user 99:100 --stop-timeout 60 --read-only --cap-drop ALL --security-opt no-new-privileges:true</ExtraParams>
+  <ExtraParams>--user 99:100 --stop-timeout 35 --read-only --cap-drop ALL --security-opt no-new-privileges:true</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
