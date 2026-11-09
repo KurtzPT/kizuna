@@ -1,7 +1,10 @@
 # Fast checks on every push and pull request (the Docker workflow builds and
 # publishes the image):
-#   go       Go version in sync, gofmt, go vet, tests with the race detector
-#   script   bash syntax, ShellCheck and the behaviour tests of the migration script
+#   go         Go version in sync, gofmt, go vet (also for Windows and macOS),
+#              staticcheck, govulncheck, tests with the race detector
+#   fuzz       a short run of every fuzz target
+#   script     bash syntax, ShellCheck and the behaviour tests of the scripts
+#   workflows  actionlint and zizmor on the workflows and dependabot.yml
 name: ci
 
 on:
@@ -10,14 +13,23 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
+
+# a new push to a pull request replaces the run for the old one
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   go:
+    name: go
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -45,13 +57,69 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # the image is Linux only, but Kizuna also builds for Windows and macOS
+      # (diskfree_windows.go, diskfree_unix.go): catch a break there too
+      - name: go vet (windows, darwin)
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=darwin GOARCH=arm64 go vet ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      # known vulnerabilities in the code paths Kizuna actually calls, for the
+      # newest patch release of the Go version in go.mod. The weekly vulncheck
+      # workflow checks the binaries in the published images.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
       - name: go test (race detector)
         run: go test -race -count=1 ./...
 
-  script:
+  fuzz:
+    name: fuzz
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # go test runs only one fuzz target at a time; the seeds of every target
+      # already run as plain tests in the go job. A crash leaves the failing
+      # input in the log: add it under testdata/fuzz/<target>/ to keep it.
+      - name: fuzz (20s per target)
+        run: |
+          set -e
+          while read -r pkg target; do
+            [ -z "$pkg" ] && continue
+            echo "::group::$pkg $target"
+            go test -run='^$' -fuzz="^$target\$" -fuzztime=20s "$pkg"
+            echo "::endgroup::"
+          done <<'EOF'
+          ./internal/anidb FuzzNormalize
+          ./internal/anidb FuzzCleanSummary
+          ./internal/anidb FuzzSearch
+          ./internal/mapping FuzzParseAnimeLists
+          ./internal/mapping FuzzParseFribb
+          ./internal/sources FuzzParseAniDB
+          ./internal/sources FuzzParseANN
+          EOF
+
+  script:
+    name: script
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: bash syntax
         run: for f in scripts/*.sh; do bash -n "$f"; done
@@ -60,4 +128,31 @@ jobs:
         run: shellcheck --severity=warning scripts/*.sh
 
       - name: script tests
-        run: bash scripts/kizuna-migrate_test.sh
+        run: |
+          bash scripts/kizuna-migrate_test.sh
+          bash scripts/ghcr-cleanup_test.sh
+
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # syntax, expressions and (with the runner's shellcheck) every run: script
+      - name: actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      # security: permissions, credential leaks, template injection, dangerous
+      # triggers, and (online) pinned SHAs that don't belong to the action's repo
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.32.0 --format=github .

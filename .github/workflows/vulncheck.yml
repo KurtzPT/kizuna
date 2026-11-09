@@ -1,0 +1,61 @@
+# Weekly govulncheck of the binaries inside the published images (:latest and
+# :dev). Kizuna only uses the Go standard library, so its known vulnerabilities
+# are fixed by Go patch releases, and those only reach users when the image is
+# rebuilt: the ci check passes with the newest patch while the image people run
+# still has the old one. This run fails (GitHub emails the failure) when a
+# published image needs a rebuild:
+#   :dev     push to dev, or run the docker workflow on dev by hand
+#   :latest  release a patch version (RELEASING.md, hotfix)
+# A tag that doesn't exist yet (:latest before the first release) is skipped.
+#
+# Scheduled runs use the copy of this file on the default branch (main), so a
+# change here only takes effect once it's released to main.
+name: vulncheck
+
+on:
+  schedule:
+    - cron: "23 6 * * 2" # Tuesdays 06:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  image:
+    name: image (${{ matrix.tag }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [latest, dev]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # the image is public: no login. The amd64 and arm64 binaries are built
+      # from the same source with the same Go, so one of them is enough.
+      - name: copy the binary out of the image
+        id: bin
+        env:
+          TAG: ${{ matrix.tag }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$TAG"
+          if ! docker pull --quiet --platform linux/amd64 "$image"; then
+            echo "::notice::$image doesn't exist (yet): nothing to check"
+            exit 0
+          fi
+          id=$(docker create --platform linux/amd64 "$image")
+          docker cp "$id:/kizuna" ./kizuna-bin
+          docker rm "$id" > /dev/null
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          go version -m ./kizuna-bin | head -n 1
+
+      - name: govulncheck
+        if: steps.bin.outputs.found
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary ./kizuna-bin

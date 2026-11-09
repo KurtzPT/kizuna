@@ -56,7 +56,7 @@ Write "None" if nothing changes for them.
 ## Checklist
 
 - [ ] Targets `dev`, and is **one change**
-- [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally (`gofmt`, `go vet`, `go test -race`; ShellCheck and the script tests if `scripts/` changed)
+- [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally (`gofmt`, `go vet`, `staticcheck`, `go test -race`; ShellCheck and the script tests if `scripts/` changed)
 - [ ] Tests added or updated, and they stay offline (fixtures / `httptest`, never a real API)
 - [ ] Standard library only: no new modules in `go.mod`, and the Go version is unchanged
 - [ ] AniDB fair-use limits untouched; any new outside request goes through `internal/fetch`

@@ -87,11 +87,20 @@ CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every pull request. Run 
 ```bash
 gofmt -l .                       # must print nothing (fix with gofmt -w .)
 go vet ./...
+GOOS=windows go vet ./...        # Kizuna also builds for Windows and macOS
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 go test -race -count=1 ./...
 for f in scripts/*.sh; do bash -n "$f"; done
 shellcheck --severity=warning scripts/*.sh
 bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
+bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, needs jq)
 ```
+
+CI also fuzzes the parsers for a few seconds each (the `Fuzz*` tests; their seeds run with `go test`), runs
+[actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh) on the workflows, and CodeQL.
+A fuzz crash prints the input that caused it: add it under `testdata/fuzz/<FuzzName>/` with the fix, so it stays a
+test. Fuzzing uses every CPU core: `-parallel=2` keeps a desktop usable.
 
 The [`docker`](.github/workflows/docker.yml) workflow also builds the `amd64` and `arm64` images for your pull request,
 without publishing anything.
