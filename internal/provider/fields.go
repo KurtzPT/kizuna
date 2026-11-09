@@ -28,7 +28,10 @@ type showSources struct {
 	// true in /tvdb mode). Series-level details are only used when it is.
 	series bool
 
-	tvdbText, tmdbText       lazy[text]
+	tvdbText, tmdbText lazy[text]
+	// tvdbSeason, tmdbSeason: the summary of the season a later entry sits
+	// in (set only when it isn't the series' first and has one).
+	tvdbSeason, tmdbSeason   lazy[string]
 	tvdbArt, tmdbArt         lazy[sources.Art]
 	tvdbDetails, tmdbDetails lazy[sources.Details]
 	anidbOnce                sync.Once // anidbDetails: AniDB's, built from a once, not per field
@@ -55,6 +58,9 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 		n, o, err := p.tmdb.Text(ctx, tmdb, movie)
 		return text{n, o}, err
 	})
+	if !series {
+		ss.seasonSummaries(ctx, entry)
+	}
 	ss.tvdbArt.from(tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
 	ss.tmdbArt.from(tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
 	annID, malID := entry.ANN, entry.MAL
@@ -69,6 +75,23 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 	return ss
 }
 
+// seasonSummaries sets up the season summaries of an entry that doesn't
+// start its series: the TheTVDB and TheMovieDb seasons its mapping puts it
+// in. Absolute order (-1), specials (0) or no mapped season: none.
+func (ss *showSources) seasonSummaries(ctx context.Context, entry mapping.Entry) {
+	p := ss.p
+	if n, ok := mappedSeason(entry.TVDB); ok {
+		ss.tvdbSeason.from(ss.tvdb, p.tvdb.Enabled(), func() (string, error) { return p.tvdb.SeasonOverview(ctx, ss.tvdb, n) })
+	}
+	if n, ok := mappedSeason(entry.TMDB); ok && !ss.movie {
+		ss.tmdbSeason.from(ss.tmdb, p.tmdb.Enabled(), func() (string, error) { return p.tmdb.SeasonOverview(ctx, ss.tmdb, n) })
+	}
+}
+
+func mappedSeason(pl mapping.Placement) (int, bool) {
+	return pl.Season, pl.Mapped && pl.Season > 0
+}
+
 // failed names the sources fill fetched that failed. A source that doesn't
 // have the show (404) or isn't configured hasn't failed.
 func (ss *showSources) failed() []string {
@@ -78,7 +101,8 @@ func (ss *showSources) failed() []string {
 		lazy interface{ failed() bool }
 	}{
 		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
-		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"mal", &ss.mal}, {"ann", &ss.ann},
+		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"tvdb season", &ss.tvdbSeason},
+		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann},
 	} {
 		if l.lazy.failed() {
 			out = append(out, l.name)
@@ -103,6 +127,8 @@ func (ss *showSources) title(src string) string {
 	return ""
 }
 
+// summary: TVDB and TMDB TV overviews describe the whole series (its first
+// season, mostly), so a later entry gets its own season's instead.
 func (ss *showSources) summary(src string) string {
 	switch src {
 	case "anidb":
@@ -110,8 +136,14 @@ func (ss *showSources) summary(src string) string {
 			return ss.a.Description
 		}
 	case "tvdb":
+		if !ss.series {
+			return ss.tvdbSeason.get()
+		}
 		return ss.tvdbText.get().summary
 	case "tmdb":
+		if !ss.series && !ss.movie {
+			return ss.tmdbSeason.get()
+		}
 		return ss.tmdbText.get().summary
 	case "mal":
 		return ss.mal.get().Synopsis

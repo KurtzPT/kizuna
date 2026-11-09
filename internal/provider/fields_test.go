@@ -1,10 +1,12 @@
 package provider
 
 import (
+	"context"
 	"slices"
 	"testing"
 
 	"kizuna/internal/config"
+	"kizuna/internal/mapping"
 	"kizuna/internal/sources"
 )
 
@@ -87,6 +89,78 @@ func TestANNFallback(t *testing.T) {
 	// ANN's text is used unchanged (its credit is in the README and code only).
 	if s.Summary != "Bounty hunters." || s.Title != "Cowboy Bebop" || len(s.Genres) != 1 {
 		t.Fatalf("summary %q title %q genres %v", s.Summary, s.Title, s.Genres)
+	}
+}
+
+// seasonTexts: TVDB 500 and TMDB 77 with a series overview and per-season
+// ones. TVDB season 4 and TMDB season 1 have none.
+func seasonTexts(path string, _ map[string][]string) (int, string) {
+	switch path {
+	case "api4.thetvdb.com/v4/login":
+		return 200, `{"data":{"token":"t"}}`
+	case "api4.thetvdb.com/v4/series/500/translations/eng":
+		return 200, `{"data":{"name":"Series","overview":"TVDB series."}}`
+	case "api4.thetvdb.com/v4/series/500/extended":
+		return 200, `{"data":{"seasons":[{"id":503,"number":3,"type":{"type":"official"}},
+			{"id":504,"number":4,"type":{"type":"official"}},{"id":603,"number":3,"type":{"type":"dvd"}}]}}`
+	case "api4.thetvdb.com/v4/seasons/503/translations/eng":
+		return 200, `{"data":{"name":"Season 3","overview":"TVDB season 3."}}`
+	case "api4.thetvdb.com/v4/seasons/504/translations/eng":
+		return 200, `{"data":{"name":"Season 4","overview":""}}`
+	case "api.themoviedb.org/3/tv/77":
+		return 200, `{"name":"Series","overview":"TMDB series.","seasons":[{"season_number":1},{"season_number":2}]}`
+	case "api.themoviedb.org/3/tv/77/season/1":
+		return 200, `{"overview":"","episodes":[]}`
+	case "api.themoviedb.org/3/tv/77/season/2":
+		return 200, `{"overview":"TMDB season 2.","episodes":[]}`
+	}
+	return 0, ""
+}
+
+// In /anidb, an entry after the series' first gets the summary of its own
+// TheTVDB (else TheMovieDb) season, never the series' overview: without
+// one the order goes on to MAL and ANN. The first entry keeps the series'.
+func TestLaterEntrySummary(t *testing.T) {
+	tvdb := func(season int) mapping.Placement { return mapping.Placement{ID: 500, Season: season, Mapped: true} }
+	tmdb := func(season int, mapped bool) mapping.Placement {
+		return mapping.Placement{ID: 77, Season: season, Mapped: mapped}
+	}
+	noText := &sources.AniDBAnime{}
+	cases := []struct {
+		name   string
+		a      *sources.AniDBAnime
+		entry  mapping.Entry
+		series bool
+		want   string
+	}{
+		{"no AniDB details", nil, mapping.Entry{TVDB: tvdb(3)}, false, "TVDB season 3."},
+		{"empty AniDB description", noText, mapping.Entry{TVDB: tvdb(3)}, false, "TVDB season 3."},
+		{"AniDB first", &sources.AniDBAnime{Description: "AniDB."}, mapping.Entry{TVDB: tvdb(3)}, false, "AniDB."},
+		{"absolute", nil, mapping.Entry{TVDB: tvdb(-1)}, false, "MAL."},
+		{"specials", nil, mapping.Entry{TVDB: tvdb(0)}, false, "MAL."},
+		{"not mapped", nil, mapping.Entry{TVDB: mapping.Placement{ID: 500, Season: 3}}, false, "MAL."},
+		{"empty TVDB season", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(2, true)}, false, "TMDB season 2."},
+		{"no TVDB id", nil, mapping.Entry{TMDB: tmdb(2, true)}, false, "TMDB season 2."},
+		{"TMDB season not mapped", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(2, false)}, false, "MAL."},
+		{"empty TMDB season", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(1, true)}, false, "MAL."},
+		{"first entry", noText, mapping.Entry{TVDB: tvdb(1), TMDB: tmdb(1, true)}, true, "TVDB series."},
+		{"first entry, TMDB", noText, mapping.Entry{TMDB: tmdb(1, true)}, true, "TMDB series."},
+	}
+	for _, c := range cases {
+		net := &fakeNet{answer: seasonTexts}
+		p := newTestProvider(t, net)
+		p.cfg.TitleSources = []string{"anidb"} // only the summary may ask for the series' text
+		ss := p.newSources(context.Background(), 100, c.a, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, c.series)
+		ss.mal.f = func() (sources.MALAnime, error) { return sources.MALAnime{Synopsis: "MAL."}, nil }
+		s := &Show{}
+		ss.fill(s)
+		if s.Summary != c.want {
+			t.Errorf("%s: summary %q, want %q", c.name, s.Summary, c.want)
+		}
+		series := net.count("api4.thetvdb.com/v4/series/500/translations/eng") + net.count("api.themoviedb.org/3/tv/77")
+		if !c.series && series > 0 {
+			t.Errorf("%s: a later entry fetched the series overview", c.name)
+		}
 	}
 }
 
