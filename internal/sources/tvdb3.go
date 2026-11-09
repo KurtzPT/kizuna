@@ -55,8 +55,7 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 	s, _ := t.series3(ctx, id) // only for the runtime
 	minutes, _ := strconv.Atoi(s.Runtime)
 	var out []Episode
-	var partial error
-	for page := 1; page <= 50; page++ { // v3 pages count from 1
+	err := episodePages(id, 1, func(page int) (bool, error) { // v3 pages count from 1
 		var r struct {
 			Data  []ep `json:"data"`
 			Links struct {
@@ -65,13 +64,7 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 		}
 		path := fmt.Sprintf("/series/%d/episodes?page=%d", id, page)
 		if err := t.get(ctx, true, path, fmt.Sprintf("%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
-			if page == 1 {
-				return nil, err
-			}
-			if !fetch.IsNotFound(err) { // a 404 past the last page just ends the list
-				partial = fmt.Errorf("%w: tvdb %d page %d: %v", ErrIncomplete, id, page, err)
-			}
-			break
+			return false, err
 		}
 		for _, e := range r.Data {
 			if e.Season == nil || e.Number == nil {
@@ -85,12 +78,10 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: minutes,
 				Directors: people(e.Directors), Writers: people(e.Writers)})
 		}
-		if r.Links.Next == nil {
-			break
-		}
-	}
+		return r.Links.Next != nil, nil
+	})
 	sortEpisodes(out)
-	return out, partial
+	return out, err
 }
 
 func (t *TVDB) overview3(ctx context.Context, id int) (name, overview string, err error) {

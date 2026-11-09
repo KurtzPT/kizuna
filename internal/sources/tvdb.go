@@ -279,8 +279,7 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 		Runtime  int    `json:"runtime"`
 	}
 	var out []Episode
-	var partial error
-	for page := 0; page < 50; page++ {
+	err := episodePages(id, 0, func(page int) (bool, error) {
 		var r struct {
 			Data struct {
 				Episodes []ep `json:"episodes"`
@@ -294,13 +293,7 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 		}
 		path := fmt.Sprintf("/series/%d/episodes/official/eng?page=%d", id, page)
 		if err := t.get(ctx, false, path, fmt.Sprintf("%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
-			if page == 0 {
-				return nil, err
-			}
-			if !fetch.IsNotFound(err) { // a 404 past the last page just ends the list
-				partial = fmt.Errorf("%w: tvdb %d page %d: %v", ErrIncomplete, id, page, err)
-			}
-			break
+			return false, err
 		}
 		eps := r.Data.Episodes
 		if len(eps) == 0 { // the translated list nests episodes under data.series
@@ -313,12 +306,31 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 			out = append(out, Episode{ID: e.ID, Season: *e.Season, Number: *e.Number, Absolute: e.Absolute, Title: e.Name,
 				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: e.Runtime})
 		}
-		if r.Links.Next == nil || *r.Links.Next == "" {
-			break
+		return r.Links.Next != nil && *r.Links.Next != "", nil
+	})
+	sortEpisodes(out)
+	return out, err
+}
+
+// episodePages reads a paged TheTVDB episode list, at most 50 pages from
+// first (v4 counts from 0, v3 from 1). read fetches one page and says whether
+// there's another. The first page's error is the list's; past it a 404 just
+// ends the list, and other errors leave it incomplete.
+func episodePages(id, first int, read func(page int) (more bool, err error)) error {
+	for page := first; page < first+50; page++ {
+		more, err := read(page)
+		switch {
+		case err != nil && page == first:
+			return err
+		case fetch.IsNotFound(err): // past the last page
+			return nil
+		case err != nil:
+			return fmt.Errorf("%w: tvdb %d page %d: %v", ErrIncomplete, id, page, err)
+		case !more:
+			return nil
 		}
 	}
-	sortEpisodes(out)
-	return out, partial
+	return nil
 }
 
 // Overview returns the English series name and summary.
