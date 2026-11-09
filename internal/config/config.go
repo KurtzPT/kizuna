@@ -247,6 +247,7 @@ const DefaultPort = 32600
 // listenAddr: LISTEN (a full address such as "127.0.0.1:32600") wins; else
 // PORT on every network interface.
 func listenAddr() string {
+	markRead("PORT") // a real setting even when LISTEN hides it: not a typo in the settings file
 	if v := env("LISTEN", ""); v != "" {
 		return v
 	}
@@ -261,7 +262,8 @@ func port() int { return num("PORT", DefaultPort, 1, 65535) }
 func DataDir() string { return env("DATA_DIR", "./data") }
 
 // LogRetentionDays is how many past days of logs are kept (LOG_RETENTION_DAYS,
-// default 7; 0 = keep forever). Read before Load, like DataDir.
+// default 7; 0, or 100000 and up, = keep forever). Read before Load, like
+// DataDir.
 func LogRetentionDays() int { return num("LOG_RETENTION_DAYS", 7, 0, math.MaxInt) }
 
 // LogLevel is LOG_LEVEL as given (trimmed); main checks it. Read before

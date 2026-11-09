@@ -87,7 +87,10 @@ by_tag=$(printf '%s' "$versions" | "$JQ" -c '
 
 # one registry token for every manifest lookup (-e: no token stops here)
 if [ -z "${MANIFESTS_JSON:-}" ]; then
-  registry_token=$(curl -fsS "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token)
+  registry_token=$(curl -fsS "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
+    echo "::error::no registry token for $image: stopping (nothing deleted)" >&2
+    exit 1
+  }
 fi
 
 # follow every kept root to what it needs
@@ -100,7 +103,10 @@ while [ ${#queue[@]} -gt 0 ]; do
   [ -n "${keep[$d]:-}" ] && continue
   keep[$d]=1
   # the per-platform images and BuildKit attestations of an index
-  m=$(manifest "$d")
+  m=$(manifest "$d") || {
+    echo "::error::manifest $d: lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" >&2
+    exit 1
+  }
   children=$(printf '%s' "$m" | "$JQ" -r '.manifests[]?.digest')
   while read -r child; do
     [ -n "$child" ] && queue+=("$child")

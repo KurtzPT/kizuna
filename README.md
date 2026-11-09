@@ -156,7 +156,8 @@ flowchart LR
     Q -- "other id, or none" --> DEF["AUTO_DEFAULT<br/><i>anidb unless set</i>"]
 ```
 
-An `[anidb-…]` or `[tvdb-…]` tag needs its mode set up: without it the show gets no match.
+An `[anidb-…]` or `[tvdb-…]` tag needs its mode set up: without it the show gets no match (*Fix Match* still lists
+the title you type, [see below](#-how-a-show-is-found)).
 
 ```text
 📁 Anime
@@ -184,7 +185,9 @@ Only one id tag is allowed: two different ones (`Show [anidb-1234]/Show [tvdb-56
 warning. The same tag again (the folder's tag in the file name too) is fine.
 
 Plex's *Fix Match* lists the show the tag or GUID names first, then the title search results for the title you
-type, so a wrong match can be changed without unmatching first.
+type, so a wrong match can be changed without unmatching first. When a tag blocks the match (two different tags, or
+an `[anidb-…]` / `[tvdb-…]` tag whose mode is off), *Fix Match* for the show still lists the typed title's results;
+the automatic match, and *Fix Match* for a season or an episode, still give no match.
 
 A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
 become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
@@ -269,7 +272,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 
 | Rule | Details |
 |---|---|
-| Finding a show never calls the API | it searches the daily title list. An AniDB id that list doesn't have isn't asked about either (unless it's cached), so an entry added since waits for the next list |
+| Finding a show never calls the API | it searches the daily title list. Once that list has loaded, an AniDB id it doesn't have isn't asked about either (unless it's cached), so an entry added since waits for the next list |
 | One call every 4 s, at most 200 a day | AniDB's limits |
 | Plex's calls go first | background fetches (other entries of a `/tvdb` show) wait behind them, still 4 s apart, and stop at 150 calls a day |
 | Every answer is cached | 6 days while airing and for 60 days after the end, then 180 days |
@@ -282,7 +285,8 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 
 The state survives restarts (`anidb-state.json` in the data folder, replaced whole on every save), the 4 s gap
 included: the first call after a restart waits for the rest of it. If that file can't be read, Kizuna can't know
-whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the file was last written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
+whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the file was last
+written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
 
 ---
 

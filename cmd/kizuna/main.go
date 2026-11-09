@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -276,7 +277,8 @@ func healthURL(listen string) string {
 	if ip, err := netip.ParseAddr(host); host == "" || (err == nil && ip.IsUnspecified()) {
 		host = "127.0.0.1"
 	}
-	return "http://" + net.JoinHostPort(host, port) + "/health"
+	// url.URL escapes an IPv6 zone ("%eth0" becomes "%25eth0").
+	return (&url.URL{Scheme: "http", Host: net.JoinHostPort(host, port), Path: "/health"}).String()
 }
 
 // healthClient never uses a proxy (HTTP_PROXY): the check always asks this

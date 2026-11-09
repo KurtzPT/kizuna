@@ -177,7 +177,7 @@ func TestLowerCaseKeyIgnored(t *testing.T) {
 		t.Errorf("keys %v ignored %v", f.Keys, f.Ignored)
 	}
 	log := warnings(t, func() { Load(); f.Log() })
-	for _, want := range []string{"setting=min_score", "setting=Max_Episodes", "settings=1"} {
+	for _, want := range []string{"setting=min_score", "setting=Max_Episodes", "settings=1", "upper case"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("no %q in %q", want, log)
 		}
@@ -189,9 +189,8 @@ func TestLowerCaseKeyIgnored(t *testing.T) {
 	}
 }
 
-// Every setting config reads is in .env.sample, and the sample lists no
-// setting config doesn't read (TZ is read by the Go runtime).
-func TestEnvSampleMatchesSettings(t *testing.T) {
+// forgetRead starts the test with no setting names read (restored after).
+func forgetRead(t *testing.T) {
 	read.Lock()
 	saved := read.names
 	read.names = map[string]bool{}
@@ -201,6 +200,29 @@ func TestEnvSampleMatchesSettings(t *testing.T) {
 		read.names = saved
 		read.Unlock()
 	})
+}
+
+// PORT in the file is a real setting, not a typo, also when LISTEN in the
+// environment wins over it.
+func TestPortUnderListenNotUnknown(t *testing.T) {
+	writeEnvFile(t, "PORT=32700\n")
+	unset(t, "PORT")
+	t.Setenv("LISTEN", "127.0.0.1:32600")
+	forgetRead(t)
+	f, err := LoadEnvFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "setting=PORT") {
+		t.Errorf("PORT reported as unknown: %q", log)
+	}
+}
+
+// Every setting config reads is in .env.sample, and the sample lists no
+// setting config doesn't read (TZ is read by the Go runtime).
+func TestEnvSampleMatchesSettings(t *testing.T) {
+	forgetRead(t)
+	t.Setenv("LISTEN", "127.0.0.1:32600") // PORT counts as read all the same
 	Load()
 	DataDir()
 	LogLevel()

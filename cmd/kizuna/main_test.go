@@ -42,16 +42,21 @@ func TestListenPortInUse(t *testing.T) {
 
 func TestHealthURL(t *testing.T) {
 	for listen, want := range map[string]string{
-		":32600":            "http://127.0.0.1:32600/health",
-		"0.0.0.0:32600":     "http://127.0.0.1:32600/health",
-		"[::]:32600":        "http://127.0.0.1:32600/health",
-		"192.168.1.5:32600": "http://192.168.1.5:32600/health",
-		"[fd00::5]:32600":   "http://[fd00::5]:32600/health",
-		"127.0.0.1:32600":   "http://127.0.0.1:32600/health",
-		"kizuna.lan:32600":  "http://kizuna.lan:32600/health",
+		":32600":               "http://127.0.0.1:32600/health",
+		"0.0.0.0:32600":        "http://127.0.0.1:32600/health",
+		"[::]:32600":           "http://127.0.0.1:32600/health",
+		"192.168.1.5:32600":    "http://192.168.1.5:32600/health",
+		"[fd00::5]:32600":      "http://[fd00::5]:32600/health",
+		"127.0.0.1:32600":      "http://127.0.0.1:32600/health",
+		"kizuna.lan:32600":     "http://kizuna.lan:32600/health",
+		"[fe80::1%eth0]:32600": "http://[fe80::1%25eth0]:32600/health",
 	} {
-		if got := healthURL(listen); got != want {
+		got := healthURL(listen)
+		if got != want {
 			t.Errorf("LISTEN=%s: %s, want %s", listen, got, want)
+		}
+		if _, err := http.NewRequest(http.MethodGet, got, nil); err != nil {
+			t.Errorf("LISTEN=%s: %v", listen, err)
 		}
 	}
 }
