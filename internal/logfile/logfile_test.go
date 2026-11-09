@@ -2,6 +2,7 @@ package logfile
 
 import (
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,6 +40,27 @@ func TestDailyRotationAndRetention(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna-2026-11-05.log")); string(b) != "line\n" {
 		t.Errorf("dated file content %q", b)
+	}
+}
+
+// A huge keepDays keeps every log; the date math used to wrap and delete them.
+func TestHugeRetentionKeepsAll(t *testing.T) {
+	for _, keep := range []int{foreverDays, 9999999999999999, math.MaxInt} {
+		dir := t.TempDir()
+		clock := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
+		l, err := open(dir, "kizuna", keep, func() time.Time { return clock })
+		if err != nil {
+			t.Fatal(err)
+		}
+		for day := 0; day < 3; day++ { // 1 Nov ... 3 Nov
+			_, _ = l.Write([]byte("line\n"))
+			clock = clock.Add(24 * time.Hour)
+		}
+		l.Close()
+		want := []string{"kizuna-2026-11-01.log", "kizuna-2026-11-02.log", "kizuna.log"}
+		if got := names(t, dir); !slices.Equal(got, want) {
+			t.Errorf("keep %d: files %v, want %v", keep, got, want)
+		}
 	}
 }
 

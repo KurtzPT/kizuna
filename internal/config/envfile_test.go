@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -156,6 +157,54 @@ func TestEnvFileLog(t *testing.T) {
 	for _, bad := range []string{"secret-key", "setting=TZ", "setting=TVDB_API_KEY"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
+		}
+	}
+}
+
+// Every setting config reads is in .env.sample, and the sample lists no
+// setting config doesn't read (TZ is read by the Go runtime).
+func TestEnvSampleMatchesSettings(t *testing.T) {
+	read.Lock()
+	saved := read.names
+	read.names = map[string]bool{}
+	read.Unlock()
+	t.Cleanup(func() {
+		read.Lock()
+		read.names = saved
+		read.Unlock()
+	})
+	Load()
+	DataDir()
+	LogLevel()
+	LogRetentionDays()
+	read.Lock()
+	var settings []string
+	for n := range read.names {
+		settings = append(settings, n)
+	}
+	read.Unlock()
+	settings = append(settings, externalVars...)
+	slices.Sort(settings)
+
+	b, err := os.ReadFile(filepath.Join("..", "..", ".env.sample"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sample []string
+	for _, m := range regexp.MustCompile(`(?m)^(?:# ?)?([A-Z][A-Z0-9_]*)=`).FindAllStringSubmatch(string(b), -1) {
+		if !slices.Contains(sample, m[1]) {
+			sample = append(sample, m[1])
+		}
+	}
+	slices.Sort(sample)
+	for _, n := range settings {
+		if !slices.Contains(sample, n) {
+			t.Errorf("%s is read but not in .env.sample", n)
+		}
+	}
+	for _, n := range sample {
+		if !slices.Contains(settings, n) {
+			t.Errorf("%s is in .env.sample but never read", n)
 		}
 	}
 }

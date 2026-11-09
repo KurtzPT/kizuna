@@ -42,15 +42,15 @@ list_versions() {
 }
 
 registry_token=
-# a manifest's JSON from the registry (the package is public: anonymous pull)
+# a manifest's JSON from the registry (the package is public: anonymous pull).
+# Call it in the main shell (m=$(manifest ...)), never in a pipe or <(...):
+# a failed lookup must stop the script, or a kept index looks childless and
+# its images get deleted.
 manifest() {
   local digest=$1
   if [ -n "${MANIFESTS_JSON:-}" ]; then
     printf '%s' "$MANIFESTS_JSON" | "$JQ" -c --arg d "$digest" '.[$d] // {}'
     return
-  fi
-  if [ -z "$registry_token" ]; then
-    registry_token=$(curl -fsS "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -r .token)
   fi
   curl -fsS -H "Authorization: Bearer $registry_token" \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
@@ -85,6 +85,11 @@ by_tag=$(printf '%s' "$versions" | "$JQ" -c '
   [ .[] | .name as $d | (.metadata.container.tags // [])[] | select(startswith("sha256-")) | {key: ., value: $d} ]
   | from_entries')
 
+# one registry token for every manifest lookup (-e: no token stops here)
+if [ -z "${MANIFESTS_JSON:-}" ]; then
+  registry_token=$(curl -fsS "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token)
+fi
+
 # follow every kept root to what it needs
 declare -A keep=()
 queue=()
@@ -95,9 +100,11 @@ while [ ${#queue[@]} -gt 0 ]; do
   [ -n "${keep[$d]:-}" ] && continue
   keep[$d]=1
   # the per-platform images and BuildKit attestations of an index
+  m=$(manifest "$d")
+  children=$(printf '%s' "$m" | "$JQ" -r '.manifests[]?.digest')
   while read -r child; do
     [ -n "$child" ] && queue+=("$child")
-  done < <(manifest "$d" | "$JQ" -r '.manifests[]?.digest')
+  done <<< "$children"
   # the signed attestation stored under the sha256-<hex> tag
   att=$(printf '%s' "$by_tag" | "$JQ" -r --arg t "sha256-${d#sha256:}" '.[$t] // empty')
   [ -n "$att" ] && queue+=("$att")
