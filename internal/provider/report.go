@@ -301,14 +301,18 @@ var episodeProblems = []struct {
 func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 	var out []report.Check
 	if s.Placeholders {
-		text := "AniDB's details were not available, so every episode is a bare \"Episode N\" until the next build."
+		bare := "every episode is a bare \"Episode N\""
+		if slices.ContainsFunc(s.Episodes[1], func(e Ep) bool { return e.tvdbEp > 0 }) { // a special-only show: see finishSpecial
+			bare = "every episode but the ones from TheTVDB's specials is a bare \"Episode N\""
+		}
+		text := "AniDB's details were not available, so " + bare + " until the next build."
 		switch {
 		case !s.anidbBlocked.IsZero(): // complete: no details to wait for until the block ends
 			text = "AniDB's last call for this anime failed, and AniDB's rules block asking again until " +
-				s.anidbBlocked.Format("2006-01-02 15:04 MST") + ", so every episode is a bare \"Episode N\". " +
+				s.anidbBlocked.Format("2006-01-02 15:04 MST") + ", so " + bare + ". " +
 				"The first build after that asks AniDB again."
 		case s.Complete: // without ANIDB_CLIENT: no details to wait for, no rebuild
-			text = "AniDB isn't set up (no ANIDB_CLIENT), so every episode is a bare \"Episode N\". Set ANIDB_CLIENT for the real episode list."
+			text = "AniDB isn't set up (no ANIDB_CLIENT), so " + bare + ". Set ANIDB_CLIENT for the real episode list."
 		}
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Placeholder episodes", Cause: true,
 			Text: text, Section: report.SectionEpisodes})

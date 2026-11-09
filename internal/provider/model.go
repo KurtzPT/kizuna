@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -146,6 +147,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
 	s.addGuids(tmdbID, entry.IMDB)
+	special := entry.SpecialOnly()
 
 	if a == nil {
 		switch {
@@ -159,6 +161,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 			slog.Debug("AniDB not configured; using titles, other sources and placeholder episodes", "aid", aid)
 		}
 		s.Episodes[1] = nil
+		if special { // at their spots in TheTVDB's specials, filled from there (fillEpisodes)
+			s.Episodes[1] = p.specialEpisodes(entry, isMovie)
+		}
 		s.Placeholders = true
 	} else {
 		averageRuntime(s, a)
@@ -175,7 +180,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 
 	var wg sync.WaitGroup
 	episodesOK := true
-	if a != nil && !a.IsMovie() {
+	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
 	sourcesOK := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
@@ -183,17 +188,78 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
 	}
+	if special && a == nil {
+		finishSpecial(s)
+	}
 	p.pickEpisodeTitles(s)
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
 	}
-	if isMovie && a == nil { // a placeholder movie: its one episode is still the movie
+	if isMovie && len(s.Episodes[1]) == 0 { // a placeholder movie: its one episode is still the movie
 		s.Episodes[1] = []Ep{{Season: 1, Index: 1}}
 	}
 	if isMovie && len(s.Episodes[1]) == 1 { // the movie itself: show its own title and summary
-		s.Episodes[1][0].Title, s.Episodes[1][0].Summary = s.Title, s.Summary
+		ep := &s.Episodes[1][0]
+		ep.Title, ep.Summary = s.Title, firstOf(s.Summary, ep.Summary)
+		if special && a == nil {
+			s.Summary = firstOf(s.Summary, ep.Summary) // what no source gave: TheTVDB's special's
+		}
 	}
 	return s, nil
+}
+
+// maxSpecialEpisodes caps how many episodes specialEpisodes guesses.
+const maxSpecialEpisodes = 12
+
+// specialEpisodes: without AniDB details, a special-only entry's episodes
+// (mapping.Entry.SpecialOnly), bare, at their AniDB numbers in season 1, for
+// fillEpisodes to pair with TheTVDB's specials. AniDB's episode count is
+// unknown: a movie has one, an OVA runs up to the spot of the series' next
+// entry in the specials (one episode when there is none), plus any episode
+// an exception places.
+func (p *Provider) specialEpisodes(e mapping.Entry, movie bool) []Ep {
+	n := 1
+	if !movie {
+		next := 0
+		for _, aid := range p.lists.AIDsForTVDB(e.TVDB.ID) {
+			o := p.lists.ByAID(aid).TVDB
+			if aid != e.AID && o.Mapped && o.Season == 0 && o.Offset > e.TVDB.Offset && (next == 0 || o.Offset < next) {
+				next = o.Offset
+			}
+		}
+		if next > 0 {
+			n = min(next-e.TVDB.Offset, maxSpecialEpisodes)
+		}
+		for _, m := range e.TVDB.Episodes {
+			if m.AniDBSeason == 1 && m.Ep > 0 && m.AniDBEp <= maxSpecialEpisodes {
+				n = max(n, m.AniDBEp)
+			}
+		}
+	}
+	eps := make([]Ep, n)
+	for i := range eps {
+		eps[i] = Ep{Season: 1, Index: i + 1}
+	}
+	return eps
+}
+
+// finishSpecial: a special-only show built without AniDB details keeps the
+// episodes TheTVDB's specials had (the rest stay placeholders), and takes
+// their runtime and first air date where no source gave the show's.
+func finishSpecial(s *Show) {
+	s.Episodes[1] = slices.DeleteFunc(s.Episodes[1], func(e Ep) bool { return e.tvdbEp == 0 })
+	total, n := 0, 0
+	for _, e := range s.Episodes[1] {
+		if e.Minutes > 0 {
+			total, n = total+e.Minutes, n+1
+		}
+		if s.Date == "" && e.Date != "" {
+			s.Date = e.Date
+		}
+	}
+	if s.Minutes == 0 && n > 0 {
+		s.Minutes = total / n
+	}
 }
 
 // showTitles: an entry's AniDB titles, from its details, else (a nil) from

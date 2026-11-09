@@ -1061,3 +1061,120 @@ func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
 		t.Errorf("%d AniDB calls, want 2 (100, and 200 once)", n)
 	}
 }
+
+// specialsSeries is testSeries with TheTVDB 500's specials: S00E01 a movie
+// (TVDB 14), S00E02 and S00E03 an OVA's two episodes (15, 16), S00E04 an
+// extra no entry maps (17).
+func specialsSeries(path string, q map[string][]string) (int, string) {
+	if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+		return 200, `{"data":{"episodes":[
+			{"id":11,"seasonNumber":1,"number":1,"name":"TVDB One"},
+			{"id":14,"seasonNumber":0,"number":1,"name":"TVDB Movie","overview":"The movie, from TheTVDB.","aired":"2022-08-06","image":"/s1.jpg","runtime":115},
+			{"id":15,"seasonNumber":0,"number":2,"name":"OVA Part 1","image":"/s2.jpg","runtime":30},
+			{"id":16,"seasonNumber":0,"number":3,"name":"OVA Part 2","runtime":30},
+			{"id":17,"seasonNumber":0,"number":4,"name":"TVDB Extra"}]},"links":{"next":null}}`
+	}
+	return testSeries(path, q)
+}
+
+// specialsProvider: TheTVDB only (no ANIDB_CLIENT, no TMDB key), with the
+// series (100), a movie in its specials (16983, S00E01) and an OVA (300,
+// S00E02-03) before an entry at S00E04 (301).
+func specialsProvider(t *testing.T, net *fakeNet) *Provider {
+	p := newTestProvider(t, net)
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(net)
+	p.anidb = sources.NewAniDB(f, dir, "", "1")
+	p.tmdb = sources.NewTMDB(f, "")
+	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}},
+		16983: {{Type: "main", Lang: "x-jat", Text: "Kizuna Film Red"}}, 300: {{Type: "main", Lang: "x-jat", Text: "Kizuna OVA"}},
+		301: {{Type: "main", Lang: "x-jat", Text: "Kizuna Extra"}}})
+	p.lists.SetForTest(map[int]mapping.Entry{
+		100:   {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}},
+		16983: {AID: 16983, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 0, Mapped: true}, TMDBMovie: 99, IMDB: "tt16183464"},
+		300:   {AID: 300, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 1, Mapped: true}},
+		301:   {AID: 301, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 3, Mapped: true}},
+	})
+	return p
+}
+
+// A special-only movie built without AniDB details, with only a TVDB key,
+// is a real one-episode show: its episode is TheTVDB's special at the mapped
+// spot (summary, date, thumbnail, runtime), under the show's title.
+func TestSpecialMovieWithoutAniDBFromTheTVDB(t *testing.T) {
+	p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+	s, err := p.buildShow(context.Background(), "anidb-16983")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Episodes[1]) != 1 {
+		t.Fatalf("season 1 %+v, want the movie alone", s.Episodes[1])
+	}
+	ep := s.Episodes[1][0]
+	if s.Title != "Kizuna Film Red" || ep.Title != s.Title || ep.Summary != "The movie, from TheTVDB." ||
+		ep.Thumb != "https://artworks.thetvdb.com/s1.jpg" || ep.Minutes != 115 || ep.Date != "2022-08-06" || ep.tvdbEp != 14 {
+		t.Errorf("show %q, S01E01 %+v: want the show's title and TheTVDB S00E01's summary, date, thumbnail and runtime", s.Title, ep)
+	}
+	if s.Summary != "The movie, from TheTVDB." || s.Minutes != 115 || s.Date != "2022-08-06" {
+		t.Errorf("show summary %q runtime %d date %q: want TheTVDB's special's where no source had one", s.Summary, s.Minutes, s.Date)
+	}
+	if !s.Placeholders || !s.Complete {
+		t.Errorf("placeholders %v complete %v: want both (no AniDB client: nothing to wait for)", s.Placeholders, s.Complete)
+	}
+}
+
+// A special-only OVA without AniDB details gets TheTVDB's specials from its
+// spot up to the next entry's, with their titles; other numbers stay
+// placeholders.
+func TestSpecialOVAWithoutAniDBFromTheTVDB(t *testing.T) {
+	p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+	s, err := p.buildShow(context.Background(), "anidb-300")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Episodes[1]) != 2 {
+		t.Fatalf("season 1 %+v, want TheTVDB S00E02 and S00E03", s.Episodes[1])
+	}
+	for i, want := range []string{"OVA Part 1", "OVA Part 2"} {
+		if ep := s.Episode(1, i+1); ep == nil || ep.Title != want || ep.Minutes != 30 {
+			t.Errorf("S01E%02d %+v, want %q from TheTVDB", i+1, ep, want)
+		}
+	}
+	if ep := s.Episode(1, 3); ep == nil || ep.Title != "" || ep.tvdbEp != 0 {
+		t.Errorf("S01E03 %+v, want a bare placeholder, not the next entry's special", ep)
+	}
+}
+
+// With AniDB details, a special-only movie is still paired with its
+// TheTVDB special: the thumbnail and the TheTVDB episode.
+func TestSpecialMovieWithAniDBPairsTheTVDB(t *testing.T) {
+	movieXML := `<anime id="16983"><type>Movie</type><startdate>2022-08-06</startdate>
+<titles><title type="main" xml:lang="x-jat">Kizuna Film Red</title></titles><description>From AniDB.</description>
+<episodes><episode><epno type="1">1</epno><length>115</length><title xml:lang="en">Complete Movie</title></episode></episodes></anime>`
+	p := specialsProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 200, movieXML
+		}
+		return specialsSeries(path, q)
+	}})
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(&fakeNet{hits: map[string]int{}, answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 200, movieXML
+		}
+		return 0, ""
+	}})
+	p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
+	s, err := p.buildShow(context.Background(), "anidb-16983")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Placeholders || len(s.Episodes[1]) != 1 {
+		t.Fatalf("placeholders %v season 1 %+v, want AniDB's movie", s.Placeholders, s.Episodes[1])
+	}
+	if ep := s.Episodes[1][0]; ep.Summary != "From AniDB." || ep.Thumb != "https://artworks.thetvdb.com/s1.jpg" || ep.tvdbEp != 14 {
+		t.Errorf("S01E01 %+v, want AniDB's summary and TheTVDB S00E01's thumbnail", ep)
+	}
+}
