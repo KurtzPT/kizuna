@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"kizuna/internal/fetch"
 )
 
 // Store writes the report pages to a folder: <key>.html per show or
@@ -33,6 +35,7 @@ type Store struct {
 	flushMu    sync.Mutex // one flush at a time: they write the same files
 	mu         sync.Mutex
 	pending    map[string]*pending
+	writing    map[string]*pending // the updates flush is writing now
 	index      map[string]IndexRow
 	indexDirty bool
 	indexAt    time.Time // last index write
@@ -196,8 +199,8 @@ func (s *Store) Matched(title string) {
 	key := UnmatchedKey(title)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, listed := s.index[key]; !listed && s.pending[key] == nil {
-		return
+	if _, listed := s.index[key]; !listed && s.pending[key] == nil && s.writing[key] == nil {
+		return // no page: one being written isn't in the index yet
 	}
 	p := s.touch(key)
 	*p = pending{drop: true}
@@ -263,7 +266,7 @@ func (s *Store) flush(index bool) {
 	defer s.flushMu.Unlock()
 	s.mu.Lock()
 	work := s.pending
-	s.pending = map[string]*pending{}
+	s.pending, s.writing = map[string]*pending{}, work
 	s.mu.Unlock()
 
 	keys := make([]string, 0, len(work))
@@ -284,6 +287,7 @@ func (s *Store) flush(index bool) {
 	}
 
 	s.mu.Lock()
+	s.writing = nil
 	due := s.indexDirty && (index || time.Since(s.indexAt) >= IndexEvery)
 	rows := []IndexRow{}
 	var old []string
@@ -513,21 +517,8 @@ func (s *Store) writePage(key, kind string, data any) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFile(s.pagePath(key), html); err != nil {
+	if err := fetch.WriteFile(s.pagePath(key), html); err != nil { // a browser never opens half a page
 		return err
 	}
-	return writeFile(s.dataPath(key), raw)
-}
-
-// writeFile replaces path atomically, so a browser never opens half a page.
-func writeFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return fetch.WriteFile(s.dataPath(key), raw)
 }

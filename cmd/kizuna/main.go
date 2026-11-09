@@ -158,15 +158,20 @@ func serve(cfg config.Config) error {
 
 	srv := &http.Server{Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
+	closed := make(chan struct{})
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
+		close(closed)
 	}()
 	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		return err
 	}
+	// Serve returns as soon as Shutdown starts: wait for the requests still
+	// running, so they finish and the reports' last Flush includes them.
+	<-closed
 	return nil
 }
 

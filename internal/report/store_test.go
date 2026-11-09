@@ -326,6 +326,20 @@ func TestIndexEvery(t *testing.T) {
 	}
 }
 
+// A title that matches while flush writes its first page (not in the index
+// yet) still has the page removed.
+func TestStoreMatchedWhileWriting(t *testing.T) {
+	s, _ := Open(t.TempDir(), "test")
+	key := s.Unmatched(Match{Mode: "anidb", Title: "Some Show"})
+	s.mu.Lock()
+	s.pending, s.writing = map[string]*pending{}, s.pending // as flush does
+	s.mu.Unlock()
+	s.Matched("Some Show")
+	if p := s.pending[key]; p == nil || !p.drop {
+		t.Errorf("pending %+v, want the page dropped", p)
+	}
+}
+
 // Recording on a nil recorder or store is a no-op, so code records unconditionally.
 func TestNilIsOff(t *testing.T) {
 	var r *Recorder

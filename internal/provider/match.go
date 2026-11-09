@@ -83,7 +83,6 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 		return nil
 	}
 	slog.Info("match", append(attrs, "show", cands[0].root, "score", cands[0].score, "how", how, "candidates", len(cands))...)
-	p.reports.Matched(title)
 	if rq != nil {
 		rq.Key = p.reportKey(cands[0].root)
 		rq.Note = fmt.Sprintf("%s match: %s, score %d → %s", matchType(r.Type), how, cands[0].score, cands[0].root)
@@ -98,6 +97,9 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 		}
 		return out
 	}
+	// Only after the Fix Match list: it skips MIN_SCORE, so it finds
+	// candidates for titles that still don't match.
+	p.reports.Matched(title)
 
 	root := cands[0].root
 	if m != nil {
