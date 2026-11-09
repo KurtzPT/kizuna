@@ -181,6 +181,36 @@ func TestAniDBBanAnswers(t *testing.T) {
 	}
 }
 
+// An error about the client (its name or version) pauses every call, not
+// just this anime, says once which settings to check, and survives a
+// restart with the same settings, not one with new ones.
+func TestAniDBClientRejectedPausesAll(t *testing.T) {
+	logs := captureLogs(t)
+	c, calls := fakeAniDB(t, [2]string{"200", "<error>Client Values Missing or Invalid</error>"}, [2]string{"200", anidbSample})
+	ctx := context.Background()
+	for aid := 1; aid <= 3; aid++ {
+		if _, err := c.Anime(ctx, aid); err == nil {
+			t.Fatalf("anime %d: want an error", aid)
+		}
+	}
+	if *calls != 1 {
+		t.Fatalf("%d calls, want 1: the client error stops every call", *calls)
+	}
+	if _, failed := c.state.Failed[1]; failed {
+		t.Error("anime 1 marked failed: the error was about the client")
+	}
+	if s := logs.String(); strings.Count(s, "level=ERROR") != 1 || !strings.Contains(s, "ANIDB_CLIENTVER") {
+		t.Errorf("want one error naming the settings:\n%s", s)
+	}
+	dir := filepath.Dir(c.statePath)
+	if ok, _ := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(4, false); ok {
+		t.Error("restart with the same client: allowed")
+	}
+	if ok, why := NewAniDB(fetch.New(dir), dir, "test", "2").allowed(4, false); !ok {
+		t.Errorf("restart with a new client version: %s", why)
+	}
+}
+
 // admissions sends the aid of each AniDB call allowed (its debug line), so
 // a test knows a call is past allowed and on its way to the 4 s queue.
 type admissions chan int

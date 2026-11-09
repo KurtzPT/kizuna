@@ -95,6 +95,10 @@ type AniDB struct {
 		Failures    int               `json:"failures"` // failed calls in a row (backoff step)
 		RetryAt     time.Time         `json:"retry_at"` // no calls before this (backoff)
 		Failed      map[int]time.Time `json:"failed"`   // aid -> last failed call (no retry for 24 h)
+		// The client AniDB rejected (clientID) and when: no calls with it
+		// for anidbClientPause.
+		ClientRejected   string    `json:"client_rejected,omitempty"`
+		ClientRejectedAt time.Time `json:"client_rejected_at,omitzero"`
 	}
 	memo     map[int]anidbMemo
 	prunedAt time.Time          // last sweep of expired memo entries

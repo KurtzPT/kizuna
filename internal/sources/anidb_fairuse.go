@@ -1,6 +1,8 @@
 package sources
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +25,11 @@ const (
 	// own requests always have the rest of the daily limit.
 	anidbBackgroundLimit = 150
 	anidbBanPause        = 24 * time.Hour
+	// anidbClientPause: AniDB said the client name or version is wrong.
+	// Every call would get the same answer (and AniDB may count them as
+	// abuse), so none is made for this long, or until ANIDB_CLIENT or
+	// ANIDB_CLIENTVER change (a restart with new values asks again at once).
+	anidbClientPause = 24 * time.Hour
 )
 
 // anidbBackoff: waits after failed calls in a row (timeouts, lost
@@ -68,6 +75,9 @@ func (c *AniDB) allowed(aid int, background bool) (bool, string) {
 func (c *AniDB) paused(now time.Time) string {
 	if now.Before(c.state.BannedUntil) {
 		return "banned until " + c.state.BannedUntil.Format(time.RFC3339)
+	}
+	if until := c.state.ClientRejectedAt.Add(anidbClientPause); c.state.ClientRejected == c.clientID() && now.Before(until) {
+		return "AniDB rejected ANIDB_CLIENT / ANIDB_CLIENTVER; paused until " + until.Format(time.RFC3339) + " or until they change"
 	}
 	if now.Before(c.state.RetryAt) {
 		return fmt.Sprintf("backing off until %s (%d failures in a row)", c.state.RetryAt.Format(time.RFC3339), c.state.Failures)
@@ -177,13 +187,22 @@ func (c *AniDB) tellBlocked(aid int, failedAt time.Time) {
 
 // anidbEntryError: AniDB answered, but not with a usable entry for this
 // anime (an <error> answer, or XML that does not parse). Only this anime
-// waits; other calls go on.
+// waits; other calls go on. Except for a ban, and for an error about the
+// client (its name or version): those stop every call.
 type anidbEntryError struct {
 	msg    string
 	banned bool
+	client bool
 }
 
 func (e *anidbEntryError) Error() string { return "anidb: " + e.msg }
+
+// clientID stands for this ANIDB_CLIENT and ANIDB_CLIENTVER in the state
+// file (a hash: the client name is kept out of it, as out of the logs).
+func (c *AniDB) clientID() string {
+	sum := sha256.Sum256([]byte(c.client + "\x00" + c.clientVer))
+	return hex.EncodeToString(sum[:8])
+}
 
 // result records how a call ended (called once per network request, even
 // when Plex stopped waiting for it). call is what sending returned (nil:
@@ -217,6 +236,14 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 			slog.Error("AniDB banned this IP; AniDB API paused for 24 h (cache only)", "err", err)
 		}
 		c.state.BannedUntil = now.Add(anidbBanPause)
+	case errors.As(err, &entry) && entry.client:
+		// Not this anime's fault: every call would get the same answer.
+		if c.paused(now) == "" {
+			slog.Error("AniDB rejected the client: check ANIDB_CLIENT and ANIDB_CLIENTVER (the client name and version "+
+				"registered at anidb.net, protocol HTTP), then restart. AniDB API paused for 24 h or until they change (cache only)",
+				"err", err)
+		}
+		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID(), now
 	case errors.As(err, &entry):
 		c.state.Failed[aid] = now
 		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid, "retry_anime_at", retryAnime, "err", err)

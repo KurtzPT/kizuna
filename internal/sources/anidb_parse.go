@@ -18,7 +18,13 @@ import (
 func (c *AniDB) validate(b []byte) (*AniDBAnime, error) {
 	if inHead(b, "<error") {
 		head := b[:min(len(b), headSize)]
-		return nil, &anidbEntryError{msg: strings.TrimSpace(string(head)), banned: bytes.Contains(bytes.ToLower(head), []byte("banned"))}
+		lower := bytes.ToLower(head)
+		// "Client Values Missing or Invalid", "client version missing or
+		// invalid", "protover...": about this program, not the anime.
+		about := func(s string) bool { return bytes.Contains(lower, []byte(s)) }
+		banned := about("banned")
+		return nil, &anidbEntryError{msg: strings.TrimSpace(string(head)), banned: banned,
+			client: !banned && (about("client") || about("protover"))}
 	}
 	if !inHead(b, "<anime") {
 		return nil, errors.New("anidb: unexpected answer") // e.g. a maintenance page: back off
