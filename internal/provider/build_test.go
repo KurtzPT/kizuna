@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -579,5 +580,48 @@ func TestTVDBListOnlyFromTheTVDB(t *testing.T) {
 	}})
 	if _, err := p.buildShow(context.Background(), "tvdb-500"); err == nil || !strings.Contains(err.Error(), "use /anidb") {
 		t.Errorf("show not on TheTVDB: %v, want an error pointing to /anidb", err)
+	}
+}
+
+// /tvdb works without ANIDB_CLIENT: the show has no AniDB details to wait
+// for, so it is complete and not rebuilt (and logged) every 2 minutes. With
+// AniDB set up but not answering, it is rebuilt soon.
+func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
+	failing := func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 500, ""
+		}
+		return testSeries(path, q)
+	}
+	for name, c := range map[string]struct {
+		client   string
+		complete bool
+	}{
+		"AniDB not configured": {"", true},
+		"AniDB not answering":  {"kizunatest", false},
+	} {
+		net := &fakeNet{answer: failing}
+		p := newTestProvider(t, net)
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		f.SetTransport(net)
+		p.anidb = sources.NewAniDB(f, dir, c.client, "1")
+		var logs strings.Builder
+		old := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+		s, err := p.buildShow(context.Background(), "tvdb-500")
+		slog.SetDefault(old)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if s.Complete != c.complete {
+			t.Errorf("%s: complete %v, want %v", name, s.Complete, c.complete)
+		}
+		if s.Title != "Kizuna Test" {
+			t.Errorf("%s: title %q, want the title dump's", name, s.Title)
+		}
+		if logged := strings.Contains(logs.String(), "AniDB details not available"); logged == c.complete {
+			t.Errorf("%s: AniDB details logged %v, want %v:\n%s", name, logged, !c.complete, logs.String())
+		}
 	}
 }

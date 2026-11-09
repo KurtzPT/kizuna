@@ -219,7 +219,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	if aid > 0 {
 		wg.Go(func() {
 			var err error
-			if a, err = p.anidb.Anime(ctx, aid); a == nil {
+			if a, err = p.anidb.Anime(ctx, aid); a == nil && p.anidb.Enabled() {
 				slog.Info("AniDB details not available; using titles and other sources, retried in 2 min", "aid", aid, "why", err)
 			}
 		})
@@ -254,8 +254,8 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	if a != nil {
 		s.OriginalTitle = p.originalTitle(a.Titles)
 		averageRuntime(s, a)
-	} else if len(p.titles.Of(aid)) > 0 {
-		s.Complete = false
+	} else if p.anidb.Enabled() && len(p.titles.Of(aid)) > 0 {
+		s.Complete = false // AniDB details missing: rebuild soon (without ANIDB_CLIENT there are none to wait for)
 	}
 	if !p.enrichTVDB(ctx, s, b, aid) {
 		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
