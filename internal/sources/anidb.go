@@ -97,14 +97,17 @@ type AniDB struct {
 		Failed      map[int]time.Time `json:"failed"`   // aid -> last failed call (no retry for 24 h)
 	}
 	memo     map[int]anidbMemo
-	prunedAt time.Time    // last sweep of expired memo entries
-	queued   map[int]bool // background fetches running
-	calling  map[int]bool // API calls running (a second caller joins, uncounted)
+	prunedAt time.Time          // last sweep of expired memo entries
+	queued   map[int]bool       // background fetches running
+	calling  map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
 	// failWhy: why an anime's last call failed (memory only: unknown after
 	// a restart). told: the failure whose 24 h block was already logged at
 	// Info, so a show rebuilt every 2 minutes doesn't repeat it.
 	failWhy map[int]string
 	told    map[int]time.Time
+	// backedOffAt: when the last failure stepped the backoff up. A call
+	// that went out before it and fails too is the same outage.
+	backedOffAt time.Time
 }
 
 type anidbMemo struct {
@@ -114,7 +117,7 @@ type anidbMemo struct {
 
 func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	c := &AniDB{f: f, client: client, clientVer: clientVer,
-		statePath: filepath.Join(dataDir, "anidb-state.json"), memo: map[int]anidbMemo{}, queued: map[int]bool{}, calling: map[int]bool{},
+		statePath: filepath.Join(dataDir, "anidb-state.json"), memo: map[int]anidbMemo{}, queued: map[int]bool{}, calling: map[int]*anidbCall{},
 		failWhy: map[int]string{}, told: map[int]time.Time{}}
 	f.Throttle("api.anidb.net:9001", anidbGap)
 	c.load()
@@ -229,10 +232,15 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 	// that download's data only after it ended (NoStale: no stale copy
 	// either), so after a successful Get, parsed is either set by it or nil
 	// (a cache hit, or another caller's download joined): then parse here.
+	// call: what sending made of this download's turn, for result (both run
+	// on the download's goroutine, one after the other).
 	var parsed *AniDBAnime
+	var call *anidbCall
 	data, err := c.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, aid), Key: key,
 		Validate: func(b []byte) (err error) { parsed, err = c.validate(b); return err },
-		NoStale:  true, Quiet: true, Background: background, Done: func(err error) { c.result(aid, err) }})
+		Before:   func() (err error) { call, err = c.sending(aid, background); return err },
+		Done:     func(err error) { c.result(aid, call, err) },
+		NoStale:  true, Quiet: true, Background: background})
 	if err != nil {
 		if a != nil {
 			return a, nil

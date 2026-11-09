@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,8 +68,17 @@ func TestParseAniDBNumbering(t *testing.T) {
 
 // fakeAniDB answers every request with the next scripted (status, body).
 func fakeAniDB(t *testing.T, answers ...[2]string) (*AniDB, *int) {
+	return fakeAniDBHeld(t, nil, answers...)
+}
+
+// fakeAniDBHeld is fakeAniDB whose answers wait until hold is closed (nil:
+// no wait).
+func fakeAniDBHeld(t *testing.T, hold <-chan struct{}, answers ...[2]string) (*AniDB, *int) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hold != nil {
+			<-hold
+		}
 		a := answers[min(calls, len(answers)-1)]
 		calls++
 		code, _ := strconv.Atoi(a[0])
@@ -154,15 +164,110 @@ func TestAniDBUnreadableStateWaits(t *testing.T) {
 	}
 }
 
-func TestAniDB503IsBan(t *testing.T) {
-	c, calls := fakeAniDB(t, [2]string{"503", "Banned"})
-	_, _ = c.Anime(context.Background(), 1)
-	if time.Until(c.state.BannedUntil) < 23*time.Hour {
-		t.Fatalf("503 must pause AniDB for 24 h, banned until %v", c.state.BannedUntil)
+// A 503, or a 200 whose body is AniDB's <error>Banned</error>, is a ban.
+func TestAniDBBanAnswers(t *testing.T) {
+	for _, answer := range [][2]string{{"503", "Banned"}, {"200", "<error>Banned</error>"}} {
+		c, calls := fakeAniDB(t, answer)
+		_, _ = c.Anime(context.Background(), 1)
+		if time.Until(c.state.BannedUntil) < 23*time.Hour {
+			t.Fatalf("%v must pause AniDB for 24 h, banned until %v", answer, c.state.BannedUntil)
+		}
+		_, _ = c.Anime(context.Background(), 2)
+		if *calls != 1 {
+			t.Fatalf("%v: calls during a ban: %d", answer, *calls)
+		}
 	}
-	_, _ = c.Anime(context.Background(), 2)
-	if *calls != 1 {
-		t.Fatalf("calls during a ban: %d", *calls)
+}
+
+// admissions sends the aid of each AniDB call allowed (its debug line), so
+// a test knows a call is past allowed and on its way to the 4 s queue.
+type admissions chan int
+
+func (a admissions) Enabled(context.Context, slog.Level) bool { return true }
+func (a admissions) WithAttrs([]slog.Attr) slog.Handler       { return a }
+func (a admissions) WithGroup(string) slog.Handler            { return a }
+func (a admissions) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == "anidb: calling the API" {
+		r.Attrs(func(at slog.Attr) bool {
+			if at.Key == "aid" {
+				a <- int(at.Value.Int64())
+			}
+			return true
+		})
+	}
+	return nil
+}
+
+// A call waiting in the 4 s queue when the answer ahead of it brings a ban
+// or a backoff is not sent when its turn comes: no request, its count given
+// back, the anime not marked failed, the backoff not stepped up again.
+func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
+	for _, first := range [][2]string{{"200", "<error>Banned</error>"}, {"503", "Banned"}, {"500", "oops"}} {
+		hold := make(chan struct{})
+		c, calls := fakeAniDBHeld(t, hold, first, [2]string{"200", anidbSample})
+		u, err := url.Parse(anidbAPI)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.f.Throttle(u.Host, time.Hour) // the second call waits until the test opens the gap
+		admitted := make(admissions, 4)
+		old := slog.Default()
+		slog.SetDefault(slog.New(admitted))
+
+		ctx := context.Background()
+		firstDone := make(chan struct{})
+		go func() { _, _ = c.Anime(ctx, 1); close(firstDone) }() // goes out at once; its answer is held
+		<-admitted
+		secondErr := make(chan error, 1)
+		go func() { _, err := c.Anime(ctx, 2); secondErr <- err }()
+		<-admitted // allowed and counted before the answer ahead of it
+		close(hold)
+		<-firstDone
+		c.f.Throttle(u.Host, 0) // its turn
+		err = <-secondErr
+		slog.SetDefault(old)
+
+		if !errors.Is(err, ErrAniDBUnavailable) || *calls != 1 {
+			t.Fatalf("after %v: second call err %v, %d requests, want it not sent", first, err, *calls)
+		}
+		c.mu.Lock()
+		sent, failures, calling, failed := len(c.state.Sent), c.state.Failures, c.calling[2], c.state.Failed[2]
+		c.mu.Unlock()
+		if sent != 1 || !failed.IsZero() || failures > 1 || calling != nil {
+			t.Fatalf("after %v: %d calls counted, anime 2 failed at %v, %d failures, still calling %v; want 1, never, at most 1, no",
+				first, sent, failed, failures, calling)
+		}
+
+		c.mu.Lock()
+		c.state.BannedUntil, c.state.RetryAt = time.Time{}, time.Time{} // the pause is over
+		c.mu.Unlock()
+		if a, err := c.Anime(ctx, 2); err != nil || a == nil || *calls != 2 {
+			t.Fatalf("after the pause, anime 2: %v, %d requests", err, *calls)
+		}
+	}
+}
+
+// Calls already out when the first failure starts a backoff fail too (a
+// dead server, 4 s apart): one backoff step, not one per call.
+func TestAniDBOverlappingFailuresOneStep(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"500", "oops"})
+	calls := []*anidbCall{}
+	for aid := 1; aid <= 3; aid++ {
+		if ok, why := c.allowed(aid, false); !ok {
+			t.Fatal(why)
+		}
+		call, err := c.sending(aid, false) // all three out before any answer
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls = append(calls, call)
+	}
+	failed := &fetch.StatusError{Code: 500, URL: "x"}
+	for i, call := range calls {
+		c.result(i+1, call, failed)
+	}
+	if c.state.Failures != 1 || len(c.state.Failed) != 3 {
+		t.Fatalf("%d failures (want 1), %d anime marked failed (want 3: each was asked)", c.state.Failures, len(c.state.Failed))
 	}
 }
 
