@@ -100,10 +100,6 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		}
 		return out, nil
 	}
-	// Only after the Fix Match list: it skips MIN_SCORE, so it finds
-	// candidates for titles that still don't match.
-	p.reports.Matched(title)
-
 	root := cands[0].root
 	if m != nil {
 		if rq != nil {
@@ -116,6 +112,10 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		slog.Debug("match: show not available", "root", root, "err", err)
 		return nil, err
 	}
+	// Only after the Fix Match list (it skips MIN_SCORE, so it finds
+	// candidates for titles that still don't match) and once the show is
+	// there: until then the title still has no match in Plex.
+	p.reports.Matched(title)
 	switch r.Type {
 	case 3:
 		if it := p.seasonItem(mode, s, deref(r.Index, 1), false); it != nil {

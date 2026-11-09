@@ -95,6 +95,9 @@ type build struct {
 	done chan struct{}
 	show *Show
 	err  error
+
+	rec     *report.Recorder // its match report; nil = reports off
+	matched bool             // rec has a match request; under p.mu
 }
 
 func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapping.Lists,
@@ -152,7 +155,18 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	b, running := p.builds[root]
 	if !running {
 		b = &build{done: make(chan struct{})}
+		if p.reports != nil {
+			b.rec = report.NewRecorder(root, buildMode(ctx, root))
+		}
 		p.builds[root] = b
+	}
+	if b.rec != nil && !b.matched {
+		// The match request that started the build, or the first to join
+		// one a metadata request started: its report shows how it matched.
+		if m := report.MatchFrom(ctx); m != nil {
+			b.rec.SetMatch(m)
+			b.matched = true
+		}
 	}
 	p.mu.Unlock()
 
@@ -208,10 +222,8 @@ func buildTime(ctx context.Context) time.Duration {
 func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root string, b *build) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	start := time.Now()
-	var rec *report.Recorder
-	if p.reports != nil {
-		rec = report.NewRecorder(root, buildMode(ctx, root))
-		rec.SetMatch(report.MatchFrom(ctx)) // the match request that started the build, if any
+	rec := b.rec
+	if rec != nil {
 		ctx = observeFetches(report.WithRecorder(ctx, rec), rec)
 	}
 	defer func() {
