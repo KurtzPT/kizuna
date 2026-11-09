@@ -5,10 +5,12 @@
 package logfile
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +34,9 @@ type File struct {
 	// is dated again from retry on. The first failure is reported (failed).
 	retry  time.Time
 	failed bool
+	// The first failure, until Err hands it out: slog drops a writer's
+	// errors, so Write's own goes nowhere.
+	unreported error
 }
 
 // retryDating: how long a kizuna.log that couldn't be dated waits before
@@ -114,6 +119,7 @@ func (l *File) Write(p []byte) (int, error) {
 		if err := l.archive(l.day); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			if !l.failed {
 				archErr = fmt.Errorf("can't rename %s.log to %s; appending to it, trying again every %v: %w", l.base, filepath.Base(l.dated(l.day)), retryDating, err)
+				l.unreported = archErr
 			}
 			l.retry, l.failed = now.Add(retryDating), true
 		} else {
@@ -129,6 +135,52 @@ func (l *File) Write(p []byte) (int, error) {
 	}
 	n, err := l.f.Write(p)
 	return n, errors.Join(err, archErr)
+}
+
+// Err returns the dating failure Write's error reported and no Err call
+// has returned yet, or nil: each failure once.
+func (l *File) Err() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	err := l.unreported
+	l.unreported = nil
+	return err
+}
+
+// WarnVia wraps h, a handler writing to l: after each record, a dating
+// failure that record's Write met is logged through h as a warning.
+//
+// It is logged there, once h.Handle has returned, and not by Write or a
+// hook Write calls: Write runs inside h.Handle, which holds h's lock (and
+// Write holds l's), so logging from it would wait on itself forever.
+func (l *File) WarnVia(h slog.Handler) slog.Handler {
+	return warnHandler{Handler: h, base: h, f: l}
+}
+
+type warnHandler struct {
+	slog.Handler
+	base slog.Handler // h without WithAttrs or WithGroup: the warning has neither
+	f    *File
+}
+
+func (w warnHandler) Handle(ctx context.Context, r slog.Record) error {
+	err := w.Handler.Handle(ctx, r)
+	if ferr := w.f.Err(); ferr != nil && w.base.Enabled(ctx, slog.LevelWarn) {
+		warn := slog.NewRecord(time.Now(), slog.LevelWarn, "log file: another program may have it open", 0)
+		warn.AddAttrs(slog.Any("err", ferr))
+		_ = w.base.Handle(ctx, warn)
+	}
+	return err
+}
+
+func (w warnHandler) WithAttrs(as []slog.Attr) slog.Handler {
+	w.Handler = w.Handler.WithAttrs(as)
+	return w
+}
+
+func (w warnHandler) WithGroup(name string) slog.Handler {
+	w.Handler = w.Handler.WithGroup(name)
+	return w
 }
 
 // archive renames kizuna.log to kizuna-<day>.log. If that file already

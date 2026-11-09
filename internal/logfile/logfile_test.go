@@ -1,9 +1,11 @@
 package logfile
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -151,5 +153,43 @@ func TestOldFileOnStartIsDated(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(cur); string(b) != "today\n" {
 		t.Errorf("current file %q", b)
+	}
+}
+
+// slog drops a writer's errors: through WarnVia, a dating failure is
+// logged as a warning once, right after the line that met it, without
+// waiting on the handler's or the file's lock.
+func TestWarnViaLogsDatingFailureOnce(t *testing.T) {
+	dir := t.TempDir()
+	clock := time.Date(2026, 11, 1, 12, 0, 0, 0, time.Local)
+	l, err := open(dir, "kizuna", 0, func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	log := slog.New(l.WarnVia(slog.NewTextHandler(l, nil))).With("root", "anidb-1")
+	log.Info("1 Nov")
+	block(t, dir, "2026-11-01")
+	clock = clock.Add(24 * time.Hour)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		log.Info("2 Nov a") // the dating fails
+		clock = clock.Add(retryDating)
+		log.Info("2 Nov b") // fails again: not warned again
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("logging hung: the warning waited on a lock its own line held")
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "kizuna.log"))
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[2], "level=WARN") || !strings.Contains(lines[2], "can't rename kizuna.log") ||
+		strings.Contains(lines[2], "root=") || !strings.Contains(lines[3], "2 Nov b") {
+		t.Errorf("kizuna.log:\n%s\nwant the 2 Nov a line, one warning without the logger's attrs, then 2 Nov b", b)
+	}
+	if err := l.Err(); err != nil {
+		t.Errorf("Err after the warning: %v, want nil (handed out once)", err)
 	}
 }

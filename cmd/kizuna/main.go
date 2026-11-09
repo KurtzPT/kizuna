@@ -56,17 +56,22 @@ func main() {
 	// that warning is held back and written once the real logger is set.
 	out, fileErr, archiveErr := io.Writer(os.Stdout), error(nil), error(nil)
 	var early bytes.Buffer
+	var file *logfile.File
 	if !healthCheck {
 		slog.SetDefault(slog.New(slog.NewTextHandler(&early, nil)))
 		f, err := logfile.Open(filepath.Join(config.DataDir(), "logs"), "kizuna", config.LogRetentionDays())
 		if f != nil { // err alone: yesterday's file couldn't be dated, but logging works
 			defer f.Close()
-			out, archiveErr = io.MultiWriter(os.Stdout, f), err
+			file, out, archiveErr = f, io.MultiWriter(os.Stdout, f), err
 		} else {
 			fileErr = err
 		}
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})))
+	handler := slog.Handler(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level}))
+	if file != nil {
+		handler = file.WarnVia(handler) // a later day the file can't be dated: a warning
+	}
+	slog.SetDefault(slog.New(handler))
 	_, _ = out.Write(early.Bytes())
 	if fileErr != nil {
 		slog.Warn("can't write the log file; logging to standard output only (check the data folder's permissions)", "err", fileErr)
