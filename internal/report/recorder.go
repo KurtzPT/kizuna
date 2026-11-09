@@ -1,6 +1,7 @@
 package report
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -188,10 +189,7 @@ func (r *Recorder) snapshot(requeue func()) (Build, ShowHead) {
 		b.Trace[m.i].Note = "last: " + m.last
 	}
 	slices.SortStableFunc(b.Trace, func(x, y Span) int {
-		if x.Start != y.Start {
-			return int(x.Start - y.Start)
-		}
-		return strings.Compare(x.Label, y.Label)
+		return cmp.Or(cmp.Compare(x.Start, y.Start), strings.Compare(x.Label, y.Label))
 	})
 	b.Fields = slices.Clone(b.Fields)
 	b.Checks = slices.Clone(b.Checks)
@@ -228,7 +226,8 @@ func MatchFrom(ctx context.Context) *Match {
 
 // WithRequest carries the Plex request being answered, for handlers to
 // fill in (Key, Build, Answer, Note, Match). Only the request's own
-// goroutine writes it; a build it starts may read Mode.
+// goroutine reads or writes it: a build it starts (whose ctx still carries
+// it) takes its mode from it beforehand, on that goroutine.
 func WithRequest(ctx context.Context, rq *Request) context.Context {
 	return context.WithValue(ctx, requestKey{}, rq)
 }
