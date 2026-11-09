@@ -1178,3 +1178,67 @@ func TestSpecialMovieWithAniDBPairsTheTVDB(t *testing.T) {
 		t.Errorf("S01E01 %+v, want AniDB's summary and TheTVDB S00E01's thumbnail", ep)
 	}
 }
+
+// A special-only show isn't its TheTVDB series: no tvdb:// of the series on
+// the show (tmdb:// and imdb:// stay), and each episode paired with a
+// TheTVDB special carries that episode's tvdb://, the same with and without
+// AniDB details. A regular entry keeps the series' GUID and no episode GUIDs.
+func TestSpecialOnlyGuids(t *testing.T) {
+	movieXML := `<anime id="16983"><type>Movie</type><startdate>2022-08-06</startdate>
+<titles><title type="main" xml:lang="x-jat">Kizuna Film Red</title></titles>
+<episodes><episode><epno type="1">1</epno><length>115</length></episode></episodes></anime>`
+	type guids struct{ show, ep []string }
+	var got [2]guids
+	for i, details := range []bool{false, true} {
+		p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+		if details {
+			dir := t.TempDir()
+			f := fetch.New(dir)
+			f.SetTransport(&fakeNet{hits: map[string]int{}, answer: func(path string, q map[string][]string) (int, string) {
+				if path == "api.anidb.net/httpapi" {
+					return 200, movieXML
+				}
+				return 0, ""
+			}})
+			p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
+		}
+		s, err := p.buildShow(context.Background(), "anidb-16983")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Placeholders == details {
+			t.Fatalf("details %v: placeholders %v", details, s.Placeholders)
+		}
+		got[i].show = s.Guids
+		for _, g := range p.episodeItem(Modes["anidb"], s, s.Episode(1, 1)).Guid {
+			got[i].ep = append(got[i].ep, g.ID)
+		}
+	}
+	for i, g := range got {
+		if !slices.Equal(g.show, []string{"tmdb://99", "imdb://tt16183464"}) || !slices.Equal(g.ep, []string{"tvdb://14"}) {
+			t.Errorf("details %v: show %v, episode %v: want tmdb://99 imdb://tt16183464, and tvdb://14 on the episode", i == 1, g.show, g.ep)
+		}
+	}
+
+	p := specialsProvider(t, &fakeNet{answer: specialsSeries})
+	ova, err := p.buildShow(context.Background(), "anidb-300")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(ova.Guids, "tvdb://500") {
+		t.Errorf("OVA guids %v, want no series tvdb://", ova.Guids)
+	}
+	if g := p.episodeItem(Modes["anidb"], ova, ova.Episode(1, 2)).Guid; len(g) != 1 || g[0].ID != "tvdb://16" {
+		t.Errorf("OVA S01E02 guids %v, want tvdb://16", g)
+	}
+	series, err := p.buildShow(context.Background(), "anidb-100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(series.Guids, "tvdb://500") {
+		t.Errorf("series guids %v, want tvdb://500", series.Guids)
+	}
+	if ep := series.Episode(1, 1); ep != nil && len(p.episodeItem(Modes["anidb"], series, ep).Guid) != 0 {
+		t.Error("a regular entry's episodes: want no episode GUIDs")
+	}
+}

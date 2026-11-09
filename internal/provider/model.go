@@ -56,6 +56,9 @@ type Show struct {
 	// anime is in its 24 h block after a failed call (zero = not): complete
 	// all the same, as no build before then can get them.
 	anidbBlocked time.Time
+	// episodeGuids: each episode paired with a TheTVDB episode carries its
+	// tvdb:// GUID (a special-only show, whose show has none of TheTVDB's).
+	episodeGuids bool
 
 	build string // match report build that made it (report.Recorder.ID)
 }
@@ -143,11 +146,15 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if isMovie && entry.TMDBMovie > 0 {
 		tmdbID, movie = entry.TMDBMovie, true
 	}
-	if entry.TVDB.ID > 0 && !isMovie { // the same GUIDs with and without AniDB details
+	// The same GUIDs with and without AniDB details. A special-only entry
+	// isn't its TheTVDB series: its episodes carry their TheTVDB specials'
+	// GUIDs instead (episodeItem).
+	special := entry.SpecialOnly()
+	if entry.TVDB.ID > 0 && !isMovie && !special {
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
 	s.addGuids(tmdbID, entry.IMDB)
-	special := entry.SpecialOnly()
+	s.episodeGuids = special
 
 	if a == nil {
 		switch {

@@ -133,6 +133,9 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 	for _, w := range e.Writers {
 		it.Writer = append(it.Writer, Tag{w})
 	}
+	if s.episodeGuids && e.tvdbEp > 0 {
+		it.Guid = []GuidTag{{fmt.Sprintf("tvdb://%d", e.tvdbEp)}}
+	}
 	if e.Thumb != "" {
 		it.Thumb = e.Thumb
 		it.Image = []Image{{Type: "snapshot", URL: e.Thumb, Alt: title}}
