@@ -115,19 +115,29 @@ func (c *Client) Throttle(host string, gap time.Duration) {
 
 // Cached returns a cached file and its age, without any network access.
 func (c *Client) Cached(key string) ([]byte, time.Duration, bool) {
-	if key == "" {
+	data, at, ok := c.CachedSince(key)
+	if !ok {
 		return nil, 0, false
+	}
+	return data, time.Since(at), true
+}
+
+// CachedSince is Cached with the time the file was last written instead
+// of its age.
+func (c *Client) CachedSince(key string) ([]byte, time.Time, bool) {
+	if key == "" {
+		return nil, time.Time{}, false
 	}
 	p := c.path(key)
 	at, ok := modTime(p)
 	if !ok {
-		return nil, 0, false
+		return nil, time.Time{}, false
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return nil, 0, false
+		return nil, time.Time{}, false
 	}
-	return data, time.Since(at), true
+	return data, at, true
 }
 
 // CachedAt returns when a cached file was last written, without reading it.

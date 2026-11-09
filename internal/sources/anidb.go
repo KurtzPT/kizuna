@@ -171,20 +171,19 @@ func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Durati
 		return m.anime, true, true, 0
 	}
 	key := anidbKey(aid)
-	mod, ok := c.f.CachedAt(key)
-	if !ok {
-		return nil, false, false, 0
+	if kept { // stale: still the same copy as last time?
+		if mod, ok := c.f.CachedAt(key); ok && mod.Equal(m.mod) {
+			return m.anime, false, true, 0
+		}
 	}
-	if kept && m.mod.Equal(mod) { // the same stale copy as last time
-		return m.anime, false, true, 0
-	}
-	data, age, ok := c.f.Cached(key)
+	data, mod, ok := c.f.CachedSince(key)
 	if !ok {
 		return nil, false, false, 0
 	}
 	if a, _ = parseAniDB(data); a == nil {
 		return nil, false, false, 0
 	}
+	age = time.Since(mod)
 	fresh = age < anidbTTL(a.EndDate)
 	c.remember(a, fresh, mod)
 	return a, fresh, false, age
