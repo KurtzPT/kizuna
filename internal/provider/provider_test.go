@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,6 +149,8 @@ func TestAutoModePerFolder(t *testing.T) {
 		500: {AID: 500, MAL: 500}, // a movie: no TVDB series
 	})
 	auto := Modes["auto"]
+	dir := t.TempDir()
+	f := fetch.New(dir)
 	cases := []struct {
 		def, title, guid, want string
 	}{
@@ -163,7 +166,7 @@ func TestAutoModePerFolder(t *testing.T) {
 		{"tvdb", "One Piece", "tv.plex.agents.custom.kizuna.anidb://show/anidb-100", "anidb-100"},
 	}
 	for _, c := range cases {
-		p := &Provider{lists: l}
+		p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
 		p.cfg.AutoDefault = c.def
 		got, _ := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
 		if len(got) != 1 || got[0].root != c.want {
@@ -171,22 +174,22 @@ func TestAutoModePerFolder(t *testing.T) {
 		}
 	}
 
-	// With only one mode on, every show gets its rules: the other site's id
-	// is converted through the mapping.
-	dir := t.TempDir()
-	f := fetch.New(dir)
+	// With only one mode on, every show but one tagged for the other site
+	// gets its rules: the other site's id is converted through the mapping.
+	// That tag finds nothing (see TestAutoTagNeedsItsMode).
 	titles := &anidb.Titles{}
 	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
 	only := []struct {
 		on, def, title, guid, want string
 	}{
-		{"anidb", "anidb", "One Piece [tvdb-81797]", "", "anidb-69"},                                       // TVDB tag
-		{"anidb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "anidb-69"}, // TVDB GUID
-		{"anidb", "tvdb", "One Piece [mal-21]", "", "anidb-69"},                                            // AUTO_DEFAULT=tvdb
-		{"anidb", "tvdb", "One Piece", "", "anidb-69"},                                                     // title search
-		{"tvdb", "anidb", "One Piece [anidb-100]", "", "tvdb-81797"},                                       // AniDB tag
-		{"tvdb", "anidb", "One Piece", "", "tvdb-81797"},                                                   // title search
-		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},                                              // no TVDB series: stays AniDB
+		{"anidb", "anidb", "One Piece [tvdb-81797]", "", ""},                                                // TVDB tag: no match
+		{"anidb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "anidb-69"},  // TVDB GUID
+		{"anidb", "tvdb", "One Piece [mal-21]", "", "anidb-69"},                                             // AUTO_DEFAULT=tvdb
+		{"anidb", "tvdb", "One Piece", "", "anidb-69"},                                                      // title search
+		{"tvdb", "anidb", "One Piece [anidb-100]", "", ""},                                                  // AniDB tag: no match
+		{"tvdb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.anidb://show/anidb-100", "tvdb-81797"}, // AniDB GUID
+		{"tvdb", "anidb", "One Piece", "", "tvdb-81797"},                                                    // title search
+		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},                                               // no TVDB series: stays AniDB
 	}
 	for _, c := range only {
 		p := &Provider{lists: l, titles: titles}
@@ -197,8 +200,67 @@ func TestAutoModePerFolder(t *testing.T) {
 		}
 		p.cfg.AutoDefault = c.def
 		got, how := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
+		if c.want == "" && len(got) == 0 {
+			continue
+		}
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("only %s on, default %s, %q %q: got %v (%s), want %s", c.on, c.def, c.title, c.guid, got, how, c.want)
+		}
+	}
+}
+
+// In /auto an [anidb-N] or [tvdb-N] tag is the user's choice of rules: when
+// that mode is off the show gets no match (not the other mode, the GUID or
+// the title search), with one warning per mode every 10 minutes.
+func TestAutoTagNeedsItsMode(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{69: {AID: 69, TVDB: mapping.Placement{ID: 81797, Season: -1, Mapped: true}}})
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	anidbOn := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1")}
+	tvdbOn := &Provider{lists: l, titles: titles, tvdb: sources.NewTVDB(f, "key", "", "")}
+	guid := "tv.plex.agents.custom.kizuna.anidb://show/anidb-69"
+	cases := []struct {
+		p                *Provider
+		title, file, how string // how: the start of the "no match" note
+	}{
+		{anidbOn, "One Piece [tvdb-81797]", "", "tag [tvdb-81797]: /tvdb is off, set TVDB_API_KEY"},
+		{anidbOn, "One Piece", "/anime/One Piece [tvdb3-81797]/One Piece - 01.mkv", "tag [tvdb3-81797]: /tvdb is off"},
+		{tvdbOn, "One Piece [anidb-69]", "", "tag [anidb-69]: /anidb is off, set ANIDB_CLIENT"},
+	}
+	for _, c := range cases {
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		for range 3 { // the same tag again: no new warning
+			got, how := c.p.searchCandidates(Modes["auto"], c.title, MatchRequest{GUID: guid, Filename: c.file}, nil)
+			if len(got) != 0 || !strings.HasPrefix(how, c.how) {
+				t.Errorf("%q %q: got %v (%s), want no match (%s…)", c.title, c.file, got, how, c.how)
+			}
+		}
+		restore()
+		if n := strings.Count(logs.String(), "level=WARN msg=\"match: id tag needs /"); n != 1 {
+			t.Errorf("%q %q: %d warnings, want 1:\n%s", c.title, c.file, n, logs.String())
+		}
+		c.p.tagOffLogged = everyTenMinutes{} // the next case's warning is due again
+	}
+
+	// The mode that is on: the tag brings its rules; the GUID and title search
+	// still give way.
+	for _, c := range []struct {
+		p                 *Provider
+		title, guid, want string
+	}{
+		{tvdbOn, "One Piece [tvdb-81797]", "", "tvdb-81797"},
+		{anidbOn, "One Piece [anidb-69]", "", "anidb-69"},
+		{anidbOn, "One Piece", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "anidb-69"},
+		{tvdbOn, "One Piece", guid, "tvdb-81797"},
+		{tvdbOn, "One Piece", "", "tvdb-81797"},
+	} {
+		got, how := c.p.searchCandidates(Modes["auto"], c.title, MatchRequest{GUID: c.guid}, nil)
+		if len(got) != 1 || got[0].root != c.want {
+			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
 		}
 	}
 }

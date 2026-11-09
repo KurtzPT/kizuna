@@ -154,6 +154,8 @@ flowchart LR
     Q -- "other id, or none" --> DEF["AUTO_DEFAULT<br/><i>anidb unless set</i>"]
 ```
 
+An `[anidb-…]` or `[tvdb-…]` tag needs its mode set up: without it the show gets no match.
+
 ```text
 📁 Anime
  ├─ 📁 Hunter x Hunter (2011) [anidb-8550]     ← /anidb: Hunter x Hunter - 148.mkv

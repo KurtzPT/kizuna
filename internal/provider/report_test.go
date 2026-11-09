@@ -92,6 +92,24 @@ func TestMatchReport(t *testing.T) {
 	}
 }
 
+// In /auto, a [tvdb-N] tag with TheTVDB off is no match: its unmatched
+// page and request say the tag needs /tvdb and what to set.
+func TestAutoTagModeOffReport(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	p.tvdb = nil
+	store, dir, serve := reportsOn(t, p)
+	serve("POST", "/auto/library/metadata/matches", `{"type":2,"title":"Kizuna Test [tvdb-500]"}`)
+	store.Flush()
+
+	var un report.UnmatchedDoc
+	readJSON(t, filepath.Join(dir, "data", report.UnmatchedKey("Kizuna Test")+".json"), &un)
+	want := "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY"
+	if un.Match.Root != "" || un.Match.How != want || len(un.Requests) != 1 ||
+		un.Requests[0].Answer != "no match" || un.Requests[0].Note != want {
+		t.Errorf("unmatched %+v, want no match: %s", un, want)
+	}
+}
+
 func readJSON(t *testing.T, path string, v any) {
 	t.Helper()
 	data, err := os.ReadFile(path)

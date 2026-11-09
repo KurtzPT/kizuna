@@ -133,7 +133,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 
 // searchCandidates: an id tag in the show title or the file path (which
 // includes the show folder) wins, then the GUID Plex already has, then title
-// search. title is the show's title in r (Match picks it by r.Type); how
+// search. In /auto, an AniDB or TVDB tag whose mode is off is no match. title is the show's title in r (Match picks it by r.Type); how
 // says which of them decided. The first title search results are added to
 // noted (when not nil) for the match report.
 func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
@@ -141,7 +141,14 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 	query := tagRe.ReplaceAllString(title, "")
 	for _, text := range []string{title, r.Filename} {
 		if m := tagRe.FindStringSubmatch(text); m != nil {
-			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
+			rules, need := p.tagRules(mode, m[1])
+			if need != "" { // the tag is the user's choice: no other mode, GUID or title search
+				if p.tagOffLogged.due(rules.Path) {
+					slog.Warn("match: id tag needs /"+rules.Path+", which is off", "tag", m[0], "set", need)
+				}
+				return nil, fmt.Sprintf("tag %s: /%s is off, set %s", m[0], rules.Path, need)
+			}
+			if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "tag " + m[0]
 			}
 			slog.Debug("match: id tag not in the mapping", "tag", m[0])
@@ -201,11 +208,11 @@ func (p *Provider) mainTitle(aid int) string {
 	return anidb.PickTitle(p.titles.Of(aid), mainLang, false)
 }
 
-// rules returns the mode whose rules a piece of evidence follows. /anidb
-// and /tvdb always use their own. /auto lets an AniDB id (tag or GUID)
-// bring the /anidb rules and a TVDB id the /tvdb rules; other ids and title
-// search use AUTO_DEFAULT. A mode that is off (no AniDB client, no TVDB
-// key) gives way to the other one, which rootFor turns the id into.
+// rules returns the mode whose rules a GUID or the title search follows.
+// /anidb and /tvdb always use their own. /auto lets an AniDB id bring the
+// /anidb rules and a TVDB id the /tvdb rules; other ids and title search use
+// AUTO_DEFAULT. A mode that is off (no AniDB client, no TVDB key) gives way
+// to the other one, which rootFor turns the id into.
 func (p *Provider) rules(mode Mode, source string) Mode {
 	if !mode.Auto {
 		return mode
@@ -224,6 +231,28 @@ func (p *Provider) rules(mode Mode, source string) Mode {
 		return other
 	}
 	return want
+}
+
+// tagRules is rules for an id tag. In /auto an [anidb-N] or [tvdb-N] tag
+// always brings its own site's rules, without giving way: when that mode is
+// off, need names what to set and the show gets no match. Other tags follow
+// rules.
+func (p *Provider) tagRules(mode Mode, source string) (rules Mode, need string) {
+	if !mode.Auto {
+		return mode, ""
+	}
+	switch strings.ToLower(source) {
+	case "anidb":
+		rules, need = Modes["anidb"], "ANIDB_CLIENT"
+	case "tvdb":
+		rules, need = Modes["tvdb"], "TVDB_API_KEY or TVDB_LEGACY_API_KEY"
+	default:
+		return p.rules(mode, source), ""
+	}
+	if p.modeOff(rules) == "" {
+		need = ""
+	}
+	return rules, need
 }
 
 func matchType(t int) string {

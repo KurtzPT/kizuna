@@ -63,15 +63,16 @@ var Modes = map[string]Mode{
 
 // Provider holds all sources plus two small caches.
 type Provider struct {
-	cfg       config.Config
-	offLogged everyTenMinutes // requests for a mode that is off (server.go)
-	titles    *anidb.Titles
-	anidb     *sources.AniDB
-	lists     *mapping.Lists
-	tvdb      *sources.TVDB
-	tmdb      *sources.TMDB
-	mal       *sources.MAL
-	ann       *sources.ANN
+	cfg          config.Config
+	offLogged    everyTenMinutes // requests for a mode that is off (server.go)
+	tagOffLogged everyTenMinutes // /auto id tags for a mode that is off (match.go)
+	titles       *anidb.Titles
+	anidb        *sources.AniDB
+	lists        *mapping.Lists
+	tvdb         *sources.TVDB
+	tmdb         *sources.TMDB
+	mal          *sources.MAL
+	ann          *sources.ANN
 
 	access  Access        // ALLOW_FROM / ALLOWED_HOSTS
 	reports *report.Store // match reports; nil = off

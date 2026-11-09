@@ -43,7 +43,7 @@ must be set up. Everything else only adds details:
 |---|---|---|
 | `/anidb` | AniDB | `ANIDB_CLIENT` |
 | `/tvdb` | TheTVDB | `TVDB_API_KEY` or `TVDB_LEGACY_API_KEY` |
-| `/auto` | AniDB or TheTVDB, per show | either; with only one, every show gets that one's rules (a tag or GUID of the other site is converted through the mapping) |
+| `/auto` | AniDB or TheTVDB, per show | either; with only one, every show gets that one's rules (a GUID of the other site is converted through the mapping). An `[anidb-…]` or `[tvdb-…]` tag always needs its own mode: with that one off, the show gets no match and a warning says what to set |
 
 Kizuna starts when at least one mode works, and logs which ones do:
 `modes anidb=ready tvdb="off: no TVDB_API_KEY or TVDB_LEGACY_API_KEY"`. A request to a mode that's off gets an
@@ -270,7 +270,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | Variable | Default | What it does |
 |---|---|---|
 | `MIN_SCORE` | `80` | Lowest title-search score (0–100) for an automatic match. Plex's *Fix Match* list ignores it |
-| `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID. A mode that is off (no key) gives way to the other |
+| `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID. A mode that is off (no key) gives way to the other, here and for an AniDB or TVDB GUID, but not for a tag |
 | `MAPPING_SOURCES` | `animelists,fribb` | Id mapping lists, in priority order. A later list only fills ids the earlier ones lack. Can't be `none` |
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
@@ -777,6 +777,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | Symptom | Fix |
 |---|---|
 | A show doesn't match | Its [unmatched report](#-match-reports) (with `MATCH_REPORTS=true`) or the `match: nothing found` line gives the reason and the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
+| `/auto`: `match: id tag needs /tvdb, which is off` | The show's `[tvdb-…]` tag needs TheTVDB: set `TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`, or tag it `[anidb-…]`. For `/anidb` and an `[anidb-…]` tag: set `ANIDB_CLIENT` |
 | A request gets `503` `the show wasn't ready in time` | Its first build took longer than Plex's request may (25 s, often a slow AniDB answer or a queue of AniDB calls). Plex keeps what it has; the build goes on, and the next refresh gets the show |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
 | No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, rejected client, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
