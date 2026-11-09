@@ -161,6 +161,37 @@ func TestAutoModePerFolder(t *testing.T) {
 			t.Errorf("default %s, %q %q: got %v, want %s", c.def, c.title, c.guid, got, c.want)
 		}
 	}
+
+	// With only one mode on, every show gets its rules: the other site's id
+	// is converted through the mapping.
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
+	only := []struct {
+		on, def, title, guid, want string
+	}{
+		{"anidb", "anidb", "One Piece [tvdb-81797]", "", "anidb-69"},                                       // TVDB tag
+		{"anidb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "anidb-69"}, // TVDB GUID
+		{"anidb", "tvdb", "One Piece [mal-21]", "", "anidb-69"},                                            // AUTO_DEFAULT=tvdb
+		{"anidb", "tvdb", "One Piece", "", "anidb-69"},                                                     // title search
+		{"tvdb", "anidb", "One Piece [anidb-100]", "", "tvdb-81797"},                                       // AniDB tag
+		{"tvdb", "anidb", "One Piece", "", "tvdb-81797"},                                                   // title search
+		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},                                              // no TVDB series: stays AniDB
+	}
+	for _, c := range only {
+		p := &Provider{lists: l, titles: titles}
+		if c.on == "anidb" {
+			p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
+		} else {
+			p.tvdb = sources.NewTVDB(f, "key", "", "")
+		}
+		p.cfg.AutoDefault = c.def
+		got, how := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
+		if len(got) != 1 || got[0].root != c.want {
+			t.Errorf("only %s on, default %s, %q %q: got %v (%s), want %s", c.on, c.def, c.title, c.guid, got, how, c.want)
+		}
+	}
 }
 
 // An AniDB special the mapping doesn't list is the TVDB special with the same

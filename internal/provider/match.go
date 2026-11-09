@@ -162,6 +162,7 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 	}
 	var out []candidate
 	seen := map[string]bool{}
+	titleRules := p.rules(mode, "")
 	results := p.titles.Search(query, year, 20)
 	for i, m := range results {
 		if i < 5 {
@@ -175,7 +176,7 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 			slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
 			break
 		}
-		root := p.rootFor(p.rules(mode, ""), "anidb", m.AID)
+		root := p.rootFor(titleRules, "anidb", m.AID)
 		if root != "" && !seen[root] {
 			seen[root] = true
 			out = append(out, candidate{root, m.Score})
@@ -203,21 +204,26 @@ func (p *Provider) mainTitle(aid int) string {
 // rules returns the mode whose rules a piece of evidence follows. /anidb
 // and /tvdb always use their own. /auto lets an AniDB id (tag or GUID)
 // bring the /anidb rules and a TVDB id the /tvdb rules; other ids and title
-// search use AUTO_DEFAULT.
+// search use AUTO_DEFAULT. A mode that is off (no AniDB client, no TVDB
+// key) gives way to the other one, which rootFor turns the id into.
 func (p *Provider) rules(mode Mode, source string) Mode {
 	if !mode.Auto {
 		return mode
 	}
+	want, other := Modes["anidb"], Modes["tvdb"]
 	switch strings.ToLower(source) {
 	case "anidb":
-		return Modes["anidb"]
 	case "tvdb", "thetvdb":
-		return Modes["tvdb"]
+		want, other = other, want
+	default:
+		if p.cfg.AutoDefault == "tvdb" {
+			want, other = other, want
+		}
 	}
-	if p.cfg.AutoDefault == "tvdb" {
-		return Modes["tvdb"]
+	if p.modeOff(want) != "" && p.modeOff(other) == "" {
+		return other
 	}
-	return Modes["anidb"]
+	return want
 }
 
 func matchType(t int) string {

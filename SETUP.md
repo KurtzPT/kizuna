@@ -43,7 +43,7 @@ must be set up. Everything else only adds details:
 |---|---|---|
 | `/anidb` | AniDB | `ANIDB_CLIENT` |
 | `/tvdb` | TheTVDB | `TVDB_API_KEY` or `TVDB_LEGACY_API_KEY` |
-| `/auto` | AniDB or TheTVDB, per show | either; with only one, only the shows that use it |
+| `/auto` | AniDB or TheTVDB, per show | either; with only one, every show gets that one's rules (a tag or GUID of the other site is converted through the mapping) |
 
 Kizuna starts when at least one mode works, and logs which ones do:
 `modes anidb=ready tvdb="off: no TVDB_API_KEY or TVDB_LEGACY_API_KEY"`. A request to a mode that's off gets an
@@ -270,7 +270,7 @@ The `ready` line at startup shows the settings in effect ([logs](#-logs)).
 | Variable | Default | What it does |
 |---|---|---|
 | `MIN_SCORE` | `80` | Lowest title-search score (0–100) for an automatic match. Plex's *Fix Match* list ignores it |
-| `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID |
+| `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag or GUID. A mode that is off (no key) gives way to the other |
 | `MAPPING_SOURCES` | `animelists,fribb` | Id mapping lists, in priority order. A later list only fills ids the earlier ones lack |
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
