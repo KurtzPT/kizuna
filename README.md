@@ -19,7 +19,7 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -223,8 +223,8 @@ Every field has its own source order, and any source can come first. Later sourc
 before them have nothing. By default AniDB comes first for show details and TheTVDB for artwork; TheTVDB always
 comes before TheMovieDb, and Anime News Network is the last fallback.
 
-**Setup:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
-[what each source can supply, and changing the order per field](SETUP.md#-sources-per-field).
+**Setup and settings:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
+[what each source can supply, and changing the order per field](SETTINGS.md#-sources-per-field).
 
 ### 🏷️ Episode titles and pairing
 

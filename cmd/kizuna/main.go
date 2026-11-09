@@ -1,6 +1,6 @@
 // Command kizuna runs the Plex metadata provider.
 //
-//	kizuna         run the provider (settings: env vars, see SETUP.md)
+//	kizuna         run the provider (settings: env vars, see SETTINGS.md)
 //	kizuna health  exit 0 when the running provider is ready (else 1, saying why on stderr)
 package main
 

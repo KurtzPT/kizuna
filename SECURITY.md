@@ -75,7 +75,7 @@ may talk to it, and what it exposes:
 - **Behind a reverse proxy**, every request comes from the proxy's private address, so `ALLOW_FROM` can't tell clients
   apart. The host name check still refuses a public domain you haven't listed.
 
-How to change the two checks: [SETUP.md → Access](SETUP.md#%EF%B8%8F-access).
+How to change the two checks: [SETTINGS.md → Access](SETTINGS.md#%EF%B8%8F-access).
 
 > [!WARNING]
 > These reduce the risk; they don't make Kizuna safe on the internet. Keep port `32600` on your local network.

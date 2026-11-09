@@ -10,7 +10,7 @@
   <Project>https://github.com/KurtzPT/kizuna</Project>
   <Overview>An anime metadata provider for Plex that keeps your absolute episode numbers. Kizuna ("bond") ties AniDB, TheTVDB, TheMovieDb, MyAnimeList and Anime News Network together into one Plex custom metadata provider (Plex Media Server 1.43+).&#xD;
 &#xD;
-All settings go in kizuna.env in the data folder (default /mnt/user/appdata/kizuna/kizuna.env). Start from .env.sample in the repository: it lists every setting with its default. At least set ANIDB_CLIENT. Restart the container after editing the file.&#xD;
+All settings go in kizuna.env in the data folder (default /mnt/user/appdata/kizuna/kizuna.env). Start from .env.sample in the repository: it lists every setting with its default (explained in https://github.com/KurtzPT/kizuna/blob/main/SETTINGS.md). At least set ANIDB_CLIENT. Restart the container after editing the file.&#xD;
 &#xD;
 Then add the provider in Plex (Settings, Metadata Agents): http://[unraid-ip]:32600/anidb, /tvdb or /auto, depending on your library's layout. Check that it is up at http://[unraid-ip]:32600/health. Full guide: https://github.com/KurtzPT/kizuna/blob/main/SETUP.md</Overview>
   <Category>MediaServer:Video Tools:Utilities</Category>

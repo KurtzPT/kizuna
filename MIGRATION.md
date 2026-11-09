@@ -163,7 +163,7 @@ window, and use `/d/Anime` for `D:\Anime` or `//nas/Anime` for a share:
 
 > [!NOTE]
 > **"Kizuna not reachable"?** Kizuna's `ALLOW_FROM` lets in private network addresses by default. If you narrowed it
-> to the Plex server, add the machine running the script ([access settings](SETUP.md#%EF%B8%8F-access)).
+> to the Plex server, add the machine running the script ([access settings](SETTINGS.md#%EF%B8%8F-access)).
 
 ## 🔍 2. Dry run
 
@@ -438,7 +438,7 @@ kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] -a LIBRARY   write it
 | Option | Meaning | Default |
 |---|---|---|
 | `-m` | mode: `anidb`, `tvdb` or `auto` | `anidb` |
-| `-u` | Kizuna's address. Required for `tvdb`, and for `auto` beyond `[anidb-N]` folders; used by `anidb` for opening and ending numbers. A full domain name must be in [`ALLOWED_HOSTS`](SETUP.md#%EF%B8%8F-access); an IP or local name works as is | `$KIZUNA_URL`, else `http://localhost:32600` |
+| `-u` | Kizuna's address. Required for `tvdb`, and for `auto` beyond `[anidb-N]` folders; used by `anidb` for opening and ending numbers. A full domain name must be in [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access); an IP or local name works as is | `$KIZUNA_URL`, else `http://localhost:32600` |
 | `-a` | write the plan | off (dry run) |
 
 What the script guarantees:

@@ -27,6 +27,7 @@ running:
           - internal/logfile/**
           - Dockerfile
           - compose.yml
+          - SETTINGS.md
           - SETUP.md
 
 documentation:

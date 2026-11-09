@@ -43,7 +43,7 @@ go build -o kizuna ./cmd/kizuna
 ```
 
 Run it locally against a scratch data folder (all settings are environment variables, see
-[Settings](SETUP.md#%EF%B8%8F-settings)):
+[SETTINGS.md](SETTINGS.md)):
 
 ```bash
 DATA_DIR=./data ANIDB_CLIENT=<your client> TVDB_API_KEY=... TMDB_API_KEY=... ./kizuna
@@ -138,8 +138,8 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 
 | To add… | Start in |
 |---|---|
-| a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETUP.md → Settings](SETUP.md#%EF%B8%8F-settings) |
-| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) (what a user sets or sees) |
+| a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETTINGS.md](SETTINGS.md) |
+| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) / [SETTINGS.md](SETTINGS.md) (what a user sees or sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go`; the page: `internal/report/page.html` |

@@ -59,4 +59,4 @@ Write "None" if nothing changes for them.
 - [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally
 - [ ] Tests added or updated, and they stay offline
 - [ ] Follows the [ground rules](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-ground-rules) (standard library only, AniDB limits untouched, requests through `internal/fetch`, no secret logged)
-- [ ] Docs updated: a new or changed setting in `.env.sample` and [SETUP.md](https://github.com/KurtzPT/kizuna/blob/dev/SETUP.md#%EF%B8%8F-settings), a migration rule in [MIGRATION.md](https://github.com/KurtzPT/kizuna/blob/dev/MIGRATION.md)
+- [ ] Docs updated: a new or changed setting in `.env.sample` and [SETTINGS.md](https://github.com/KurtzPT/kizuna/blob/dev/SETTINGS.md), a migration rule in [MIGRATION.md](https://github.com/KurtzPT/kizuna/blob/dev/MIGRATION.md)
