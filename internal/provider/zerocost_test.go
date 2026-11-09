@@ -32,7 +32,9 @@ func TestReportsOffAllocs(t *testing.T) {
 		p.Handler().ServeHTTP(httptest.NewRecorder(), req)
 	}
 	show := func() { serve("GET", "/tvdb/library/metadata/tvdb-500", "") }
+	anidbShow := func() { serve("GET", "/anidb/library/metadata/anidb-100", "") }
 	show() // fills the cache
+	anidbShow()
 	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	cases := []struct {
 		name   string
@@ -46,6 +48,12 @@ func TestReportsOffAllocs(t *testing.T) {
 			clear(p.shows)
 			p.mu.Unlock()
 			show()
+		}},
+		{"anidb show build", 471, func() {
+			p.mu.Lock()
+			clear(p.shows)
+			p.mu.Unlock()
+			anidbShow()
 		}},
 	}
 	for _, c := range cases {
