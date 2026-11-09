@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -69,6 +70,33 @@ func TestWriteFileAtomic(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Errorf("temporary file left behind: %v", err)
+	}
+}
+
+// okTransport answers every request with 200 and body.
+func okTransport(body string) roundTrip {
+	return func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+	}
+}
+
+// Done runs once the download is no longer in flight: a caller that comes
+// after it starts its own download instead of joining the ended one.
+func TestDoneAfterLeavingInflight(t *testing.T) {
+	c := New(t.TempDir())
+	c.SetTransport(okTransport("ok"))
+	stillInflight := true
+	r := Request{URL: "http://api.example/x", Key: "x"}
+	r.Done = func(error) {
+		c.mu.Lock()
+		_, stillInflight = c.inflight[r.Key]
+		c.mu.Unlock()
+	}
+	if _, err := c.Get(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if stillInflight {
+		t.Fatal("Done ran while the download was still in flight")
 	}
 }
 

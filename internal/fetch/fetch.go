@@ -162,13 +162,16 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 		c.inflight[id] = cl
 		go func() {
 			cl.data, cl.err = c.fetch(r, cl.ticket)
-			if r.Done != nil {
-				r.Done(cl.err)
-			}
+			// Out of inflight before Done: a caller arriving once Done has
+			// run must start its own download, not join this ended one
+			// (AniDB counts each call in Done's caller).
 			c.mu.Lock()
 			delete(c.inflight, id)
 			c.mu.Unlock()
-			close(cl.done)
+			if r.Done != nil {
+				r.Done(cl.err)
+			}
+			close(cl.done) // after Done: a waiter sees the outcome already recorded
 		}()
 	}
 	c.mu.Unlock()
