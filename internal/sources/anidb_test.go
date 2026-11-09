@@ -244,6 +244,27 @@ func TestAniDBStaleEntryParsedOnce(t *testing.T) {
 	}
 }
 
+// A failed call answered with the stale copy says so in the match report.
+func TestAniDBFailedCallReportsStale(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"500", "oops"})
+	path := filepath.Join(filepath.Dir(c.statePath), "anidb", "anime", "69.xml")
+	if err := fetch.WriteFile(path, []byte(anidbSample)); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-200 * 24 * time.Hour) // the entry ended in 2000: 180 days fresh
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	var events []fetch.Event
+	ctx := fetch.WithObserver(context.Background(), func(e fetch.Event) { events = append(events, e) })
+	if a, err := c.Anime(ctx, 69); err != nil || a == nil {
+		t.Fatalf("want the stale copy: %v %v", a, err)
+	}
+	if n := len(events); n == 0 || events[n-1].Kind != fetch.KindStale || events[n-1].Err == nil {
+		t.Fatalf("events %+v, want the last one stale, with the call's error", events)
+	}
+}
+
 // admissions sends the aid of each AniDB call allowed (its debug line), so
 // a test knows a call is past allowed and on its way to the 4 s queue.
 type admissions chan int

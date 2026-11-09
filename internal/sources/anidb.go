@@ -318,7 +318,8 @@ func (c *AniDB) ask(ctx context.Context, aid int, background bool, stale *AniDBA
 		if a := c.again(ctx, aid, start); a != nil {
 			return a, nil
 		}
-		if stale != nil {
+		if stale != nil { // Get reported a failure (NoStale): the old copy answers after all
+			fetch.Observe(ctx, key, fetch.KindStale, start, err)
 			return stale, nil
 		}
 		return nil, err
