@@ -395,4 +395,9 @@ func TestLookups(t *testing.T) {
 	if allocs != 0 {
 		t.Errorf("lookups allocate %.0f times, want 0", allocs)
 	}
+	three := &Lists{} // three appends leave room for a fourth
+	three.SetForTest(map[int]Entry{1: {TVDB: Placement{ID: 100}}, 2: {TVDB: Placement{ID: 100}}, 3: {TVDB: Placement{ID: 100}}})
+	if aids := three.AIDsForTVDB(100); len(aids) != 3 || cap(aids) != len(aids) {
+		t.Errorf("AIDsForTVDB(100) = %v (cap %d): want all three, clipped so an append can't write into the mapping", aids, cap(aids))
+	}
 }

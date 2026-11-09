@@ -312,7 +312,10 @@ func (l *Lists) SetForTest(entries map[int]Entry) { l.set(&snapshot{byAID: entri
 func (l *Lists) ByAID(aid int) Entry { return l.get().byAID[aid] }
 
 // AIDsForTVDB returns every AniDB entry mapped to a TVDB series (sorted).
-func (l *Lists) AIDsForTVDB(tvdb int) []int { return l.get().byNum["tvdb"][tvdb] }
+// The slice is the mapping's own (no copy, lookups don't allocate): read it
+// only. It is clipped, so appending to it copies instead of writing into the
+// mapping.
+func (l *Lists) AIDsForTVDB(tvdb int) []int { return slices.Clip(l.get().byNum["tvdb"][tvdb]) }
 
 // FirstAID returns the AniDB entry that starts a TVDB series: season 1 (or
 // absolute) with no offset, else the lowest id mapped to it. 0 if none.
