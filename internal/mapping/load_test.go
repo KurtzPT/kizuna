@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -45,10 +44,10 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 		_ = os.Chtimes(filepath.Join(dir, "cache", "mapping", "anime-list-master.xml"), old, old)
 	}
 	load()
-	first := reflect.ValueOf(l.byAID).UnsafePointer()
+	first := l.cur.Load()
 	expire()
 	load() // 304
-	if reflect.ValueOf(l.byAID).UnsafePointer() != first {
+	if l.cur.Load() != first {
 		t.Error("unchanged list was parsed and merged again")
 	}
 	if l.ByAID(1).TVDB.ID != 100 {

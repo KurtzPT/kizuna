@@ -24,18 +24,36 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"kizuna/internal/fetch"
 )
 
-// Lists holds the merged mapping in memory.
+// Lists holds the merged mapping in memory. A load swaps in a whole new
+// snapshot; each lookup reads one, so it never mixes two loads.
 type Lists struct {
-	mu    sync.RWMutex
-	byAID map[int]Entry
-	byID  map[string]map[string][]int // source -> id -> aids (sorted)
-	sum   [32]byte                    // of everything the mapping was loaded from (zero after SetForTest)
+	cur atomic.Pointer[snapshot] // nil until something loaded
+}
+
+// snapshot is one loaded mapping. It never changes once stored.
+type snapshot struct {
+	byAID  map[int]Entry
+	byNum  map[string]map[int][]int // source -> numeric id -> aids (sorted)
+	byIMDB map[string][]int         // IMDb id -> aids (sorted)
+	sum    [32]byte                 // of everything it was loaded from (zero = load in full next time)
 	// customOnly: no list has loaded yet; byAID holds anime-list-custom.xml alone.
 	customOnly bool
+}
+
+// empty answers lookups before anything loaded.
+var empty = &snapshot{}
+
+// get returns the current snapshot (empty before the first load).
+func (l *Lists) get() *snapshot {
+	if s := l.cur.Load(); s != nil {
+		return s
+	}
+	return empty
 }
 
 // listSources: how each MAPPING_SOURCES list is downloaded and parsed.
@@ -163,21 +181,18 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	}
 	// Custom entries alone are used until a list loads, but don't make the
 	// mapping Ready: /health stays degraded and the lists are retried soon.
-	l.set(entries, !listsLoaded)
-	if len(errs) == 0 { // after a problem, load in full again: its error is logged until it's gone
-		l.mu.Lock()
-		l.sum = sum
-		l.mu.Unlock()
+	if len(errs) > 0 { // after a problem, load in full again: its error is logged until it's gone
+		sum = [32]byte{}
 	}
+	l.set(entries, !listsLoaded, sum)
 	return errors.Join(errs...) // non-nil only to log a list that failed
 }
 
 // loadedFrom reports whether the current mapping was loaded from inputs
 // with this sum.
 func (l *Lists) loadedFrom(sum [32]byte) bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.byAID != nil && l.sum == sum
+	s := l.cur.Load()
+	return s != nil && sum != [32]byte{} && s.sum == sum
 }
 
 // merge adds src's entries to dst: unknown AniDB ids are added, known ones
@@ -224,111 +239,102 @@ func merge(dst, src map[int]Entry) (added, filled int) {
 	return added, filled
 }
 
-// set swaps in a new mapping and rebuilds the reverse indexes.
-func (l *Lists) set(entries map[int]Entry, customOnly bool) {
-	byID := map[string]map[string][]int{}
-	add := func(src string, id string, aid int) {
-		if id == "" || id == "0" {
+// set swaps in a new mapping with its reverse indexes. sum is what it was
+// loaded from (zero: load in full next time).
+func (l *Lists) set(entries map[int]Entry, customOnly bool, sum [32]byte) {
+	s := &snapshot{byAID: entries, byNum: map[string]map[int][]int{}, byIMDB: map[string][]int{},
+		sum: sum, customOnly: customOnly}
+	add := func(src string, id, aid int) {
+		if id == 0 {
 			return
 		}
-		if byID[src] == nil {
-			byID[src] = map[string][]int{}
+		if s.byNum[src] == nil {
+			s.byNum[src] = map[int][]int{}
 		}
-		byID[src][id] = append(byID[src][id], aid)
+		s.byNum[src][id] = append(s.byNum[src][id], aid)
 	}
 	for aid, e := range entries {
-		add("tvdb", strconv.Itoa(e.TVDB.ID), aid)
-		add("tmdb", strconv.Itoa(e.TMDB.ID), aid)
-		add("tmdbmovie", strconv.Itoa(e.TMDBMovie), aid)
-		add("imdb", e.IMDB, aid)
-		add("mal", strconv.Itoa(e.MAL), aid)
-		add("anilist", strconv.Itoa(e.AniList), aid)
-		add("kitsu", strconv.Itoa(e.Kitsu), aid)
-		add("ann", strconv.Itoa(e.ANN), aid)
+		add("tvdb", e.TVDB.ID, aid)
+		add("tmdb", e.TMDB.ID, aid)
+		add("tmdbmovie", e.TMDBMovie, aid)
+		add("mal", e.MAL, aid)
+		add("anilist", e.AniList, aid)
+		add("kitsu", e.Kitsu, aid)
+		add("ann", e.ANN, aid)
+		if e.IMDB != "" {
+			s.byIMDB[e.IMDB] = append(s.byIMDB[e.IMDB], aid)
+		}
 	}
-	for _, ids := range byID {
+	for _, ids := range s.byNum {
 		for _, aids := range ids {
 			sort.Ints(aids)
 		}
 	}
-	l.mu.Lock()
-	l.byAID, l.byID, l.sum, l.customOnly = entries, byID, [32]byte{}, customOnly
-	l.mu.Unlock()
+	for _, aids := range s.byIMDB {
+		sort.Ints(aids)
+	}
+	l.cur.Store(s)
 }
 
 // Ready reports whether a mapping list has been loaded (anime-list-custom.xml
 // alone doesn't count).
 func (l *Lists) Ready() bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.byAID != nil && !l.customOnly
+	s := l.cur.Load()
+	return s != nil && !s.customOnly
 }
 
 // SetForTest replaces the mapping (for tests in other packages).
-func (l *Lists) SetForTest(entries map[int]Entry) { l.set(entries, false) }
+func (l *Lists) SetForTest(entries map[int]Entry) { l.set(entries, false, [32]byte{}) }
 
 // --- lookups ----------------------------------------------------------------
+// Each one reads a single snapshot and does all its work on it.
 
 // ByAID returns the entry for an AniDB id (zero Entry when unknown).
-func (l *Lists) ByAID(aid int) Entry {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.byAID[aid]
-}
-
-// aids returns the AniDB ids mapped to a source id (sorted).
-func (l *Lists) aids(source, id string) []int {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.byID[source][strings.TrimSpace(id)]
-}
+func (l *Lists) ByAID(aid int) Entry { return l.get().byAID[aid] }
 
 // AIDsForTVDB returns every AniDB entry mapped to a TVDB series (sorted).
-func (l *Lists) AIDsForTVDB(tvdb int) []int {
-	return l.aids("tvdb", strconv.Itoa(tvdb))
-}
+func (l *Lists) AIDsForTVDB(tvdb int) []int { return l.get().byNum["tvdb"][tvdb] }
 
 // FirstAID returns the AniDB entry that starts a TVDB series: season 1 (or
 // absolute) with no offset, else the lowest id mapped to it. 0 if none.
-func (l *Lists) FirstAID(tvdb int) int {
-	return l.firstAID("tvdb", tvdb)
-}
+func (l *Lists) FirstAID(tvdb int) int { return l.get().firstAID("tvdb", tvdb) }
 
 // StartsShow reports whether an AniDB entry is the first one of its series
 // on a site ("tvdb" or "tmdb"), picked like FirstAID by the entry's
 // placement there.
-func (l *Lists) StartsShow(site string, aid int) bool {
-	id := l.ByAID(aid).On(site).ID
-	return id > 0 && l.firstAID(site, id) == aid
-}
-
-// firstAID returns the first entry mapped to a site's series whose placement
-// starts it, else the lowest one (0 if none).
-func (l *Lists) firstAID(site string, id int) int {
-	aids := l.aids(site, strconv.Itoa(id))
-	for _, aid := range aids {
-		if l.ByAID(aid).On(site).Starts() {
-			return aid
-		}
-	}
-	if len(aids) > 0 {
-		return aids[0]
-	}
-	return 0
-}
+func (l *Lists) StartsShow(site string, aid int) bool { return l.get().startsShow(site, aid) }
 
 // AIDFor returns the AniDB id for another site's id (source: tvdb, tmdb,
 // tmdbmovie, imdb, mal, anilist, kitsu, ann; "tmdb" means a TMDB TV show,
 // "tmdbmovie" a TMDB movie), or 0. When a series-level id
 // (TVDB, TMDB, IMDb) covers several AniDB entries, the series' first entry
 // wins.
-func (l *Lists) AIDFor(source, id string) int {
-	if source == "tvdb" {
-		return l.FirstAID(atoi(id))
+func (l *Lists) AIDFor(source, id string) int { return l.get().aidFor(source, id) }
+
+// StartsSeries reports whether an AniDB entry is the first one of its TVDB
+// series (or the only one on its TMDB show when there is no TVDB id), so
+// series-level TVDB/TMDB data such as cast or air date describes it.
+func (l *Lists) StartsSeries(aid int) bool { return l.get().startsSeries(aid) }
+
+// aids returns the AniDB ids mapped to a source id (sorted).
+func (s *snapshot) aids(source, id string) []int {
+	if source == "imdb" {
+		return s.byIMDB[strings.TrimSpace(id)]
 	}
-	aids := l.aids(source, id)
+	return s.byNum[source][atoi(id)]
+}
+
+func (s *snapshot) startsShow(site string, aid int) bool {
+	id := s.byAID[aid].On(site).ID
+	return id > 0 && s.firstAID(site, id) == aid
+}
+
+// firstAID returns the first entry mapped to a site's series whose placement
+// starts it, else the lowest one (0 if none).
+func (s *snapshot) firstAID(site string, id int) int {
+	aids := s.byNum[site][id]
 	for _, aid := range aids {
-		if l.StartsSeries(aid) {
+		if s.byAID[aid].On(site).Starts() {
 			return aid
 		}
 	}
@@ -338,16 +344,29 @@ func (l *Lists) AIDFor(source, id string) int {
 	return 0
 }
 
-// StartsSeries reports whether an AniDB entry is the first one of its TVDB
-// series (or the only one on its TMDB show when there is no TVDB id), so
-// series-level TVDB/TMDB data such as cast or air date describes it.
-func (l *Lists) StartsSeries(aid int) bool {
-	e := l.ByAID(aid)
+func (s *snapshot) aidFor(source, id string) int {
+	if source == "tvdb" {
+		return s.firstAID("tvdb", atoi(id))
+	}
+	aids := s.aids(source, id)
+	for _, aid := range aids {
+		if s.startsSeries(aid) {
+			return aid
+		}
+	}
+	if len(aids) > 0 {
+		return aids[0]
+	}
+	return 0
+}
+
+func (s *snapshot) startsSeries(aid int) bool {
+	e := s.byAID[aid]
 	if e.TVDB.ID > 0 {
-		return l.StartsShow("tvdb", aid)
+		return s.startsShow("tvdb", aid)
 	}
 	if e.TMDB.ID > 0 {
-		return len(l.aids("tmdb", strconv.Itoa(e.TMDB.ID))) == 1
+		return len(s.byNum["tmdb"][e.TMDB.ID]) == 1
 	}
 	return false
 }

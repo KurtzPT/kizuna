@@ -362,3 +362,37 @@ func TestAnimeListsMappingForms(t *testing.T) {
 		t.Errorf("merge must carry the open ranges with the TVDB id: %+v", dst[9304])
 	}
 }
+
+// Lookups read one snapshot: before anything loaded they find nothing, ids
+// are matched as numbers (IMDb as text), and they never allocate.
+func TestLookups(t *testing.T) {
+	l := &Lists{}
+	if l.Ready() || l.ByAID(1).AID != 0 || l.AIDFor("mal", "7") != 0 || l.FirstAID(100) != 0 {
+		t.Error("lookups before a load must find nothing")
+	}
+	l.SetForTest(map[int]Entry{
+		1: {AID: 1, TVDB: Placement{ID: 100, Season: 1, Mapped: true}, MAL: 7, IMDB: "tt01"},
+		2: {AID: 2, TVDB: Placement{ID: 100, Season: 2, Mapped: true}, IMDB: "tt01"},
+	})
+	cases := []struct {
+		source, id string
+		want       int
+	}{
+		{"mal", "7", 1}, {"mal", " 7 ", 1}, {"mal", "x", 0}, {"mal", "0", 0}, {"kitsu", "7", 0},
+		{"imdb", "tt01", 1}, {"imdb", " tt01", 1}, {"tvdb", "100", 1}, {"unknown", "7", 0},
+	}
+	for _, c := range cases {
+		if got := l.AIDFor(c.source, c.id); got != c.want {
+			t.Errorf("AIDFor(%s, %q) = %d, want %d", c.source, c.id, got, c.want)
+		}
+	}
+	allocs := testing.AllocsPerRun(10, func() {
+		l.AIDFor("tvdb", "100")
+		l.AIDFor("imdb", "tt01")
+		l.StartsSeries(2)
+		l.AIDsForTVDB(100)
+	})
+	if allocs != 0 {
+		t.Errorf("lookups allocate %.0f times, want 0", allocs)
+	}
+}
