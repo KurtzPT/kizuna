@@ -5,11 +5,13 @@
 # and ci fails if this default drifts from it.
 ARG GO_VERSION=1.27
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
-ARG TARGETOS TARGETARCH VERSION=dev
 WORKDIR /src
 COPY . .
-RUN go test ./... \
- && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+# before the ARGs: they'd make this step one per target platform, but the
+# tests run on the build platform, so one run (a shared layer) is enough
+RUN go test ./...
+ARG TARGETOS TARGETARCH VERSION=dev
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X kizuna/internal/provider.Version=${VERSION}" -o /out/kizuna ./cmd/kizuna \
  && mkdir -p /out/data
 
