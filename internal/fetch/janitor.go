@@ -13,6 +13,10 @@ import (
 
 const keepFreeEvery = 10 * time.Minute
 
+// tmpInUse: a WriteFile temporary file younger than this may still be
+// written, so prune leaves it; an older one was left by a crash.
+const tmpInUse = 5 * time.Minute
+
 // KeepFree watches the free space of the disk holding the cache. When it
 // drops below minFree bytes, the oldest cached files are deleted until target
 // bytes are free again (or the cache is empty). Files that are cheap to
@@ -75,14 +79,23 @@ type cacheFile struct {
 
 // prune deletes cached files under dir until at least need bytes are gone:
 // cheap files before AniDB entries, the oldest (last written) first.
-// Returns how many files and bytes it deleted.
+// Returns how many files and bytes it deleted. Only regular files go: dir
+// itself may be a link (a symlink or junction to another disk), which is
+// followed, never removed; links inside it are left alone.
 func prune(dir string, need int64) (int, int64) {
+	// A trailing separator makes WalkDir follow dir when it is a link
+	// (filepath.EvalSymlinks would miss a Windows junction).
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return 0, 0
+	}
+	root := filepath.Clean(dir) + string(filepath.Separator)
 	var files []cacheFile
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	now := time.Now()
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
 			return nil
 		}
-		rel, err := filepath.Rel(dir, p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return nil
 		}
@@ -90,6 +103,9 @@ func prune(dir string, need int64) (int, int64) {
 		info, err := d.Info()
 		if err != nil || keep[rel] {
 			return nil
+		}
+		if strings.HasSuffix(rel, ".tmp") && now.Sub(info.ModTime()) < tmpInUse {
+			return nil // a WriteFile may be filling it right now
 		}
 		files = append(files, cacheFile{p, info.Size(), info.ModTime(), strings.HasPrefix(rel, "anidb/anime/")})
 		return nil

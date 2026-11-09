@@ -5,11 +5,14 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -242,6 +245,58 @@ func TestPruneOldestCheapFirst(t *testing.T) {
 	prune(dir, 1000) // everything it may delete
 	if exists("mal/v2-1.json") || exists("anidb/anime/1.xml") || !exists("anidb/animetitles.xml") {
 		t.Fatal("full prune: AniDB entry should go last, the title dump never")
+	}
+}
+
+// A cache folder that is a link is pruned through, never removed itself;
+// links inside it are left alone, and so is a temporary file a WriteFile
+// may still be filling.
+func TestPruneLinksAndTemp(t *testing.T) {
+	real, base := t.TempDir(), t.TempDir()
+	outside := filepath.Join(base, "outside.json")
+	link := filepath.Join(base, "cache")
+	dirLink(t, real, link)
+	now := time.Now()
+	for _, f := range []struct {
+		path string
+		age  time.Duration
+	}{
+		{filepath.Join(real, "tvdb.json"), time.Hour},
+		{filepath.Join(real, "old.json.tmp"), time.Hour}, // left by a crash
+		{filepath.Join(real, "new.json.tmp"), 0},         // being written
+		{outside, time.Hour},
+	} {
+		if err := os.WriteFile(f.path, make([]byte, 100), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Chtimes(f.path, now.Add(-f.age), now.Add(-f.age))
+	}
+	inner := filepath.Join(real, "elsewhere") // a link to the folder holding outside.json
+	dirLink(t, base, inner)
+	if n, freed := prune(link, 1<<30); n != 2 || freed != 200 {
+		t.Errorf("deleted %d files, %d bytes; want the old cache file and the old temporary file", n, freed)
+	}
+	for _, p := range []string{link, inner, outside, filepath.Join(real, "new.json.tmp")} {
+		if _, err := os.Lstat(p); err != nil {
+			t.Errorf("%s removed: %v", p, err)
+		}
+	}
+}
+
+// dirLink makes link point to the folder target: a symlink, or on Windows
+// without the symlink privilege a junction (what a mounted cache often is).
+func dirLink(t *testing.T, target, link string) {
+	t.Helper()
+	err := os.Symlink(target, link)
+	if err != nil && runtime.GOOS == "windows" {
+		var out []byte
+		out, err = exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
+		if err != nil {
+			err = fmt.Errorf("%v: %s", err, out)
+		}
+	}
+	if err != nil {
+		t.Skipf("can't make a folder link here: %v", err)
 	}
 }
 
