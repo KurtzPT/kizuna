@@ -34,8 +34,8 @@ func TestStoreKeepsNewest(t *testing.T) {
 	for i := range MaxBuilds + 2 {
 		r := NewRecorder("anidb-1", "anidb")
 		r.b.ID, r.b.Start = fmt.Sprint(i), time.Date(2026, 1, 1, 0, i, 0, 0, time.UTC)
-		r.Finish(time.Second, nil, ShowDoc{Title: "Show"}, func(b *Build) {
-			b.Episodes = []Episode{{S: 1, E: i}}
+		r.Finish(time.Second, nil, ShowHead{Title: "Show"}, func(b *Build) {
+			b.Episodes = []Episode{{Season: 1, Index: i}}
 		})
 		s.AddBuild("anidb-1", r)
 		if i == 3 {
@@ -76,7 +76,7 @@ func TestStoreKeepsNewest(t *testing.T) {
 func TestStoreUnmatchedThenMatched(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
-	key := s.Unmatched(Match{Mode: "anidb", Title: "Some Show", Year: 2020, Min: 80, Candidates: []Candidate{{AID: 9, Title: "Some Other Show", Score: 60}}})
+	key := s.Unmatched(Match{Mode: "anidb", Title: "Some Show", Year: 2020, MinScore: 80, Candidates: []Candidate{{AID: 9, Title: "Some Other Show", Score: 60}}})
 	s.AddRequest(Request{Key: key, URL: "/anidb/library/metadata/matches", Status: 200})
 	s.Flush()
 	if _, err := os.Stat(filepath.Join(dir, key+".html")); err != nil {
@@ -119,7 +119,7 @@ func TestUnmatchedKey(t *testing.T) {
 
 // Text from a source can't end the page's script or add markup.
 func TestRenderEscapes(t *testing.T) {
-	data, _ := json.Marshal(ShowDoc{Key: "anidb-1", Title: `</script><img src=x onerror=alert(1)> & co`})
+	data, _ := json.Marshal(ShowDoc{Key: "anidb-1", ShowHead: ShowHead{Title: `</script><img src=x onerror=alert(1)> & co`}})
 	html, err := Render(Page{Kind: "show", Version: "test", Data: data})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestBuildIDs(t *testing.T) {
 
 func finished(root string) *Recorder {
 	r := NewRecorder(root, "anidb")
-	r.Finish(time.Second, nil, ShowDoc{Title: "Show"}, nil)
+	r.Finish(time.Second, nil, ShowHead{Title: "Show"}, nil)
 	return r
 }
 
@@ -203,12 +203,12 @@ func TestFlushRetries(t *testing.T) {
 }
 
 // A download that finishes after the page was written queues the build
-// again, which replaces its copy on the page; after LateFor it is ignored.
+// again, which replaces its copy on the page; after lateFor it is ignored.
 func TestLateSpan(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
 	r := NewRecorder("anidb-1", "anidb")
-	r.Finish(time.Second, nil, ShowDoc{Title: "Show"}, func(b *Build) { b.Episodes = []Episode{{S: 1, E: 1}} })
+	r.Finish(time.Second, nil, ShowHead{Title: "Show"}, func(b *Build) { b.Episodes = []Episode{{Season: 1, Index: 1}} })
 	s.AddBuild("anidb-1", r)
 	s.Flush()
 	r.Span("tvdb", "tvdb/late.json", "", SpanNet, time.Now(), time.Millisecond)
@@ -222,7 +222,7 @@ func TestLateSpan(t *testing.T) {
 		t.Fatalf("%d builds, trace %+v: want the one build, with the late download and its episodes", len(doc.Builds), doc.Builds)
 	}
 
-	r.finished = time.Now().Add(-LateFor - time.Second)
+	r.finished = time.Now().Add(-lateFor - time.Second)
 	r.Span("tvdb", "tvdb/later.json", "", SpanNet, time.Now(), time.Millisecond)
 	if s.pending["anidb-1"] != nil || len(r.b.Trace) != 1 {
 		t.Error("a download long after the build was still added")
@@ -243,7 +243,7 @@ func TestPendingMerge(t *testing.T) {
 	}
 }
 
-// Unmatched pages nobody asked about for UnmatchedMaxAge go at start-up.
+// Unmatched pages nobody asked about for unmatchedMaxAge go at start-up.
 func TestUnmatchedAging(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
@@ -254,7 +254,7 @@ func TestUnmatchedAging(t *testing.T) {
 	readDoc(t, dir, "index", &rows)
 	for i := range rows {
 		if rows[i].Key == oldKey {
-			rows[i].Last = time.Now().Add(-UnmatchedMaxAge - time.Hour)
+			rows[i].Last = time.Now().Add(-unmatchedMaxAge - time.Hour)
 		}
 	}
 	data, _ := json.Marshal(rows)
@@ -298,11 +298,11 @@ func TestRequestsCollapseAndLastMatch(t *testing.T) {
 	}
 }
 
-// Pages are written at every flush, the index at most every IndexEvery,
+// Pages are written at every flush, the index at most every indexEvery,
 // except by Flush, which writes everything.
 func TestIndexEvery(t *testing.T) {
-	defer func(d time.Duration) { IndexEvery = d }(IndexEvery)
-	IndexEvery = time.Hour
+	defer func(d time.Duration) { indexEvery = d }(indexEvery)
+	indexEvery = time.Hour
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
 	listed := func() int {
@@ -318,7 +318,7 @@ func TestIndexEvery(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n := listed(); n != 1 {
-		t.Errorf("index lists %d pages before IndexEvery, want 1", n)
+		t.Errorf("index lists %d pages before indexEvery, want 1", n)
 	}
 	s.Flush()
 	if n := listed(); n != 2 {
@@ -347,7 +347,7 @@ func TestNilIsOff(t *testing.T) {
 	r.Step("x")("")
 	r.Field(Field{})
 	r.Check(Check{})
-	r.Finish(0, nil, ShowDoc{}, nil)
+	r.Finish(0, nil, ShowHead{}, nil)
 	var s *Store
 	s.AddBuild("k", NewRecorder("anidb-1", "anidb"))
 	s.AddRequest(Request{Key: "k"})
@@ -358,18 +358,18 @@ func TestNilIsOff(t *testing.T) {
 	}
 }
 
-// Past MaxTraceRows, rows are counted into one summary row per source and
+// Past maxTraceRows, rows are counted into one summary row per source and
 // kind instead of growing the trace without end.
 func TestTraceCap(t *testing.T) {
 	r := NewRecorder("tvdb-1", "tvdb")
 	now := time.Now()
-	for i := range MaxTraceRows + 300 {
+	for i := range maxTraceRows + 300 {
 		r.Span("tvdb", fmt.Sprintf("crew/%d.json", i), "", SpanCache, now, 0)
 	}
 	r.Span("tmdb", "tmdb/x.json", "", SpanNet, now, 0)
 	b, _ := r.snapshot(func() {})
-	if len(b.Trace) != MaxTraceRows+2 {
-		t.Fatalf("%d rows, want %d", len(b.Trace), MaxTraceRows+2)
+	if len(b.Trace) != maxTraceRows+2 {
+		t.Fatalf("%d rows, want %d", len(b.Trace), maxTraceRows+2)
 	}
 	var sum *Span
 	for i := range b.Trace {
@@ -377,7 +377,7 @@ func TestTraceCap(t *testing.T) {
 			sum = &b.Trace[i]
 		}
 	}
-	last := fmt.Sprintf("last: crew/%d.json", MaxTraceRows+299)
+	last := fmt.Sprintf("last: crew/%d.json", maxTraceRows+299)
 	if sum == nil || sum.Label != "300 more like this" || sum.Note != last || sum.Src != "tvdb" {
 		t.Errorf("summary row %+v", sum)
 	}

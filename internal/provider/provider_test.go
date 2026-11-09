@@ -56,7 +56,7 @@ func TestMatchByOtherIDs(t *testing.T) {
 		{"One Piece", "imdb://tt0388629", tvdbMode, "tvdb-81797"},
 	}
 	for _, c := range cases {
-		got, _ := p.candidates(c.mode, c.title, 0, "", c.guid, false)
+		got, _ := p.searchCandidates(c.mode, c.title, MatchRequest{GUID: c.guid}, nil)
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v, want %s", c.title, c.guid, got, c.want)
 		}
@@ -93,7 +93,7 @@ func TestMatchTMDBMovieOrTV(t *testing.T) {
 		{"Anything", "com.plexapp.agents.themoviedb://88?lang=en", "anidb-300"},
 	}
 	for _, c := range cases {
-		got, how := p.candidates(Modes["anidb"], c.title, 0, "", c.guid, false)
+		got, how := p.searchCandidates(Modes["anidb"], c.title, MatchRequest{GUID: c.guid}, nil)
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
 		}
@@ -156,7 +156,7 @@ func TestAutoModePerFolder(t *testing.T) {
 	for _, c := range cases {
 		p := &Provider{lists: l}
 		p.cfg.AutoDefault = c.def
-		got, _ := p.candidates(auto, c.title, 0, "", c.guid, false)
+		got, _ := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("default %s, %q %q: got %v, want %s", c.def, c.title, c.guid, got, c.want)
 		}

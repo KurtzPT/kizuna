@@ -6,15 +6,16 @@ import (
 	"time"
 )
 
-// Kind is how a read was answered.
-type Kind uint8
+// Kind is how a read was answered. The values are the match report's
+// trace kinds (report.SpanKind), which it converts to directly.
+type Kind string
 
 const (
-	KindNet    Kind = iota // downloaded
-	KindCache              // a cached copy
-	KindStale              // the download failed (or was not allowed) and an old cached copy answered
-	KindFail               // nothing: the read failed
-	KindMemory             // the source's own in-memory copy; no file was read
+	KindNet    Kind = "net"    // downloaded
+	KindCache  Kind = "cache"  // a cached copy
+	KindStale  Kind = "stale"  // the download failed (or was not allowed) and an old cached copy answered
+	KindFail   Kind = "fail"   // nothing: the read failed
+	KindMemory Kind = "memory" // the source's own in-memory copy; no file was read
 )
 
 // Event is one read, for an observer (the per-show match report's trace).

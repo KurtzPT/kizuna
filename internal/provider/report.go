@@ -27,12 +27,11 @@ func (p *Provider) SetReports(s *report.Store) { p.reports = s }
 // /tvdb builds of one anime share a page; a TVDB series without one keeps
 // its own key.
 func (p *Provider) reportKey(root string) string {
-	m := rootRe.FindStringSubmatch(root)
-	if m == nil {
+	site, id, ok := parseRoot(root)
+	if !ok {
 		return ""
 	}
-	if m[1] == "tvdb" {
-		id, _ := strconv.Atoi(m[2])
+	if site == "tvdb" {
 		if aid := p.lists.FirstAID(id); aid > 0 {
 			return fmt.Sprintf("anidb-%d", aid)
 		}
@@ -40,18 +39,10 @@ func (p *Provider) reportKey(root string) string {
 	return root
 }
 
-// modeOfRoot: the provider a build is reported under when neither a match
-// nor a metadata request says (a build started outside a Plex request).
-func modeOfRoot(root string) string {
-	if strings.HasPrefix(root, "tvdb-") {
-		return "tvdb"
-	}
-	return "anidb"
-}
-
 // buildMode: the provider a build is reported under, and whose GUIDs its
 // "Sent to Plex" shows: the match request that started it, else the Plex
-// request that did (/auto asks for anidb- and tvdb- shows alike).
+// request that did (/auto asks for anidb- and tvdb- shows alike), else the
+// show's own (a build started outside a Plex request).
 func buildMode(ctx context.Context, root string) string {
 	if m := report.MatchFrom(ctx); m != nil && m.Mode != "" {
 		return m.Mode
@@ -59,7 +50,10 @@ func buildMode(ctx context.Context, root string) string {
 	if rq := report.RequestFrom(ctx); rq != nil && rq.Mode != "" {
 		return rq.Mode
 	}
-	return modeOfRoot(root)
+	if strings.HasPrefix(root, "tvdb-") {
+		return "tvdb"
+	}
+	return "anidb"
 }
 
 // safeReport runs report work at the end of a build. A bug in it is logged
@@ -73,11 +67,6 @@ func safeReport(root string, work func()) {
 	work()
 }
 
-var spanKinds = map[fetch.Kind]report.SpanKind{
-	fetch.KindNet: report.SpanNet, fetch.KindCache: report.SpanCache, fetch.KindStale: report.SpanStale,
-	fetch.KindFail: report.SpanFail, fetch.KindMemory: report.SpanMemory,
-}
-
 // observeFetches records every download, cache read and in-memory answer of
 // a build in its trace.
 func observeFetches(ctx context.Context, rec *report.Recorder) context.Context {
@@ -85,7 +74,7 @@ func observeFetches(ctx context.Context, rec *report.Recorder) context.Context {
 		return ctx
 	}
 	return fetch.WithObserver(ctx, func(e fetch.Event) {
-		rec.Span(sourceOfKey(e.Key), e.Key, errText(e.Err), spanKinds[e.Kind], e.Start, e.Took)
+		rec.Span(sourceOfKey(e.Key), e.Key, errText(e.Err), report.SpanKind(e.Kind), e.Start, e.Took)
 	})
 }
 
@@ -126,7 +115,7 @@ func sourceOfKey(key string) string {
 // recordMatch turns a match request and its outcome into the report form.
 func (p *Provider) recordMatch(mode Mode, r MatchRequest, title, how string, cands []candidate, seen []report.Candidate) *report.Match {
 	m := &report.Match{Time: time.Now(), Mode: mode.Path, Type: matchType(r.Type), Title: title, Year: r.Year, File: r.Filename, GUID: r.GUID,
-		Manual: r.Manual == 1, How: how, Min: p.cfg.MinScore, Candidates: seen}
+		Manual: r.Manual == 1, How: how, MinScore: p.cfg.MinScore, Candidates: seen}
 	if len(cands) > 0 {
 		m.Root, m.Score = cands[0].root, cands[0].score
 	}
@@ -143,11 +132,8 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 	if rec == nil {
 		return
 	}
-	mode, ok := Modes[rec.Mode()] // the provider Plex asked; its GUID scheme is in the output
-	if !ok {
-		mode = Modes[modeOfRoot(root)]
-	}
-	head := report.ShowDoc{}
+	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the output
+	head := report.ShowHead{}
 	aids := p.aidsOf(root)
 	if s != nil {
 		head.Title, head.Orig = s.Title, s.OriginalTitle
@@ -165,22 +151,21 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 			b.Seasons = append(b.Seasons, report.Season{Name: seasonTitle(n), Count: len(s.Episodes[n])})
 			b.EpsTotal += len(s.Episodes[n])
 		}
-		var issues []epIssue
-		b.Episodes, issues = episodeRows(s)
+		var with [][]string
+		b.Episodes, with = episodeRows(s)
 		b.Output = outputRows(p.showItem(mode, s, false))
-		b.Checks = append(b.Checks, buildChecks(s, b, issues)...)
+		b.Checks = append(b.Checks, buildChecks(s, b, with)...)
 	})
 }
 
 // aidsOf returns the AniDB entries a show is built from: the one of an
 // /anidb show, every one mapped to a /tvdb series (first entry first).
 func (p *Provider) aidsOf(root string) []int {
-	m := rootRe.FindStringSubmatch(root)
-	if m == nil {
+	site, id, ok := parseRoot(root)
+	if !ok {
 		return nil
 	}
-	id, _ := strconv.Atoi(m[2])
-	if m[1] == "anidb" {
+	if site == "anidb" {
 		return []int{id}
 	}
 	first := p.lists.FirstAID(id)
@@ -210,8 +195,8 @@ func (p *Provider) idsOf(root string, aids []int) []report.ID {
 		}
 		out = append(out, report.ID{Site: site, Value: s})
 	}
-	if strings.HasPrefix(root, "tvdb-") {
-		add("tvdb", strings.TrimPrefix(root, "tvdb-"))
+	if site, id, _ := parseRoot(root); site == "tvdb" {
+		add("tvdb", id)
 	}
 	if len(aids) > 0 {
 		e := p.lists.ByAID(aids[0])
@@ -258,53 +243,62 @@ func placementSeason(n int) string {
 	return strconv.Itoa(n)
 }
 
-// episodeRows lists the episodes as Plex gets them, and what is wrong with
-// each (issues, in the same order).
-func episodeRows(s *Show) ([]report.Episode, []epIssue) {
+// episodeRows lists the episodes as Plex gets them and, per
+// episodeProblems, the episodes with that problem ("S01E05").
+func episodeRows(s *Show) ([]report.Episode, [][]string) {
 	var out []report.Episode
-	var issues []epIssue
+	with := make([][]string, len(episodeProblems))
 	for _, n := range s.Seasons() {
 		for i := range s.Episodes[n] {
 			ep := &s.Episodes[n][i]
-			is, text := episodeIssue(ep)
-			out = append(out, report.Episode{S: ep.Season, E: ep.Index, Title: ep.Title, From: ep.titleSrc,
-				Titles: ep.titles, Pairs: ep.pairs, Date: ep.Date, Issue: text})
-			issues = append(issues, is)
+			var issues []string
+			for j, pr := range episodeProblems {
+				if text := pr.issue(ep); text != "" {
+					issues = append(issues, text)
+					with[j] = append(with[j], fmt.Sprintf("S%02dE%02d", ep.Season, ep.Index))
+				}
+			}
+			out = append(out, report.Episode{Season: ep.Season, Index: ep.Index, Title: ep.Title, From: ep.titleSrc,
+				Titles: ep.titles, Pairs: ep.pairs, Date: ep.Date, Issue: strings.Join(issues, "; ")})
 		}
 	}
-	return out, issues
+	return out, with
 }
 
-// epIssue is what is wrong with an episode as Plex gets it.
-type epIssue struct{ noTitle, placeholder, entity, noDate bool }
-
-// episodeIssue: what is wrong with an episode, and the same in words ("" if
-// nothing).
-func episodeIssue(ep *Ep) (epIssue, string) {
-	var is epIssue
-	var text []string
-	switch {
-	case ep.Title == "":
-		is.noTitle = true
-		text = append(text, "no title from any source: Plex shows \"Episode "+strconv.Itoa(ep.Index)+"\"")
-	case genericTitle.MatchString(ep.Title):
-		is.placeholder = true
-		text = append(text, "only a placeholder title")
-	}
-	if htmlEntity.MatchString(ep.Title) || htmlEntity.MatchString(ep.Summary) {
-		is.entity = true
-		text = append(text, "HTML entity in the text (shown literally by Plex)")
-	}
-	if ep.Date == "" && ep.Season > 0 {
-		is.noDate = true
-		text = append(text, "no air date")
-	}
-	return is, strings.Join(text, "; ")
+// episodeProblems is what can be wrong with an episode as Plex gets it:
+// issue says it on the episode's row ("" if fine), and one check lists
+// every episode with it.
+var episodeProblems = []struct {
+	issue       func(ep *Ep) string
+	level       report.Level
+	title, text string // the check's, after "N episodes have" and after the episode list
+}{
+	{func(ep *Ep) string {
+		switch {
+		case ep.Title == "":
+			return "no title from any source: Plex shows \"Episode " + strconv.Itoa(ep.Index) + "\""
+		case genericTitle.MatchString(ep.Title):
+			return "only a placeholder title"
+		}
+		return ""
+	}, report.LevelWarn, " no real title", ". No source in EPISODE_TITLES has a title for them."},
+	{func(ep *Ep) string {
+		if htmlEntity.MatchString(ep.Title) || htmlEntity.MatchString(ep.Summary) {
+			return "HTML entity in the text (shown literally by Plex)"
+		}
+		return ""
+	}, report.LevelWarn, " an HTML entity in the text", `. Plex shows it literally ("&lt;3" instead of "<3").`},
+	{func(ep *Ep) string {
+		if ep.Date == "" && ep.Season > 0 {
+			return "no air date"
+		}
+		return ""
+	}, report.LevelInfo, " no air date", "."},
 }
 
 // buildChecks: what in a finished build is worth a look. b.Checks holds the
-// ones recorded while it ran; issues are the problems of b.Episodes.
-func buildChecks(s *Show, b *report.Build, issues []epIssue) []report.Check {
+// ones recorded while it ran; with is episodeRows' episodes per problem.
+func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 	var out []report.Check
 	if s.Placeholders {
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Placeholder episodes", Cause: true,
@@ -319,34 +313,15 @@ func buildChecks(s *Show, b *report.Build, issues []epIssue) []report.Check {
 		out = append(out, report.Check{Level: report.LevelInfo, Title: fmt.Sprintf("Matched by title search with score %d", m.Score),
 			Text: "Not an exact title. If it is the wrong show, add an id tag such as [anidb-N] to the folder name.", Section: report.SectionMatch})
 	}
-	var noTitle, entity, noDate []string
-	for i, is := range issues {
-		code := fmt.Sprintf("S%02dE%02d", b.Episodes[i].S, b.Episodes[i].E)
-		if is.noTitle || is.placeholder {
-			noTitle = append(noTitle, code)
+	for j, codes := range with {
+		if pr := episodeProblems[j]; len(codes) > 0 {
+			out = append(out, report.Check{Level: pr.level, Title: plural(len(codes), "episode has", "episodes have") + pr.title,
+				Text: joinShort(codes, 6) + pr.text, Section: report.SectionEpisodes})
 		}
-		if is.entity {
-			entity = append(entity, code)
-		}
-		if is.noDate {
-			noDate = append(noDate, code)
-		}
-	}
-	if len(noTitle) > 0 {
-		out = append(out, report.Check{Level: report.LevelWarn, Title: plural(len(noTitle), "episode has", "episodes have") + " no real title",
-			Text: joinShort(noTitle, 6) + ". No source in EPISODE_TITLES has a title for them.", Section: report.SectionEpisodes})
-	}
-	if len(entity) > 0 {
-		out = append(out, report.Check{Level: report.LevelWarn, Title: plural(len(entity), "episode has", "episodes have") + " an HTML entity in the text",
-			Text: joinShort(entity, 6) + ". Plex shows it literally (\"&lt;3\" instead of \"<3\").", Section: report.SectionEpisodes})
 	}
 	if htmlEntity.MatchString(s.Title) || htmlEntity.MatchString(s.Summary) {
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "HTML entity in the show's title or summary",
 			Text: "Plex shows it literally.", Section: report.SectionFields})
-	}
-	if len(noDate) > 0 {
-		out = append(out, report.Check{Level: report.LevelInfo, Title: plural(len(noDate), "episode has", "episodes have") + " no air date",
-			Text: joinShort(noDate, 6) + ".", Section: report.SectionEpisodes})
 	}
 	for _, f := range b.Fields {
 		if len(f.Used) == 0 && (f.Name == "Title" || f.Name == "Summary" || f.Name == "Posters") {

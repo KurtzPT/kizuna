@@ -62,7 +62,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	if p.reports != nil {
 		noted = new([]report.Candidate)
 	}
-	cands, how := p.searchCandidates(mode, title, r.Year, r.Filename, r.GUID, r.Manual == 1, noted)
+	cands, how := p.searchCandidates(mode, title, r, noted)
 	attrs := []any{"mode", mode.Path, "type", matchType(r.Type), "title", title, "year", r.Year, "file", r.Filename, "guid", r.GUID, "manual", r.Manual == 1}
 	var m *report.Match
 	if noted != nil {
@@ -128,19 +128,15 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	return nil
 }
 
-// candidates is searchCandidates without noting the title search results
-// (the tests' shorthand).
-func (p *Provider) candidates(mode Mode, title string, year int, filename, guid string, manual bool) ([]candidate, string) {
-	return p.searchCandidates(mode, title, year, filename, guid, manual, nil)
-}
-
 // searchCandidates: an id tag in the show title or the file path (which
 // includes the show folder) wins, then the GUID Plex already has, then title
-// search. how says which of them decided. The first title search results
-// are added to noted (when not nil) for the match report.
-func (p *Provider) searchCandidates(mode Mode, title string, year int, filename, guid string, manual bool, noted *[]report.Candidate) ([]candidate, string) {
+// search. title is the show's title in r (Match picks it by r.Type); how
+// says which of them decided. The first title search results are added to
+// noted (when not nil) for the match report.
+func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
+	year, guid, manual := r.Year, r.GUID, r.Manual == 1
 	query := tagRe.ReplaceAllString(title, "")
-	for _, text := range []string{title, filename} {
+	for _, text := range []string{title, r.Filename} {
 		if m := tagRe.FindStringSubmatch(text); m != nil {
 			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "tag " + m[0]

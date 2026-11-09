@@ -33,16 +33,21 @@ type Page struct {
 // ShowDoc is one show's report: every build of it (by AniDB id, so /anidb
 // and /tvdb builds of the same anime share it), newest first.
 type ShowDoc struct {
-	Key      string    `json:"key"` // file name without .html: anidb-1, or tvdb-2 without an AniDB entry
-	Title    string    `json:"title"`
-	Orig     string    `json:"orig,omitempty"`
-	IDs      []ID      `json:"ids,omitempty"`
+	Key string `json:"key"` // file name without .html: anidb-1, or tvdb-2 without an AniDB entry
+	ShowHead
 	Builds   []Build   `json:"builds"`
 	Requests []Request `json:"requests"`
 	// LastMatch is the newest match request for the show, kept apart from
 	// the builds: on a long scan they are often started by later metadata
 	// requests, and the match would scroll out with its build.
 	LastMatch *Match `json:"lastMatch,omitempty"`
+}
+
+// ShowHead names the show: each build sets it, the newest one wins.
+type ShowHead struct {
+	Title string `json:"title"`
+	Orig  string `json:"orig,omitempty"` // original title
+	IDs   []ID   `json:"ids,omitempty"`
 }
 
 // ID is the show's id on one site (anidb, tvdb, tmdb, tmdbmovie, mal, anilist, imdb, ann, kitsu).
@@ -82,8 +87,8 @@ type Match struct {
 	File       string      `json:"file,omitempty"`
 	GUID       string      `json:"guid,omitempty"`
 	Manual     bool        `json:"manual,omitempty"`
-	How        string      `json:"how"`
-	Min        int         `json:"min"`
+	How        string      `json:"how"` // what decided: "tag [anidb-1]", "guid …", "title search", or why nothing matched
+	MinScore   int         `json:"min"`
 	Root       string      `json:"root,omitempty"` // the show picked; "" = no match
 	Score      int         `json:"score,omitempty"`
 	Candidates []Candidate `json:"candidates,omitempty"`
@@ -106,7 +111,8 @@ type Span struct {
 	End   int64    `json:"end"`
 }
 
-// SpanKind is how a trace row's data came.
+// SpanKind is how a trace row's data came. All but SpanStep are
+// fetch.Kind's values, converted as they are.
 type SpanKind string
 
 const (
@@ -148,8 +154,8 @@ type Season struct {
 
 // Episode is one episode as sent to Plex.
 type Episode struct {
-	S      int               `json:"s"`
-	E      int               `json:"e"`
+	Season int               `json:"s"`
+	Index  int               `json:"e"`
 	Title  string            `json:"title"`
 	From   string            `json:"from,omitempty"`   // source of the title
 	Titles map[string]string `json:"titles,omitempty"` // every source's title
@@ -208,7 +214,7 @@ type Request struct {
 type UnmatchedDoc struct {
 	Key      string    `json:"key"`
 	Match    Match     `json:"match"` // the newest no-match answer
-	Last     time.Time `json:"last"`  // last asked; the page goes after UnmatchedMaxAge without a request
+	Last     time.Time `json:"last"`  // last asked; the page goes after unmatchedMaxAge without a request
 	Requests []Request `json:"requests"`
 }
 
@@ -226,8 +232,8 @@ type IndexRow struct {
 	Builds   int       `json:"builds"`
 	Requests int       `json:"requests"`
 	// unmatched only
-	Year  int    `json:"year,omitempty"`
-	Best  string `json:"best,omitempty"`
-	Score int    `json:"score,omitempty"`
-	Min   int    `json:"min,omitempty"`
+	Year     int    `json:"year,omitempty"`
+	Best     string `json:"best,omitempty"`
+	Score    int    `json:"score,omitempty"`
+	MinScore int    `json:"min,omitempty"`
 }

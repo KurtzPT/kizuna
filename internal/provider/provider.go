@@ -234,15 +234,24 @@ func (p *Provider) pruneShows() {
 
 var rootRe = regexp.MustCompile(`^(anidb|tvdb)-(\d+)$`)
 
-func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
+// parseRoot splits a show key ("anidb-1", "tvdb-2") into its site and id.
+func parseRoot(root string) (site string, id int, ok bool) {
 	m := rootRe.FindStringSubmatch(root)
 	if m == nil {
+		return "", 0, false
+	}
+	id, _ = strconv.Atoi(m[2])
+	return m[1], id, true
+}
+
+func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
+	site, id, ok := parseRoot(root)
+	if !ok {
 		return nil, fmt.Errorf("bad key %q", root)
 	}
-	id, _ := strconv.Atoi(m[2])
 	var s *Show
 	var err error
-	if m[1] == "anidb" {
+	if site == "anidb" {
 		s, err = p.buildAniDB(ctx, id)
 	} else {
 		s, err = p.buildTVDB(ctx, id)

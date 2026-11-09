@@ -24,8 +24,8 @@ import (
 // Store writes the report pages to a folder: <key>.html per show or
 // unmatched title, index.html, and their data in data/<key>.json, which the
 // next update of a page starts from. Updates are batched: Plex asks many
-// things at once, so a page is written at most every FlushEvery, and the
-// index (which lists every page) at most every IndexEvery.
+// things at once, so a page is written at most every flushEvery, and the
+// index (which lists every page) at most every indexEvery.
 //
 // All methods do nothing on a nil Store.
 type Store struct {
@@ -42,17 +42,18 @@ type Store struct {
 	wake       chan struct{}
 }
 
-var (
-	// FlushEvery is how long updates wait to be written together.
-	FlushEvery = 2 * time.Second
-	// IndexEvery is how often the index is rewritten while pages change:
-	// a scan touches many pages, and the index lists them all.
-	IndexEvery = 30 * time.Second
-	// UnmatchedMaxAge: an unmatched title's page goes once Plex hasn't asked
+const (
+	// flushEvery is how long updates wait to be written together.
+	flushEvery = 2 * time.Second
+	// unmatchedMaxAge: an unmatched title's page goes once Plex hasn't asked
 	// about the title for this long (renamed, matched another way, or gone
 	// from the library).
-	UnmatchedMaxAge = 30 * 24 * time.Hour
+	unmatchedMaxAge = 30 * 24 * time.Hour
 )
+
+// indexEvery is how often the index is rewritten while pages change: a scan
+// touches many pages, and the index lists them all. A var for the tests.
+var indexEvery = 30 * time.Second
 
 // maxFails: a page whose updates failed to write this many times in a row
 // drops them, so a folder that stays unwritable doesn't grow the queue.
@@ -80,7 +81,7 @@ func (p *pending) merge(later *pending) {
 }
 
 // Open uses dir (created if needed) and reads the existing index. Unmatched
-// pages older than UnmatchedMaxAge are removed.
+// pages older than unmatchedMaxAge are removed.
 func Open(dir, version string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		return nil, err
@@ -107,7 +108,7 @@ func Open(dir, version string) (*Store, error) {
 	return s, nil
 }
 
-// Run writes pending updates every FlushEvery until ctx ends, then
+// Run writes pending updates every flushEvery until ctx ends, then
 // everything once more.
 func (s *Store) Run(ctx context.Context) {
 	if s == nil {
@@ -117,7 +118,7 @@ func (s *Store) Run(ctx context.Context) {
 		var indexDue <-chan time.Time // an index change left for later
 		s.mu.Lock()
 		if s.indexDirty {
-			indexDue = time.After(IndexEvery - time.Since(s.indexAt))
+			indexDue = time.After(indexEvery - time.Since(s.indexAt))
 		}
 		s.mu.Unlock()
 		select {
@@ -128,7 +129,7 @@ func (s *Store) Run(ctx context.Context) {
 		case <-s.wake:
 			select {
 			case <-ctx.Done():
-			case <-time.After(FlushEvery):
+			case <-time.After(flushEvery):
 			}
 		}
 		s.flush(false)
@@ -257,7 +258,7 @@ func UnmatchedKey(title string) string {
 func (s *Store) Flush() { s.flush(true) }
 
 // flush writes the pending updates, and the index if it changed and index
-// is set or it was last written IndexEvery ago.
+// is set or it was last written indexEvery ago.
 func (s *Store) flush(index bool) {
 	if s == nil {
 		return
@@ -288,7 +289,7 @@ func (s *Store) flush(index bool) {
 
 	s.mu.Lock()
 	s.writing = nil
-	due := s.indexDirty && (index || time.Since(s.indexAt) >= IndexEvery)
+	due := s.indexDirty && (index || time.Since(s.indexAt) >= indexEvery)
 	rows := []IndexRow{}
 	var old []string
 	if due {
@@ -338,9 +339,9 @@ func (s *Store) retry(key string, p *pending, err error) {
 	s.signal()
 }
 
-// expired: an unmatched title Plex hasn't asked about for UnmatchedMaxAge.
+// expired: an unmatched title Plex hasn't asked about for unmatchedMaxAge.
 func expired(r IndexRow) bool {
-	return r.Kind == "unmatched" && time.Since(r.Last) > UnmatchedMaxAge
+	return r.Kind == "unmatched" && time.Since(r.Last) > unmatchedMaxAge
 }
 
 // remove deletes a page and its data.
@@ -378,7 +379,7 @@ func (s *Store) writeShow(key string, p *pending) error {
 			doc.Builds = append(doc.Builds, b)
 		}
 		if head.Title != "" {
-			doc.Title, doc.Orig, doc.IDs = head.Title, head.Orig, head.IDs
+			doc.ShowHead = head
 		}
 	}
 	slices.SortStableFunc(doc.Builds, func(a, b Build) int { return b.Start.Compare(a.Start) })
@@ -451,7 +452,7 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 		return err
 	}
 	row := IndexRow{Key: key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
-		Requests: len(doc.Requests), Min: doc.Match.Min, Modes: []string{doc.Match.Mode}}
+		Requests: len(doc.Requests), MinScore: doc.Match.MinScore, Modes: []string{doc.Match.Mode}}
 	if len(doc.Match.Candidates) > 0 {
 		c := doc.Match.Candidates[0]
 		row.Best, row.Score = fmt.Sprintf("anidb-%d %s", c.AID, c.Title), c.Score

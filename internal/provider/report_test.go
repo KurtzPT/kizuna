@@ -68,7 +68,7 @@ func TestMatchReport(t *testing.T) {
 	if !tvdbFetched {
 		t.Errorf("trace %+v: want TVDB's downloads", b.Trace)
 	}
-	ep := b.Episodes[slices.IndexFunc(b.Episodes, func(e report.Episode) bool { return e.S == 1 && e.E == 1 })]
+	ep := b.Episodes[slices.IndexFunc(b.Episodes, func(e report.Episode) bool { return e.Season == 1 && e.Index == 1 })]
 	if ep.Title != "The Start" || ep.From != "anidb" || ep.Pairs["anidb"] != "100 · 1" {
 		t.Errorf("S01E01 %+v: want AniDB's title, paired with AniDB 100 episode 1", ep)
 	}

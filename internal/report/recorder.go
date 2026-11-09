@@ -12,38 +12,38 @@ import (
 // Recorder collects one build while it runs; every method is safe for
 // concurrent use and does nothing on a nil Recorder, so code can record
 // unconditionally. Downloads that finish after the build (background
-// fetches) are still recorded for LateFor after Finish: one that comes
+// fetches) are still recorded for lateFor after Finish: one that comes
 // after the page was written queues the build again (see Store.AddBuild).
 type Recorder struct {
-	mu       sync.Mutex
-	start    time.Time
-	b        Build
-	head     ShowDoc              // title, original title, ids
-	finished time.Time            // when Finish ran; zero while the build runs
-	written  bool                 // the store wrote it since its last change
-	requeue  func()               // set by the store: write the build again
-	more     map[moreKey]*moreRow // past MaxTraceRows: each source and kind's summary row
+	mu        sync.Mutex
+	start     time.Time
+	b         Build
+	head      ShowHead
+	finished  time.Time                  // when Finish ran; zero while the build runs
+	written   bool                       // the store wrote it since its last change
+	requeue   func()                     // set by the store: write the build again
+	summaries map[summaryKey]*summaryRow // past maxTraceRows: each source and kind's summary row
 }
 
-type moreKey struct {
+type summaryKey struct {
 	src  string
 	kind SpanKind
 }
 
-// moreRow counts the rows a summary row stands for; its label is written
+// summaryRow counts the rows a summary row stands for; its label is written
 // only by snapshot, so a counted row costs no formatting.
-type moreRow struct {
+type summaryRow struct {
 	i, n int    // its index in the trace, rows counted
 	last string // the last one's label
 }
 
-// MaxTraceRows caps a build's trace: past it, rows are counted into one
+// maxTraceRows caps a build's trace: past it, rows are counted into one
 // summary row per source and kind (a long show reads hundreds of episode
 // crew files from the cache).
-var MaxTraceRows = 120
+const maxTraceRows = 120
 
-// LateFor is how long after its build a download is still added to it.
-var LateFor = 2 * time.Minute
+// lateFor is how long after its build a download is still added to it.
+const lateFor = 2 * time.Minute
 
 // NewRecorder starts recording a build of root, caused by a request to mode.
 // The id is unique: builds dedupe per root, so two at the same instant have
@@ -61,7 +61,7 @@ func (r *Recorder) ID() string {
 	return r.b.ID
 }
 
-func (r *Recorder) ms(t time.Time) int64 { return t.Sub(r.start).Milliseconds() }
+func (r *Recorder) sinceStart(t time.Time) int64 { return t.Sub(r.start).Milliseconds() }
 
 // Span adds a trace row that ran from start for took.
 func (r *Recorder) Span(src, label, note string, kind SpanKind, start time.Time, took time.Duration) {
@@ -69,11 +69,11 @@ func (r *Recorder) Span(src, label, note string, kind SpanKind, start time.Time,
 		return
 	}
 	r.mu.Lock()
-	if !r.finished.IsZero() && time.Since(r.finished) > LateFor {
+	if !r.finished.IsZero() && time.Since(r.finished) > lateFor {
 		r.mu.Unlock()
 		return
 	}
-	r.addSpan(Span{Src: src, Label: label, Note: note, Kind: kind, Start: r.ms(start), End: r.ms(start.Add(took))})
+	r.addSpan(Span{Src: src, Label: label, Note: note, Kind: kind, Start: r.sinceStart(start), End: r.sinceStart(start.Add(took))})
 	var requeue func()
 	if r.written {
 		r.written, requeue = false, r.requeue
@@ -84,21 +84,21 @@ func (r *Recorder) Span(src, label, note string, kind SpanKind, start time.Time,
 	}
 }
 
-// addSpan appends a row, or past MaxTraceRows counts it into its source and
+// addSpan appends a row, or past maxTraceRows counts it into its source and
 // kind's summary row; caller holds r.mu.
 func (r *Recorder) addSpan(sp Span) {
-	if len(r.b.Trace) < MaxTraceRows || sp.Kind == SpanStep {
+	if len(r.b.Trace) < maxTraceRows || sp.Kind == SpanStep {
 		r.b.Trace = append(r.b.Trace, sp)
 		return
 	}
-	key := moreKey{sp.Src, sp.Kind}
-	m := r.more[key]
+	key := summaryKey{sp.Src, sp.Kind}
+	m := r.summaries[key]
 	if m == nil {
-		if r.more == nil {
-			r.more = map[moreKey]*moreRow{}
+		if r.summaries == nil {
+			r.summaries = map[summaryKey]*summaryRow{}
 		}
-		m = &moreRow{i: len(r.b.Trace)}
-		r.more[key] = m
+		m = &summaryRow{i: len(r.b.Trace)}
+		r.summaries[key] = m
 		r.b.Trace = append(r.b.Trace, Span{Src: sp.Src, Kind: sp.Kind, Start: sp.Start, End: sp.End})
 	}
 	sum := &r.b.Trace[m.i]
@@ -144,9 +144,6 @@ func (r *Recorder) SetMatch(m *Match) {
 	defer r.mu.Unlock()
 	c := *m
 	r.b.Match = &c
-	if m.Mode != "" {
-		r.b.Mode = m.Mode
-	}
 }
 
 // Mode is the provider URL the build is reported under.
@@ -161,7 +158,7 @@ func (r *Recorder) Mode() string {
 
 // Finish ends the build: took is how long it ran, err its failure.
 // set fills in the rest (episodes, mapping, output…) under the lock.
-func (r *Recorder) Finish(took time.Duration, err error, head ShowDoc, set func(b *Build)) {
+func (r *Recorder) Finish(took time.Duration, err error, head ShowHead, set func(b *Build)) {
 	if r == nil {
 		return
 	}
@@ -180,13 +177,13 @@ func (r *Recorder) Finish(took time.Duration, err error, head ShowDoc, set func(
 
 // snapshot copies the build as it stands, rows in time order, and marks it
 // written: a later span calls requeue.
-func (r *Recorder) snapshot(requeue func()) (Build, ShowDoc) {
+func (r *Recorder) snapshot(requeue func()) (Build, ShowHead) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.written, r.requeue = true, requeue
 	b := r.b
 	b.Trace = slices.Clone(b.Trace)
-	for _, m := range r.more {
+	for _, m := range r.summaries {
 		b.Trace[m.i].Label = fmt.Sprintf("%d more like this", m.n)
 		b.Trace[m.i].Note = "last: " + m.last
 	}
