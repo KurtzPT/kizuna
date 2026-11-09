@@ -12,7 +12,7 @@ func TestStartsSeries(t *testing.T) {
 		5: {AID: 5, TMDB: Placement{ID: 600}},
 	})
 	for aid, want := range map[int]bool{1: true, 2: false, 3: true, 4: false, 9: false} {
-		if got := l.StartsSeries(aid); got != want {
+		if got := l.get().startsSeries(aid); got != want {
 			t.Errorf("aid %d: got %v, want %v", aid, got, want)
 		}
 	}
@@ -46,6 +46,39 @@ func TestStartsShow(t *testing.T) {
 	}
 	if l.FirstAID(100) != 2 {
 		t.Errorf("FirstAID(100) = %d, want 2", l.FirstAID(100))
+	}
+}
+
+// When no entry starts a series, the first is the lowest that isn't
+// special-only (a movie or OVA among the specials, on TheTVDB or on that
+// site); a special-only one only when there's nothing else.
+func TestFirstAIDSkipsSpecialOnly(t *testing.T) {
+	l := &Lists{}
+	l.SetForTest(map[int]Entry{
+		1: {AID: 1, TVDB: Placement{ID: 100, Season: 0, Offset: 4, Mapped: true}, TMDB: Placement{ID: 500}},
+		2: {AID: 2, TVDB: Placement{ID: 100, Season: 2, Mapped: true}, TMDB: Placement{ID: 500}},
+		3: {AID: 3, TVDB: Placement{ID: 200, Season: 0, Mapped: true}},
+		4: {AID: 4, TMDB: Placement{ID: 600, Season: 0, Mapped: true}},
+		5: {AID: 5, TMDB: Placement{ID: 600, Season: 2, Mapped: true}},
+	})
+	if got := l.FirstAID(100); got != 2 {
+		t.Errorf("FirstAID(100) = %d, want 2 (not the special-only 1)", got)
+	}
+	if got := l.FirstAID(200); got != 3 {
+		t.Errorf("FirstAID(200) = %d, want 3 (the only entry)", got)
+	}
+	for _, c := range []struct {
+		site string
+		aid  int
+		want bool
+	}{
+		{"tvdb", 1, false}, {"tvdb", 2, true},
+		{"tmdb", 1, false}, {"tmdb", 2, true}, // special-only on TheTVDB
+		{"tmdb", 4, false}, {"tmdb", 5, true}, // in TheMovieDb's specials
+	} {
+		if got := l.StartsShow(c.site, c.aid); got != c.want {
+			t.Errorf("StartsShow(%s, %d) = %v, want %v", c.site, c.aid, got, c.want)
+		}
 	}
 }
 
@@ -389,7 +422,7 @@ func TestLookups(t *testing.T) {
 	allocs := testing.AllocsPerRun(10, func() {
 		l.AIDFor("tvdb", "100")
 		l.AIDFor("imdb", "tt01")
-		l.StartsSeries(2)
+		l.StartsShow("tvdb", 2)
 		l.AIDsForTVDB(100)
 	})
 	if allocs != 0 {

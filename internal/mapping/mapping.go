@@ -318,7 +318,8 @@ func (l *Lists) ByAID(aid int) Entry { return l.get().byAID[aid] }
 func (l *Lists) AIDsForTVDB(tvdb int) []int { return slices.Clip(l.get().byNum["tvdb"][tvdb]) }
 
 // FirstAID returns the AniDB entry that starts a TVDB series: season 1 (or
-// absolute) with no offset, else the lowest id mapped to it. 0 if none.
+// absolute) with no offset, else the lowest id mapped to it, preferring one
+// that isn't special-only. 0 if none.
 func (l *Lists) FirstAID(tvdb int) int { return l.get().firstAID("tvdb", tvdb) }
 
 // StartsShow reports whether an AniDB entry is the first one of its series
@@ -332,11 +333,6 @@ func (l *Lists) StartsShow(site string, aid int) bool { return l.get().startsSho
 // (TVDB, TMDB, IMDb) covers several AniDB entries, the series' first entry
 // wins.
 func (l *Lists) AIDFor(source, id string) int { return l.get().aidFor(source, id) }
-
-// StartsSeries reports whether an AniDB entry is the first one of its TVDB
-// series (or the only one on its TMDB show when there is no TVDB id), so
-// series-level TVDB/TMDB data such as cast or air date describes it.
-func (l *Lists) StartsSeries(aid int) bool { return l.get().startsSeries(aid) }
 
 // aids returns the AniDB ids mapped to a source id (sorted).
 func (s *snapshot) aids(source, id string) []int {
@@ -352,11 +348,18 @@ func (s *snapshot) startsShow(site string, aid int) bool {
 }
 
 // firstAID returns the first entry mapped to a site's series whose placement
-// starts it, else the lowest one (0 if none).
+// starts it, else the lowest one that isn't special-only (a movie or OVA
+// among the series' specials, on TheTVDB or on that site), else the lowest
+// one (0 if none).
 func (s *snapshot) firstAID(site string, id int) int {
 	aids := s.byNum[site][id]
 	for _, aid := range aids {
 		if s.byAID[aid].On(site).Starts() {
+			return aid
+		}
+	}
+	for _, aid := range aids {
+		if e := s.byAID[aid]; !e.SpecialOnly() && !e.On(site).specialsOnly() {
 			return aid
 		}
 	}
@@ -382,6 +385,8 @@ func (s *snapshot) aidFor(source, id string) int {
 	return 0
 }
 
+// startsSeries: an entry is the first one of its TVDB series (or the only
+// one on its TMDB show when there is no TVDB id), for aidFor.
 func (s *snapshot) startsSeries(aid int) bool {
 	e := s.byAID[aid]
 	if e.TVDB.ID > 0 {

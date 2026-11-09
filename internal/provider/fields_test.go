@@ -37,28 +37,30 @@ func TestImagesAllAndFirst(t *testing.T) {
 	}
 }
 
+// Each site's series details are used only when the entry starts its series
+// on that site.
 func TestSeriesGuard(t *testing.T) {
-	series := func() (sources.Details, error) {
-		return sources.Details{Genres: []string{"series"}, Date: "2004-01-01"}, nil
-	}
-	ss := &showSources{tvdb: 1, tmdb: 2}
-	ss.tvdbDetails.f, ss.tmdbDetails.f = series, series
-	ss.mal.f = func() (sources.MALAnime, error) {
-		return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}}, nil
+	details := func(src string) func() (sources.Details, error) {
+		return func() (sources.Details, error) { return sources.Details{Genres: []string{src}}, nil }
 	}
 	order := []string{"tvdb", "tmdb", "mal"}
 	has := func(d sources.Details) bool { return len(d.Genres) > 0 }
-
-	if got := pd(ss.pickDetails(order, has)).Genres[0]; got != "mal" { // sequel entry: skip series data
-		t.Errorf("not first entry: got %q, want mal", got)
-	}
-	ss.movie = true // a TMDB movie is its own entry
-	if got := pd(ss.pickDetails([]string{"tvdb", "tmdb"}, has)).Genres; len(got) != 1 {
-		t.Errorf("movie: got %v, want tmdb genres", got)
-	}
-	ss.movie, ss.series = false, true
-	if got := pd(ss.pickDetails(order, has)).Genres[0]; got != "series" {
-		t.Errorf("first entry: got %q, want series", got)
+	for _, c := range []struct {
+		first firstEntry
+		want  string
+	}{
+		{firstEntry{}, "mal"}, // a later entry on both: skip series data
+		{firstEntry{tvdb: true}, "tvdb"},
+		{firstEntry{tmdb: true}, "tmdb"}, // a later TheTVDB entry, its own TheMovieDb show
+	} {
+		ss := &showSources{tvdb: 1, tmdb: 2, first: c.first}
+		ss.tvdbDetails.f, ss.tmdbDetails.f = details("tvdb"), details("tmdb")
+		ss.mal.f = func() (sources.MALAnime, error) {
+			return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}}, nil
+		}
+		if got := pd(ss.pickDetails(order, has)).Genres[0]; got != c.want {
+			t.Errorf("%+v: got %q, want %q", c.first, got, c.want)
+		}
 	}
 }
 
@@ -71,7 +73,7 @@ func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
 	cfg := config.Config{SummarySources: []string{"anidb", "tvdb"}, GenreSources: []string{"anidb", "tmdb"},
 		DateSources: []string{"anidb", "tvdb", "tmdb"}}
 	newSS := func(a *sources.AniDBAnime) (*showSources, func() []string) {
-		ss := &showSources{p: &Provider{cfg: cfg}, a: a, series: true, show: seriesTarget}
+		ss := &showSources{p: &Provider{cfg: cfg}, a: a, first: firstEntry{true, true}, show: seriesTarget}
 		var mu sync.Mutex
 		var asked []string
 		started := map[string]chan struct{}{"tvdb": make(chan struct{}), "tmdb": make(chan struct{})}
@@ -199,7 +201,7 @@ func TestLaterEntrySummary(t *testing.T) {
 		net := &fakeNet{answer: seasonTexts}
 		p := newTestProvider(t, net)
 		p.cfg.TitleSources = []string{"anidb"} // only the summary may ask for the series' text
-		ss := p.newSources(context.Background(), 100, c.a, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, c.series)
+		ss := p.newSources(context.Background(), 100, c.a, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, firstEntry{c.series, c.series})
 		ss.mal.f = func() (sources.MALAnime, error) { return sources.MALAnime{Synopsis: "MAL."}, nil }
 		s := &Show{}
 		ss.fill(s)
@@ -210,6 +212,43 @@ func TestLaterEntrySummary(t *testing.T) {
 		// for its season list: the summary above shows it isn't used.
 		if !c.series && net.count("api4.thetvdb.com/v4/series/500/translations/eng") > 0 {
 			t.Errorf("%s: a later entry fetched the series overview", c.name)
+		}
+	}
+}
+
+// Whether an /anidb entry starts its series is decided per site: TheTVDB's
+// data follows TheTVDB's placement, TheMovieDb's its own. A later entry of
+// one TheTVDB series can be the first of its own TheMovieDb show, and the
+// reverse.
+func TestFirstEntryPerSite(t *testing.T) {
+	tvdb := func(id, season int) mapping.Placement { return mapping.Placement{ID: id, Season: season, Mapped: true} }
+	for _, c := range []struct {
+		name       string
+		lists      map[int]mapping.Entry
+		tvdb, tmdb string // the summary with only that source
+	}{
+		{"later on TheTVDB, own TheMovieDb show", map[int]mapping.Entry{
+			99:  {AID: 99, TVDB: tvdb(500, 1)},
+			100: {AID: 100, TVDB: tvdb(500, 3), TMDB: tvdb(77, 1)},
+		}, "TVDB season 3.", "TMDB series."},
+		{"own TheTVDB series, later on TheMovieDb", map[int]mapping.Entry{
+			99:  {AID: 99, TVDB: tvdb(400, 1), TMDB: tvdb(77, 1)},
+			100: {AID: 100, TVDB: tvdb(500, 1), TMDB: tvdb(77, 2)},
+		}, "TVDB series.", "TMDB season 2."},
+	} {
+		for src, want := range map[string]string{"tvdb": c.tvdb, "tmdb": c.tmdb} {
+			net := &fakeNet{answer: seasonTexts}
+			p := newTestProvider(t, net)
+			p.anidb = anidbWithState(t, net, "", anidbState{}) // AniDB not configured
+			p.lists.SetForTest(c.lists)
+			p.cfg.SummarySources = []string{src}
+			s, err := p.buildShow(context.Background(), "anidb-100")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Summary != want {
+				t.Errorf("%s, %s: summary %q, want %q", c.name, src, s.Summary, want)
+			}
 		}
 	}
 }

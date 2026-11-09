@@ -28,17 +28,20 @@ type Entry struct {
 // Piece Film Red is S00E46 of One Piece) are their own show in every mode,
 // not part of the series. An exception saying an episode has no TVDB
 // counterpart ("2-0") doesn't count.
-func (e Entry) SpecialOnly() bool {
-	pl := e.TVDB
-	if pl.ID <= 0 || !pl.Mapped || pl.Season != 0 {
+func (e Entry) SpecialOnly() bool { return e.TVDB.specialsOnly() }
+
+// specialsOnly: every episode of the placement is in the series' specials
+// (see SpecialOnly).
+func (p Placement) specialsOnly() bool {
+	if p.ID <= 0 || !p.Mapped || p.Season != 0 {
 		return false
 	}
-	for _, m := range pl.Episodes {
+	for _, m := range p.Episodes {
 		if m.Season != 0 && m.Ep > 0 {
 			return false
 		}
 	}
-	for _, r := range pl.Ranges {
+	for _, r := range p.Ranges {
 		if r.Season != 0 {
 			return false
 		}

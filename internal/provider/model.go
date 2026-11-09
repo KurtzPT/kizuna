@@ -197,7 +197,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 
-	ss := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid))
+	// Each site's series-level data describes the entry when it starts its
+	// series there: TheTVDB's and TheMovieDb's seasons may split differently.
+	ss := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie,
+		firstEntry{tvdb: p.lists.StartsShow("tvdb", aid), tmdb: movie || p.lists.StartsShow("tmdb", aid)})
 	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
 	var wg sync.WaitGroup
 	episodesOK := true
@@ -408,7 +411,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	// TheTVDB's crew records, and TheTVDB's and TheMovieDb's art.
 	b.prefetch(ctx, p)
 	defer b.wait()
-	ss := p.newSources(ctx, aid, nil, entry, tvdbID, tmdbID, false, true)
+	ss := p.newSources(ctx, aid, nil, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
 	ss.warmEarly()
 	wg.Wait()

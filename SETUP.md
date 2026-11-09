@@ -306,11 +306,14 @@ Fallbacks are only downloaded when they're needed. `none` turns a field off.
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
 In `/anidb`, TheTVDB and TheMovieDb TV data describe the whole series, so for genres, cast, crew, studio, rating and
-date they're only used on the AniDB entry that starts the series (a TheMovieDb movie is always its own entry). For the
-summary, a later entry gets the summary of the season the [id mapping](README.md#-id-mapping) puts it in: TheTVDB's
-aired-order season, else TheMovieDb's. With no such season (absolute order, specials, no mapped season, or a season
-without an English summary) those two are skipped, and MAL and ANN come next. The legacy TheTVDB key has no season
-summaries.
+date they're only used on the AniDB entry that starts the series (a TheMovieDb movie is always its own entry). Each
+site decides by its own placement: when TheTVDB has one series and TheMovieDb a show per part (*X* and *X Part 2*),
+part 2 is a later entry for TheTVDB's data but the first one for TheMovieDb's, and the reverse. A series that no
+entry starts in season 1 (or absolute order) without an offset starts with its lowest AniDB id, leaving out movies and
+OVAs among the specials unless there's nothing else. For the summary, a later entry gets the summary of the season the
+[id mapping](README.md#-id-mapping) puts it in: TheTVDB's aired-order season, else TheMovieDb's. With no such season
+(absolute order, specials, no mapped season, or a season without an English summary) those two are skipped, and MAL
+and ANN come next. The legacy TheTVDB key has no season summaries.
 
 **Episode directors and writers** come from TheTVDB, else TheMovieDb (each field on its own), in both modes; AniDB has
 none per episode. With a v4 TheTVDB key they're in one record per episode: Kizuna fetches them for up to 8 seconds
@@ -334,7 +337,7 @@ have one poster per entry. Those always give their series' (or entry's) art, wha
 
 | | TheTVDB / TheMovieDb art of |
 |---|---|
-| `/anidb` show, the entry that starts its series | the series, then season 1 |
+| `/anidb` show, the entry that starts its series (on that site) | the series, then season 1 |
 | `/anidb` show, a later entry (*Attack on Titan Season 3*) | the season the [id mapping](#-fixing-a-wrong-mapping) puts it in (TVDB season 3) |
 | `/anidb` show, a movie or special among the series' specials | season 0 (TheMovieDb: the movie's own art) |
 | `/anidb` show in absolute order, or not mapped to a season | the series |

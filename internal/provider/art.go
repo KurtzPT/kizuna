@@ -52,11 +52,11 @@ func (k artKind) order(ss *showSources) []string {
 const noSeason = -1
 
 // artTarget is what a show's or a Plex season's art is of: its season on
-// TheTVDB and on TheMovieDb. seriesFirst: the series' art comes first, then
-// season 1's (an /anidb entry that starts its series).
+// TheTVDB and on TheMovieDb. first: on that site, the series' art comes
+// first, then season 1's (an /anidb entry that starts its series there).
 type artTarget struct {
-	tvdb, tmdb  int
-	seriesFirst bool
+	tvdb, tmdb int
+	first      firstEntry
 }
 
 var seriesTarget = artTarget{tvdb: noSeason, tmdb: noSeason}
@@ -65,6 +65,11 @@ var seriesTarget = artTarget{tvdb: noSeason, tmdb: noSeason}
 type plexSeason struct {
 	n int
 	t artTarget
+}
+
+// seriesFirst: the series' art comes before season 1's on src.
+func (t artTarget) seriesFirst(src string) bool {
+	return src == "tvdb" && t.first.tvdb || src == "tmdb" && t.first.tmdb
 }
 
 func (t artTarget) on(src string) int {
@@ -103,7 +108,7 @@ func (ss *showSources) anidbTargets(entry mapping.Entry, seasons []int) {
 			ss.seasons[i].t = specials
 		}
 	}
-	t.seriesFirst = ss.series
+	t.first = ss.first
 	ss.show = t
 }
 
@@ -189,7 +194,7 @@ func (ss *showSources) artParts(src string, k artKind, t artTarget) (first, then
 		return k.of(ss.art(src)), nil
 	}
 	season := k.of(ss.seasonArt(src, n))
-	if t.seriesFirst && n == 1 {
+	if t.seriesFirst(src) && n == 1 {
 		return k.of(ss.art(src)), season
 	}
 	if cfg := ss.p.cfg; cfg.SeasonArtFallback && (cfg.ArtAllSources || len(season) == 0) {
@@ -209,7 +214,7 @@ func (ss *showSources) describeArt(src string, k artKind, t artTarget) string {
 		return countOf(len(first), what)
 	}
 	a, b := strings.ToLower(seasonTitle(n)), "series"
-	if t.seriesFirst && n == 1 {
+	if t.seriesFirst(src) && n == 1 {
 		a, b = b, a
 	}
 	var parts []string

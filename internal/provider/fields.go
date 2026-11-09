@@ -25,9 +25,10 @@ type showSources struct {
 	tvdb  int
 	tmdb  int
 	movie bool // tmdb is a movie id
-	// series: the show is the first AniDB entry of its TVDB/TMDB series (always
-	// true in /tvdb mode). Series-level details are only used when it is.
-	series bool
+	// first: the show is the first AniDB entry of its series on TheTVDB and
+	// on TheMovieDb (both true in /tvdb mode, tmdb for a movie). A site's
+	// series-level data is only used when it is there.
+	first firstEntry
 
 	tvdbText, tmdbText lazy[text]
 	// tvdbSeason, tmdbSeason: the summary of the season a later entry sits
@@ -67,10 +68,14 @@ type showSources struct {
 
 type text struct{ title, summary string }
 
+// firstEntry: whether a show is the first AniDB entry of its series on each
+// site (mapping.Lists.StartsShow).
+type firstEntry struct{ tvdb, tmdb bool }
+
 // newSources: entry is aid's mapping entry, for the ANN and MAL ids when
 // AniDB has no link to them or no details.
-func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, entry mapping.Entry, tvdb, tmdb int, movie, series bool) *showSources {
-	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series, rec: report.RecorderFrom(ctx),
+func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, entry mapping.Entry, tvdb, tmdb int, movie bool, first firstEntry) *showSources {
+	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, first: first, rec: report.RecorderFrom(ctx),
 		show: seriesTarget}
 	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) {
 		d, ids, err := p.tvdb.DetailsAndSeasons(ctx, tvdb)
@@ -86,9 +91,7 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 		n, o, err := p.tmdb.Text(ctx, tmdb, movie)
 		return text{n, o}, err
 	})
-	if !series {
-		ss.seasonSummaries(ctx, entry)
-	}
+	ss.seasonSummaries(ctx, entry)
 	ss.tvdbArt.from(tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
 	ss.tmdbArt.from(tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
 	ss.seasonArtOf = func(src string, n, sid int) (sources.Art, error) {
@@ -125,14 +128,14 @@ func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entr
 }
 
 // seasonSummaries sets up the season summaries of an entry that doesn't
-// start its series: the TheTVDB and TheMovieDb seasons its mapping puts it
-// in. Absolute order (-1), specials (0) or no mapped season: none.
+// start its series on a site: the TheTVDB and TheMovieDb seasons its mapping
+// puts it in. Absolute order (-1), specials (0) or no mapped season: none.
 func (ss *showSources) seasonSummaries(ctx context.Context, entry mapping.Entry) {
 	p := ss.p
-	if n, ok := mappedSeason(entry.TVDB); ok {
+	if n, ok := mappedSeason(entry.TVDB); ok && !ss.first.tvdb {
 		ss.tvdbSeason.from(ss.tvdb, p.tvdb.Enabled(), func() (string, error) { return p.tvdb.SeasonOverview(ctx, ss.tvdb, n) })
 	}
-	if n, ok := mappedSeason(entry.TMDB); ok && !ss.movie {
+	if n, ok := mappedSeason(entry.TMDB); ok && !ss.first.tmdb && !ss.movie {
 		ss.tmdbSeason.from(ss.tmdb, p.tmdb.Enabled(), func() (string, error) { return p.tmdb.SeasonOverview(ctx, ss.tmdb, n) })
 	}
 }
@@ -177,7 +180,7 @@ func (ss *showSources) title(src string) string {
 }
 
 // summary: TVDB and TMDB TV overviews describe the whole series (its first
-// season, mostly), so a later entry gets its own season's instead.
+// season, mostly), so a later entry there gets its own season's instead.
 func (ss *showSources) summary(src string) string {
 	switch src {
 	case "anidb":
@@ -185,12 +188,12 @@ func (ss *showSources) summary(src string) string {
 			return ss.a.Description
 		}
 	case "tvdb":
-		if !ss.series {
+		if !ss.first.tvdb {
 			return ss.tvdbSeason.get()
 		}
 		return ss.tvdbText.get().summary
 	case "tmdb":
-		if !ss.series && !ss.movie {
+		if !ss.first.tmdb {
 			return ss.tmdbSeason.get()
 		}
 		return ss.tmdbText.get().summary
@@ -225,18 +228,19 @@ func (ss *showSources) art(src string) sources.Art {
 }
 
 // details returns a source's genres, people, studio, rating and date.
-// TVDB and TMDB TV data describe the whole series, so they are skipped
-// unless this show starts it; a TMDB movie is always its own entry.
+// TVDB and TMDB TV data describe the whole series, so each is skipped
+// unless this show starts it on that site; a TMDB movie is always its own
+// entry.
 func (ss *showSources) details(src string) sources.Details {
 	switch src {
 	case "anidb":
 		return ss.anidbDetails()
 	case "tvdb":
-		if ss.series {
+		if ss.first.tvdb {
 			return ss.tvdbDetails.get()
 		}
 	case "tmdb":
-		if ss.series || ss.movie {
+		if ss.first.tmdb {
 			return ss.tmdbDetails.get()
 		}
 	case "mal":
@@ -279,7 +283,7 @@ func (ss *showSources) fill(s *Show) {
 	debug := debugOn(context.Background())
 	var used []any // the debug line, built only when it is logged
 	if debug {
-		used = []any{"root", s.Root, "first_entry", ss.series}
+		used = []any{"root", s.Root, "first_tvdb", ss.first.tvdb, "first_tmdb", ss.first.tmdb}
 	}
 	note := func(field, src string) {
 		if debug {
@@ -465,12 +469,12 @@ func (ss *showSources) titleLazy(src string) warmer {
 func (ss *showSources) summaryLazy(src string) warmer {
 	switch src {
 	case "tvdb":
-		if !ss.series {
+		if !ss.first.tvdb {
 			return &ss.tvdbSeason
 		}
 		return &ss.tvdbText
 	case "tmdb":
-		if !ss.series && !ss.movie {
+		if !ss.first.tmdb {
 			return &ss.tmdbSeason
 		}
 		return &ss.tmdbText
@@ -485,11 +489,11 @@ func (ss *showSources) summaryLazy(src string) warmer {
 func (ss *showSources) detailsLazy(src string) warmer {
 	switch src {
 	case "tvdb":
-		if ss.series {
+		if ss.first.tvdb {
 			return &ss.tvdbDetails
 		}
 	case "tmdb":
-		if ss.series || ss.movie {
+		if ss.first.tmdb {
 			return &ss.tmdbDetails
 		}
 	case "mal":
