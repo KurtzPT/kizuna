@@ -19,10 +19,10 @@ type hostLimit struct {
 	fg, bg  []*ticket     // waiting requests, in arrival order
 	changed chan struct{} // closed (and replaced) when last or the queues change
 
-	// released, if set, gets each let-through time, in order, under mu: tests
-	// check the spacing there, not after wait returns (a delayed goroutine
-	// would make it look shorter).
-	released func(time.Time)
+	// released, if set, gets each let-through request and time, in order,
+	// under mu: tests check the order and spacing there, not after wait
+	// returns (a delayed goroutine would make them look wrong).
+	released func(*ticket, time.Time)
 }
 
 // ticket is one request's place in a hostLimit's queue.
@@ -109,7 +109,7 @@ func (t *ticket) wait() time.Duration {
 			}
 			l.last = now
 			if l.released != nil {
-				l.released(now)
+				l.released(t, now)
 			}
 			l.signal()
 			l.mu.Unlock()

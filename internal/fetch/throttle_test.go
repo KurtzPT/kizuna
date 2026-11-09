@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -10,33 +9,54 @@ import (
 	"time"
 )
 
-// releases runs each ticket's wait in its own goroutine and returns the
-// names in the order they were let through, with the times.
-func releases(names []string, tickets []*ticket) ([]string, []time.Time) {
-	var mu sync.Mutex
+// recordReleases makes l report each let-through request's name (from
+// names) under its lock, so the order is exact whatever the goroutines do.
+func recordReleases(l *hostLimit, names map[*ticket]string) func() []string {
 	var order []string
-	var at []time.Time
-	var wg sync.WaitGroup
+	l.mu.Lock()
+	l.released = func(t *ticket, _ time.Time) { order = append(order, names[t]) }
+	l.mu.Unlock()
+	return func() []string {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return order
+	}
+}
+
+// open drops l's gap, under its lock: requests queued behind an hour-long
+// gap (so none could slip through while the test queued them) now go, one
+// at a time, in the order the queue gives.
+func open(l *hostLimit) {
+	l.mu.Lock()
+	l.gap = 0
+	l.signal()
+	l.mu.Unlock()
+}
+
+// releases opens l, waits for every ticket in its own goroutine and returns
+// the names in the order they were let through.
+func releases(l *hostLimit, names []string, tickets []*ticket) []string {
+	byTicket := map[*ticket]string{}
 	for i, t := range tickets {
-		wg.Go(func() {
-			t.wait()
-			mu.Lock()
-			order = append(order, names[i])
-			at = append(at, time.Now())
-			mu.Unlock()
-		})
+		byTicket[t] = names[i]
+	}
+	order := recordReleases(l, byTicket)
+	open(l)
+	var wg sync.WaitGroup
+	for _, t := range tickets {
+		wg.Go(func() { t.wait() })
 	}
 	wg.Wait()
-	return order, at
+	return order()
 }
 
 // A foreground request queued after background ones goes first; then the
 // background ones go in arrival order.
 func TestThrottleForegroundFirst(t *testing.T) {
-	l := newHostLimit(30 * time.Millisecond)
+	l := newHostLimit(time.Hour)
 	l.enqueue(false).wait() // the slot is now taken: the rest queue up
 	tickets := []*ticket{l.enqueue(true), l.enqueue(true), l.enqueue(false)}
-	order, _ := releases([]string{"bg1", "bg2", "fg"}, tickets)
+	order := releases(l, []string{"bg1", "bg2", "fg"}, tickets)
 	if got := strings.Join(order, ","); got != "fg,bg1,bg2" {
 		t.Errorf("order %s, want fg,bg1,bg2", got)
 	}
@@ -45,11 +65,11 @@ func TestThrottleForegroundFirst(t *testing.T) {
 // A foreground caller joining a queued background download moves it ahead
 // of the other background ones.
 func TestThrottlePromote(t *testing.T) {
-	l := newHostLimit(30 * time.Millisecond)
+	l := newHostLimit(time.Hour)
 	l.enqueue(false).wait()
 	bg1, bg2 := l.enqueue(true), l.enqueue(true)
 	bg2.promote()
-	order, _ := releases([]string{"bg1", "bg2"}, []*ticket{bg1, bg2})
+	order := releases(l, []string{"bg1", "bg2"}, []*ticket{bg1, bg2})
 	if got := strings.Join(order, ","); got != "bg2,bg1" {
 		t.Errorf("order %s, want bg2,bg1", got)
 	}
@@ -61,8 +81,8 @@ func TestThrottlePromote(t *testing.T) {
 func TestThrottleSpacingHolds(t *testing.T) {
 	const gap = 25 * time.Millisecond
 	l := newHostLimit(gap)
-	var at []time.Time                                    // let-through times, recorded under the limit's lock
-	l.released = func(t time.Time) { at = append(at, t) } // so their order and spacing are exact
+	var at []time.Time                                               // let-through times, recorded under the limit's lock
+	l.released = func(_ *ticket, t time.Time) { at = append(at, t) } // so their order and spacing are exact
 	var wg sync.WaitGroup
 	for i := range 12 {
 		tk := l.enqueue(i%3 != 0)
@@ -89,45 +109,56 @@ func TestThrottleSpacingHolds(t *testing.T) {
 // don't hold up a foreground download that arrives after them.
 func TestBackgroundRequestsYield(t *testing.T) {
 	c := New(t.TempDir())
-	c.Throttle("api.example", 200*time.Millisecond) // wide enough to queue all four before the second slot
-	var mu sync.Mutex
-	var hits []string
-	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
-		mu.Lock()
-		hits = append(hits, r.URL.Path)
-		mu.Unlock()
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}, Request: r}, nil
-	}))
-	queued := func(n int) {
-		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
-			l := c.limits["api.example"]
-			l.mu.Lock()
-			got := len(l.fg) + len(l.bg)
-			l.mu.Unlock()
-			if got >= n {
-				return
+	c.Throttle("api.example", time.Hour) // nothing slips through while the test queues; open lets them go
+	c.SetTransport(okTransport("ok"))
+	l := c.limits["api.example"]
+	names := map[*ticket]string{}
+	queue := func(path string, background bool, wg *sync.WaitGroup) {
+		n := l.queued()
+		wg.Go(func() {
+			if _, err := c.Get(context.Background(), Request{URL: "http://api.example" + path, Key: path, Background: background}); err != nil {
+				t.Error(err)
 			}
-			if time.Now().After(deadline) {
-				t.Fatalf("never %d requests queued", n)
-			}
-		}
+		})
+		l.waitQueued(n + 1)
+		c.mu.Lock()
+		names[c.inflight[path].ticket] = path
+		c.mu.Unlock()
 	}
-	get := func(path string, background bool) {
-		if _, err := c.Get(context.Background(), Request{URL: "http://api.example" + path, Background: background}); err != nil {
-			t.Error(err)
-		}
-	}
-	get("/first", false) // takes the slot: the rest must wait
 	var wg sync.WaitGroup
-	for i, p := range []string{"/bg1", "/bg2", "/bg3"} {
-		wg.Go(func() { get(p, true) })
-		queued(i + 1)
+	if _, err := c.Get(context.Background(), Request{URL: "http://api.example/first"}); err != nil { // takes the slot
+		t.Fatal(err)
 	}
-	wg.Go(func() { get("/fg", false) })
+	for _, p := range []string{"/bg1", "/bg2", "/bg3"} {
+		queue(p, true, &wg)
+	}
+	queue("/fg", false, &wg)
+	order := recordReleases(l, names)
+	open(l)
 	wg.Wait()
-	if got := strings.Join(hits, ","); got != "/first,/fg,/bg1,/bg2,/bg3" {
-		t.Errorf("order %s, want the foreground request right after the first", got)
+	if got := strings.Join(order(), ","); got != "/fg,/bg1,/bg2,/bg3" {
+		t.Errorf("order %s, want the foreground request first", got)
 	}
+}
+
+// queued is how many requests wait in l's queues.
+func (l *hostLimit) queued() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.fg) + len(l.bg)
+}
+
+// waitQueued blocks until at least n requests wait in l's queues (every
+// enqueue signals a change).
+func (l *hostLimit) waitQueued(n int) {
+	l.mu.Lock()
+	for len(l.fg)+len(l.bg) < n {
+		changed := l.changed
+		l.mu.Unlock()
+		<-changed
+		l.mu.Lock()
+	}
+	l.mu.Unlock()
 }
 
 type roundTrip func(*http.Request) (*http.Response, error)
