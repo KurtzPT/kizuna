@@ -107,6 +107,16 @@ func (c *Client) Throttle(host string, gap time.Duration) {
 	c.ThrottleFrom(host, gap, time.Time{})
 }
 
+// ThrottleAll changes the gap of every host throttled so far (tests set it
+// to 0 to run without the sources' waits).
+func (c *Client) ThrottleAll(gap time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, l := range c.limits {
+		l.setGap(gap)
+	}
+}
+
 // ThrottleFrom is Throttle, with last as the time of the last request to
 // host (one an earlier run sent): the first request waits until gap after
 // it. A later last than the one known moves it up; an earlier one is ignored.

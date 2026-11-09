@@ -119,6 +119,9 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	cfg := config.Load()
 	p := New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
 		sources.NewTVDB(f, "key", "", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
+	// No waits between requests: the throttles are tested in fetch and
+	// sources. A test that needs a gap sets it itself.
+	f.ThrottleAll(0)
 	// No background fetch outlives the test: it would land in a later
 	// test's allocation count (TestReportsOffAllocs).
 	t.Cleanup(func() { p.anidb.WaitIdle(); p.tvdb.WaitIdle() })
