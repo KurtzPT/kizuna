@@ -14,9 +14,9 @@ import (
 // TheTVDB's legacy v3 API (api.thetvdb.com), for keys from before v4
 // (TVDB_LEGACY_API_KEY). It's used when there's no v4 key, or once TheTVDB
 // rejects the v4 key. Compared with
-// v4 it has no clear logos, no studios and no series-level directors or
-// writers (episodes have theirs), and episodes carry no runtime of their own
-// (the series' is used).
+// v4 it has no clear logos, no studios, no season texts or backgrounds (season
+// posters it has) and no series-level directors or writers (episodes have
+// theirs), and episodes carry no runtime of their own (the series' is used).
 
 const tvdb3API = "https://api.thetvdb.com"
 
@@ -125,28 +125,17 @@ func (t *TVDB) art3(ctx context.Context, id int) (Art, error) {
 		return Art{}, err
 	}
 	images := func(keyType, main string) []string {
-		var r struct {
-			Data []struct {
-				File    string `json:"fileName"`
-				Ratings struct {
-					Average float64 `json:"average"`
-				} `json:"ratingsInfo"`
-			} `json:"data"`
-		}
 		var out []string
 		if main != "" {
 			out = append(out, artURL(main))
 		}
 		path := fmt.Sprintf("/series/%d/images/query?keyType=%s", id, keyType)
-		if e := t.get(ctx, true, path, fmt.Sprintf("%d/%s.json", id, keyType), 7*24*time.Hour, &r); e != nil {
-			if !fetch.IsNotFound(e) { // 404: no images of this type
-				err = e
-			}
-			return out
+		found, e := t.images3(ctx, path, fmt.Sprintf("%d/%s.json", id, keyType))
+		if e != nil {
+			err = e
 		}
-		sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Ratings.Average > r.Data[j].Ratings.Average })
-		for _, img := range r.Data {
-			if u := artURL(img.File); u != "" && !slices.Contains(out, u) {
+		for _, u := range found {
+			if !slices.Contains(out, u) {
 				out = append(out, u)
 			}
 		}
@@ -154,4 +143,40 @@ func (t *TVDB) art3(ctx context.Context, id int) (Art, error) {
 	}
 	a := Art{Posters: images("poster", s.Poster), Backgrounds: images("fanart", s.Fanart)}
 	return a, err
+}
+
+// seasonArt3 returns a season's posters, by rating: v3's season images
+// (keyType=season, its subKey the season number). v3 has no season
+// backgrounds.
+func (t *TVDB) seasonArt3(ctx context.Context, id, season int) (Art, error) {
+	path := fmt.Sprintf("/series/%d/images/query?keyType=season&subKey=%d", id, season)
+	posters, err := t.images3(ctx, path, fmt.Sprintf("%d/season-%d.json", id, season))
+	return Art{Posters: posters}, err
+}
+
+// images3 reads one v3 image query, best rated first. A 404 means no images
+// of the kind: none, and no error.
+func (t *TVDB) images3(ctx context.Context, path, key string) ([]string, error) {
+	var r struct {
+		Data []struct {
+			File    string `json:"fileName"`
+			Ratings struct {
+				Average float64 `json:"average"`
+			} `json:"ratingsInfo"`
+		} `json:"data"`
+	}
+	if err := t.get(ctx, true, path, key, 7*24*time.Hour, &r); err != nil {
+		if fetch.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Ratings.Average > r.Data[j].Ratings.Average })
+	var out []string
+	for _, img := range r.Data {
+		if u := artURL(img.File); u != "" && !slices.Contains(out, u) {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }

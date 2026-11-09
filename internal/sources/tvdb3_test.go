@@ -356,3 +356,27 @@ func TestTVDBLoginDoesNotBlock(t *testing.T) {
 		t.Errorf("API %q, want v4", tv.API())
 	}
 }
+
+// The legacy v3 API's season art is the season's posters (keyType=season,
+// subKey=the season number), best rated first; it has no season
+// backgrounds. A season without posters (404) gives none and no error.
+func TestTVDBLegacySeasonArt(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{
+		v3 + "/login": `{"token":"t3"}`,
+		v3 + "/series/9/images/query?keyType=season&subKey=2": `{"data":[
+			{"fileName":"seasons/9-2.jpg","keyType":"season","subKey":"2","ratingsInfo":{"average":1}},
+			{"fileName":"seasons/9-2-2.jpg","keyType":"season","subKey":"2","ratingsInfo":{"average":8}}]}`,
+	}, "", "", "legacy")
+	ctx := context.Background()
+	a, err := tv.SeasonArt(ctx, 9, 2)
+	const b = "https://artworks.thetvdb.com/banners/seasons/"
+	if err != nil || strings.Join(a.Posters, " ") != b+"9-2-2.jpg "+b+"9-2.jpg" || len(a.Backgrounds) != 0 {
+		t.Errorf("season 2: %+v %v", a, err)
+	}
+	if a, err := tv.SeasonArt(ctx, 9, 3); err != nil || len(a.Posters) != 0 {
+		t.Errorf("season 3: %+v %v, want none", a, err)
+	}
+	if c := n.count(v3 + "/series/9/images/query?keyType=season&subKey=2"); c != 1 {
+		t.Errorf("asked %d times, want 1", c)
+	}
+}

@@ -98,7 +98,8 @@ type tvdbSeries struct {
 	} `json:"seasons"`
 }
 
-// seasonTTL: how long a season's text, or its lack of one, is kept.
+// seasonTTL: how long a season's text (or its lack of one) and its
+// artwork are kept.
 const seasonTTL = 7 * 24 * time.Hour
 
 // tvdbLoginPause: how long a failed login is remembered. A rejected key
@@ -585,6 +586,20 @@ func (t *TVDB) seriesRecord(ctx context.Context, id int) (*tvdbSeries, error) {
 	return &r.Data, nil
 }
 
+// tvdbArtwork is one image of an artwork list: a series' (ArtworkExtendedRecord)
+// or a season's (ArtworkBaseRecord). type is an id of /artwork/types.
+type tvdbArtwork struct {
+	Type  int    `json:"type"`
+	Image string `json:"image"`
+	Score int    `json:"score"`
+	Lang  string `json:"language"`
+}
+
+// byScore sorts artwork highest score first.
+func byScore(arts []tvdbArtwork) {
+	sort.SliceStable(arts, func(i, j int) bool { return arts[i].Score > arts[j].Score })
+}
+
 // Art returns posters, backgrounds and clear logos, highest score first.
 func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	if t.useLegacy(ctx) {
@@ -592,19 +607,14 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	}
 	var r struct {
 		Data struct {
-			Artworks []struct {
-				Type  int    `json:"type"`
-				Image string `json:"image"`
-				Score int    `json:"score"`
-				Lang  string `json:"language"`
-			} `json:"artworks"`
+			Artworks []tvdbArtwork `json:"artworks"`
 		} `json:"data"`
 	}
 	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), fmt.Sprintf("%d/artworks.json", id), 7*24*time.Hour, &r); err != nil {
 		return Art{}, err
 	}
 	arts := r.Data.Artworks
-	sort.SliceStable(arts, func(i, j int) bool { return arts[i].Score > arts[j].Score })
+	byScore(arts)
 	var a Art
 	for _, w := range arts {
 		switch w.Type { // TheTVDB series artwork types
@@ -616,6 +626,46 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 			if w.Lang == "" || w.Lang == "eng" {
 				a.Logos = append(a.Logos, artURL(w.Image))
 			}
+		}
+	}
+	return a, nil
+}
+
+// SeasonArt returns the posters and backgrounds of a season in aired
+// ("official") order, highest score first: the artwork of its season record
+// (/seasons/{id}/extended), its id from the extended series record. TheTVDB
+// seasons have posters, backgrounds, banners and icons, no clear logos;
+// Plex has no image type for banners. A season TheTVDB doesn't list gives
+// none and no error. The legacy v3 API has season posters only.
+func (t *TVDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
+	if season < 0 {
+		return Art{}, nil
+	}
+	if t.useLegacy(ctx) {
+		return t.seasonArt3(ctx, id, season)
+	}
+	sid, err := t.seasonID(ctx, id, season)
+	if sid == 0 {
+		return Art{}, err
+	}
+	var r struct {
+		Data struct {
+			Artwork []tvdbArtwork `json:"artwork"`
+		} `json:"data"`
+	}
+	path, key := fmt.Sprintf("/seasons/%d/extended", sid), fmt.Sprintf("%d/season-%d-extended.json", id, sid)
+	if err := t.get(ctx, false, path, key, seasonTTL, &r); err != nil {
+		return Art{}, err
+	}
+	arts := r.Data.Artwork
+	byScore(arts)
+	var a Art
+	for _, w := range arts {
+		switch w.Type { // TheTVDB season artwork types
+		case 7:
+			a.Posters = append(a.Posters, artURL(w.Image))
+		case 8:
+			a.Backgrounds = append(a.Backgrounds, artURL(w.Image))
 		}
 	}
 	return a, nil

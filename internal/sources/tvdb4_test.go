@@ -323,3 +323,59 @@ func TestTVDBNoEnglishSwept(t *testing.T) {
 		t.Errorf("noEnglish %v, want 901 and 501", tv.noEnglish)
 	}
 }
+
+// artwork is a documented ArtworkBaseRecord, as a season record lists it.
+func artwork(id, kind, score int, image string) string {
+	return `{"height": 1000, "id": ` + strconv.Itoa(id) + `, "image": "` + image + `", "includesText": false,
+	  "language": "eng", "score": ` + strconv.Itoa(score) + `, "thumbnail": "", "type": ` + strconv.Itoa(kind) + `, "width": 680}`
+}
+
+// A season's art is the artwork of its aired-order season record
+// (/seasons/{id}/extended: data is a SeasonExtendedRecord), highest score
+// first: type 7 posters, 8 backgrounds; banners (6) and icons (10) are left
+// out. A season TheTVDB doesn't list, or absolute order, costs no request.
+func TestTVDBSeasonArt(t *testing.T) {
+	const img = "https://artworks.thetvdb.com/banners/v4/season/502/"
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login":                  `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/extended": v4SeriesExtended,
+		v4 + "/seasons/502/extended": `{"data": {"id": 502, "image": "/banners/v4/season/502/posters/a.jpg", "imageType": 7,
+		  "lastUpdated": "", "name": "Season 2", "nameTranslations": [], "number": 2, "overviewTranslations": [],
+		  "companies": {}, "seriesId": 267440, "type": {"alternateName": null, "id": 1, "name": "Aired Order", "type": "official"},
+		  "year": "2017", "episodes": [], "trailers": [], "tagOptions": null, "translations": [],
+		  "artwork": [` + artwork(1, 7, 10, "/banners/v4/season/502/posters/a.jpg") + `,
+		    ` + artwork(2, 6, 99, "/banners/v4/season/502/banners/b.jpg") + `,
+		    ` + artwork(3, 7, 50, "/banners/v4/season/502/posters/c.jpg") + `,
+		    ` + artwork(4, 8, 5, "/banners/v4/season/502/backgrounds/d.jpg") + `,
+		    ` + artwork(5, 10, 5, "/banners/v4/season/502/icons/e.jpg") + `]},
+		  "status": "success"}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	a, err := tv.SeasonArt(ctx, 267440, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(a.Posters, " ") != img+"posters/c.jpg "+img+"posters/a.jpg" ||
+		strings.Join(a.Backgrounds, " ") != img+"backgrounds/d.jpg" || len(a.Logos) != 0 {
+		t.Errorf("season 2 art %+v", a)
+	}
+	if _, err := tv.SeasonArt(ctx, 267440, 2); err != nil {
+		t.Fatal(err)
+	}
+	if c := n.count(v4 + "/seasons/502/extended"); c != 1 {
+		t.Errorf("season record asked %d times, want 1 (cached)", c)
+	}
+	for _, s := range []int{3, -1} {
+		if a, err := tv.SeasonArt(ctx, 267440, s); err != nil || len(a.Posters)+len(a.Backgrounds) != 0 {
+			t.Errorf("season %d: %+v %v, want none", s, a, err)
+		}
+	}
+	if a, err := tv.SeasonArt(ctx, 267440, 1); len(a.Posters) != 0 || !fetch.IsNotFound(err) { // listed, record gone
+		t.Errorf("season 1: %+v %v, want its 404", a, err)
+	}
+	for _, u := range n.asked {
+		if strings.Contains(u, "/seasons/") && !strings.HasSuffix(u, "/502/extended") && !strings.HasSuffix(u, "/501/extended") {
+			t.Errorf("asked %s", u)
+		}
+	}
+}
