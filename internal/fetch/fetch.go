@@ -379,7 +379,7 @@ func WriteFile(path string, data []byte) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = rename(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
