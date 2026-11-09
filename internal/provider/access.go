@@ -58,7 +58,7 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 			a.Nets = append(a.Nets, privateNets...)
 		default:
 			if p, err := netip.ParsePrefix(v); err == nil {
-				a.Nets = append(a.Nets, p.Masked())
+				a.Nets = append(a.Nets, unmapPrefix(p))
 			} else if ip, err := netip.ParseAddr(v); err == nil {
 				a.Nets = append(a.Nets, netip.PrefixFrom(ip.Unmap(), ip.Unmap().BitLen()))
 			} else if v != "" {
@@ -87,6 +87,17 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 		}
 	}
 	return a, bad
+}
+
+// unmapPrefix masks an ALLOW_FROM network and turns an IPv4-mapped one
+// (::ffff:192.168.1.0/120) into its IPv4 network (192.168.1.0/24), as
+// clientAllowed unmaps the client's address: written either way, it matches.
+func unmapPrefix(p netip.Prefix) netip.Prefix {
+	p = p.Masked()
+	if ip := p.Addr(); ip.Is4In6() && p.Bits() >= 96 {
+		return netip.PrefixFrom(ip.Unmap(), p.Bits()-96)
+	}
+	return p
 }
 
 // clientAllowed reports whether a connection's remote address may use Kizuna.

@@ -12,6 +12,7 @@ func TestClientAllowed(t *testing.T) {
 	private, _ := ParseAccess([]string{"private"}, nil)
 	plexOnly, _ := ParseAccess([]string{"192.168.1.10", "10.0.0.0/8"}, nil)
 	anyone, _ := ParseAccess([]string{"any"}, nil)
+	mapped, _ := ParseAccess([]string{"::ffff:192.168.1.0/120", "::ffff:10.0.0.7"}, nil)
 	typo, bad := ParseAccess([]string{"192.168.1.300"}, nil)
 	if len(bad) != 1 {
 		t.Errorf("typo not reported: %v", bad)
@@ -36,6 +37,10 @@ func TestClientAllowed(t *testing.T) {
 		{"IPv6 loopback always", plexOnly, "[::1]:5000", true},
 		{"another LAN machine", plexOnly, "192.168.1.11:5000", false},
 		{"listed network", plexOnly, "10.1.2.3:5000", true},
+		{"IPv4-mapped network", mapped, "192.168.1.20:5000", true},
+		{"IPv4-mapped network, mapped client", mapped, "[::ffff:192.168.1.20]:5000", true},
+		{"IPv4-mapped address", mapped, "10.0.0.7:5000", true},
+		{"outside the IPv4-mapped network", mapped, "192.168.2.20:5000", false},
 		{"any", anyone, "203.0.113.7:5000", true},
 		{"typo falls back to private, never to any", typo, "203.0.113.7:5000", false},
 		{"typo still allows the LAN", typo, "192.168.1.20:5000", true},
