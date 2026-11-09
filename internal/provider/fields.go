@@ -58,6 +58,11 @@ type showSources struct {
 	tmdbListed  bool
 
 	rec *report.Recorder // match report of the build; nil = none
+
+	// early: warmEarly started TheTVDB's and TheMovieDb's art (in earlyWG),
+	// so warm leaves them out.
+	early   bool
+	earlyWG sync.WaitGroup
 }
 
 type text struct{ title, summary string }
@@ -92,6 +97,17 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 		}
 		return p.tmdb.SeasonArt(ctx, tmdb, n)
 	}
+	ss.setAniDB(ctx, a, entry)
+	return ss
+}
+
+// setAniDB sets AniDB's details (nil = none) and the ANN and MAL entries
+// they link to (else the mapping's). A /tvdb build sets them once AniDB has
+// answered: only after that may the sources be asked anything but art
+// (warmEarly).
+func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entry mapping.Entry) {
+	p := ss.p
+	ss.a = a
 	annID, malID := entry.ANN, entry.MAL
 	if a != nil && len(a.ANNIDs) > 0 {
 		annID = a.ANNIDs[0]
@@ -99,9 +115,13 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 	if a != nil && len(a.MALIDs) > 0 {
 		malID = a.MALIDs[0]
 	}
-	ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
-	ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
-	return ss
+	ss.ann.f, ss.mal.f = nil, nil
+	if annID != 0 { // the closures only when used: they allocate
+		ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
+	}
+	if malID != 0 {
+		ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
+	}
 }
 
 // seasonSummaries sets up the season summaries of an entry that doesn't
@@ -397,13 +417,29 @@ func (ss *showSources) warm() {
 	} {
 		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
-	jobs = ss.warmArt(jobs)
+	jobs = ss.warmArt(jobs, ss.notEarly)
 	var wg sync.WaitGroup
 	for _, job := range jobs {
 		wg.Go(job)
 	}
 	wg.Wait()
+	ss.earlyWG.Wait()
 }
+
+// warmEarly starts warming the art of the sources that don't depend on
+// AniDB's details, TheTVDB's and TheMovieDb's, before those are in
+// (setAniDB). Set the targets first; warm waits for it.
+func (ss *showSources) warmEarly() {
+	ss.early = true
+	for _, job := range ss.warmArt(nil, earlySource) {
+		ss.earlyWG.Go(job)
+	}
+}
+
+func earlySource(src string) bool { return src == "tvdb" || src == "tmdb" }
+
+// notEarly: a source warmEarly didn't warm.
+func (ss *showSources) notEarly(src string) bool { return !ss.early || !earlySource(src) }
 
 // warmer is a lazy value warm can fetch ahead.
 type warmer interface {

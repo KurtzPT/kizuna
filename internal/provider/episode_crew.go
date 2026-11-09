@@ -1,6 +1,10 @@
 package provider
 
-import "context"
+import (
+	"context"
+
+	"kizuna/internal/sources"
+)
 
 // episodeCrew sets each episode's directors and writers: TheTVDB's, else
 // TheMovieDb's (per field). The episodes already carry what TheTVDB's list
@@ -17,6 +21,13 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList) bool
 		}
 	})
 	crew, pending := p.tvdb.EpisodeCrew(ctx, ids)
+	applyCrew(s, crew, tm)
+	return !pending
+}
+
+// applyCrew sets the episodes' TheTVDB crew records (crew, by TheTVDB
+// episode), then TheMovieDb's for what is still missing.
+func applyCrew(s *Show, crew map[int]sources.Crew, tm pairedList) {
 	s.eachEpisode(func(ep *Ep) {
 		if c, ok := crew[ep.tvdbEp]; ok && ep.tvdbEp > 0 {
 			ep.Directors, ep.Writers = c.Directors, c.Writers
@@ -33,5 +44,4 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList) bool
 			}
 		}
 	})
-	return !pending
 }

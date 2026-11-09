@@ -1242,3 +1242,57 @@ func TestSpecialOnlyGuids(t *testing.T) {
 		t.Error("a regular entry's episodes: want no episode GUIDs")
 	}
 }
+
+// What doesn't need AniDB's answer is fetched while AniDB is still being
+// asked (its fair-use gap can take seconds): AniDB answers here only once
+// every one of those requests has arrived.
+func TestFetchesDontWaitForAniDB(t *testing.T) {
+	cases := []struct {
+		root  string
+		early []string
+	}{
+		{"tvdb-500", []string{"api.themoviedb.org/3/tv/77/season/1", "api4.thetvdb.com/v4/episodes/11/extended",
+			"api4.thetvdb.com/v4/series/500/artworks"}}, // TMDB's episode list, a crew record, the art
+		{"anidb-100", []string{"api4.thetvdb.com/v4/series/500/episodes/official/eng", "api.themoviedb.org/3/tv/77/season/1"}},
+	}
+	for _, c := range cases {
+		var mu sync.Mutex
+		seen := map[string]bool{}
+		all := make(chan struct{})
+		var late []string
+		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			mu.Lock()
+			if slices.Contains(c.early, path) && !seen[path] {
+				if seen[path] = true; len(seen) == len(c.early) {
+					close(all)
+				}
+			}
+			mu.Unlock()
+			if path == "api.anidb.net/httpapi" {
+				select {
+				case <-all:
+				case <-time.After(20 * time.Second): // only when they wait for AniDB
+					mu.Lock()
+					for _, p := range c.early {
+						if !seen[p] {
+							late = append(late, p)
+						}
+					}
+					mu.Unlock()
+				}
+			}
+			return testSeries(path, q)
+		}}
+		p := newTestProvider(t, net)
+		s, err := p.buildShow(context.Background(), c.root)
+		if err != nil {
+			t.Fatalf("%s: %v", c.root, err)
+		}
+		if len(late) > 0 {
+			t.Errorf("%s: %v asked only after AniDB answered", c.root, late)
+		}
+		if !s.Complete || s.Summary != "From AniDB." {
+			t.Errorf("%s: complete %v summary %q, want a complete show with AniDB's details", c.root, s.Complete, s.Summary)
+		}
+	}
+}

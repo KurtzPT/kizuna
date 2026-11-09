@@ -10,13 +10,53 @@ import (
 	"kizuna/internal/report"
 )
 
+// episodeLists: an /anidb show's TheTVDB and TheMovieDb episode lists, each
+// fetched once, on first use (empty, without a fetch, for a site without
+// the show or not set up).
+type episodeLists struct {
+	tvdb, tmdb func() (episodeIndex, bool)
+}
+
+func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) episodeLists {
+	list := func(src string, id int, on bool) func() (episodeIndex, bool) {
+		return sync.OnceValues(func() (episodeIndex, bool) {
+			if !on || id <= 0 {
+				return episodeIndex{}, true
+			}
+			return p.seriesEpisodes(ctx, src, id)
+		})
+	}
+	return episodeLists{list("tvdb", entry.TVDB.ID, p.tvdb.Enabled()), list("tmdb", entry.TMDB.ID, p.tmdb.Enabled())}
+}
+
+// start fetches both lists, in wg.
+func (l episodeLists) start(wg *sync.WaitGroup) {
+	wg.Go(func() { l.tvdb() })
+	wg.Go(func() { l.tmdb() })
+}
+
+// listsEarly: an /anidb show's episode lists are worth fetching before
+// AniDB answers, which can take seconds (its fair-use gap): AniDB may be
+// asked, and the lists will likely be paired with its episodes (any entry
+// but a movie known by its TMDB movie id alone; a special-only one is
+// paired too, as TheTVDB's special).
+func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
+	if !p.anidb.Enabled() {
+		return false // the answer is at hand: no details
+	}
+	if _, blocked := p.anidb.BlockedUntil(aid); blocked {
+		return false
+	}
+	return entry.SpecialOnly() || entry.TMDB.ID > 0 || entry.TMDBMovie == 0
+}
+
 // fillEpisodes pairs an /anidb show's episodes with its TVDB (and TMDB)
-// series. TheTVDB gives the thumbnail, which AniDB never has, plus the
+// series (lists). TheTVDB gives the thumbnail, which AniDB never has, plus the
 // summary, air date and runtime where AniDB has none (EPISODE_FILL_SOURCES).
 // Both give a title for EPISODE_TITLES, and directors and writers (AniDB has
 // none per episode). Returns false when a list it needed failed or came back
 // partial, or episode crew is still being fetched.
-func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry) bool {
+func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists episodeLists) bool {
 	fill := slices.Contains(p.cfg.EpisodeFillSources, "tvdb")
 	wantTVDB := p.tvdb.Enabled() && entry.TVDB.ID > 0
 	wantTMDB := p.tmdb.Enabled() && entry.TMDB.ID > 0
@@ -27,10 +67,10 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	tvOK, tmOK := true, true
 	var wg sync.WaitGroup
 	if wantTVDB {
-		wg.Go(func() { tv, tvOK = p.seriesEpisodes(ctx, "tvdb", entry.TVDB.ID) })
+		wg.Go(func() { tv, tvOK = lists.tvdb() })
 	}
 	if wantTMDB {
-		wg.Go(func() { tm, tmOK = p.seriesEpisodes(ctx, "tmdb", entry.TMDB.ID) })
+		wg.Go(func() { tm, tmOK = lists.tmdb() })
 	}
 	wg.Wait()
 
