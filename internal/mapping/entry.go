@@ -21,6 +21,31 @@ type Entry struct {
 	noTVDB bool
 }
 
+// SpecialOnly reports whether all of the entry's episodes are among its TVDB
+// series' specials: the list puts it in season 0 (defaulttvdbseason="0"),
+// and no exception moves an episode into a regular season or the absolute
+// order. Movies, OVAs and specials that Anime-Lists files this way (One
+// Piece Film Red is S00E46 of One Piece) are their own show in every mode,
+// not part of the series. An exception saying an episode has no TVDB
+// counterpart ("2-0") doesn't count.
+func (e Entry) SpecialOnly() bool {
+	pl := e.TVDB
+	if pl.ID <= 0 || !pl.Mapped || pl.Season != 0 {
+		return false
+	}
+	for _, m := range pl.Episodes {
+		if m.Season != 0 && m.Ep > 0 {
+			return false
+		}
+	}
+	for _, r := range pl.Ranges {
+		if r.Season != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // Placement is where an entry's episodes sit on one site's series: TheTVDB
 // (defaulttvdbseason, episodeoffset, <mapping tvdbseason="…">) or TheMovieDb
 // (tmdbseason, tmdboffset, <mapping tmdbseason="…">).

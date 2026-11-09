@@ -383,11 +383,12 @@ func (p *Provider) aidFor(source, id, title string, year int) int {
 //
 //	anidb mode: AniDB ids as-is; a TVDB id becomes its first AniDB entry.
 //	tvdb mode:  TVDB ids as-is; an AniDB id becomes its TVDB series, or stays
-//	            an AniDB show when it has none (movies, many OVAs).
+//	            an AniDB show when it has none (movies, many OVAs) or lives
+//	            only in the series' specials (mapping.Entry.SpecialOnly).
 func (p *Provider) rootFor(mode Mode, source string, id int) string {
 	switch {
 	case source == "anidb" && mode.TVDB:
-		if e := p.lists.ByAID(id); e.TVDB.ID > 0 {
+		if e := p.lists.ByAID(id); e.TVDB.ID > 0 && !e.SpecialOnly() {
 			return fmt.Sprintf("tvdb-%d", e.TVDB.ID)
 		}
 		return fmt.Sprintf("anidb-%d", id)

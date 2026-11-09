@@ -523,3 +523,68 @@ func TestTVDBPairingPerSite(t *testing.T) {
 		}
 	}
 }
+
+// onePiece is One Piece's mapping in short: the TV series (69, absolute
+// order), a later regular entry (100) and two entries Anime-Lists files in
+// TheTVDB's specials: Film Red (16983, S00E46) and Film Z (8857, S00E30).
+func onePiece() (*mapping.Lists, *anidb.Titles) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		69:  {AID: 69, TVDB: mapping.Placement{ID: 81797, Season: -1, Mapped: true}, TMDB: mapping.Placement{ID: 37854}, IMDB: "tt0388629"},
+		100: {AID: 100, TVDB: mapping.Placement{ID: 81797, Season: 2, Mapped: true}, MAL: 99},
+		16983: {AID: 16983, TVDB: mapping.Placement{ID: 81797, Season: 0, Offset: 45, Mapped: true},
+			TMDBMovie: 900667, IMDB: "tt16183464", MAL: 50410},
+		8857: {AID: 8857, TVDB: mapping.Placement{ID: 81797, Season: 0, Offset: 29, Mapped: true}, TMDBMovie: 176983},
+	})
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{
+		69:    {{Type: "main", Lang: "x-jat", Text: "One Piece"}},
+		100:   {{Type: "main", Lang: "x-jat", Text: "One Piece Second Part"}},
+		16983: {{Type: "main", Lang: "x-jat", Text: "One Piece Film Red"}},
+		8857:  {{Type: "main", Lang: "x-jat", Text: "One Piece Film Z"}},
+	})
+	return l, titles
+}
+
+// An entry that lives only in its TheTVDB series' specials (a movie, an OVA)
+// is its own show in every mode, however it is found; a regular later entry
+// still becomes the series in /tvdb.
+func TestSpecialOnlyIsItsOwnShow(t *testing.T) {
+	l, titles := onePiece()
+	p := &Provider{lists: l, titles: titles}
+	tvdbMode := Modes["tvdb"]
+	if got := p.rootFor(tvdbMode, "anidb", 16983); got != "anidb-16983" {
+		t.Errorf("/tvdb rootFor 16983: %s, want anidb-16983", got)
+	}
+	if got := p.rootFor(tvdbMode, "anidb", 100); got != "tvdb-81797" {
+		t.Errorf("/tvdb rootFor 100: %s, want tvdb-81797", got)
+	}
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	cases := []struct {
+		mode, def, title, guid, want string
+	}{
+		{"tvdb", "", "One Piece Film Red [anidb-16983]", "", "anidb-16983"},
+		{"tvdb", "", "One Piece Film Red [tmdb-900667]", "", "anidb-16983"}, // a TMDB movie id
+		{"tvdb", "", "One Piece Film Red [imdb-tt16183464]", "", "anidb-16983"},
+		{"tvdb", "", "One Piece Film Red [mal-50410]", "", "anidb-16983"},
+		{"tvdb", "", "One Piece Film Red", "", "anidb-16983"}, // title search
+		{"tvdb", "", "Film", "tv.plex.agents.custom.kizuna.anidb://show/anidb-16983", "anidb-16983"},
+		{"tvdb", "", "Film", "com.plexapp.agents.themoviedb://900667?lang=en", "anidb-16983"},
+		{"tvdb", "", "One Piece Second Part [anidb-100]", "", "tvdb-81797"}, // a regular later entry
+		{"tvdb", "", "One Piece", "", "tvdb-81797"},
+		{"anidb", "", "One Piece Film Red [tmdb-900667]", "", "anidb-16983"},
+		{"anidb", "", "One Piece Film Red", "", "anidb-16983"},
+		{"auto", "tvdb", "One Piece Film Red", "", "anidb-16983"},
+		{"auto", "tvdb", "One Piece Film Red [tmdb-900667]", "", "anidb-16983"},
+		{"auto", "anidb", "One Piece Film Red [anidb-16983]", "", "anidb-16983"},
+	}
+	for _, c := range cases {
+		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
+		p.cfg.AutoDefault, p.cfg.MinScore = c.def, 80
+		got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid}, nil)
+		if len(got) != 1 || got[0].root != c.want {
+			t.Errorf("/%s %q %q: got %v (%s), want %s", c.mode, c.title, c.guid, got, how, c.want)
+		}
+	}
+}

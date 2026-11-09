@@ -427,3 +427,43 @@ func TestFirstIMDbTitleID(t *testing.T) {
 		}
 	}
 }
+
+// An entry is special-only when Anime-Lists puts it in TheTVDB's specials
+// and no exception moves an episode into a regular season.
+func TestSpecialOnly(t *testing.T) {
+	list, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="16983" tvdbid="81797" defaulttvdbseason="0" episodeoffset="45" tmdbid="900667" imdbid="tt16183464"/>
+<anime anidbid="2" tvdbid="81797" defaulttvdbseason="0"><mapping-list>
+  <mapping anidbseason="1" tvdbseason="0">;1-7;2-0;</mapping></mapping-list></anime>
+<anime anidbid="3" tvdbid="81797" defaulttvdbseason="0"><mapping-list>
+  <mapping anidbseason="1" tvdbseason="1">;3-12;</mapping></mapping-list></anime>
+<anime anidbid="4" tvdbid="81797" defaulttvdbseason="0"><mapping-list>
+  <mapping anidbseason="1" tvdbseason="2" start="5" offset="-4"/></mapping-list></anime>
+<anime anidbid="5" tvdbid="81797" defaulttvdbseason="0"><mapping-list>
+  <mapping anidbseason="1" tvdbseason="a">;1-0;</mapping></mapping-list></anime>
+<anime anidbid="69" tvdbid="81797" defaulttvdbseason="a"/>
+<anime anidbid="7" tvdbid="81797" defaulttvdbseason="2"/>
+<anime anidbid="8" tvdbid="movie" tmdbid="1"/>
+</anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for aid, want := range map[int]bool{
+		16983: true,  // a movie among the specials
+		2:     true,  // exceptions inside the specials, one with no counterpart
+		3:     false, // an exception into season 1
+		4:     false, // an open range into season 2
+		5:     true,  // "no counterpart" in the absolute order moves nothing
+		69:    false, // absolute order
+		7:     false, // a later season
+		8:     false, // no TVDB series
+	} {
+		if got := list[aid].SpecialOnly(); got != want {
+			t.Errorf("aid %d: special-only %v, want %v", aid, got, want)
+		}
+	}
+	fribb := Entry{AID: 9, TVDB: Placement{ID: 81797, Season: 0, Mapped: true}}
+	if !fribb.SpecialOnly() {
+		t.Error("a season 0 entry without exceptions: want special-only")
+	}
+}
