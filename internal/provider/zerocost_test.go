@@ -8,10 +8,10 @@ import (
 )
 
 // With the match reports off, their hooks must cost nothing: a request
-// allocates exactly what it did before the reports existed. The budgets are
-// those counts (Go 1.27). A Go upgrade may move them: then run this test on
-// the code before the reports (commit ca59323) and take its counts; never
-// raise a budget to fit a change. Everything is cached (a download's timers
+// allocates no more than it did before the reports existed. The budgets
+// were those counts (Go 1.27), lowered since by changes that saved
+// allocations. A Go upgrade may move them: then take the counts of this
+// test on the code as it is; never raise a budget to fit a change. Everything is cached (a download's timers
 // vary) and the GC is off (it empties the sync.Pools): the counts are steady.
 func TestReportsOffAllocs(t *testing.T) {
 	if raceEnabled {
@@ -37,9 +37,9 @@ func TestReportsOffAllocs(t *testing.T) {
 		budget float64
 		run    func()
 	}{
-		{"show from memory", 150, show},
-		{"match", 200, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
-		{"show build", 700, func() {
+		{"show from memory", 137, show},
+		{"match", 185, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
+		{"show build", 680, func() {
 			p.mu.Lock()
 			clear(p.shows)
 			p.mu.Unlock()

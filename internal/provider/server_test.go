@@ -36,7 +36,9 @@ func TestChildrenArePaged(t *testing.T) {
 		{"/anidb/library/metadata/anidb-1-s1/children?X-Plex-Container-Start=40&X-Plex-Container-Size=20", 5, 45, 41},
 		{"/anidb/library/metadata/anidb-1-s1/children?X-Plex-Container-Start=99", 0, 45, 0},
 		{"/anidb/library/metadata/anidb-1-s1/children?X-Plex-Container-Size=9223372036854775807", 45, 45, 1},
-		{"/anidb/library/metadata/anidb-1/grandchildren?X-Plex-Container-Start=1&X-Plex-Container-Size=3", 3, 47, 2}, // S00E02, S01E01, S01E02
+		{"/anidb/library/metadata/anidb-1/grandchildren?X-Plex-Container-Start=1&X-Plex-Container-Size=3", 3, 47, 2},   // S00E02, S01E01, S01E02
+		{"/anidb/library/metadata/anidb-1/grandchildren?X-Plex-Container-Start=45&X-Plex-Container-Size=5", 2, 47, 44}, // S01E44, S01E45
+		{"/anidb/library/metadata/anidb-1/grandchildren?X-Plex-Container-Start=47", 0, 47, 0},
 		{"/anidb/library/metadata/anidb-1/children", 2, 2, 0},
 	}
 	for _, c := range cases {

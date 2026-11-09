@@ -36,18 +36,29 @@ type Mode struct {
 	Path  string // URL path segment
 	Title string // name shown in Plex
 	TVDB  bool
-	Auto  bool // rules per show (see rules)
+	Auto  bool   // rules per show (see rules)
+	id    string // Identifier, built once (it is in every item's GUIDs)
 }
 
 // Identifier is the Plex provider id and GUID scheme of the mode.
 func (m Mode) Identifier() string {
-	return "tv.plex.agents.custom." + config.Name + "." + m.Path
+	if m.id != "" {
+		return m.id
+	}
+	return identifier(m.Path)
+}
+
+func identifier(path string) string { return "tv.plex.agents.custom." + config.Name + "." + path }
+
+func withID(m Mode) Mode {
+	m.id = identifier(m.Path)
+	return m
 }
 
 var Modes = map[string]Mode{
-	"anidb": {Path: "anidb", Title: "Kizuna (AniDB)"},
-	"tvdb":  {Path: "tvdb", Title: "Kizuna (TVDB)", TVDB: true},
-	"auto":  {Path: "auto", Title: "Kizuna", Auto: true},
+	"anidb": withID(Mode{Path: "anidb", Title: "Kizuna (AniDB)"}),
+	"tvdb":  withID(Mode{Path: "tvdb", Title: "Kizuna (TVDB)", TVDB: true}),
+	"auto":  withID(Mode{Path: "auto", Title: "Kizuna", Auto: true}),
 }
 
 // Provider holds all sources plus two small caches.

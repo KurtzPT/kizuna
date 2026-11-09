@@ -68,7 +68,11 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 		}
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-		url := fetch.Redact(r.URL.RequestURI())
+		debug := slog.Default().Enabled(r.Context(), slog.LevelDebug)
+		var url string // only for the debug log and the match report
+		if debug || p.reports != nil {
+			url = fetch.Redact(r.URL.RequestURI())
+		}
 		var rq *report.Request // filled in by the handler, for the match report
 		if p.reports != nil {
 			rq = &report.Request{Time: start, Mode: mode.Path, Method: r.Method, URL: url}
@@ -76,8 +80,10 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 		}
 		h(rec, r, mode)
 		took := time.Since(start)
-		slog.Debug("plex request", "method", r.Method, "url", url, "status", rec.status,
-			"bytes", rec.bytes, "took", took.Round(time.Millisecond))
+		if debug {
+			slog.Debug("plex request", "method", r.Method, "url", url, "status", rec.status,
+				"bytes", rec.bytes, "took", took.Round(time.Millisecond))
+		}
 		if rq != nil {
 			rq.Status, rq.Bytes, rq.TookMS = rec.status, rec.bytes, float64(took.Microseconds())/1000
 			p.reports.AddRequest(*rq)
@@ -247,13 +253,20 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 			writePaged(w, r, mode, len(seasons), func(i int) Item { return *p.seasonItem(mode, s, seasons[i], false) })
 			return
 		case "grandchildren":
-			var eps []*Ep
-			for _, n := range s.Seasons() {
-				for i := range s.Episodes[n] {
-					eps = append(eps, &s.Episodes[n][i])
-				}
+			seasons, total := s.Seasons(), 0
+			for _, n := range seasons {
+				total += len(s.Episodes[n])
 			}
-			writePaged(w, r, mode, len(eps), func(i int) Item { return p.episodeItem(mode, s, eps[i]) })
+			// writePaged asks for the page's items in order: walk the seasons
+			// along with it (si: the season, before: episodes ahead of it).
+			si, before := 0, 0
+			writePaged(w, r, mode, total, func(i int) Item {
+				for i-before >= len(s.Episodes[seasons[si]]) {
+					before += len(s.Episodes[seasons[si]])
+					si++
+				}
+				return p.episodeItem(mode, s, &s.Episodes[seasons[si]][i-before])
+			})
 			return
 		}
 		it := p.showItem(mode, s, withChildren)
@@ -296,8 +309,8 @@ func container(mode Mode, items []Item, offset, total int) Container {
 }
 
 // writePaged applies X-Plex-Container-Start/-Size (header or query) to n
-// items and builds only the ones on the page (a long show's episodes are
-// asked for 20 at a time). Without them the spec asks for the first 20.
+// items and builds only the ones on the page, in order (a long show's
+// episodes are asked for 20 at a time). Without them the spec asks for the first 20.
 func writePaged(w http.ResponseWriter, r *http.Request, mode Mode, n int, item func(i int) Item) {
 	start, _ := strconv.Atoi(param(r, "X-Plex-Container-Start"))
 	size, err := strconv.Atoi(param(r, "X-Plex-Container-Size"))
@@ -330,7 +343,9 @@ func readMatch(r *http.Request) (MatchRequest, error) {
 	if err != nil {
 		return MatchRequest{}, err
 	}
-	slog.Debug("plex match body", "body", string(raw[:min(len(raw), 4096)]))
+	if slog.Default().Enabled(r.Context(), slog.LevelDebug) { // the body string only for the log
+		slog.Debug("plex match body", "body", string(raw[:min(len(raw), 4096)]))
+	}
 	fields := map[string]string{}
 	if body := strings.TrimSpace(string(raw)); strings.HasPrefix(body, "{") {
 		var m map[string]any
