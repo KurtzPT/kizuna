@@ -327,6 +327,10 @@ them. Refresh the show's metadata a few minutes later to fill them in. The legac
 | `ART_ALL_SOURCES` | `false` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
 | `SEASON_ART_FALLBACK` | `true` | `true` / `false` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art instead. `false`: nothing from that site, the next source in the list is asked. See below |
 
+**Image languages.** TheMovieDb art is English, Japanese or text-free only. TheTVDB posters and backgrounds put those
+first (best rated first), and other languages after them, so one only wins when there is nothing else; TheTVDB clear
+logos are English or text-free only.
+
 **Season art.** A show and each of its Plex seasons get the art of the season they stand for, where the site has season
 art of that kind: TheTVDB season posters and backgrounds (the legacy key: posters only), TheMovieDb season posters.
 No site has season logos, and TheMovieDb seasons have no backgrounds; AniDB, MyAnimeList and Anime News Network

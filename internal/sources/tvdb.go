@@ -680,12 +680,22 @@ type tvdbArtwork struct {
 	Lang  string `json:"language"`
 }
 
-// byScore sorts artwork highest score first.
+// byScore sorts artwork English, Japanese and no-language first (like
+// TMDB's en,ja,null), then the other languages; highest score first in each.
+// TheTVDB's language codes are ISO 639-2 ("eng", "jpn"); text-free art has
+// null.
 func byScore(arts []tvdbArtwork) {
-	sort.SliceStable(arts, func(i, j int) bool { return arts[i].Score > arts[j].Score })
+	other := func(w tvdbArtwork) bool { return w.Lang != "" && w.Lang != "eng" && w.Lang != "jpn" }
+	sort.SliceStable(arts, func(i, j int) bool {
+		if oi, oj := other(arts[i]), other(arts[j]); oi != oj {
+			return oj
+		}
+		return arts[i].Score > arts[j].Score
+	})
 }
 
-// Art returns posters, backgrounds and clear logos, highest score first.
+// Art returns posters, backgrounds and clear logos, English, Japanese and
+// no-language first, highest score first.
 func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	key := fmt.Sprintf("%d/artworks.json", id)
 	if t.useLegacy(ctx, key, 7*24*time.Hour) {
@@ -718,7 +728,7 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 }
 
 // SeasonArt returns the posters and backgrounds of a season in aired
-// ("official") order, highest score first: the artwork of its season record
+// ("official") order, ranked like Art: the artwork of its season record
 // (/seasons/{id}/extended). sid is the season's id, from DetailsAndSeasons
 // (0: TheTVDB doesn't list the season, so it has none). TheTVDB seasons have
 // posters, backgrounds, banners and icons, no clear logos; Plex has no image
