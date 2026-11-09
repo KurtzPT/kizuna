@@ -313,7 +313,7 @@ function renderFields(b) {
     if (used.length > 1) why = "Every listed source's images (ART_ALL_SOURCES)";
     else if (used.length && used[0] === f.order[0]) why = "First in the order";
     else if (used.length) why = `${f.order.slice(0, f.order.indexOf(used[0])).map(name).join(", ")} had none`;
-    return `<tr><td class="f">${esc(f.name)}<small>${f.order.map(name).join(" › ")}</small></td>${cells}<td class="prose dim">${esc(why)}</td></tr>`;
+    return `<tr><td class="f">${esc(f.name)}<small>${esc(f.order.map(name).join(" › "))}</small></td>${cells}<td class="prose dim">${esc(why)}</td></tr>`;
   }).join("");
   return `<div class="panel fields"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
