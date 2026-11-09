@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"kizuna/internal/fetch"
+	"kizuna/internal/mapping"
 	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
@@ -40,66 +41,31 @@ type showSources struct {
 
 type text struct{ title, summary string }
 
-func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, tvdb, tmdb int, movie, series bool) *showSources {
+// newSources: entry is aid's mapping entry, for the ANN and MAL ids when
+// AniDB has no link to them or no details.
+func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, entry mapping.Entry, tvdb, tmdb int, movie, series bool) *showSources {
 	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series, rec: report.RecorderFrom(ctx)}
-	ss.tvdbDetails.f = func() (sources.Details, error) {
-		if tvdb == 0 || !p.tvdb.Enabled() {
-			return sources.Details{}, nil
-		}
-		return p.tvdb.Details(ctx, tvdb)
-	}
-	ss.tmdbDetails.f = func() (sources.Details, error) {
-		if tmdb == 0 || !p.tmdb.Enabled() {
-			return sources.Details{}, nil
-		}
-		return p.tmdb.Details(ctx, tmdb, movie)
-	}
-	ss.tvdbText.f = func() (text, error) {
-		if tvdb == 0 || !p.tvdb.Enabled() {
-			return text{}, nil
-		}
+	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) { return p.tvdb.Details(ctx, tvdb) })
+	ss.tmdbDetails.from(tmdb, p.tmdb.Enabled(), func() (sources.Details, error) { return p.tmdb.Details(ctx, tmdb, movie) })
+	ss.tvdbText.from(tvdb, p.tvdb.Enabled(), func() (text, error) {
 		n, o, err := p.tvdb.Overview(ctx, tvdb)
 		return text{n, o}, err
-	}
-	ss.tmdbText.f = func() (text, error) {
-		if tmdb == 0 || !p.tmdb.Enabled() {
-			return text{}, nil
-		}
+	})
+	ss.tmdbText.from(tmdb, p.tmdb.Enabled(), func() (text, error) {
 		n, o, err := p.tmdb.Text(ctx, tmdb, movie)
 		return text{n, o}, err
+	})
+	ss.tvdbArt.from(tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
+	ss.tmdbArt.from(tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
+	annID, malID := entry.ANN, entry.MAL
+	if a != nil && len(a.ANNIDs) > 0 {
+		annID = a.ANNIDs[0]
 	}
-	ss.tvdbArt.f = func() (sources.Art, error) {
-		if tvdb == 0 || !p.tvdb.Enabled() {
-			return sources.Art{}, nil
-		}
-		return p.tvdb.Art(ctx, tvdb)
+	if a != nil && len(a.MALIDs) > 0 {
+		malID = a.MALIDs[0]
 	}
-	ss.tmdbArt.f = func() (sources.Art, error) {
-		if tmdb == 0 || !p.tmdb.Enabled() {
-			return sources.Art{}, nil
-		}
-		return p.tmdb.Art(ctx, tmdb, movie)
-	}
-	ss.ann.f = func() (sources.ANNAnime, error) {
-		id := p.lists.ByAID(aid).ANN // mapping, for when AniDB has no ANN link or no details
-		if a != nil && len(a.ANNIDs) > 0 {
-			id = a.ANNIDs[0]
-		}
-		if id == 0 {
-			return sources.ANNAnime{}, nil
-		}
-		return p.ann.Anime(ctx, id)
-	}
-	ss.mal.f = func() (sources.MALAnime, error) {
-		id := p.lists.ByAID(aid).MAL // mapping, for when AniDB has no MAL link or no details
-		if a != nil && len(a.MALIDs) > 0 {
-			id = a.MALIDs[0]
-		}
-		if id == 0 || !p.mal.Enabled() {
-			return sources.MALAnime{}, nil
-		}
-		return p.mal.Anime(ctx, id)
-	}
+	ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
+	ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
 	return ss
 }
 
@@ -124,11 +90,7 @@ func (ss *showSources) failed() []string {
 func (ss *showSources) title(src string) string {
 	switch src {
 	case "anidb":
-		titles := ss.p.titles.Of(ss.aid)
-		if ss.a != nil {
-			titles = ss.a.Titles
-		}
-		if len(titles) > 0 {
+		if titles := ss.p.showTitles(ss.aid, ss.a); len(titles) > 0 {
 			return ss.p.showTitle(titles)
 		}
 	case "tvdb":
@@ -382,7 +344,8 @@ func images(order []string, all bool, get func(src string) []string) ([]string, 
 	return out, strings.Join(counts, ",")
 }
 
-// lazy computes f once, on first use; safe for concurrent callers.
+// lazy computes f once, on first use; safe for concurrent callers. Without
+// f it gives the zero value.
 type lazy[T any] struct {
 	once sync.Once
 	f    func() (T, error)
@@ -391,8 +354,20 @@ type lazy[T any] struct {
 }
 
 func (l *lazy[T]) get() T {
-	l.once.Do(func() { l.v, l.err = l.f() })
+	l.once.Do(func() {
+		if l.f != nil {
+			l.v, l.err = l.f()
+		}
+	})
 	return l.v
+}
+
+// from sets f, unless the source can't have the show: no id for it (0), or
+// not configured (on false).
+func (l *lazy[T]) from(id int, on bool, f func() (T, error)) {
+	if id != 0 && on {
+		l.f = f
+	}
 }
 
 // failed: f ran and failed, other than with a 404. Call it only after the

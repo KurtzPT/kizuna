@@ -108,10 +108,7 @@ func (s *Show) eachEpisode(f func(*Ep)) {
 // An AniDB movie is a one-episode entry, so it becomes S01E01.
 func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	a, err := p.anidb.Anime(ctx, aid)
-	titles := p.titles.Of(aid)
-	if a != nil {
-		titles = a.Titles
-	}
+	titles := p.showTitles(aid, a)
 	if len(titles) == 0 {
 		return nil, fmt.Errorf("anidb %d unknown: %v", aid, err)
 	}
@@ -127,12 +124,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if entry.TVDB.ID > 0 && (a == nil || !a.IsMovie()) {
 		s.Guids = append(s.Guids, fmt.Sprintf("tvdb://%d", entry.TVDB.ID))
 	}
-	if tmdbID > 0 {
-		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", tmdbID))
-	}
-	if strings.HasPrefix(entry.IMDB, "tt") {
-		s.Guids = append(s.Guids, "imdb://"+entry.IMDB)
-	}
+	s.addGuids(tmdbID, entry.IMDB)
 
 	if a == nil {
 		slog.Info("AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
@@ -157,7 +149,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if a != nil && !a.IsMovie() {
 		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry) })
 	}
-	sourcesOK := p.newSources(ctx, aid, a, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
+	sourcesOK := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie, p.lists.StartsSeries(aid)).fill(s)
 	wg.Wait()
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
@@ -170,6 +162,25 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		s.Episodes[1][0].Title, s.Episodes[1][0].Summary = s.Title, s.Summary
 	}
 	return s, nil
+}
+
+// showTitles: an entry's AniDB titles, from its details, else (a nil) from
+// the title dump.
+func (p *Provider) showTitles(aid int, a *sources.AniDBAnime) []anidb.Title {
+	if a != nil {
+		return a.Titles
+	}
+	return p.titles.Of(aid)
+}
+
+// addGuids adds the TheMovieDb (tmdbID 0 = none) and IMDb GUIDs.
+func (s *Show) addGuids(tmdbID int, imdb string) {
+	if tmdbID > 0 {
+		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", tmdbID))
+	}
+	if strings.HasPrefix(imdb, "tt") {
+		s.Guids = append(s.Guids, "imdb://"+imdb)
+	}
 }
 
 // showTitle picks the AniDB show title per TITLE_LANGS / TITLE_OFFICIAL_ONLY.
@@ -243,12 +254,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		}
 		return nil, fmt.Errorf("tvdb %d: no episode list from TheTVDB: %w", tvdbID, epsErr)
 	}
-	if tmdbID > 0 {
-		s.Guids = append(s.Guids, fmt.Sprintf("tmdb://%d", tmdbID))
-	}
-	if strings.HasPrefix(entry.IMDB, "tt") {
-		s.Guids = append(s.Guids, "imdb://"+entry.IMDB)
-	}
+	s.addGuids(tmdbID, entry.IMDB)
 
 	sources.FillAbsolute(eps)
 	b := newTVDBBuild(tvdbID, tmdbID, a, eps)
@@ -259,7 +265,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	} else if p.anidb.Enabled() && len(p.titles.Of(aid)) > 0 {
 		s.Complete = false // AniDB details missing: rebuild soon (without ANIDB_CLIENT there are none to wait for)
 	}
-	if !p.enrichTVDB(ctx, s, b, aid) {
+	if !p.enrichTVDB(ctx, s, b, aid, entry) {
 		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
 	}
 	finishTVDB(s, b)
@@ -295,11 +301,12 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 }
 
 // enrichTVDB adds the episode titles and crew and the show-level fields
-// (aid: the series' first AniDB entry). They touch different parts of s, so
-// both are fetched at once. TheMovieDb's episode list is fetched once, for
-// the titles and the crew. Returns false while other AniDB entries or
-// episode crew are still being fetched, or when a source failed.
-func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid int) bool {
+// (aid: the series' first AniDB entry, entry its mapping). They touch
+// different parts of s, so both are fetched at once. TheMovieDb's episode
+// list is fetched once, for the titles and the crew. Returns false while
+// other AniDB entries or episode crew are still being fetched, or when a
+// source failed.
+func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid int, entry mapping.Entry) bool {
 	var wg sync.WaitGroup
 	var tmdbOK, titlesReady, crewReady bool
 	wg.Go(func() {
@@ -309,7 +316,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid in
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
-	sourcesOK := p.newSources(ctx, aid, b.first, b.tvdbID, b.tmdbID, false, true).fill(s)
+	sourcesOK := p.newSources(ctx, aid, b.first, entry, b.tvdbID, b.tmdbID, false, true).fill(s)
 	wg.Wait()
 	return tmdbOK && titlesReady && crewReady && sourcesOK
 }
