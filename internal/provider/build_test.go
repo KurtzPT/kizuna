@@ -721,6 +721,8 @@ func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
 		{"no TVDB series", mapping.Entry{AID: 100, TMDB: mapping.Placement{ID: 77}, TMDBMovie: 99}, []string{"tmdb://99"}, true},
 		{"on a regular TVDB season", mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
 			TMDB: mapping.Placement{ID: 77}, TMDBMovie: 99}, []string{"tvdb://500", "tmdb://77"}, false},
+		{"on a regular TVDB season, no TMDB TV id", mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
+			TMDBMovie: 99}, []string{"tmdb://99"}, true},
 	} {
 		var guids [2][]string
 		for i, details := range []bool{false, true} {

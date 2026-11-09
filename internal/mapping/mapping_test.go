@@ -82,7 +82,8 @@ func TestFirstAIDSkipsSpecialOnly(t *testing.T) {
 	}
 }
 
-// Movie: a TheMovieDb movie id, and not on a regular TheTVDB season.
+// Movie: a TheMovieDb movie id, and no TheMovieDb TV id or not on a regular
+// TheTVDB season.
 func TestMovie(t *testing.T) {
 	for _, c := range []struct {
 		e    Entry
@@ -91,8 +92,10 @@ func TestMovie(t *testing.T) {
 		{Entry{TMDBMovie: 9}, true},
 		{Entry{TMDB: Placement{ID: 7}, TMDBMovie: 9}, true},
 		{Entry{TVDB: Placement{ID: 1, Season: 0, Mapped: true}, TMDB: Placement{ID: 7}, TMDBMovie: 9}, true},
-		{Entry{TVDB: Placement{ID: 1, Season: 2, Mapped: true}, TMDBMovie: 9}, false},
-		{Entry{TVDB: Placement{ID: 1, Season: -1, Mapped: true}, TMDBMovie: 9}, false},
+		{Entry{TVDB: Placement{ID: 1, Season: 2, Mapped: true}, TMDBMovie: 9}, true},
+		{Entry{TVDB: Placement{ID: 1, Season: -1, Mapped: true}, TMDBMovie: 9}, true},
+		{Entry{TVDB: Placement{ID: 1, Season: 2, Mapped: true}, TMDB: Placement{ID: 7}, TMDBMovie: 9}, false},
+		{Entry{TVDB: Placement{ID: 1, Season: -1, Mapped: true}, TMDB: Placement{ID: 7}, TMDBMovie: 9}, false},
 		{Entry{TVDB: Placement{ID: 1, Season: 0, Mapped: true}}, false},
 	} {
 		if got := c.e.Movie(); got != c.want {
