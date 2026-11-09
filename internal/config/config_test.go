@@ -61,7 +61,7 @@ func warnings(t *testing.T, f func()) string {
 }
 
 // A list with no known source left falls back to the default with a
-// warning instead of turning the field off; "none" still turns it off.
+// warning instead of turning the field off.
 func TestSourceListWithNothingKnownUsesDefault(t *testing.T) {
 	for _, v := range []string{"animelist", "foo,bar", ","} {
 		t.Setenv("MAPPING_SOURCES", v)
@@ -74,9 +74,22 @@ func TestSourceListWithNothingKnownUsesDefault(t *testing.T) {
 			t.Errorf("MAPPING_SOURCES=%q: no warning in %q", v, log)
 		}
 	}
-	t.Setenv("MAPPING_SOURCES", "none")
-	if got := Load().MappingSources; got != nil {
-		t.Errorf("none: %v", got)
+}
+
+// MAPPING_SOURCES can't be turned off: without a list the mapping never
+// becomes ready. "none" warns and uses the default.
+func TestMappingSourcesNoneUsesDefault(t *testing.T) {
+	for _, v := range []string{"none", "NONE"} {
+		t.Setenv("MAPPING_SOURCES", v)
+		var got []string
+		log := warnings(t, func() { got = Load().MappingSources })
+		if !slices.Equal(got, []string{"animelists", "fribb"}) || !strings.Contains(log, "setting=MAPPING_SOURCES") {
+			t.Errorf("MAPPING_SOURCES=%s: %v (log %q), want the default with a warning", v, got, log)
+		}
+	}
+	t.Setenv("MAPPING_SOURCES", "fribb")
+	if got := Load().MappingSources; !slices.Equal(got, []string{"fribb"}) {
+		t.Errorf("fribb: %v", got)
 	}
 }
 

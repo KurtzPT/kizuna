@@ -103,7 +103,7 @@ func Load() Config {
 		TVDBLegacyKey:      env("TVDB_LEGACY_API_KEY", ""),
 		TMDBKey:            env("TMDB_API_KEY", ""),
 		MALClientID:        env("MAL_CLIENT_ID", ""),
-		MappingSources:     sourceList("MAPPING_SOURCES", "animelists,fribb", "animelists", "fribb"),
+		MappingSources:     mappingSources(),
 		TitleLangs:         list(env("TITLE_LANGS", "main,x-jat,en")),
 		TitleOfficialOnly:  flag("TITLE_OFFICIAL_ONLY", false),
 		OriginalTitleLangs: langList("ORIGINAL_TITLE_LANGS", "ja"),
@@ -279,6 +279,17 @@ func sourceList(name, def string, allowed ...string) []string {
 		return knownSources(name, def, allowed)
 	}
 	return out
+}
+
+// mappingSources reads MAPPING_SOURCES. Unlike the other lists it can't be
+// "none": without a list the mapping never loads and /health stays down.
+func mappingSources() []string {
+	const name, def = "MAPPING_SOURCES", "animelists,fribb"
+	if raw := env(name, def); strings.EqualFold(raw, "none") {
+		slog.Warn("a mapping list is required; using the default", "setting", name, "value", raw, "default", def)
+		return list(def)
+	}
+	return sourceList(name, def, "animelists", "fribb")
 }
 
 // knownSources keeps the allowed names of a source list, once each.
