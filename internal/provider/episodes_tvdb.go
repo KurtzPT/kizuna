@@ -178,14 +178,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 	}
 	if tmdbOn && slices.Contains(order, "tmdb") {
 		tm := pairedList{b.tmdbEps, pr.otherAt}
-		s.eachEpisode(func(ep *Ep) {
-			if e, ok := tm.of(ep); ok {
-				ep.setTitle("tmdb", e.Title)
-				if rec != nil {
-					ep.setPair("tmdb", spotName(e))
-				}
-			}
-		})
+		s.eachEpisode(func(ep *Ep) { tm.title(ep, "tmdb", rec != nil) })
 	}
 	if slices.Contains(order, "anidb") {
 		s.eachEpisode(func(ep *Ep) {

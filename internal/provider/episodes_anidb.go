@@ -49,19 +49,11 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	for _, season := range []int{1, 0} {
 		for i := range s.Episodes[season] {
 			ep := &s.Episodes[season][i]
-			if e, ok := tmList.of(ep); ok {
+			if _, ok := tmList.title(ep, "tmdb", record); ok {
 				pairedTMDB++
-				ep.setTitle("tmdb", e.Title)
-				if record {
-					ep.setPair("tmdb", spotName(e))
-				}
 			}
-			if e, ok := tvList.of(ep); ok {
+			if e, ok := tvList.title(ep, "tvdb", record); ok {
 				paired++
-				ep.setTitle("tvdb", e.Title)
-				if record {
-					ep.setPair("tvdb", spotName(e))
-				}
 				if fill {
 					ep.Thumb = firstOf(ep.Thumb, e.Thumb)
 					ep.Summary = firstOf(ep.Summary, e.Summary)

@@ -78,6 +78,19 @@ func (l pairedList) of(ep *Ep) (sources.Episode, bool) {
 	return sources.Episode{}, false
 }
 
+// title looks ep up on this list (of) and, when it's there, gives ep that
+// episode's title from src, and (record) where it is, for the match report.
+func (l pairedList) title(ep *Ep, src string, record bool) (sources.Episode, bool) {
+	e, ok := l.of(ep)
+	if ok {
+		ep.setTitle(src, e.Title)
+		if record {
+			ep.setPair(src, spotName(e))
+		}
+	}
+	return e, ok
+}
+
 // seriesEpisodes returns a TVDB or TMDB series' episodes, absolute numbers
 // filled in (an empty index when the list can't be had). complete is false
 // when the list failed or came back partial, so the show is rebuilt soon; a
