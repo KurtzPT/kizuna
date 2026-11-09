@@ -16,6 +16,12 @@ import (
 	"kizuna/internal/sources"
 )
 
+// The build errors for a show that doesn't exist (buildShow sorts by them).
+var (
+	errUnknownAID = errors.New("unknown")                               // neither the title list nor AniDB knows the aid
+	errNoEpisodes = errors.New("TheTVDB has no episodes for this show") // TheTVDB answered without episodes
+)
+
 // Show is the source-independent model of one Plex show. Both modes build
 // it; plex JSON is produced from it in items.go.
 type Show struct {
@@ -112,7 +118,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	a, err := p.anidb.Anime(ctx, aid)
 	titles := p.showTitles(aid, a)
 	if len(titles) == 0 {
-		return nil, fmt.Errorf("anidb %d unknown: %v", aid, err)
+		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, err)
 	}
 	// Without ANIDB_CLIENT there are no details to wait for: the show is
 	// complete as it is (as in buildTVDB), not rebuilt every 2 minutes.
@@ -276,7 +282,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 	if len(eps) == 0 {
 		if epsErr == nil || fetch.IsNotFound(epsErr) {
-			return nil, fmt.Errorf("tvdb %d: TheTVDB has no episodes for this show; use /anidb for it (or /auto)", tvdbID)
+			return nil, fmt.Errorf("tvdb %d: %w; use /anidb for it (or /auto)", tvdbID, errNoEpisodes)
 		}
 		return nil, fmt.Errorf("tvdb %d: no episode list from TheTVDB: %w", tvdbID, epsErr)
 	}

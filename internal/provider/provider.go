@@ -382,7 +382,7 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 	case site == "anidb":
 		// Its one failure: neither the title list nor AniDB knows the id.
 		// Without the title list (it failed to load) that says nothing.
-		if s, err = p.buildAniDB(ctx, id); s == nil && err != nil && p.titles.Ready() {
+		if s, err = p.buildAniDB(ctx, id); errors.Is(err, errUnknownAID) && p.titles.Ready() {
 			err = noShowError{err}
 		}
 	case p.modeOff(Modes["tvdb"]) != "":
@@ -390,9 +390,9 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		// up: like /tvdb itself (withMode), a 503 with the reason.
 		return nil, fmt.Errorf("%s needs TheTVDB, which is off: %s", root, p.modeOff(Modes["tvdb"]))
 	default:
-		// buildTVDB wraps TheTVDB's error (%w) when it couldn't answer, and
-		// none when it answered without episodes: the show doesn't exist.
-		if s, err = p.buildTVDB(ctx, id); s == nil && err != nil && errors.Unwrap(err) == nil {
+		// TheTVDB answered without episodes: the show doesn't exist. Any
+		// other failure is TheTVDB not answering now.
+		if s, err = p.buildTVDB(ctx, id); errors.Is(err, errNoEpisodes) {
 			err = noShowError{err}
 		}
 	}
