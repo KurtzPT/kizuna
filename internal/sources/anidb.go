@@ -116,9 +116,15 @@ type AniDB struct {
 	backedOffAt time.Time
 }
 
+// anidbMemo is a parsed entry kept in memory. A stale one is kept too, so
+// that while AniDB can't be asked a show rebuilt every 2 minutes doesn't
+// parse its (often 1 MB) cache file each time: it is used until that file
+// changes (mod).
 type anidbMemo struct {
 	anime *AniDBAnime
-	at    time.Time
+	at    time.Time // when it was kept
+	fresh bool      // within its TTL then
+	mod   time.Time // a stale one: its cache file's last write
 }
 
 func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
@@ -148,23 +154,40 @@ func (c *AniDB) Anime(ctx context.Context, aid int) (*AniDBAnime, error) {
 // Peek returns an entry from memory or the disk cache, of any age, without
 // any network access, and whether it is still fresh. nil = never fetched.
 func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
+	a, fresh, _, _ = c.local(aid)
+	return a, fresh
+}
+
+// local returns the entry from memory or the disk cache, of any age,
+// without any network access: whether it is fresh, whether it came from
+// memory, and (read from disk) the cache file's age. What it parses is kept
+// in memory, fresh or not, so the next build needn't parse it again.
+func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Duration) {
 	c.mu.Lock()
-	if m, ok := c.memo[aid]; ok && time.Since(m.at) < time.Hour {
-		c.mu.Unlock()
-		return m.anime, true
-	}
+	m, kept := c.memo[aid]
 	c.mu.Unlock()
-	data, age, ok := c.f.Cached(anidbKey(aid))
+	kept = kept && time.Since(m.at) < time.Hour
+	if kept && m.fresh {
+		return m.anime, true, true, 0
+	}
+	key := anidbKey(aid)
+	mod, ok := c.f.CachedAt(key)
 	if !ok {
-		return nil, false
+		return nil, false, false, 0
+	}
+	if kept && m.mod.Equal(mod) { // the same stale copy as last time
+		return m.anime, false, true, 0
+	}
+	data, age, ok := c.f.Cached(key)
+	if !ok {
+		return nil, false, false, 0
 	}
 	if a, _ = parseAniDB(data); a == nil {
-		return nil, false
+		return nil, false, false, 0
 	}
-	if fresh = age < anidbTTL(a.EndDate); fresh {
-		c.remember(a) // the next build of the series needn't parse it again
-	}
-	return a, fresh
+	fresh = age < anidbTTL(a.EndDate)
+	c.remember(a, fresh, mod)
+	return a, fresh, false, age
 }
 
 // Prefetch fetches an entry in the background, within the fair use rules
@@ -223,29 +246,20 @@ func (c *AniDB) prefetchWorker() {
 
 func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnime, error) {
 	start := time.Now()
-	c.mu.Lock()
-	if m, ok := c.memo[aid]; ok && time.Since(m.at) < time.Hour {
-		c.mu.Unlock()
+	// Read here, not by Get: the TTL depends on the entry's end date, and a
+	// stale copy is still used when the API may not be asked.
+	a, fresh, memo, age := c.local(aid)
+	if fresh && memo {
 		slog.Debug("anidb: from memory", "aid", aid)
 		if fetch.Observing(ctx) { // the key is only built for a match report
 			fetch.Observe(ctx, anidbKey(aid), fetch.KindMemory, start, nil)
 		}
-		return m.anime, nil
+		return a, nil
 	}
-	c.mu.Unlock()
 	key := anidbKey(aid)
-
-	// Read here, not by Get: the TTL depends on the entry's end date, and a
-	// stale copy is still used when the API may not be asked.
-	cached, age, ok := c.f.Cached(key)
-	var a *AniDBAnime
-	if ok {
-		a, _ = parseAniDB(cached)
-	}
-	if a != nil && age < anidbTTL(a.EndDate) {
+	if fresh {
 		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate))
 		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
-		c.remember(a)
 		return a, nil
 	}
 	if ok, why := c.allowed(aid, background); !ok {
@@ -285,17 +299,18 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 			return nil, err
 		}
 	}
-	c.remember(a)
+	c.remember(a, true, time.Time{})
 	return a, nil
 }
 
-// remember keeps a parsed entry in memory for an hour. No size limit:
-// expired entries are swept out every few minutes.
-func (c *AniDB) remember(a *AniDBAnime) {
+// remember keeps a parsed entry in memory for an hour; mod is a stale
+// one's cache file write time. No size limit: expired entries are swept
+// out every few minutes.
+func (c *AniDB) remember(a *AniDBAnime, fresh bool, mod time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
-	c.memo[a.AID] = anidbMemo{a, now}
+	c.memo[a.AID] = anidbMemo{a, now, fresh, mod}
 	if now.Sub(c.prunedAt) < 5*time.Minute {
 		return
 	}

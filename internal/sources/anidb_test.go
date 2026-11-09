@@ -211,6 +211,38 @@ func TestAniDBClientRejectedPausesAll(t *testing.T) {
 	}
 }
 
+// A stale cached entry is parsed once and then kept in memory, by Peek and
+// Anime alike, until its cache file changes.
+func TestAniDBStaleEntryParsedOnce(t *testing.T) {
+	c, calls := fakeAniDB(t, [2]string{"200", anidbSample})
+	c.state.BannedUntil = time.Now().Add(time.Hour) // AniDB can't be asked: the stale copy is all there is
+	path := filepath.Join(filepath.Dir(c.statePath), "anidb", "anime", "69.xml")
+	write := func(age time.Duration) {
+		if err := fetch.WriteFile(path, []byte(anidbSample)); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-age)
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(200 * 24 * time.Hour) // the entry ended in 2000: 180 days fresh
+	first, fresh := c.Peek(69)
+	if first == nil || fresh {
+		t.Fatalf("peek: %v fresh=%v, want the stale entry", first, fresh)
+	}
+	if again, fresh := c.Peek(69); again != first || fresh {
+		t.Fatal("peek again: parsed again, want the kept copy")
+	}
+	if a, err := c.Anime(context.Background(), 69); err != nil || a != first || *calls != 0 {
+		t.Fatalf("anime while AniDB is paused: %v, %d calls, same copy %v", err, *calls, a == first)
+	}
+	write(190 * 24 * time.Hour) // a new copy (still stale)
+	if newer, _ := c.Peek(69); newer == nil || newer == first {
+		t.Fatal("cache file changed: want it parsed again")
+	}
+}
+
 // admissions sends the aid of each AniDB call allowed (its debug line), so
 // a test knows a call is past allowed and on its way to the 4 s queue.
 type admissions chan int
