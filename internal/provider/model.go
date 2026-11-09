@@ -130,6 +130,9 @@ func (s *Show) eachEpisode(f func(*Ep)) {
 // holds specials, openings (101+), endings (151+), trailers (201+)...
 // An AniDB movie is a one-episode entry, so it becomes S01E01.
 func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
+	if p.unknownAID(aid) {
+		return nil, fmt.Errorf("anidb %d %w: not in AniDB's title list", aid, errUnknownAID)
+	}
 	entry := p.lists.ByAID(aid)
 	lists := p.episodeLists(ctx, entry)
 	var early sync.WaitGroup
@@ -234,6 +237,18 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		}
 	}
 	return s, nil
+}
+
+// unknownAID: neither the loaded title list nor AniDB's cache knows the aid,
+// so AniDB isn't asked: a made-up id would only spend its daily limit. An
+// entry newer than the last title dump waits for the next one (daily).
+// Before the title list has loaded, AniDB is asked as before.
+func (p *Provider) unknownAID(aid int) bool {
+	if !p.anidb.Enabled() || !p.titles.Ready() || len(p.titles.Of(aid)) > 0 {
+		return false
+	}
+	a, _ := p.anidb.Peek(aid)
+	return a == nil
 }
 
 // maxSpecialEpisodes caps how many episodes specialEpisodes guesses.

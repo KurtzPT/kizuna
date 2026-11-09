@@ -266,7 +266,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 
 | Rule | Details |
 |---|---|
-| Finding a show never calls the API | it searches the daily title list |
+| Finding a show never calls the API | it searches the daily title list. An AniDB id that list doesn't have isn't asked about either (unless it's cached), so an entry added since waits for the next list |
 | One call every 4 s, at most 200 a day | AniDB's limits |
 | Plex's calls go first | background fetches (other entries of a `/tvdb` show) wait behind them, still 4 s apart, and stop at 150 calls a day |
 | Every answer is cached | 6 days while airing and for 60 days after the end, then 180 days |

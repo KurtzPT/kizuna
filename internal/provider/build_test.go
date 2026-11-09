@@ -756,6 +756,33 @@ func TestAniDBMovieGuidsWithAndWithoutDetails(t *testing.T) {
 	}
 }
 
+// An anidb-N id that neither the loaded title list nor AniDB's cache knows
+// is no show, without asking AniDB (a made-up id would spend its daily
+// limit). Before the title list has loaded, and for an id in the cache,
+// the show is built as usual.
+func TestUnknownAniDBIdNotAsked(t *testing.T) {
+	entry := strings.Replace(anidbXML, `id="100"`, `id="555"`, 1)
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 200, entry
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net)
+	if _, err := p.buildShow(context.Background(), "anidb-555"); !noShow(err) || net.count("api.anidb.net/httpapi") != 0 {
+		t.Fatalf("unknown id: err %v, %d AniDB calls; want no show and no call", err, net.count("api.anidb.net/httpapi"))
+	}
+	loaded := p.titles
+	p.titles = &anidb.Titles{} // not loaded yet: AniDB is asked
+	if s, err := p.buildShow(context.Background(), "anidb-555"); err != nil || s.Title != "Kizuna Test" || net.count("api.anidb.net/httpapi") != 1 {
+		t.Fatalf("title list not loaded: show %v, err %v, %d AniDB calls; want the show from one call", s, err, net.count("api.anidb.net/httpapi"))
+	}
+	p.titles = loaded // in the cache now: built from there
+	if s, err := p.buildShow(context.Background(), "anidb-555"); err != nil || s.Title != "Kizuna Test" || net.count("api.anidb.net/httpapi") != 1 {
+		t.Errorf("cached id: show %v, err %v, %d AniDB calls; want the show, no new call", s, err, net.count("api.anidb.net/httpapi"))
+	}
+}
+
 // A /tvdb build reads TheMovieDb's episode list once, for both the titles
 // and the crew, and a failed list still leaves the show incomplete.
 func TestTVDBReadsTMDBListOnce(t *testing.T) {
