@@ -195,13 +195,15 @@ func (p *Provider) runBuild(ctx context.Context, root string, b *build) {
 		}
 		p.pruneShows()
 		p.mu.Unlock()
-		close(b.done)
+		// Queue the report before waking the waiters: a request answered by
+		// this build is then never written (or flushed at shutdown) without it.
 		if rec != nil {
 			safeReport(root, func() {
 				p.finishReport(rec, root, b.show, b.err, time.Since(start))
 				p.reports.AddBuild(p.reportKey(root), rec)
 			})
 		}
+		close(b.done)
 	}()
 	b.show, b.err = p.buildShow(ctx, root)
 	if b.show != nil {
