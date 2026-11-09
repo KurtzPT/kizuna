@@ -332,8 +332,9 @@ func (l *Lists) StartsShow(site string, aid int) bool { return l.get().startsSho
 // "tmdbmovie" a TMDB movie), or 0. When a series-level id
 // (TVDB, TMDB, IMDb) covers several AniDB entries, the series' first entry
 // wins: for TVDB and TMDB picked like FirstAID by the entry's placement on
-// that site; for the others the entry that starts its series, else the
-// lowest one that isn't special-only.
+// that site; for the others the entry that starts its series (on TheTVDB,
+// or on TheMovieDb when it has no TVDB id), else the lowest one that isn't
+// special-only on either.
 func (l *Lists) AIDFor(source, id string) int { return l.get().aidFor(source, id) }
 
 // aids returns the AniDB ids mapped to a source id (sorted).
@@ -360,6 +361,13 @@ func (s *snapshot) firstAID(site string, id int) int {
 			return aid
 		}
 	}
+	return s.lowestRegular(aids, site)
+}
+
+// lowestRegular returns the lowest of aids that isn't special-only (a movie
+// or OVA among the series' specials, on TheTVDB or on site), else the lowest
+// one (0 if none).
+func (s *snapshot) lowestRegular(aids []int, site string) int {
 	for _, aid := range aids {
 		if e := s.byAID[aid]; !e.SpecialOnly() && !e.On(site).specialsOnly() {
 			return aid
@@ -381,28 +389,16 @@ func (s *snapshot) aidFor(source, id string) int {
 			return aid
 		}
 	}
-	for _, aid := range aids {
-		if !s.byAID[aid].SpecialOnly() {
-			return aid
-		}
-	}
-	if len(aids) > 0 {
-		return aids[0]
-	}
-	return 0
+	return s.lowestRegular(aids, "tmdb")
 }
 
-// startsSeries: an entry is the first one of its TVDB series (or the only
-// one on its TMDB show when there is no TVDB id), for aidFor.
+// startsSeries: an entry is the first one of its TVDB series, or of its
+// TMDB show when there is no TVDB id, for aidFor.
 func (s *snapshot) startsSeries(aid int) bool {
-	e := s.byAID[aid]
-	if e.TVDB.ID > 0 {
+	if s.byAID[aid].TVDB.ID > 0 {
 		return s.startsShow("tvdb", aid)
 	}
-	if e.TMDB.ID > 0 {
-		return len(s.byNum["tmdb"][e.TMDB.ID]) == 1
-	}
-	return false
+	return s.startsShow("tmdb", aid)
 }
 
 func atoi(s string) int {

@@ -11,7 +11,8 @@ func TestStartsSeries(t *testing.T) {
 		4: {AID: 4, TMDB: Placement{ID: 600}},
 		5: {AID: 5, TMDB: Placement{ID: 600}},
 	})
-	for aid, want := range map[int]bool{1: true, 2: false, 3: true, 4: false, 9: false} {
+	// no TVDB id: the first entry of the TMDB show (no placement: the lowest)
+	for aid, want := range map[int]bool{1: true, 2: false, 3: true, 4: true, 5: false, 9: false} {
 		if got := l.get().startsSeries(aid); got != want {
 			t.Errorf("aid %d: got %v, want %v", aid, got, want)
 		}
@@ -428,9 +429,14 @@ func TestAIDForFirstEntry(t *testing.T) {
 		480: {AID: 480, TVDB: Placement{ID: 1, Season: 0, Offset: 3, Mapped: true}, TMDB: Placement{ID: 20, Season: 0, Mapped: true}, IMDB: "tt02"},
 		500: {AID: 500, TVDB: Placement{ID: 1, Season: 2, Mapped: true}, TMDB: Placement{ID: 20, Season: 1, Mapped: true}, IMDB: "tt02"},
 		// no TVDB id: the TMDB season 0 entry isn't the show's first
-		300: {AID: 300, TMDB: Placement{ID: 9, Season: 0, Mapped: true}},
-		301: {AID: 301, TMDB: Placement{ID: 9, Season: 1, Mapped: true}},
-		302: {AID: 302, TMDB: Placement{ID: 9, Season: 2, Mapped: true}},
+		300: {AID: 300, TMDB: Placement{ID: 9, Season: 0, Mapped: true}, IMDB: "tt09"},
+		301: {AID: 301, TMDB: Placement{ID: 9, Season: 1, Mapped: true}, IMDB: "tt09"},
+		302: {AID: 302, TMDB: Placement{ID: 9, Season: 2, Mapped: true}, IMDB: "tt09"},
+		// tt12 starts neither TMDB show: its lowest entry is a TMDB special
+		320: {AID: 320, TMDB: Placement{ID: 12, Season: 0, Mapped: true}, IMDB: "tt12"},
+		321: {AID: 321, TMDB: Placement{ID: 12, Season: 1, Mapped: true}},
+		322: {AID: 322, TMDB: Placement{ID: 13, Season: 2, Mapped: true}, IMDB: "tt12"},
+		323: {AID: 323, TMDB: Placement{ID: 13, Season: 1, Mapped: true}},
 		// only a special-only entry: it is still found
 		700: {AID: 700, TVDB: Placement{ID: 7, Season: 0, Mapped: true}, IMDB: "tt07"},
 	})
@@ -439,7 +445,7 @@ func TestAIDForFirstEntry(t *testing.T) {
 		want       int
 	}{
 		{"tmdb", "20", 500}, {"tmdb", "9", 301}, {"tmdb", "10", 100}, {"tvdb", "1", 100},
-		{"imdb", "tt02", 500}, {"imdb", "tt07", 700},
+		{"imdb", "tt02", 500}, {"imdb", "tt07", 700}, {"imdb", "tt09", 301}, {"imdb", "tt12", 322},
 	} {
 		if got := l.AIDFor(c.source, c.id); got != c.want {
 			t.Errorf("AIDFor(%s, %s) = %d, want %d", c.source, c.id, got, c.want)
