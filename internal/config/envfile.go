@@ -29,6 +29,7 @@ type EnvFile struct {
 	NotFound   string   // the default file looked for, when it isn't there
 	Keys       []string // settings taken from the file
 	Overridden []string // in the file, but the environment sets them (the environment wins)
+	Ignored    []string // names that aren't all upper case: never set, on any OS
 	Problems   []string // lines that were skipped, and why
 }
 
@@ -56,6 +57,12 @@ func LoadEnvFile() (EnvFile, error) {
 	settings, problems := parseEnvFile(data)
 	f.Problems = problems
 	for _, s := range settings {
+		// Only exact upper-case names count. Windows env names ignore case,
+		// so setting "port" there would quietly set PORT.
+		if s.key != strings.ToUpper(s.key) {
+			f.Ignored = append(f.Ignored, s.key)
+			continue
+		}
 		if _, set := os.LookupEnv(s.key); set {
 			f.Overridden = append(f.Overridden, s.key)
 			continue
@@ -84,7 +91,7 @@ func (f EnvFile) Log() {
 	for _, p := range f.Problems {
 		slog.Warn("settings file: skipped a line", "path", f.Path, "problem", p)
 	}
-	for _, k := range slices.Concat(f.Keys, f.Overridden) {
+	for _, k := range slices.Concat(f.Keys, f.Overridden, f.Ignored) {
 		if !wasRead(k) && !slices.Contains(externalVars, k) {
 			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "setting", k)
 		}

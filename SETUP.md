@@ -227,7 +227,7 @@ Everything is an environment variable; [`compose.yml`](compose.yml) lists the co
 per-library settings to providers, so every setting applies to every mode and every library.
 
 **Or put them in a file:** Kizuna reads `kizuna.env` in the data folder (`/data/kizuna.env` in Docker), one
-`NAME=value` per line, the same names as below. [`.env.sample`](.env.sample) lists every setting with its default:
+`NAME=value` per line, the same names as below, in upper case (`port=` is ignored, also on Windows). [`.env.sample`](.env.sample) lists every setting with its default:
 
 ```bash
 # /change/me/kizuna.env
