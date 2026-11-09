@@ -8,8 +8,6 @@
 
 [How it works](#-how-it-works) &nbsp;·&nbsp; [What migrates](#-what-can-be-migrated) &nbsp;·&nbsp; [Before you start](#-before-you-start) &nbsp;·&nbsp; [① Install](#-1-install-the-script) &nbsp;·&nbsp; [② Dry run](#-2-dry-run) &nbsp;·&nbsp; [③ Apply](#-3-apply-the-hints) &nbsp;·&nbsp; [④ Switch](#-4-switch-the-library) &nbsp;·&nbsp; [⑤ Clean up](#-5-clean-up) &nbsp;·&nbsp; [📘 Reference](#-what-the-script-writes)
 
-<sub>Haven't set Kizuna up yet? Start with <a href="SETUP.md">SETUP.md</a>.</sub>
-
 </div>
 
 ---
@@ -49,6 +47,9 @@ and `[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
 
 In every mode, openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras)
 unless you rename them.
+
+HAMA features Kizuna leaves out on purpose, to stay small: collections, online theme songs and rating badges.
+Local `theme.mp3` files still work through *Plex Local Media*.
 
 > [!IMPORTANT]
 > **Plain HAMA `tvdb` shows need the `[tvdb-…]` tag** (no digit after `tvdb`). That tag is the only way the script
@@ -186,7 +187,7 @@ mode it carries on and prints a `note:` at the top saying what it can't plan wit
 |---|---|---|
 | an episode number that doesn't match the file | the script read the name differently | write that hint [by hand](#-your-own-plexmatch-files) |
 | a special, or an opening or ending's new name, on an unexpected `S00E` number | AniDB numbers them its own way | check against [variants](#openings-and-endings-with-variants) |
-| a `tvdb` season that's off (`S03` where you expect `S02`) | TheTVDB's seasons differ from the release, or the mapping is wrong | [fix the mapping](SETUP.md#-fixing-a-wrong-mapping) |
+| a `tvdb` season that's off (`S03` where you expect `S02`) | TheTVDB's seasons differ from the release, or the mapping is wrong | [fix the mapping](MAPPING.md) |
 | renumbered `[tvdb-…]` files off by one | TheTVDB lists one episode more or less than your files | compare with TheTVDB before applying |
 | a `[tvdb-…]` file with no hint that should have one | its per-season number is also one of the season's absolute numbers | [rename it or hint it by hand](#plain-tvdb-folders-per-season-numbers) |
 | a plain-`tvdb` show with no hints | the folder lacks its `[tvdb-…]` tag | [tag it](#-what-can-be-migrated) |
@@ -363,7 +364,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 | **Left alone** | files with `SxxEyy` in the name or in a `Season NN` folder (in `[tvdb3-…]` folders these are already absolute) |
 | **Episode numbers read from** | ` - 033`, `E33` / `Ep 33` / `Episode 33`, or a number ending the name; `[…]`, `(…)`, `{…}` groups don't count. A file with none is reported |
 | **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules. A movie's folder with the series' `[tvdb3-…]` tag is the whole series in Kizuna unless its name clearly names the movie: tag it `[anidb-…]` instead ([movies and specials](SETUP.md#-movies-and-specials)) |
-| **Specials** (`SP3`, `PV`…) | only reported, because TheTVDB numbers its own. Add `ep: S00Exx: <file>` lines with TheTVDB's numbers [yourself](#-your-own-plexmatch-files). Openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras) unless renamed |
+| **Specials** (`SP3`, `PV`…) | only reported, because TheTVDB numbers its own. Add `ep: S00Exx: <file>` lines with TheTVDB's numbers [yourself](#-your-own-plexmatch-files) |
 
 ### Plain `tvdb` folders: per-season numbers
 
@@ -401,7 +402,8 @@ flowchart LR
 ```
 
 The tag can also be in a file name, as Kizuna reads it. `tvdb`-rule folders need Kizuna with a TheTVDB key
-(`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`); without it, Kizuna in Plex gives a `[tvdb-…]` folder no match. Without Kizuna, only `[anidb-N]` folders are planned; every other folder is reported as skipped.
+(`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`); without it, Kizuna in Plex gives a `[tvdb-…]` folder no match. Without
+Kizuna, only `[anidb-N]` folders are planned; every other folder is reported as skipped.
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has: a HAMA
@@ -447,8 +449,3 @@ What the script guarantees:
 - It never changes or removes an `ep:` line, its own included: that's done by hand.
 
 None of that fixes a misread file name. That's what the [dry run](#-2-dry-run) is for.
-
-## 🚫 Not supported
-
-Left out on purpose, to keep Kizuna small: HAMA's collections, online theme songs and rating badges. Local `theme.mp3`
-files still work through *Plex Local Media*.

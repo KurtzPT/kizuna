@@ -25,7 +25,7 @@ already `***` in the logs, but remove any paths you don't want public.
 > [!TIP]
 > **A show maps to the wrong TVDB season or episode?** The mapping usually comes from
 > [Anime-Lists](https://github.com/Anime-Lists/anime-lists), not from Kizuna's code. Fix it for yourself right away
-> with [`anime-list-custom.xml`](SETUP.md#-fixing-a-wrong-mapping), and send the fix upstream so it's fixed for
+> with [`anime-list-custom.xml`](MAPPING.md), and send the fix upstream so it's fixed for
 > everyone.
 
 ## 🛠️ Development setup
@@ -71,10 +71,10 @@ docker build -t kizuna .
 | 🔒 | **Never log or return a secret.** New keys or tokens must be redacted by `fetch.Redact` | logs get pasted into public issues |
 | 🛡️ | **Keep the access checks** (`ALLOW_FROM`, `ALLOWED_HOSTS`) on every route | Kizuna has no login, see [SECURITY.md](SECURITY.md) |
 | 🧪 | **Tests stay offline**: fixtures and `httptest`, never a real API | CI and contributors have no keys |
-| 📖 | **Docs and code change together.** A new setting goes in [SETUP.md → Settings](SETUP.md#%EF%B8%8F-settings) | the docs are the only manual |
+| 📖 | **Docs and code change together.** Update the doc that describes what you change ([where](#%EF%B8%8F-code-map)) | the docs are the only manual |
 | 🔢 | **Leave the Go version alone.** Upgrades to `go.mod` and the `Dockerfile` are automated | keeps your pull request to one change |
 
-The `anime-list-custom.xml` examples in [SETUP.md](SETUP.md#-fixing-a-wrong-mapping) are checked by
+The `anime-list-custom.xml` examples in [MAPPING.md](MAPPING.md) are checked by
 `internal/mapping/docs_examples_test.go`. If you change one, change the other.
 
 **Style:** `gofmt`, small packages under `internal/`, comments that say *why*. Docs follow the existing files: short
@@ -88,6 +88,7 @@ CI ([`ci.yml`](.github/workflows/ci.yml)) runs these on every pull request. Run 
 gofmt -l .                       # must print nothing (fix with gofmt -w .)
 go vet ./...
 GOOS=windows go vet ./...        # Kizuna also builds for Windows and macOS
+GOOS=darwin go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 go test -race -count=1 ./...
@@ -132,11 +133,13 @@ internal/provider               modes, matching, show model, Plex JSON, HTTP rou
 internal/report                 match reports (MATCH_REPORTS): an HTML page per show, written in batches
 scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not part of the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
+scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run by a workflow)
 ```
 
 | To add… | Start in |
 |---|---|
-| a setting | `internal/config`, then [SETUP.md](SETUP.md#%EF%B8%8F-settings) |
+| a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETUP.md → Settings](SETUP.md#%EF%B8%8F-settings) |
+| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) (what a user sets or sees) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go`; the page: `internal/report/page.html` |

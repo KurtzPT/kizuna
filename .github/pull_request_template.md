@@ -18,7 +18,7 @@ https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md
 
 ## Kind of change
 
-<!-- Tick all that apply. They become the labels the release notes are grouped by. -->
+<!-- Tick all that apply: the pull request is labelled from them, and the release notes are grouped by label. -->
 
 - [ ] 🐛 Bug fix
 - [ ] ✨ New feature or setting
@@ -56,9 +56,7 @@ Write "None" if nothing changes for them.
 ## Checklist
 
 - [ ] Targets `dev`, and is **one change**
-- [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally (`gofmt`, `go vet`, `staticcheck`, `go test -race`; ShellCheck and the script tests if `scripts/` changed)
-- [ ] Tests added or updated, and they stay offline (fixtures / `httptest`, never a real API)
-- [ ] Standard library only: no new modules in `go.mod`, and the Go version is unchanged
-- [ ] AniDB fair-use limits untouched; any new outside request goes through `internal/fetch`
-- [ ] No secret logged or returned; new keys or tokens are redacted by `fetch.Redact`
-- [ ] Docs match: a new or changed setting is in [SETUP.md](https://github.com/KurtzPT/kizuna/blob/dev/SETUP.md#%EF%B8%8F-settings), a migration rule in [MIGRATION.md](https://github.com/KurtzPT/kizuna/blob/dev/MIGRATION.md)
+- [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally
+- [ ] Tests added or updated, and they stay offline
+- [ ] Follows the [ground rules](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-ground-rules) (standard library only, AniDB limits untouched, requests through `internal/fetch`, no secret logged)
+- [ ] Docs updated: a new or changed setting in `.env.sample` and [SETUP.md](https://github.com/KurtzPT/kizuna/blob/dev/SETUP.md#%EF%B8%8F-settings), a migration rule in [MIGRATION.md](https://github.com/KurtzPT/kizuna/blob/dev/MIGRATION.md)
