@@ -86,6 +86,8 @@ type Config struct {
 	// than CacheMinFree free, the oldest cache files are deleted until
 	// CacheFreeTarget is free. 0 = never clean up.
 	CacheMinFree, CacheFreeTarget uint64
+	// MatchReports writes an HTML report per show to <DataDir>/reports.
+	MatchReports bool
 }
 
 func Load() Config {
@@ -127,6 +129,7 @@ func Load() Config {
 		EpisodeTitles:      sourceList("EPISODE_TITLES", "anidb,tvdb,tmdb", "anidb", "tvdb", "tmdb"),
 		CacheMinFree:       size("CACHE_MIN_FREE", 1<<30),
 		CacheFreeTarget:    size("CACHE_FREE_TARGET", 2<<30),
+		MatchReports:       flag("MATCH_REPORTS", false),
 	}
 }
 

@@ -232,8 +232,10 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 		return fmt.Errorf("tvdb: no api key")
 	}
 	key = cacheFolder(legacy) + key
+	start := time.Now()
 	if data, age, ok := t.f.Cached(key); ok && age < ttl { // skip the login when cached
 		slog.Debug("cache hit", "key", key, "age", age.Round(time.Minute), "ttl", ttl)
+		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
 		return json.Unmarshal(data, out)
 	}
 	token, tokenLegacy, err := t.login(ctx)

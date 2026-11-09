@@ -97,6 +97,8 @@ func TestBadValuesWarnAndUseDefault(t *testing.T) {
 		{"TITLE_OFFICIAL_ONLY", "yes", func(c Config) any { return c.TitleOfficialOnly }, false, true},
 		{"TITLE_OFFICIAL_ONLY", "true", func(c Config) any { return c.TitleOfficialOnly }, true, false},
 		{"ART_ALL_SOURCES", "maybe", func(c Config) any { return c.ArtAllSources }, false, true},
+		{"MATCH_REPORTS", "true", func(c Config) any { return c.MatchReports }, true, false},
+		{"MATCH_REPORTS", "on", func(c Config) any { return c.MatchReports }, false, true},
 		{"PORT", "70000", func(c Config) any { return c.Listen }, ":32600", true},
 	}
 	for _, c := range cases {

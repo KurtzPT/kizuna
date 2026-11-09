@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"kizuna/internal/fetch"
@@ -22,6 +23,15 @@ import (
 // AniDB episode, and the mapping gives its place on the other site (none
 // when the entry is on another TMDB show); without an AniDB counterpart, by
 // absolute number (tvdbPairing.otherAt).
+
+// spotName is where an episode is on its list, for the match report: "S01E05",
+// or "E26" in absolute order.
+func spotName(e sources.Episode) string {
+	if e.Season < 0 {
+		return fmt.Sprintf("E%02d", e.Number)
+	}
+	return fmt.Sprintf("S%02dE%02d", e.Season, e.Number)
+}
 
 // spot is a place on a TVDB or TMDB series: season (-1 = absolute order) and
 // episode number.

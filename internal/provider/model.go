@@ -43,6 +43,8 @@ type Show struct {
 	// "Episode N" and the files still match. The next refresh with AniDB
 	// details replaces them.
 	Placeholders bool
+
+	build string // match report build that made it (report.Recorder.ID)
 }
 
 // Ep is one episode at the season/index Plex's scanner gives the file.
@@ -57,6 +59,8 @@ type Ep struct {
 	Writers       []string
 
 	titles   map[string]string // source -> its title for this episode
+	titleSrc string            // source of Title, for the match report
+	pairs    map[string]string // source -> the episode there ("S01E05", "15207 · 3"), for the match report
 	anyTitle string            // AniDB title in any language: last resort
 	listed   spot              // /tvdb: season and in-season number on the episode list
 	// listIndex: /anidb: the episode's number in Anime-Lists' mapping

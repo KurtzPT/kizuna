@@ -186,15 +186,21 @@ func (c *AniDB) Prefetch(aid int) {
 }
 
 func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnime, error) {
+	start := time.Now()
 	c.mu.Lock()
 	if m, ok := c.memo[aid]; ok && time.Since(m.at) < time.Hour {
 		c.mu.Unlock()
 		slog.Debug("anidb: from memory", "aid", aid)
+		if fetch.Observing(ctx) { // the key is only built for a match report
+			fetch.Observe(ctx, fmt.Sprintf("anidb/anime/%d.xml", aid), fetch.KindMemory, start, nil)
+		}
 		return m.anime, nil
 	}
 	c.mu.Unlock()
-
 	key := fmt.Sprintf("anidb/anime/%d.xml", aid)
+
+	// Read here, not by Get: the TTL depends on the entry's end date, and a
+	// stale copy is still used when the API may not be asked.
 	cached, age, ok := c.f.Cached(key)
 	var a *AniDBAnime
 	if ok {
@@ -202,15 +208,19 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 	}
 	if a != nil && age < anidbTTL(a.EndDate) {
 		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate))
+		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
 		c.remember(a)
 		return a, nil
 	}
 	if ok, why := c.allowed(aid, background); !ok {
 		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", a != nil)
+		err := fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
 		if a != nil {
+			fetch.Observe(ctx, key, fetch.KindStale, start, err)
 			return a, nil // stale beats nothing
 		}
-		return nil, fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
+		fetch.Observe(ctx, key, fetch.KindFail, start, err)
+		return nil, err
 	}
 	// parsed: the entry validate already parsed, so it isn't parsed twice.
 	// Only a download this call started runs its Validate, and Get returns

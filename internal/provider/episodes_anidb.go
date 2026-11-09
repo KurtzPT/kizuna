@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 )
 
 // fillEpisodes pairs an /anidb show's episodes with its TVDB (and TMDB)
@@ -43,6 +44,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 		}}
 	}
 	tvList, tmList := on("tvdb", tv), on("tmdb", tm)
+	record := report.RecorderFrom(ctx) != nil // pairs are for the match report only
 	paired, pairedTMDB := 0, 0
 	for _, season := range []int{1, 0} {
 		for i := range s.Episodes[season] {
@@ -50,10 +52,16 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			if e, ok := tmList.of(ep); ok {
 				pairedTMDB++
 				ep.setTitle("tmdb", e.Title)
+				if record {
+					ep.setPair("tmdb", spotName(e))
+				}
 			}
 			if e, ok := tvList.of(ep); ok {
 				paired++
 				ep.setTitle("tvdb", e.Title)
+				if record {
+					ep.setPair("tvdb", spotName(e))
+				}
 				if fill {
 					ep.Thumb = firstOf(ep.Thumb, e.Thumb)
 					ep.Summary = firstOf(ep.Summary, e.Summary)

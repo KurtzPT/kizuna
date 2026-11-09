@@ -122,8 +122,10 @@ func (c *Client) Cached(key string) ([]byte, time.Duration, bool) {
 // Get returns a fresh cached copy, or downloads it. When the download fails
 // a stale cached copy is returned instead (sources go down; old data beats none).
 func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
+	start := time.Now()
 	if data, age, ok := c.Cached(r.Key); ok && age < r.TTL {
 		slog.Debug("cache hit", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
+		observe(ctx, r, start, KindCache, nil)
 		return data, nil
 	} else if ok {
 		slog.Debug("cache expired", "key", r.Key, "age", age.Round(time.Minute), "ttl", r.TTL)
@@ -132,10 +134,13 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	if err != nil {
 		if stale, age, ok := c.Cached(r.Key); ok && !r.NoStale {
 			slog.Debug("download failed; using stale cache", "key", r.Key, "age", age.Round(time.Minute), "err", err)
+			observe(ctx, r, start, KindStale, err)
 			return stale, nil
 		}
+		observe(ctx, r, start, KindFail, err)
 		return nil, err
 	}
+	observe(ctx, r, start, KindNet, nil)
 	return data, nil
 }
 

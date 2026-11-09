@@ -119,6 +119,7 @@ internal/anidb                  offline AniDB title list: search and title-langu
 internal/mapping                AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
 internal/sources                AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
 internal/provider               modes, matching, show model, Plex JSON, HTTP routes
+internal/report                 match reports (MATCH_REPORTS): an HTML page per show, written in batches
 scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not part of the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 ```
@@ -128,4 +129,5 @@ scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fi
 | a setting | `internal/config`, then [SETUP.md](SETUP.md#%EF%B8%8F-settings) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
+| something to the match reports | what is recorded: `internal/provider/report.go`; the page: `internal/report/page.html` |
 | a migration rule | `scripts/kizuna-migrate.sh`, then [MIGRATION.md](MIGRATION.md) |

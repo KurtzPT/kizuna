@@ -73,7 +73,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 			continue
 		}
 		seen[id] = true
-		if data, age, ok := t.f.Cached(cacheFolder(false) + crewKey(id)); ok {
+		if data, age, ok := t.f.CachedCtx(ctx, cacheFolder(false)+crewKey(id)); ok {
 			var r episodeRecord
 			if json.Unmarshal(data, &r) == nil {
 				crew[id] = r.crew()

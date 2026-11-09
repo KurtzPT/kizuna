@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Kizuna report</title>
+<style>
+:root{
+  --bg:#ECEEF1;--surface:#FFFFFF;--sunk:#F5F6F8;--ink:#17202B;--muted:#5B6676;--faint:#8C96A4;--rule:#D2D7DE;
+  --anidb:#2F6BD6;--tvdb:#1F9460;--tmdb:#7A52D1;--mal:#C23F7D;--ann:#C47A12;--map:#5A6676;--plex:#C99300;
+  --warn:#B4540A;--warn-bg:#FFF2E3;--bad:#C0352B;--ok:#1F9460;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --jp:"Noto Sans JP","Yu Gothic UI","Hiragino Sans","Meiryo",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#151920;--surface:#1C2129;--sunk:#181C23;--ink:#E2E6EC;--muted:#99A3B1;--faint:#6E7887;--rule:#2D3440;
+  --anidb:#6E9DF0;--tvdb:#4CC28B;--tmdb:#A788F0;--mal:#E673A9;--ann:#E5A24A;--map:#8E99A8;--plex:#E8B730;
+  --warn:#F0A05A;--warn-bg:#2E2318;--bad:#F07065;--ok:#4CC28B;color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#151920;--surface:#1C2129;--sunk:#181C23;--ink:#E2E6EC;--muted:#99A3B1;--faint:#6E7887;--rule:#2D3440;
+  --anidb:#6E9DF0;--tvdb:#4CC28B;--tmdb:#A788F0;--mal:#E673A9;--ann:#E5A24A;--map:#8E99A8;--plex:#E8B730;
+  --warn:#F0A05A;--warn-bg:#2E2318;--bad:#F07065;--ok:#4CC28B;color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration-color:var(--faint);text-underline-offset:2px}
+a:hover{text-decoration-color:currentColor}
+:focus-visible{outline:2px solid var(--anidb);outline-offset:2px;border-radius:2px}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 24px 80px}
+.crumbs{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font:12.5px var(--mono);color:var(--muted);margin-bottom:22px}
+.crumbs a{color:var(--muted)} .crumbs b{color:var(--ink);font-weight:500}
+.hero h1{font:600 30px/1.15 var(--sans);letter-spacing:-.015em;margin:0;max-width:30ch;text-wrap:balance}
+.hero .orig{font:400 16px/1.4 var(--jp);color:var(--muted);margin:6px 0 14px}
+.ids{display:flex;flex-wrap:wrap;gap:6px}
+.id{display:inline-flex;align-items:baseline;gap:6px;font:12.5px var(--mono);padding:3px 8px 3px 0;border:1px solid var(--rule);background:var(--surface);border-radius:3px;text-decoration:none;overflow:hidden}
+.id::before{content:"";align-self:stretch;width:3px;background:var(--c,var(--map));margin-right:2px}
+.id i{font-style:normal;color:var(--muted)}
+.src{display:inline-flex;align-items:center;gap:5px;font:500 11.5px var(--mono);color:var(--c);white-space:nowrap}
+.src::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--c)}
+.src.bare{gap:0}
+[data-s="anidb"]{--c:var(--anidb)}[data-s="tvdb"]{--c:var(--tvdb)}[data-s="tmdb"],[data-s="tmdbmovie"]{--c:var(--tmdb)}
+[data-s="mal"]{--c:var(--mal)}[data-s="ann"]{--c:var(--ann)}[data-s="map"],[data-s="kizuna"],[data-s="anilist"],[data-s="imdb"],[data-s="kitsu"],[data-s="other"]{--c:var(--map)}[data-s="plex"]{--c:var(--plex)}
+.builds{margin:26px 0 0;display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.build{all:unset;cursor:pointer;flex:0 0 auto;min-width:210px;background:var(--surface);border:1px solid var(--rule);border-radius:5px;padding:9px 12px;display:grid;gap:3px}
+.build:hover{border-color:var(--faint)}
+.build[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 -3px 0 var(--ink)}
+.build:focus-visible{outline:2px solid var(--anidb);outline-offset:2px}
+.build .k{font:500 13px var(--mono)}
+.build .m{font:12px var(--mono);color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.state{font:500 11.5px var(--mono)}
+.state.ok{color:var(--ok)}.state.warn{color:var(--warn)}.state.bad{color:var(--bad)}
+.cols{display:grid;grid-template-columns:168px minmax(0,1fr);gap:32px;margin-top:28px}
+.cols>main{min-width:0}
+.toc{position:sticky;top:16px;align-self:start;display:grid;gap:1px;font-size:13px}
+.toc a{text-decoration:none;color:var(--muted);padding:4px 10px;border-left:2px solid var(--rule)}
+.toc a:hover{color:var(--ink);border-left-color:var(--faint)}
+.toc a .n{float:right;font:11.5px var(--mono);color:var(--faint)}
+.toc a.has-warn .n{color:var(--warn)}
+section{margin-bottom:38px}
+section>h2{font:600 17px/1.3 var(--sans);margin:0 0 4px}
+section>.lede{color:var(--muted);margin:0 0 14px;max-width:72ch}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:5px;overflow:hidden}
+.warns{display:grid;gap:8px}
+.w{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:5px;padding:10px 14px}
+.w .ic{color:var(--warn);font:600 13px var(--mono);line-height:1.5}
+.w b{font-weight:600}
+.w p{margin:2px 0 0;color:var(--muted);max-width:80ch}
+.w.info,.w.none{background:var(--surface);border-color:var(--rule)} .w.info .ic{color:var(--muted)} .w.none .ic{color:var(--ok)}
+.trace{padding:14px 16px 10px;overflow-x:auto}
+.axis,.trow{display:grid;grid-template-columns:minmax(170px,320px) minmax(160px,1fr) 64px;gap:12px;align-items:center}
+.axis{font:11px var(--mono);color:var(--faint);margin-bottom:4px}
+.axis .ticks{position:relative;height:16px}
+.axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.axis .ticks span:first-child{transform:none}.axis .ticks span:last-child{transform:translateX(-100%)}
+.trow{padding:3px 0;font-size:13px}
+.trow .lbl{display:flex;gap:8px;align-items:center;min-width:0}
+.trow .lbl span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .ms{font:11.5px var(--mono);color:var(--muted);text-align:right}
+.track{position:relative;height:18px;background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),var(--rule) calc(25% - 1px) 25%)}
+.bar{position:absolute;top:3px;height:12px;min-width:3px;border-radius:2px;background:var(--c)}
+.bar.cache{background:transparent;border:1.5px solid var(--c)}
+.bar.memory{background:transparent;border:1.5px dotted var(--c)}
+.bar.late{background:repeating-linear-gradient(135deg,var(--c) 0 3px,transparent 3px 6px);border:1px solid var(--c)}
+.bar.fail,.bar.stale{background:var(--bad)}
+.bar.step{background:var(--faint)}
+.tracebox{position:relative}
+.sentcol{position:absolute;inset:0;display:grid;grid-template-columns:minmax(170px,320px) minmax(160px,1fr) 64px;gap:12px;pointer-events:none}
+.sent{position:absolute;top:-6px;bottom:-6px;width:0;border-left:2px solid var(--plex)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--muted);padding:10px 16px;border-top:1px solid var(--rule);background:var(--sunk)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:18px;height:10px;border-radius:2px;background:var(--faint)}
+.legend i.cache{background:transparent;border:1.5px solid var(--faint)}
+.legend i.memory{background:transparent;border:1.5px dotted var(--faint)}
+.legend i.late{background:repeating-linear-gradient(135deg,var(--faint) 0 3px,transparent 3px 6px);border:1px solid var(--faint)}
+.legend i.fail{background:var(--bad)}
+.legend i.sentk{width:0;height:14px;border-left:2px solid var(--plex);border-radius:0;background:none}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);margin:0}
+.kv dt,.kv dd{padding:7px 14px;border-top:1px solid var(--rule);margin:0}
+.kv dt{color:var(--muted);font-size:13px}
+.kv dd{font:12.5px/1.55 var(--mono);word-break:break-word;white-space:pre-line}
+.kv>:nth-child(-n+2){border-top:0}
+.decision{padding:12px 14px;border-bottom:1px solid var(--rule);font-size:14px}
+.decision b{font-weight:600}
+.subhead{font:600 14px/1.3 var(--sans);margin:20px 0 8px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+table{border-collapse:collapse;width:100%}
+th{font:500 12px var(--sans);color:var(--muted);text-align:left;padding:8px 12px;border-bottom:1px solid var(--rule);background:var(--sunk);white-space:nowrap}
+td{padding:7px 12px;border-top:1px solid var(--rule);vertical-align:top;font:12.5px/1.5 var(--mono)}
+tr:first-child td,thead+tbody tr:first-child td{border-top:0}
+td.prose{font:13px/1.5 var(--sans)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.nowrap{white-space:nowrap}
+.dim{color:var(--faint)}
+.score{display:flex;align-items:center;gap:8px}
+.score .meter{position:relative;flex:0 0 120px;height:8px;background:var(--sunk);border:1px solid var(--rule);border-radius:2px}
+.score .meter b{position:absolute;inset:0 auto 0 0;background:var(--c,var(--anidb));border-radius:1px}
+.score .meter s{position:absolute;top:-4px;bottom:-4px;border-left:1.5px dashed var(--ink)}
+.fields{overflow-x:auto}
+.fields table{min-width:860px;table-layout:fixed}
+.fields th:first-child,.fields td:first-child{width:128px}
+.fields th:last-child{width:180px}
+.fields td{font:12px/1.45 var(--mono)}
+.fields td.f{font:500 13px var(--sans)}
+.fields td.f small{display:block;font:11px var(--mono);color:var(--faint);font-weight:400;margin-top:2px}
+.cell .v{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cell.win{background:color-mix(in srgb,var(--c) 9%,var(--surface));box-shadow:inset 3px 0 0 var(--c)}
+.cell.win .tag{font:600 11px var(--mono);color:var(--c);display:block;margin-bottom:2px}
+.cell.skip .v,.cell.empty .v{color:var(--faint);font-family:var(--sans);font-style:italic;font-size:12px}
+.cell.off{background:repeating-linear-gradient(135deg,transparent 0 5px,var(--sunk) 5px 10px)}
+.cell.off .v{color:var(--faint);font-family:var(--sans);font-size:12px}
+.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--rule)}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;font:500 12px var(--sans);padding:4px 10px;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg button:focus-visible{outline:2px solid var(--anidb);outline-offset:-2px}
+.eps{max-height:600px;overflow:auto}
+.eps th{position:sticky;top:0;z-index:1}
+.eps tr.issue td{background:var(--warn-bg)}
+.eps tr.seasonrow td{background:var(--sunk);font:600 12px var(--sans);color:var(--muted);padding:6px 12px}
+.flag{color:var(--warn);font:500 11.5px var(--mono);display:block}
+.pairs{display:flex;flex-direction:column;gap:2px}
+.pill{font:500 11px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.pill.built{border-color:var(--ink);color:var(--ink)}
+.pill.bad{border-color:var(--bad);color:var(--bad)}
+details>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:8px 14px;border-top:1px solid var(--rule);list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"+ ";font-family:var(--mono)}
+details[open]>summary::before{content:"\2212  "}
+.fail h1{font:600 28px/1.2 var(--sans);margin:0;max-width:34ch}
+.fail .sub{color:var(--muted);margin:8px 0 0;max-width:70ch}
+.steps{margin:0;padding:0;list-style:none}
+.steps li{padding:12px 14px;border-top:1px solid var(--rule);display:grid;grid-template-columns:22px 1fr;gap:10px}
+.steps li:first-child{border-top:0}
+.steps li .k{font:600 12.5px var(--mono);color:var(--muted)}
+.steps p{margin:3px 0 0;color:var(--muted);max-width:76ch}
+.ixhead{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.ixhead h1{font:600 26px var(--sans);margin:0}
+.ixhead p{margin:4px 0 0;color:var(--muted)}
+.search{font:13px var(--mono);padding:7px 10px;border:1px solid var(--rule);border-radius:4px;background:var(--surface);color:var(--ink);min-width:260px}
+.ix td .jpt{display:block;font:12px var(--jp);color:var(--muted)}
+.ix td.prose a{font-weight:500}
+.empty{padding:14px;color:var(--muted)}
+@media (max-width:860px){
+  .wrap{padding:16px 16px 80px}
+  .cols{grid-template-columns:minmax(0,1fr);gap:8px}
+  .toc{position:static;display:flex;flex-wrap:wrap;gap:4px 0;margin-bottom:12px}
+  .toc a{border-left:0;border-bottom:2px solid var(--rule);padding:4px 8px}
+  .toc a .n{float:none;margin-left:5px}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .axis,.trow,.sentcol{grid-template-columns:120px minmax(120px,1fr) 52px;gap:8px}
+  .hero h1{font-size:24px}
+  .search{min-width:0;width:100%}
+  .build{min-width:180px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .bar{animation:grow .5s cubic-bezier(.2,.7,.2,1) both;transform-origin:left}
+  @keyframes grow{from{transform:scaleX(0)}}
+}
+</style>
+</head>
+<body>
+<div id="app" class="wrap"><noscript>This Kizuna report needs JavaScript to show its data.</noscript></div>
+<script>
+const DATA = /*KIZUNA_DATA*/null;
+
+const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",plex:"Plex"};
+const SITE_URL = {
+  anidb:v=>"https://anidb.net/anime/"+v, tvdb:v=>"https://thetvdb.com/?tab=series&id="+v,
+  tmdb:v=>"https://www.themoviedb.org/tv/"+v, tmdbmovie:v=>"https://www.themoviedb.org/movie/"+v,
+  mal:v=>"https://myanimelist.net/anime/"+v, anilist:v=>"https://anilist.co/anime/"+v,
+  imdb:v=>"https://www.imdb.com/title/"+v+"/", ann:v=>"https://www.animenewsnetwork.com/encyclopedia/anime.php?id="+v,
+  kitsu:v=>"https://kitsu.app/anime/"+v,
+};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const name = s => SRC[s] || s;
+const chip = (s, label) => `<span class="src" data-s="${esc(SRC[s]?s:"other")}">${esc(label ?? name(s))}</span>`;
+const dot = s => `<span class="src bare" data-s="${esc(SRC[s]?s:"other")}" title="${esc(name(s))}"></span>`;
+const ms = n => n >= 1000 ? (n/1000).toFixed(2)+" s" : Math.round(n)+" ms";
+const pad = n => String(n).padStart(2,"0");
+const when = t => { const d = new Date(t); if (isNaN(d)) return ""; return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const clock = t => when(t).slice(11);
+const kv = rows => `<dl class="kv">${rows.map(([k,v]) => `<dt>${esc(k)}</dt><dd>${v === "" || v == null ? '<span class="dim">empty</span>' : esc(v)}</dd>`).join("")}</dl>`;
+const bytes = n => n >= 1024*1024 ? (n/1048576).toFixed(1)+" MB" : n >= 1024 ? (n/1024).toFixed(1)+" KB" : n+" B";
+const siteLink = (site, v) => SITE_URL[site] ? `<a href="${esc(SITE_URL[site](encodeURIComponent(v)))}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>` : esc(v);
+const se = (s, e) => `S${pad(s)}E${pad(e)}`;
+const app = document.getElementById("app");
+
+function header(crumb, right) {
+  return `<div class="crumbs"><span>${crumb}</span><span>${right}</span></div>`;
+}
+function generated() { return `written ${esc(when(DATA.generated))} · Kizuna ${esc(DATA.version)}`; }
+
+/* ---------- show page ---------- */
+function stateTag(b) {
+  if (b.error) return `<span class="state bad">failed</span>`;
+  return b.complete ? `<span class="state ok">complete</span>` : `<span class="state warn">incomplete</span>`;
+}
+
+function renderTrace(b) {
+  const rows = b.trace || [];
+  if (!rows.length) return `<div class="panel"><div class="empty">Nothing was downloaded or read from the cache for this build: every source answered from memory.</div></div>`;
+  const sent = b.tookMs;
+  const total = Math.max(1, sent, ...rows.map(r => r.end));
+  const pct = x => (x/total*100).toFixed(2)+"%";
+  const ticks = [0,.25,.5,.75,1].map(f => `<span style="left:${f*100}%">${ms(total*f)}</span>`).join("");
+  const kindNote = {net:"downloaded",cache:"cache",memory:"from memory",stale:"old copy used",fail:"failed"};
+  const body = rows.map(r => {
+    const late = r.kind !== "step" && r.start > sent;
+    const cls = late ? "late" : r.kind;
+    const note = [kindNote[r.kind], r.note].filter(Boolean).join(": ");
+    return `<div class="trow" title="${esc(r.label)}: ${r.start}–${r.end} ms${note ? " ("+esc(note)+")" : ""}">
+      <div class="lbl">${dot(r.src)}<span class="t">${esc(r.label)}${note ? ` <span class="dim mono">${esc(note)}</span>` : ""}</span></div>
+      <div class="track"><div class="bar ${esc(cls)}" data-s="${esc(SRC[r.src]?r.src:"other")}" style="left:${pct(r.start)};width:${pct(Math.max(r.end-r.start,0))}"></div></div>
+      <div class="ms">${ms(r.end-r.start)}</div></div>`;
+  }).join("");
+  return `<div class="panel"><div class="trace">
+    <div class="axis"><span></span><div class="ticks">${ticks}</div><span></span></div>
+    <div class="tracebox">${body}<div class="sentcol"><span></span><div style="position:relative"><div class="sent" style="left:${pct(sent)}"></div></div><span></span></div></div></div>
+    <div class="legend"><span><i></i>downloaded</span><span><i class="cache"></i>from the cache</span><span><i class="memory"></i>from memory</span><span><i class="fail"></i>failed</span><span><i class="late"></i>finished after the build</span><span><i class="sentk"></i>build done at ${ms(sent)}</span></div></div>`;
+}
+
+function decisionText(m) {
+  const how = m.how || "";
+  if (!m.root) return `No match: ${esc(how)}.`;
+  let t;
+  if (how.startsWith("tag ")) t = `The id tag <code>${esc(how.slice(4))}</code> in the folder or file name decided.`;
+  else if (how.startsWith("guid ")) t = `The GUID Plex already had decided: <code>${esc(how.slice(5))}</code>.`;
+  else t = `Title search decided${m.score ? ` with score ${m.score}` : ""}.`;
+  return t + ` Plex got the show <code>${esc(m.root)}</code>.`;
+}
+
+function renderCandidates(m) {
+  const cs = m.candidates || [];
+  if (!cs.length) return "";
+  const min = m.min || 0;
+  return `<table><thead><tr><th>Title search result</th><th>Score <span class="dim">(min ${min})</span></th></tr></thead><tbody>${cs.map((c,i) => {
+    const ok = c.score >= min;
+    const picked = m.root && i === 0 && ok && m.how === "title search";
+    return `<tr><td class="prose">${siteLink("anidb", c.aid)} ${esc(c.title)}</td>
+      <td><div class="score" style="--c:var(${ok?"--anidb":"--bad"})"><div class="meter"><b style="width:${Math.min(c.score,100)}%"></b><s style="left:${min}%"></s></div>${c.score}${picked ? ' <span class="state ok">picked</span>' : ok ? "" : ' <span class="state bad">too low</span>'}</div></td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+
+function matchRows(m) {
+  return [["type", m.type], ["title", m.title], ["year", m.year || ""], ["file", m.file || ""], ["guid", m.guid || ""], ["Fix Match", m.manual ? "yes" : "no"], ["how", m.how]];
+}
+
+function matchPanels(m) {
+  return `<div class="two"><div class="panel"><div class="decision"><b>Request</b> <span class="dim mono">POST /${esc(m.mode)}/library/metadata/matches</span></div>${kv(matchRows(m))}</div>
+    <div class="panel"><div class="decision">${decisionText(m)}</div>${renderCandidates(m)}</div></div>`;
+}
+
+function renderMatch(b, last) {
+  const m = b.match;
+  let out = m ? matchPanels(m) : `<div class="panel"><div class="decision">This build was started by a metadata request: Plex had already matched the show to <code>${esc(b.root)}</code> and asked for its details.</div></div>`;
+  if (last && (!m || new Date(last.time) > new Date(m.time)))
+    out += `<h3 class="subhead">Latest match request <span class="dim mono">${esc(when(last.time))}</span></h3>${matchPanels(last)}`;
+  return out;
+}
+
+function renderMapping(b) {
+  const rows = b.mapping || [];
+  if (!rows.length) return `<div class="panel"><div class="empty">The mapping lists have no entry for this show, so only AniDB's own data and links were used.</div></div>`;
+  const intro = rows.length > 1 ? `<div class="decision">TVDB ${esc(rows[0].tvdb)} is made of <b>${rows.length} AniDB entries</b>. Each fills a TVDB season, or part of one from an offset.</div>` : "";
+  return `<div class="panel" style="overflow-x:auto">${intro}<table><thead><tr><th>AniDB</th><th>Name</th><th>TVDB</th><th class="num">TVDB season</th><th class="num">Offset</th><th>TMDB</th><th class="num">TMDB season</th><th class="num">Per-episode mappings</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${siteLink("anidb", r.aid)}</td><td class="prose">${esc(r.name)}</td><td>${r.tvdb ? siteLink("tvdb", r.tvdb) : '<span class="dim">none</span>'}</td><td class="num">${esc(r.tvdbSeason || "")}</td><td class="num">${r.tvdbOffset || '<span class="dim">0</span>'}</td><td>${r.tmdb ? siteLink("tmdb", r.tmdb) : '<span class="dim">none</span>'}</td><td class="num">${esc(r.tmdbSeason || "")}</td><td class="num">${r.exceptions || '<span class="dim">0</span>'}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderFields(b) {
+  const fields = b.fields || [];
+  if (!fields.length) return `<div class="panel"><div class="empty">No fields were recorded for this build.</div></div>`;
+  const cols = [];
+  for (const f of fields) for (const s of f.order) if (!cols.includes(s)) cols.push(s);
+  const head = `<tr><th>Field</th>${cols.map(c => `<th>${chip(c)}</th>`).join("")}<th>Why</th></tr>`;
+  const rows = fields.map(f => {
+    const used = f.used || [], asked = f.asked || [], off = f.offered || {};
+    const cells = cols.map(c => {
+      if (!f.order.includes(c)) return `<td class="cell off"><span class="v">not a source for this field</span></td>`;
+      const v = off[c];
+      if (used.includes(c)) return `<td class="cell win" data-s="${esc(c)}"><span class="tag">used</span><span class="v" title="${esc(v)}">${esc(v)}</span></td>`;
+      if (!asked.includes(c)) return `<td class="cell skip"><span class="v">not asked: ${esc(used.map(name).join(", ") || "an earlier source")} answered first</span></td>`;
+      if (!v) return `<td class="cell empty"><span class="v">no value</span></td>`;
+      return `<td class="cell"><span class="v" title="${esc(v)}">${esc(v)}</span></td>`;
+    }).join("");
+    let why = "No source had a value";
+    if (used.length > 1) why = "Every listed source's images (ART_ALL_SOURCES)";
+    else if (used.length && used[0] === f.order[0]) why = "First in the order";
+    else if (used.length) why = `${f.order.slice(0, f.order.indexOf(used[0])).map(name).join(", ")} had none`;
+    return `<tr><td class="f">${esc(f.name)}<small>${f.order.map(name).join(" › ")}</small></td>${cells}<td class="prose dim">${esc(why)}</td></tr>`;
+  }).join("");
+  return `<div class="panel fields"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderEpisodes(b, newest) {
+  const counts = (b.seasons || []).map(s => `${s.name}: ${s.count}`).join(", ");
+  if (!b.episodes || !b.episodes.length) {
+    const why = !newest ? "Episode lists are kept for the newest build only." : b.error ? "The build failed." : "This build has no episodes.";
+    return `<div class="panel"><div class="empty">${esc(why)}${counts ? " "+esc(counts)+"." : ""}</div></div>`;
+  }
+  const eps = b.episodes, issues = eps.filter(e => e.issue).length;
+  let cur = null;
+  const rows = eps.map(e => {
+    let pre = "";
+    if (e.s !== cur) {
+      cur = e.s;
+      const n = eps.filter(x => x.s === e.s).length;
+      pre = `<tr class="seasonrow" data-season><td colspan="5">${e.s ? "Season "+e.s : "Specials"} <span class="mono dim">${n} episode${n === 1 ? "" : "s"}</span></td></tr>`;
+    }
+    const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `<span>${chip(s, name(s)+" "+v)}</span>`).join("");
+    const others = Object.entries(e.titles || {}).filter(([s]) => s !== e.from).map(([s, t]) => `${name(s)}: ${t}`).join("\n");
+    return pre + `<tr class="${e.issue ? "issue" : ""}" data-issue="${e.issue ? 1 : 0}">
+      <td class="nowrap">${se(e.s, e.e)}</td>
+      <td><div class="pairs">${pairs || '<span class="dim">none</span>'}</div></td>
+      <td class="prose"${others ? ` title="${esc(others)}"` : ""}>${e.title ? esc(e.title) : `<span class="dim">Episode ${e.e}</span>`}${e.issue ? `<span class="flag">${esc(e.issue)}</span>` : ""}</td>
+      <td>${e.from ? chip(e.from) : '<span class="dim">none</span>'}${others ? ` <span class="dim" title="${esc(others)}">+${Object.keys(e.titles).length - (e.from ? 1 : 0)}</span>` : ""}</td>
+      <td class="nowrap">${e.date ? esc(e.date) : '<span class="dim">none</span>'}</td></tr>`;
+  }).join("");
+  return `<div class="panel">
+    <div class="toolbar"><div class="seg" role="group" aria-label="Filter episodes"><button aria-pressed="true" data-f="all">All ${eps.length}</button><button aria-pressed="false" data-f="issue">Problems ${issues}</button></div>
+    <span class="dim" style="font-size:12.5px">Hover a title to see what the other sources called it.</span></div>
+    <div class="eps"><table><thead><tr><th>Plex</th><th>Paired with</th><th>Title sent</th><th>Title from</th><th>Aired</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+const times = r => r.count > 1 ? ` <span class="pill" title="${r.count} times in a row; the time is the last">×${r.count}</span>` : "";
+
+function renderRequests(show, cur) {
+  const rq = show.requests || [];
+  if (!rq.length) return `<div class="panel"><div class="empty">No Plex requests recorded yet.</div></div>`;
+  const ids = new Set(show.builds.map(b => b.id));
+  return `<div class="panel" style="overflow-x:auto"><table><thead><tr><th>Time</th><th>Provider</th><th>Request</th><th>Answered by</th><th class="num">Status</th><th class="num">Size</th><th class="num">Took</th></tr></thead><tbody>
+    ${rq.map(r => {
+      const b = show.builds.find(x => x.id === r.build);
+      const ans = `<span class="pill ${r.answer === "new build" ? "built" : r.status >= 400 || r.answer === "not available" ? "bad" : ""}">${esc(r.answer || "")}</span>`;
+      const link = b ? ` <a href="#" data-b="${esc(b.id)}" class="dim">build ${esc(clock(b.start))}</a>` : r.build && !ids.has(r.build) ? ' <span class="dim">older build</span>' : "";
+      return `<tr${r.build && r.build === cur ? ' style="background:var(--sunk)"' : ""}><td class="nowrap">${esc(when(r.time))}</td><td>/${esc(r.mode)}</td><td style="word-break:break-all">${esc(r.method)} ${esc(r.url)}${times(r)}${r.note ? `<br><span class="dim">${esc(r.note)}</span>` : ""}</td><td>${r.answer ? ans : ""}${link}</td><td class="num">${r.status}</td><td class="num">${bytes(r.bytes)}</td><td class="num">${ms(r.tookMs)}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+let curBuild = null;
+function renderShow() {
+  const S = DATA.show;
+  document.title = `${S.title} · Kizuna report`;
+  if (!S.builds.length) {
+    app.innerHTML = header(`<a href="index.html">Kizuna reports</a> / <b>${esc(S.key)}</b>`, generated()) +
+      `<header class="hero"><h1>${esc(S.title)}</h1></header><section style="margin-top:24px"><h2>Plex requests</h2>${renderRequests(S, null)}</section>`;
+    return;
+  }
+  if (!S.builds.some(b => b.id === curBuild)) curBuild = S.builds[0].id;
+  const bi = S.builds.findIndex(b => b.id === curBuild), b = S.builds[bi];
+  const warns = (b.checks || []).filter(c => c.level === "warn").length;
+  const epIssues = (b.episodes || []).some(e => e.issue);
+  const toc = [["checks","Checks",(b.checks||[]).length,warns>0],["trace","Trace",ms(b.tookMs)],["match","Match",b.match?(b.match.candidates||[]).length||"":""],["ids","Id mapping",(b.mapping||[]).length||""],["fields","Fields",(b.fields||[]).length],["episodes","Episodes",b.epsTotal||"",epIssues],["output","Sent to Plex",""],["requests","Plex requests",(S.requests||[]).length]];
+  const checks = (b.checks || []).length ? (b.checks || []).map(c => `<div class="w ${c.level === "warn" ? "" : "info"}"><span class="ic">${c.level === "warn" ? "!" : "i"}</span><div><b>${esc(c.title)}</b>${c.text || c.section ? `<p>${esc(c.text || "")}${c.section ? ` <a href="#s-${esc(c.section)}">Show</a>` : ""}</p>` : ""}</div></div>`).join("")
+    : `<div class="w none"><span class="ic">✓</span><div><b>Nothing to flag</b><p>Every field and episode looks fine.</p></div></div>`;
+  app.innerHTML = header(`<a href="index.html">Kizuna reports</a> / <b>${esc(S.key)}</b>`, generated()) + `
+  <header class="hero"><h1>${esc(S.title)}</h1>${S.orig ? `<div class="orig">${esc(S.orig)}</div>` : '<div style="height:12px"></div>'}
+    <div class="ids">${(S.ids || []).map(i => { const s = SRC[i.site] ? i.site : "other", u = SITE_URL[i.site]; return `<a class="id" data-s="${esc(s)}" style="--c:var(--${s === "other" ? "map" : ["anilist","imdb","kitsu"].includes(s) ? "map" : s === "tmdbmovie" ? "tmdb" : s})" ${u ? `href="${esc(u(encodeURIComponent(i.value)))}" target="_blank" rel="noopener noreferrer"` : ""}><i>${esc(name(i.site))}</i>${esc(i.value)}</a>`; }).join("")}</div></header>
+  <div class="builds" role="group" aria-label="Builds, newest first">${S.builds.map(x => `
+    <button class="build" data-b="${esc(x.id)}" aria-pressed="${x.id === curBuild}">
+      <span class="k">${esc(x.root)}</span>
+      <span class="m"><span>/${esc(x.mode)}</span><span>${esc(when(x.start))}</span><span>${ms(x.tookMs)}</span>${stateTag(x)}</span></button>`).join("")}</div>
+  <div class="cols">
+    <nav class="toc" aria-label="Sections">${toc.map(([id,l,n,w]) => `<a href="#s-${id}" class="${w ? "has-warn" : ""}">${l}<span class="n">${esc(n)}</span></a>`).join("")}</nav>
+    <main>
+      <section id="s-checks"><h2>Checks</h2><p class="lede">Things in this build worth a look.</p><div class="warns">${checks}</div></section>
+      ${b.error ? `<section><div class="w"><span class="ic">!</span><div><b>The build failed</b><p>${esc(b.error)}</p></div></div></section>` : ""}
+      <section id="s-trace"><h2>Trace</h2><p class="lede">Everything Kizuna downloaded, read from its cache or had in memory for this build, and when. ${b.complete ? "" : "Striped bars finished after the build, so their data is missing from it; the next build uses them."}</p>${renderTrace(b)}</section>
+      <section id="s-match"><h2>Match</h2><p class="lede">What Plex sent and how Kizuna chose the show.</p>${renderMatch(b, S.lastMatch)}</section>
+      <section id="s-ids"><h2>Id mapping</h2><p class="lede">How the AniDB entries link to TVDB and TMDB in the mapping lists. These links decide which TVDB and TMDB pages are read and how episodes pair up.</p>${renderMapping(b)}</section>
+      <section id="s-fields"><h2>Fields</h2><p class="lede">What each source offered for the show, in the configured order. The highlighted cell is what Plex got.</p>${renderFields(b)}</section>
+      <section id="s-episodes"><h2>Episodes</h2><p class="lede">${esc((b.seasons || []).map(s => `${s.name}: ${s.count}`).join(", ") || "No episodes.")}</p>${renderEpisodes(b, bi === 0)}</section>
+      <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, condensed: long lists are counted.</p><div class="panel">${(b.output || []).length ? kv(b.output) : '<div class="empty">Nothing: the build failed.</div>'}</div></section>
+      <section id="s-requests"><h2>Plex requests</h2><p class="lede">The last ${(S.requests || []).length} requests about this show, newest first (up to 50 are kept). Rows answered by the selected build are shaded.</p>${renderRequests(S, curBuild)}</section>
+    </main></div>`;
+}
+
+/* ---------- unmatched page ---------- */
+function renderUnmatched() {
+  const U = DATA.unmatched, m = U.match, best = (m.candidates || [])[0];
+  document.title = `No match: ${m.title} · Kizuna report`;
+  const tag = best ? `[anidb-${best.aid}]` : "[anidb-12345]";
+  app.innerHTML = header(`<a href="index.html">Kizuna reports</a> / <b>${esc(U.key)}</b>`, generated()) + `
+  <header class="fail"><h1>No match for “${esc(m.title)}”${m.year ? ` (${m.year})` : ""}</h1>
+    <p class="sub">Plex asked the <code>/${esc(m.mode)}</code> provider for this ${esc(m.type)}. ${best ? `The closest AniDB title scored ${best.score}, below the minimum of ${m.min}, so Kizuna answered with no match.` : `Kizuna found no similar title (${esc(m.how)}).`}</p></header>
+  <div class="cols"><nav class="toc" aria-label="Sections"><a href="#f-cands">Candidates<span class="n">${(m.candidates || []).length}</span></a><a href="#f-fix">How to fix</a><a href="#f-req">Request</a><a href="#f-seen">Plex requests<span class="n">${U.requests.length}</span></a></nav>
+  <main>
+    <section id="f-cands"><h2>Candidates</h2><p class="lede">The best titles the search found. The dashed line is MIN_SCORE.</p><div class="panel">${renderCandidates(m) || '<div class="empty">The title search found nothing similar.</div>'}</div></section>
+    <section id="f-fix"><h2>How to fix</h2><p class="lede">Pick one.</p>
+      <div class="panel"><ol class="steps">
+        <li><span class="k">a</span><div><b>Add an id tag to the folder name</b><p>Find the show on AniDB and add its id to the folder, for example <code>${esc(m.title)} ${esc(tag)}</code>. A tag always wins over title search. <code>[tvdb-…]</code>, <code>[tmdb-…]</code> and <code>[imdb-…]</code> work too.</p></div></li>
+        <li><span class="k">b</span><div><b>Use Fix Match in Plex</b><p>Fix Match lists every candidate, including ones below the minimum score, and you can search by another title there.</p></div></li>
+        ${best ? `<li><span class="k">c</span><div><b>Lower MIN_SCORE</b><p>It is ${m.min} now. ${best.score} or lower would have matched “${esc(best.title)}”, which may be a different show, so only do this if title search is reliable for your library.</p></div></li>` : ""}
+      </ol></div></section>
+    <section id="f-req"><h2>Request</h2><p class="lede">What Plex sent last.</p><div class="panel">${kv(matchRows(m))}</div></section>
+    <section id="f-seen"><h2>Plex requests</h2><p class="lede">Every time Plex asked about this title, newest first.</p>
+      <div class="panel" style="overflow-x:auto"><table><thead><tr><th>Time</th><th>Provider</th><th>Request</th><th class="num">Status</th><th class="num">Size</th><th class="num">Took</th></tr></thead><tbody>${U.requests.map(r => `<tr><td class="nowrap">${esc(when(r.time))}</td><td>/${esc(r.mode)}</td><td style="word-break:break-all">${esc(r.method)} ${esc(r.url)}${times(r)}</td><td class="num">${r.status}</td><td class="num">${bytes(r.bytes)}</td><td class="num">${ms(r.tookMs)}</td></tr>`).join("")}</tbody></table></div></section>
+  </main></div>`;
+}
+
+/* ---------- index ---------- */
+function renderIndex() {
+  const rows = DATA.index || [], shows = rows.filter(r => r.kind === "show"), un = rows.filter(r => r.kind === "unmatched");
+  document.title = "Kizuna reports";
+  const q = r => esc([r.title, r.orig, r.key, ...(r.roots || [])].join(" ").toLowerCase());
+  app.innerHTML = header(`<b>Kizuna reports</b>`, generated()) + `
+  <div class="ixhead"><div><h1>Match reports</h1><p>${shows.length} show${shows.length === 1 ? "" : "s"} and ${un.length} unmatched title${un.length === 1 ? "" : "s"}, most recent first.</p></div>
+    <input class="search" type="search" placeholder="Filter by title or id" aria-label="Filter by title or id"></div>
+  <section><h2>Shows</h2><p class="lede">Open a show to see what each source offered and what Plex received.</p>
+  <div class="panel ix" style="overflow-x:auto">${shows.length ? `<table><thead><tr><th>Show</th><th>Keys</th><th>Last activity</th><th>Last build</th><th class="num">Builds</th><th class="num">Requests</th><th>Checks</th></tr></thead><tbody>
+    ${shows.map(r => `<tr data-q="${q(r)}"><td class="prose"><a href="${esc(r.key)}.html">${esc(r.title)}</a>${r.orig ? `<span class="jpt">${esc(r.orig)}</span>` : ""}</td>
+      <td>${(r.roots || [r.key]).map(esc).join("<br>")}</td><td class="nowrap">${esc(when(r.last))}</td>
+      <td>${r.builds ? (r.complete ? '<span class="state ok">complete</span>' : '<span class="state warn">incomplete</span>') : '<span class="dim">none</span>'} ${(r.modes || []).map(m => `<span class="pill">/${esc(m)}</span>`).join(" ")}</td>
+      <td class="num">${r.builds}</td><td class="num">${r.requests}</td>
+      <td>${r.checks ? `<span class="state warn">${r.checks} to check</span>` : '<span class="state ok">clean</span>'}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No shows yet. Pages appear here as Plex asks Kizuna about shows.</div>'}</div></section>
+  <section><h2>Unmatched</h2><p class="lede">Titles Plex asked about that Kizuna could not match. Each page says how to fix it. A page goes once its title matches, or after 30 days without a request.</p>
+  <div class="panel ix" style="overflow-x:auto">${un.length ? `<table><thead><tr><th>Title from Plex</th><th>Best candidate</th><th>Last asked</th><th class="num">Requests</th></tr></thead><tbody>
+    ${un.map(r => `<tr data-q="${q(r)}"><td class="prose"><a href="${esc(r.key)}.html">${esc(r.title)}</a>${r.year ? ` <span class="dim">(${r.year})</span>` : ""}</td><td>${r.best ? `${esc(r.best)} <span class="dim">score ${r.score} / min ${r.min}</span>` : '<span class="dim">nothing similar</span>'}</td><td class="nowrap">${esc(when(r.last))} <span class="dim">/${esc((r.modes || [])[0] || "")}</span></td><td class="num">${r.requests}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">Nothing unmatched.</div>'}</div></section>`;
+}
+
+/* ---------- wiring ---------- */
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-b]");
+  if (b) { e.preventDefault(); curBuild = b.dataset.b; renderShow(); history.replaceState(null, "", "#build-" + encodeURIComponent(curBuild)); return; }
+  const f = e.target.closest(".seg button[data-f]");
+  if (f) {
+    f.parentNode.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === f));
+    const only = f.dataset.f === "issue";
+    app.querySelectorAll(".eps tbody tr").forEach(tr => { tr.hidden = only && (tr.hasAttribute("data-season") || tr.dataset.issue !== "1"); });
+  }
+});
+document.addEventListener("input", e => {
+  if (!e.target.matches(".search")) return;
+  const q = e.target.value.toLowerCase();
+  app.querySelectorAll("tr[data-q]").forEach(tr => tr.hidden = !tr.dataset.q.includes(q));
+});
+if (!DATA) app.textContent = "This page has no data.";
+else if (DATA.kind === "show") { const h = location.hash.match(/^#build-(.+)$/); if (h) curBuild = decodeURIComponent(h[1]); renderShow(); }
+else if (DATA.kind === "unmatched") renderUnmatched();
+else renderIndex();
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"kizuna/internal/fetch"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -31,12 +32,14 @@ type showSources struct {
 	tvdbDetails, tmdbDetails lazy[sources.Details]
 	mal                      lazy[sources.MALAnime]
 	ann                      lazy[sources.ANNAnime]
+
+	rec *report.Recorder // match report of the build; nil = none
 }
 
 type text struct{ title, summary string }
 
 func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, tvdb, tmdb int, movie, series bool) *showSources {
-	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series}
+	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, series: series, rec: report.RecorderFrom(ctx)}
 	ss.tvdbDetails.f = func() (sources.Details, error) {
 		if tvdb == 0 || !p.tvdb.Enabled() {
 			return sources.Details{}, nil
@@ -218,6 +221,7 @@ func (ss *showSources) pickDetails(order []string, has func(sources.Details) boo
 // out), so the show is rebuilt soon instead of being kept an hour without it.
 func (ss *showSources) fill(s *Show) bool {
 	cfg := ss.p.cfg
+	done := ss.rec.Step("Show fields and artwork")
 	ss.warm()
 	used := []any{"root", s.Root, "first_entry", ss.series}
 	note := func(field, src string) {
@@ -227,22 +231,31 @@ func (ss *showSources) fill(s *Show) bool {
 	title, src := pick(cfg.TitleSources, ss.title)
 	s.Title = firstOf(title, s.Title)
 	note("title", src)
+	ss.recordField("Title", cfg.TitleSources, src, false, ss.title)
 	summary, src := pick(cfg.SummarySources, ss.summary)
 	s.Summary = firstOf(summary, s.Summary)
 	note("summary", src)
+	ss.recordField("Summary", cfg.SummarySources, src, false, ss.summary)
+	detail := func(name string, order []string, src string, describe func(sources.Details) string) {
+		ss.recordField(name, order, src, false, func(src string) string { return describe(ss.details(src)) })
+	}
 
 	d, src := ss.pickDetails(cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 })
 	s.Genres = d.Genres
 	note("genres", src)
+	detail("Genres", cfg.GenreSources, src, func(d sources.Details) string { return strings.Join(d.Genres, ", ") })
 	d, src = ss.pickDetails(cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 })
 	s.Roles = uniqueCast(d.Cast)
 	note("cast", src)
+	detail("Cast", cfg.CastSources, src, func(d sources.Details) string { return describeCast(d.Cast) })
 	d, src = ss.pickDetails(cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" })
 	s.Studio = d.Studio
 	note("studio", src)
+	detail("Studio", cfg.StudioSources, src, func(d sources.Details) string { return d.Studio })
 	d, src = ss.pickDetails(cfg.CrewSources, func(d sources.Details) bool { return len(d.Directors)+len(d.Writers) > 0 })
 	s.Directors, s.Writers = d.Directors, d.Writers
 	note("crew", src)
+	detail("Crew", cfg.CrewSources, src, describeCrew)
 	// Content rating: a listed country (or a country-less rating) from any
 	// source first; only then a rating from some other country.
 	d, src = ss.pickDetails(cfg.RatingSources, func(d sources.Details) bool { return d.Rating(cfg.RatingCountries) != "" })
@@ -252,22 +265,37 @@ func (ss *showSources) fill(s *Show) bool {
 		s.ContentRating = d.AnyRating()
 	}
 	note("rating", src)
+	detail("Content rating", cfg.RatingSources, src, func(d sources.Details) string {
+		return cmp.Or(d.Rating(cfg.RatingCountries), d.AnyRating())
+	})
 	d, src = ss.pickDetails(cfg.DateSources, func(d sources.Details) bool { return d.Date != "" })
 	s.Date = firstOf(fullDate(d.Date), s.Date)
 	note("date", src)
+	detail("First aired", cfg.DateSources, src, func(d sources.Details) string { return d.Date })
 
 	all := cfg.ArtAllSources
-	s.Art.Posters, src = images(cfg.PosterSources, all, func(src string) []string { return ss.art(src).Posters })
+	artField := func(name string, order []string, pick func(sources.Art) []string) ([]string, string) {
+		urls, counts := images(order, all, func(src string) []string { return pick(ss.art(src)) })
+		ss.recordField(name, order, counts, all && counts != "", func(src string) string {
+			return countOf(len(pick(ss.art(src))), strings.ToLower(name))
+		})
+		return urls, counts
+	}
+	s.Art.Posters, src = artField("Posters", cfg.PosterSources, func(a sources.Art) []string { return a.Posters })
 	note("posters", src)
-	s.Art.Backgrounds, src = images(cfg.BackgroundSources, all, func(src string) []string { return ss.art(src).Backgrounds })
+	s.Art.Backgrounds, src = artField("Backgrounds", cfg.BackgroundSources, func(a sources.Art) []string { return a.Backgrounds })
 	note("backgrounds", src)
-	s.Art.Logos, src = images(cfg.LogoSources, all, func(src string) []string { return ss.art(src).Logos })
+	s.Art.Logos, src = artField("Logos", cfg.LogoSources, func(a sources.Art) []string { return a.Logos })
 	note("logos", src)
 	slog.Debug("show fields: source used", used...)
 	if failed := ss.failed(); len(failed) > 0 {
 		slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
+		done("failed: " + strings.Join(failed, ", "))
+		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
+			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
 		return false
 	}
+	done("")
 	return true
 }
 

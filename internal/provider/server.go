@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"kizuna/internal/fetch"
+	"kizuna/internal/report"
 )
 
 // Version is set at build time (-ldflags "-X kizuna/internal/provider.Version=1.2.3").
@@ -53,9 +54,20 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 		}
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
+		url := fetch.Redact(r.URL.RequestURI())
+		var rq *report.Request // filled in by the handler, for the match report
+		if p.reports != nil {
+			rq = &report.Request{Time: start, Mode: mode.Path, Method: r.Method, URL: url}
+			r = r.WithContext(report.WithRequest(r.Context(), rq))
+		}
 		h(rec, r, mode)
-		slog.Debug("plex request", "method", r.Method, "url", fetch.Redact(r.URL.RequestURI()), "status", rec.status,
-			"bytes", rec.bytes, "took", time.Since(start).Round(time.Millisecond))
+		took := time.Since(start)
+		slog.Debug("plex request", "method", r.Method, "url", url, "status", rec.status,
+			"bytes", rec.bytes, "took", took.Round(time.Millisecond))
+		if rq != nil {
+			rq.Status, rq.Bytes, rq.TookMS = rec.status, rec.bytes, float64(took.Microseconds())/1000
+			p.reports.AddRequest(*rq)
+		}
 	}
 }
 
@@ -155,6 +167,9 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
+	if rq := report.RequestFrom(ctx); rq != nil {
+		rq.Key = p.reportKey(m[1])
+	}
 	s, err := p.show(ctx, m[1])
 	if err != nil {
 		slog.Debug("metadata: show not available", "key", r.PathValue("key"), "err", err)

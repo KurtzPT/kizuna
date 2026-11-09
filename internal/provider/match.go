@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"kizuna/internal/anidb"
+	"kizuna/internal/report"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -57,14 +58,40 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	case 4:
 		title = r.GrandparentTitle
 	}
-	cands, how := p.candidates(mode, title, r.Year, r.Filename, r.GUID, r.Manual == 1)
+	var noted *[]report.Candidate // the title search results, for the match report
+	if p.reports != nil {
+		noted = new([]report.Candidate)
+	}
+	cands, how := p.searchCandidates(mode, title, r.Year, r.Filename, r.GUID, r.Manual == 1, noted)
 	attrs := []any{"mode", mode.Path, "type", matchType(r.Type), "title", title, "year", r.Year, "file", r.Filename, "guid", r.GUID, "manual", r.Manual == 1}
+	var m *report.Match
+	if noted != nil {
+		m = p.recordMatch(mode, r, title, how, cands, *noted)
+	}
+	rq := report.RequestFrom(ctx) // nil with the reports off
 	if len(cands) == 0 {
 		slog.Info("match: nothing found", append(attrs, "how", how)...)
+		if m != nil && r.Manual != 1 {
+			key := p.reports.Unmatched(*m)
+			if rq != nil {
+				rq.Key = key
+			}
+		}
+		if rq != nil {
+			rq.Answer, rq.Note = "no match", how
+		}
 		return nil
 	}
 	slog.Info("match", append(attrs, "show", cands[0].root, "score", cands[0].score, "how", how, "candidates", len(cands))...)
+	p.reports.Matched(title)
+	if rq != nil {
+		rq.Key = p.reportKey(cands[0].root)
+		rq.Note = fmt.Sprintf("%s match: %s, score %d → %s", matchType(r.Type), how, cands[0].score, cands[0].root)
+	}
 	if r.Manual == 1 && r.Type <= 2 { // Plex "Fix Match" list: cheap items, no API calls
+		if rq != nil {
+			rq.Answer, rq.Note = "Fix Match list", fmt.Sprintf("%d candidates, best %s (score %d)", len(cands), cands[0].root, cands[0].score)
+		}
 		var out []Item
 		for _, c := range cands {
 			out = append(out, p.lightItem(mode, c))
@@ -73,6 +100,12 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	}
 
 	root := cands[0].root
+	if m != nil {
+		if rq != nil {
+			rq.Match = m
+		}
+		ctx = report.WithMatch(ctx, m)
+	}
 	s, err := p.show(ctx, root)
 	if err != nil {
 		slog.Debug("match: show not available", "root", root, "err", err)
@@ -93,10 +126,17 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) []Item 
 	return nil
 }
 
-// candidates: an id tag in the show title or the file path (which includes
-// the show folder) wins, then the GUID Plex already has, then title search.
-// how says which of them decided.
+// candidates is searchCandidates without noting the title search results
+// (the tests' shorthand).
 func (p *Provider) candidates(mode Mode, title string, year int, filename, guid string, manual bool) ([]candidate, string) {
+	return p.searchCandidates(mode, title, year, filename, guid, manual, nil)
+}
+
+// searchCandidates: an id tag in the show title or the file path (which
+// includes the show folder) wins, then the GUID Plex already has, then title
+// search. how says which of them decided. The first title search results
+// are added to noted (when not nil) for the match report.
+func (p *Provider) searchCandidates(mode Mode, title string, year int, filename, guid string, manual bool, noted *[]report.Candidate) ([]candidate, string) {
 	query := tagRe.ReplaceAllString(title, "")
 	for _, text := range []string{title, filename} {
 		if m := tagRe.FindStringSubmatch(text); m != nil {
@@ -124,8 +164,11 @@ func (p *Provider) candidates(mode Mode, title string, year int, filename, guid 
 	results := p.titles.Search(query, year, 20)
 	for i, m := range results {
 		if i < 5 {
-			slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score,
-				"title", anidb.PickTitle(p.titles.Of(m.AID), []string{"main"}, false))
+			t := p.mainTitle(m.AID)
+			slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score, "title", t)
+			if noted != nil {
+				*noted = append(*noted, report.Candidate{AID: m.AID, Title: t, Score: m.Score})
+			}
 		}
 		if !manual && m.Score < p.cfg.MinScore {
 			slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
@@ -147,6 +190,13 @@ func (p *Provider) candidates(mode Mode, title string, year int, filename, guid 
 		return nil, fmt.Sprintf("title search: best score %d below MIN_SCORE %d", results[0].Score, p.cfg.MinScore)
 	}
 	return out, "title search"
+}
+
+var mainLang = []string{"main"}
+
+// mainTitle is an AniDB entry's main title.
+func (p *Provider) mainTitle(aid int) string {
+	return anidb.PickTitle(p.titles.Of(aid), mainLang, false)
 }
 
 // rules returns the mode whose rules a piece of evidence follows. /anidb

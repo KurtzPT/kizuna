@@ -19,6 +19,7 @@ func (p *Provider) pickEpisodeTitles(s *Show) {
 	s.eachEpisode(func(ep *Ep) {
 		var src string
 		ep.Title, src = episodeTitle(ep, p.cfg.EpisodeTitles)
+		ep.titleSrc = src
 		used[cmp.Or(src, "-")]++
 	})
 	attrs := []any{"root", s.Root, "order", p.cfg.EpisodeTitles}
@@ -51,6 +52,14 @@ func episodeTitle(ep *Ep, order []string) (title, src string) {
 		return ep.anyTitle, "anidb"
 	}
 	return "", ""
+}
+
+// setPair notes where the episode is on another source, for the match report.
+func (e *Ep) setPair(src, where string) {
+	if e.pairs == nil {
+		e.pairs = map[string]string{}
+	}
+	e.pairs[src] = where
 }
 
 func (e *Ep) setTitle(src, title string) {

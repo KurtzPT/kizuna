@@ -26,6 +26,7 @@ import (
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -59,7 +60,8 @@ type Provider struct {
 	mal    *sources.MAL
 	ann    *sources.ANN
 
-	access Access // ALLOW_FROM / ALLOWED_HOSTS
+	access  Access        // ALLOW_FROM / ALLOWED_HOSTS
+	reports *report.Store // match reports; nil = off
 
 	loaded chan struct{} // closed once the first list load is over (see Loading)
 
@@ -124,7 +126,11 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	if c, ok := p.shows[root]; ok {
 		if ttl := showTTL(c.show); time.Since(c.at) < ttl {
 			p.mu.Unlock()
-			slog.Debug("show from memory", "root", root, "age", time.Since(c.at).Round(time.Second), "ttl", ttl)
+			age := time.Since(c.at).Round(time.Second)
+			slog.Debug("show from memory", "root", root, "age", age, "ttl", ttl)
+			if rq := report.RequestFrom(ctx); rq != nil {
+				rq.Build, rq.Answer = c.show.build, "memory, "+age.String()
+			}
 			return c.show, nil
 		}
 	}
@@ -140,10 +146,27 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 		// one: Plex dropping that request must not fail the others.
 		go p.runBuild(context.WithoutCancel(ctx), root, b)
 	}
+	rq := report.RequestFrom(ctx) // nil with the reports off
+	if rq != nil {
+		rq.Answer = "new build"
+		if running {
+			rq.Answer = "joined a build"
+		}
+	}
 	select {
 	case <-b.done:
+		switch {
+		case rq == nil:
+		case b.show != nil:
+			rq.Build = b.show.build
+		default:
+			rq.Answer = "not available"
+		}
 		return b.show, b.err
 	case <-ctx.Done():
+		if rq != nil {
+			rq.Answer = "timed out"
+		}
 		return nil, ctx.Err()
 	}
 }
@@ -152,6 +175,12 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 func (p *Provider) runBuild(ctx context.Context, root string, b *build) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	start := time.Now()
+	var rec *report.Recorder
+	if p.reports != nil {
+		rec = report.NewRecorder(root, buildMode(ctx, root))
+		rec.SetMatch(report.MatchFrom(ctx)) // the match request that started the build, if any
+		ctx = observeFetches(report.WithRecorder(ctx, rec), rec)
+	}
 	defer func() {
 		cancel()
 		if r := recover(); r != nil { // never leave waiters (and later requests) hanging on a dead build
@@ -166,8 +195,17 @@ func (p *Provider) runBuild(ctx context.Context, root string, b *build) {
 		p.pruneShows()
 		p.mu.Unlock()
 		close(b.done)
+		if rec != nil {
+			safeReport(root, func() {
+				p.finishReport(rec, root, b.show, b.err, time.Since(start))
+				p.reports.AddBuild(p.reportKey(root), rec)
+			})
+		}
 	}()
 	b.show, b.err = p.buildShow(ctx, root)
+	if b.show != nil {
+		b.show.build = rec.ID()
+	}
 	took := time.Since(start).Round(time.Millisecond)
 	if b.err != nil {
 		slog.Warn("show build failed", "root", root, "took", took, "err", b.err)

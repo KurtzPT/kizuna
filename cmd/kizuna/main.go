@@ -29,6 +29,7 @@ import (
 	"kizuna/internal/logfile"
 	"kizuna/internal/mapping"
 	"kizuna/internal/provider"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -137,6 +138,16 @@ func serve(cfg config.Config) error {
 		return err
 	}
 	p, tvdb, keepLoaded := setup(ctx, cfg)
+	// Match reports (MATCH_REPORTS=true): an HTML page per show in <DATA_DIR>/reports.
+	if cfg.MatchReports {
+		if reports, err := report.Open(filepath.Join(cfg.DataDir, "reports"), provider.Version); err == nil {
+			p.SetReports(reports)
+			go reports.Run(ctx)
+			defer reports.Flush()
+		} else {
+			slog.Warn("can't write match reports (check the data folder's permissions)", "err", err)
+		}
+	}
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
 	loaded := p.Loading()
@@ -167,7 +178,8 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 		"backgrounds", cfg.BackgroundSources, "logos", cfg.LogoSources, "episodes", cfg.EpisodeSources, "art_all", cfg.ArtAllSources,
 		"genres", cfg.GenreSources, "cast", cfg.CastSources, "studio", cfg.StudioSources, "crew", cfg.CrewSources,
 		"rating", cfg.RatingSources, "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", cfg.DateSources,
-		"episode_fill", cfg.EpisodeFillSources, "episode_titles", cfg.EpisodeTitles, "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20)
+		"episode_fill", cfg.EpisodeFillSources, "episode_titles", cfg.EpisodeTitles, "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", cfg.CacheFreeTarget>>20,
+		"match_reports", cfg.MatchReports)
 }
 
 // listen opens the address Kizuna serves on. A port that another program

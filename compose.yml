@@ -65,6 +65,7 @@ services:
       # TZ: "Europe/Lisbon"           # time zone for log days and timestamps (default UTC)
       # LOG_RETENTION_DAYS: "7"      # days of old logs kept in /change/me/logs; 0 = keep forever
       # LOG_LEVEL: "debug"          # info (default) or debug: everything needed to see why something went wrong
+      # MATCH_REPORTS: "true"       # an HTML report per show in /change/me/reports (default false)
       # --- who may talk to Kizuna (it has no login: Plex can't send one) ---
       # ALLOW_FROM: "private"         # client addresses: private (LAN, Docker, Tailscale), IPs, networks
                                       # e.g. "192.168.1.10" = only the Plex server; "any" = no limit

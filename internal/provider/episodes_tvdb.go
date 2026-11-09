@@ -2,10 +2,13 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strconv"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -15,8 +18,9 @@ import (
 // other site, which often splits seasons differently (One Piece: TVDB S2E1
 // is AniDB episode 9, TMDB S2E1 is episode 62).
 type tvdbPairing struct {
-	titles map[spot]anidbTitles
-	other  map[spot]otherPlace
+	titles  map[spot]anidbTitles
+	other   map[spot]otherPlace
+	loading []int // AniDB entries not cached yet, fetched in the background
 }
 
 // otherPlace is an episode's place on the other site. on is false when the
@@ -26,7 +30,11 @@ type otherPlace struct {
 	on bool
 }
 
-type anidbTitles struct{ title, any string }
+type anidbTitles struct {
+	title, any string
+	aid        int    // the AniDB entry and episode it is, for the match report
+	epNo       string // (formatted only when recording: see tvdbEpisodeTitles)
+}
 
 // atListed looks up an episode by its place on the list, else (regular
 // episodes) by its absolute number, for entries mapped in absolute order.
@@ -100,7 +108,7 @@ func (b *tvdbBuild) onShow(site string, e mapping.Entry) bool {
 // fetched. Other entries come from the cache; missing ones are fetched in the
 // background for the next build, and ready is false meanwhile.
 func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
-	pr = tvdbPairing{map[spot]anidbTitles{}, map[spot]otherPlace{}}
+	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}
 	ready = true
 	firstAID := p.lists.FirstAID(b.tvdbID)
 	for _, aid := range p.lists.AIDsForTVDB(b.tvdbID) {
@@ -110,6 +118,9 @@ func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
 			if a, fresh = p.anidb.Peek(aid); !fresh && p.anidb.Enabled() {
 				p.anidb.Prefetch(aid)
 				ready = ready && a != nil
+				if a == nil {
+					pr.loading = append(pr.loading, aid)
+				}
 			}
 		}
 		e := p.lists.ByAID(aid)
@@ -123,7 +134,8 @@ func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
 				continue
 			}
 			if _, taken := pr.titles[sp]; !taken { // first entry wins
-				pr.titles[sp] = anidbTitles{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false)}
+				pr.titles[sp] = anidbTitles{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false),
+					aid, ae.EpNo}
 			}
 			if _, taken := pr.other[sp]; taken {
 				continue
@@ -146,10 +158,21 @@ func (p *Provider) tvdbPairing(b *tvdbBuild) (pr tvdbPairing, ready bool) {
 func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild) (tvdbPairing, bool) {
 	order := p.cfg.EpisodeTitles
 	otherOn := b.fetchable(p, b.other)
+	rec := report.RecorderFrom(ctx)
 	var pr tvdbPairing
 	ready := true
 	if otherOn || slices.Contains(order, "anidb") { // the other site's crew needs the pairing too
 		pr, ready = p.tvdbPairing(b)
+		if len(pr.loading) > 0 {
+			ids := make([]string, len(pr.loading))
+			for i, aid := range pr.loading {
+				ids[i] = strconv.Itoa(aid)
+			}
+			rec.Check(report.Check{Level: report.LevelWarn, Cause: true,
+				Title: plural(len(pr.loading), "AniDB entry was", "AniDB entries were") + " still loading",
+				Text: "AniDB " + joinShort(ids, 8) + " were not cached yet and are being fetched in the background (AniDB allows few requests), " +
+					"so their episodes got titles from other sources for now. The next build uses them.", Section: report.SectionEpisodes})
+		}
 	}
 	if otherOn && slices.Contains(order, b.other) {
 		x, ok := p.seriesEpisodes(ctx, b.other, b.id(b.other))
@@ -158,6 +181,9 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 		s.eachEpisode(func(ep *Ep) {
 			if e, ok := other.of(ep); ok {
 				ep.setTitle(b.other, e.Title)
+				if rec != nil {
+					ep.setPair(b.other, spotName(e))
+				}
 			}
 		})
 	}
@@ -166,6 +192,9 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 			if f, ok := atListed(pr.titles, ep); ok {
 				ep.setTitle("anidb", f.title)
 				ep.anyTitle = f.any
+				if rec != nil {
+					ep.setPair("anidb", fmt.Sprintf("%d · %s", f.aid, f.epNo))
+				}
 			}
 		})
 	}

@@ -6,7 +6,7 @@
 
 **From zero to a matched anime library in four steps.**
 
-[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](#%EF%B8%8F-settings) &nbsp;·&nbsp; [🩹 Mapping](#-fixing-a-wrong-mapping) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting)
+[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](#%EF%B8%8F-settings) &nbsp;·&nbsp; [🩹 Mapping](#-fixing-a-wrong-mapping) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting)
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 
@@ -109,8 +109,8 @@ docker run -d --name kizuna \
 `curl http://<kizuna-host>:32600/health` shows which one you run: `v1.2.3` for a release, `dev-<commit>` for a beta.
 
 The data folder (`/data` in the container) holds the cache, the AniDB rate-limit state, your optional
-[mapping corrections](#-fixing-a-wrong-mapping) and the [logs](#-logs). **It must be writable by `1000:1000`** (or
-whatever `user` you set).
+[mapping corrections](#-fixing-a-wrong-mapping), the [logs](#-logs) and the [match reports](#-match-reports). **It
+must be writable by `1000:1000`** (or whatever `user` you set).
 
 **Check that it's up**, from the machine (or container) that runs Plex:
 
@@ -306,7 +306,7 @@ CAST_SOURCES: "none"
 |---|---|---|
 | `PORT` | `32600` | Port Kizuna listens on (1–65535). **In Docker, leave it** and change the *host* side of the port mapping instead: `"32700:32600"` makes Kizuna `http://<host>:32700`. Change `PORT` only for the binary or host networking |
 | `LISTEN` | – | Full listen address, e.g. `127.0.0.1:32600` to accept only local connections. Overrides `PORT`. The health check asks this address (`127.0.0.1` when it's every address) |
-| `DATA_DIR` | `/data` (image) · `./data` (binary) | Cache, AniDB state, mapping corrections and logs |
+| `DATA_DIR` | `/data` (image) · `./data` (binary) | Cache, AniDB state, mapping corrections, logs and match reports (`MATCH_REPORTS`) |
 
 ### 🛡️ Access
 
@@ -370,6 +370,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](#-logs)) |
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` = keep forever |
 | `TZ` | UTC | Time zone (e.g. `Europe/Lisbon`) for log timestamps and when a new log day starts |
+| `MATCH_REPORTS` | `false` | `true`: write a [match report](#-match-reports) per show to `reports/` in the data folder |
 
 ---
 
@@ -662,6 +663,39 @@ and Plex tokens are always shown as `***`.
 - which source supplied each field (`show fields: source used`) and the episode pairing counts
 - cache cleanup checks
 
+## 📊 Match reports
+
+The logs answer *what happened when*. The match reports answer *what did Kizuna do with this show*: one HTML page per
+show in **`reports/`** in the data folder. They are off by default: set **`MATCH_REPORTS=true`** to turn them on.
+Open **`reports/index.html`** in a browser (straight from the folder: the pages need no server and no internet). The
+index lists every show, newest activity first, with the ones that have something to check marked, and the titles
+that matched nothing.
+
+A show's page has, for each of its last 5 builds:
+
+- **Checks**: what looks wrong. Episodes without a real title or air date, text with HTML entities that Plex shows
+  literally, a source that failed, AniDB entries still loading, a match by an inexact title
+- **Trace**: every download, cache read and in-memory answer of the build on a time line, so a slow or failing source
+  stands out. Downloads that finish up to 2 minutes after the build are added to it
+- **Match**: what Plex sent, and how Kizuna decided: the id tag, the GUID, or the title search scores against
+  `MIN_SCORE`. The latest match request is kept too, for builds that a later metadata request started
+- **Id mapping**: the AniDB entries behind the show and their TheTVDB and TheMovieDb seasons and offsets
+- **Fields**: what every source offered for the title, summary, genres, cast, studio, crew, content rating, date and
+  artwork, and which one Plex got (per the [source settings](#-sources-per-field))
+- **Episodes** (newest build only): every episode as Plex gets it, where it is on each source, and which source gave
+  its title
+- **Sent to Plex**: the show item Kizuna answered with
+
+and the last 50 Plex requests about the show, each with the build that answered it (the same request repeated is one
+row, counted `×N`).
+
+`/anidb` and `/tvdb` builds of the same anime share a page, named after its AniDB entry (`anidb-1234.html`); a TheTVDB
+series that no AniDB entry maps to gets `tvdb-5678.html`. A title that matched nothing gets
+`unmatched-<title>-<hash>.html` (one per title, whatever the year), with the candidates and how to fix the match. It
+is removed once the title matches (with an id tag too), or after 30 days without a request about it. A page stays
+small (it keeps its newest builds and requests); delete the folder to start over. Turning reports off again leaves
+the folder as it is.
+
 ## 🧰 Troubleshooting
 
 **Kizuna won't start, or isn't ready**
@@ -686,7 +720,7 @@ and Plex tokens are always shown as `***`.
 
 | Symptom | Fix |
 |---|---|
-| A show doesn't match | The `match: nothing found` line gives the reason. Add an id tag to the folder: `Show [anidb-1234]` |
+| A show doesn't match | Its [unmatched report](#-match-reports) (with `MATCH_REPORTS=true`) or the `match: nothing found` line gives the reason and the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
 | No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again` |
 | `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
