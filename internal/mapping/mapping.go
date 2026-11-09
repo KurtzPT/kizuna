@@ -331,7 +331,9 @@ func (l *Lists) StartsShow(site string, aid int) bool { return l.get().startsSho
 // tmdbmovie, imdb, mal, anilist, kitsu, ann; "tmdb" means a TMDB TV show,
 // "tmdbmovie" a TMDB movie), or 0. When a series-level id
 // (TVDB, TMDB, IMDb) covers several AniDB entries, the series' first entry
-// wins.
+// wins: for TVDB and TMDB picked like FirstAID by the entry's placement on
+// that site; for the others the entry that starts its series, else the
+// lowest one that isn't special-only.
 func (l *Lists) AIDFor(source, id string) int { return l.get().aidFor(source, id) }
 
 // aids returns the AniDB ids mapped to a source id (sorted).
@@ -370,12 +372,17 @@ func (s *snapshot) firstAID(site string, id int) int {
 }
 
 func (s *snapshot) aidFor(source, id string) int {
-	if source == "tvdb" {
-		return s.firstAID("tvdb", atoi(id))
+	if source == "tvdb" || source == "tmdb" {
+		return s.firstAID(source, atoi(id))
 	}
 	aids := s.aids(source, id)
 	for _, aid := range aids {
 		if s.startsSeries(aid) {
+			return aid
+		}
+	}
+	for _, aid := range aids {
+		if !s.byAID[aid].SpecialOnly() {
 			return aid
 		}
 	}
