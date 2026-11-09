@@ -143,12 +143,13 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	return crew, pending
 }
 
-// fetchCrew gets an episode record. background: a refresh nobody waits
-// for, whose failure must show (a stale copy would hide it, and the record
-// would be asked again at every build).
+// fetchCrew gets an episode record. background: a fetch nobody waits for.
+// It gives way to the requests builds wait for, and its failure must show (a
+// stale copy would hide it, and the record would be asked again at every
+// build).
 func (t *TVDB) fetchCrew(ctx context.Context, id int, background bool) (Crew, error) {
 	var r episodeRecord
-	err := t.getAs(ctx, false, getOpts{noStale: background}, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), crewTTL, &r)
+	err := t.getAs(ctx, false, getOpts{noStale: background, background: background}, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), crewTTL, &r)
 	return r.crew(), err
 }
 

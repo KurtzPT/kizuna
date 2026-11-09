@@ -301,6 +301,9 @@ func (t *TVDB) get(ctx context.Context, legacy bool, path, key string, ttl time.
 type getOpts struct {
 	quiet   bool // the caller logs the request's failures itself (fetch only logs them at debug)
 	noStale bool // a failed download is the error, not answered by a stale copy
+	// background: nobody waits for the answer now; it waits behind every
+	// request a build waits for.
+	background bool
 }
 
 // getAs is get, asked the way o says.
@@ -326,7 +329,7 @@ func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key stri
 		if legacy {
 			headers["Accept-Language"] = "en" // v3 picks the language by header
 		}
-		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: o.quiet, NoStale: o.noStale,
+		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: o.quiet, NoStale: o.noStale, Background: o.background,
 			// Done sees a 401 even when a stale copy answers the call.
 			Done: func(err error) {
 				if unauthorized(err) {
