@@ -133,6 +133,9 @@ func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil { // stopping: Get may still answer with the cached copy
+		return err
+	}
 	sum := sha256.Sum256(data)
 	t.mu.RLock()
 	same := t.byAID != nil && sum == t.sum

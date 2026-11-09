@@ -81,7 +81,7 @@ func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]E
 // (the lists fill each other's gaps, so one alone would lose ids and
 // episode exceptions). When nothing changed since the last load (most days:
 // the lists answer 304 and the custom file is the same), the loaded mapping
-// is kept as is.
+// is kept as is. A load cancelled while Kizuna stops changes nothing.
 func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order []string) error {
 	type downloaded struct {
 		src  string
@@ -106,6 +106,9 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		got = append(got, downloaded{src, data, list})
 		fmt.Fprintf(h, "%s:%d:", src, len(data))
 		h.Write(data)
+	}
+	if err := ctx.Err(); err != nil { // stopping: fetch may still answer with cached copies
+		return err
 	}
 	custom, customErr := os.ReadFile(filepath.Join(dataDir, "anime-list-custom.xml"))
 	if customErr == nil {

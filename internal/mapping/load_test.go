@@ -194,3 +194,24 @@ func TestLoadKeepsMappingWhenAListFails(t *testing.T) {
 		t.Errorf("first load: ready %v, 1 %+v, 2 %+v; want fribb alone", first.Ready(), first.ByAID(1), first.ByAID(2))
 	}
 }
+
+// A load cancelled while Kizuna stops doesn't parse or swap in what fetch
+// answered with (here the fresh cached copy).
+func TestLoadCancelledKeepsMapping(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists})
+	order := []string{"animelists"}
+	if err := (&Lists{}).Load(context.Background(), f, dir, order); err != nil { // caches the list
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	l := &Lists{}
+	if err := l.Load(ctx, f, dir, order); err == nil {
+		t.Error("cancelled load: want its error")
+	}
+	if l.cur.Load() != nil {
+		t.Error("cancelled load swapped in a mapping")
+	}
+}

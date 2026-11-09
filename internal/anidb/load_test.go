@@ -55,3 +55,23 @@ func TestLoadRejectsBrokenDump(t *testing.T) {
 		t.Error("broken dump, no cached copy: want an error")
 	}
 }
+
+// A load cancelled while Kizuna stops doesn't parse or swap in what fetch
+// answered with (here the fresh cached copy).
+func TestLoadCancelledKeepsTitles(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(dump(goodDump))
+	if err := (&Titles{}).Load(context.Background(), f); err != nil { // caches the dump
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ts := &Titles{}
+	if err := ts.Load(ctx, f); err == nil {
+		t.Error("cancelled load: want its error")
+	}
+	if ts.Ready() {
+		t.Error("cancelled load swapped in a title list")
+	}
+}
