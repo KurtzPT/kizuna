@@ -157,9 +157,9 @@ func (t *TVDB) isLegacy() bool {
 
 // useLegacy says which API a call should use. With both keys, it first makes
 // sure the v4 key still works (a login, normally the remembered token), so a
-// rejected v4 key switches to the legacy one before the call picks its API
-// (a key rejected at a renewal, which runs in the background, from the next
-// call on).
+// rejected v4 key switches to the legacy one before the call picks its API.
+// A key rejected at a renewal (which runs in the background) switches from
+// the next call on.
 // While a login is under way it doesn't wait: a call answered from the cache
 // needs no token, and one that does waits in get, which notices a switch
 // (errTVDBSwitched). Nor does it log in when the call's v4 answer is
@@ -288,7 +288,7 @@ func (t *TVDB) renew(legacy bool, done chan struct{}) {
 	t.loginDone(context.Background(), legacy, token, err) // a timeout counts as a failed login
 }
 
-// tvdbRenewTimeout bounds a background renewal (fetch's HTTP timeout).
+// tvdbRenewTimeout bounds a background renewal, like a request's HTTP timeout.
 const tvdbRenewTimeout = 30 * time.Second
 
 // requestToken logs in with the v4 or the legacy key.
