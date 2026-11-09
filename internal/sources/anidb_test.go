@@ -530,6 +530,29 @@ func TestAniDBNoSecondCallAfterAnotherStored(t *testing.T) {
 	}
 }
 
+// A download whose turn comes after the anime's last call left fetch but
+// before its outcome was recorded (a failure, say, slower than the 4 s
+// gap) is not sent: the same anime would be asked twice.
+func TestAniDBNoCallBeforeLastOneRecorded(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"500", "oops"})
+	if ok, why := c.allowed(5, false); !ok {
+		t.Fatal(why)
+	}
+	call, err := c.sending(5, false) // out; its answer is in, its result not run yet
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notSent *anidbNotSent
+	if _, err := c.sending(5, false); !errors.As(err, &notSent) || len(c.state.Sent) != 1 {
+		t.Fatalf("second download's turn: %v, %d calls counted; want not sent, 1", err, len(c.state.Sent))
+	}
+	c.result(5, nil, notSent)
+	c.result(5, call, &fetch.StatusError{Code: 500, URL: "x"})
+	if _, failed := c.state.Failed[5]; !failed || c.calling[5] != nil {
+		t.Fatalf("anime 5 failed %v, calling %v; want failed, none", failed, c.calling[5])
+	}
+}
+
 // An answer whose cache write fails is not asked again within 24 h, also
 // after its copy in memory expired, and after a restart.
 func TestAniDBFailedCacheWriteNotAskedAgain(t *testing.T) {

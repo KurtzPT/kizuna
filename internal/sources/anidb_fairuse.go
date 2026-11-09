@@ -152,7 +152,13 @@ func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 		slog.Debug("anidb: call stopped before it went out", "aid", aid, "why", why)
 		return nil, &anidbNotSent{why}
 	}
-	if call == nil || call.sent {
+	if call != nil && call.sent {
+		// A caller that joined a call which left fetch before its own
+		// download started, and whose outcome is not recorded yet: that
+		// call may have failed, so this would ask the same anime twice.
+		return nil, &anidbNotSent{"the last call for this anime just ended"}
+	}
+	if call == nil {
 		// A caller that joined a call which ended before its own download
 		// started: this is a new call, under the same rules.
 		if why := c.admit(aid, background, now); why != "" {
