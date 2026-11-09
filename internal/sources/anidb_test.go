@@ -390,7 +390,7 @@ func TestAniDBPrefetchWorkers(t *testing.T) {
 			t.Fatalf("anime %d: %v %v", aid, a, err)
 		}
 	}
-	c.working.Wait()
+	c.WaitIdle()
 	if int(calls.Load()) != len(aids) {
 		t.Fatalf("%d calls, want %d", calls.Load(), len(aids))
 	}

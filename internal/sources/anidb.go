@@ -107,7 +107,7 @@ type AniDB struct {
 	queued  map[int]bool       // background fetches waiting or running
 	pending []int              // background fetches waiting for a worker, in order
 	workers int                // prefetch workers running
-	working sync.WaitGroup     // the same workers (tests wait on it)
+	working sync.WaitGroup     // the same workers (WaitIdle waits on it)
 	calling map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
 	// failWhy: why an anime's last call failed (memory only: unknown after
 	// a restart). told: the failure whose 24 h block was already logged at
@@ -219,14 +219,13 @@ func (c *AniDB) Prefetch(aid int) {
 	}
 	c.queued[aid] = true
 	c.pending = append(c.pending, aid)
-	start := c.workers < anidbPrefetchWorkers
-	if start {
+	if c.workers < anidbPrefetchWorkers {
+		// Counted in working under c.mu, with workers: once working is
+		// done, nothing is waiting or running (WaitIdle).
 		c.workers++
-	}
-	c.mu.Unlock()
-	if start {
 		c.working.Go(c.prefetchWorker)
 	}
+	c.mu.Unlock()
 }
 
 // anidbPrefetchWorkers: background fetches run at most this many at a

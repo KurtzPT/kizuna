@@ -1,7 +1,5 @@
 package sources
 
-import "time"
-
 // Hooks for tests that must not overlap a source's background work: an
 // allocation count or a check of what a background fetch cached.
 
@@ -16,20 +14,10 @@ func (t *TVDB) WaitIdle() {
 // WaitIdle returns once no background fetch (Prefetch) is waiting or
 // running. Safe on a nil AniDB (not set up).
 //
-// The prefetch workers keep their state under c.mu and signal nothing when
-// they finish, so this checks that state every few milliseconds: a test
-// hook, never called while serving.
+// A prefetch worker leaves only when nothing is waiting, after its last
+// fetch is done, so once every worker has left the AniDB is idle.
 func (c *AniDB) WaitIdle() {
-	if c == nil {
-		return
+	if c != nil {
+		c.working.Wait()
 	}
-	for !c.idle() {
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-func (c *AniDB) idle() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.queued) == 0 && len(c.pending) == 0 && c.workers == 0
 }
