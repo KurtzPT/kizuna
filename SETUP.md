@@ -388,7 +388,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 |---|---|---|
 | `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](#-logs)) |
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` = keep forever |
-| `TZ` | UTC | Time zone (e.g. `Europe/Lisbon`) for log timestamps and when a new log day starts |
+| `TZ` | UTC | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
 | `MATCH_REPORTS` | `false` | `true`: write a [match report](#-match-reports) per show to `reports/` in the data folder |
 
 ---

@@ -64,7 +64,7 @@ services:
 
       # CACHE_MIN_FREE: "1GB"         # below this much free disk space, delete the oldest cache files...
       # CACHE_FREE_TARGET: "2GB"      # ...until this much is free; CACHE_MIN_FREE "0" = never
-      # TZ: "Europe/Lisbon"           # time zone for log days and timestamps (default UTC)
+      # TZ: "Europe/London"           # time zone for log days and timestamps (default UTC)
       # LOG_RETENTION_DAYS: "7"      # days of old logs kept in /change/me/logs; 0 = keep forever
       # LOG_LEVEL: "debug"          # info (default) or debug: everything needed to see why something went wrong
       # MATCH_REPORTS: "true"       # an HTML report per show in /change/me/reports (default false)

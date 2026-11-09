@@ -130,7 +130,7 @@ func TestExplicitEnvFile(t *testing.T) {
 
 // Log names typos and skipped lines, never values.
 func TestEnvFileLog(t *testing.T) {
-	writeEnvFile(t, "TVDB_API_KEY=secret-key\nTITEL_LANGS=en\nTZ=Europe/Lisbon\nbroken\n")
+	writeEnvFile(t, "TVDB_API_KEY=secret-key\nTITEL_LANGS=en\nTZ=Europe/London\nbroken\n")
 	unset(t, "TVDB_API_KEY", "TITEL_LANGS", "TZ")
 	f, err := LoadEnvFile()
 	if err != nil {
