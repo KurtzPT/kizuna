@@ -178,6 +178,9 @@ The first piece of evidence that names a show wins:
 | 2 | **The GUID Plex already has** from another agent | `com.plexapp.agents.thetvdb://81797`, a HAMA `anidb-69` GUID, `imdb://tt0388629` |
 | 3 | **AniDB title search** in the offline title list (~1 ms, no API call) | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
 
+Only one id tag is allowed: two different ones (`Show [anidb-1234]/Show [tvdb-5678] - 01.mkv`) give no match and a
+warning. The same tag again (the folder's tag in the file name too) is fine.
+
 A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
 become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
 several AniDB entries (a TVDB series with one entry per season) gives the series' first entry.
