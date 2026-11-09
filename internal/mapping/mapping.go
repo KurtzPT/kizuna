@@ -40,21 +40,62 @@ type Lists struct {
 
 // listSources: how each MAPPING_SOURCES list is downloaded and parsed.
 var listSources = map[string]struct {
-	get   func(context.Context, *fetch.Client) ([]byte, error)
+	get   func(context.Context, *fetch.Client, func([]byte) error) ([]byte, error)
 	parse func([]byte) (map[int]Entry, error)
 }{
 	"animelists": {getAnimeLists, parseAnimeLists},
 	"fribb":      {getFribb, parseFribb},
 }
 
+// checked parses a download in full before fetch caches it, so a broken
+// download (a stray "&", a cut-off file) is rejected and the good cached
+// copy stays. It keeps the entries, so Load doesn't parse the same bytes
+// twice. Validate can still run after Load gave up (fetch doesn't cancel
+// downloads), hence the lock.
+type checked struct {
+	parse   func([]byte) (map[int]Entry, error)
+	mu      sync.Mutex
+	data    []byte
+	entries map[int]Entry
+}
+
+func (c *checked) validate(b []byte) error {
+	list, err := c.parse(b)
+	if err == nil && len(list) == 0 {
+		err = errors.New("no entries")
+	}
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.data, c.entries = b, list
+	c.mu.Unlock()
+	return nil
+}
+
+// entriesOf returns what validate parsed when data is those very bytes (not a
+// cached copy fetch answered with instead); nil otherwise.
+func (c *checked) entriesOf(data []byte) map[int]Entry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(data) == 0 || len(c.data) != len(data) || &c.data[0] != &data[0] {
+		return nil
+	}
+	return c.entries
+}
+
 // Load downloads (daily) the lists named in order and merges them.
-// A list that fails to download is skipped as long as another one loads.
-// When nothing changed since the last load (most days: the lists answer
-// 304 and the custom file is the same), the loaded mapping is kept as is.
+// On the first load, a list that fails is skipped as long as another one
+// loads; once the mapping is Ready, any failed list keeps the loaded mapping
+// (the lists fill each other's gaps, so one alone would lose ids and
+// episode exceptions). When nothing changed since the last load (most days:
+// the lists answer 304 and the custom file is the same), the loaded mapping
+// is kept as is.
 func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order []string) error {
 	type downloaded struct {
 		src  string
 		data []byte
+		list map[int]Entry // already parsed by checked; nil = parse data
 	}
 	var got []downloaded
 	var errs []error
@@ -64,12 +105,13 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		if !ok {
 			continue
 		}
-		data, err := ls.get(ctx, f)
+		c := &checked{parse: ls.parse}
+		data, err := ls.get(ctx, f, c.validate)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", src, err))
 			continue
 		}
-		got = append(got, downloaded{src, data})
+		got = append(got, downloaded{src, data, c.entriesOf(data)})
 		fmt.Fprintf(h, "%s:%d:", src, len(data))
 		h.Write(data)
 	}
@@ -87,10 +129,13 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 
 	entries := map[int]Entry{}
 	for _, g := range got {
-		list, err := listSources[g.src].parse(g.data)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", g.src, err))
-			continue
+		list := g.list
+		if list == nil {
+			var err error
+			if list, err = listSources[g.src].parse(g.data); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", g.src, err))
+				continue
+			}
 		}
 		added, filled := merge(entries, list)
 		slog.Info("mapping loaded", "list", g.src, "entries", len(list), "new", added, "filled", filled)
@@ -98,9 +143,9 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	listsLoaded := len(entries) > 0
 	if !listsLoaded {
 		errs = append(errs, errors.New("no mapping list loaded"))
-		if l.Ready() { // keep the full mapping of an earlier load (custom entries included)
-			return errors.Join(errs...)
-		}
+	}
+	if len(errs) > 0 && l.Ready() { // keep the full mapping of an earlier load (custom entries included)
+		return errors.Join(append(errs, errors.New("keeping the mapping loaded earlier"))...)
 	}
 	if customErr == nil {
 		// A broken custom file is reported but never costs the downloaded lists.

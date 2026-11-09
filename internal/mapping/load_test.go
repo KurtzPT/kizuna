@@ -104,3 +104,113 @@ func TestLoadCustomWithoutLists(t *testing.T) {
 		t.Errorf("after the list loaded: ready %v, entry 1 %+v (custom wins)", l.Ready(), l.ByAID(1))
 	}
 }
+
+// lists answers each list URL with its body (no ETag); a missing one is a 404.
+type lists map[string]string
+
+func (b lists) RoundTrip(r *http.Request) (*http.Response, error) {
+	body, ok := b[r.URL.String()]
+	code := 200
+	if !ok {
+		code = 404
+	}
+	return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+}
+
+const (
+	goodAnimeLists = `<anime-list><anime anidbid="1" tvdbid="100" defaulttvdbseason="1">
+<mapping-list><mapping anidbseason="1" tvdbseason="1">;5-0;</mapping></mapping-list></anime></anime-list>`
+	brokenAnimeLists = `<anime-list><anime anidbid="1" tvdbid="100" & defaulttvdbseason="1"/></anime-list>`
+	goodFribb        = `[{"anidb_id": 2, "tvdb_id": 200, "mal_id": 7}]`
+)
+
+// A download that doesn't parse is rejected before it's cached: the good
+// cached copy stays, and so does the mapping. With no copy at all, the list
+// counts as failed.
+func TestLoadRejectsBrokenDownload(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists})
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+		t.Fatal(err)
+	}
+	cached := filepath.Join(dir, "cache", "mapping", "anime-list-master.xml")
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(cached, old, old); err != nil {
+		t.Fatal(err)
+	}
+	f.SetTransport(lists{animeListsURL: brokenAnimeLists})
+	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+		t.Errorf("broken download with a good cached copy: %v, want the copy used", err)
+	}
+	if b, _ := os.ReadFile(cached); string(b) != goodAnimeLists {
+		t.Errorf("broken download replaced the cached copy: %q", b)
+	}
+	if !l.ByAID(1).TVDB.HasException(1, 5) || !l.Ready() {
+		t.Errorf("mapping lost its exception: %+v", l.ByAID(1))
+	}
+
+	empty := t.TempDir()
+	f2 := fetch.New(filepath.Join(empty, "cache"))
+	f2.SetTransport(lists{animeListsURL: brokenAnimeLists})
+	if err := (&Lists{}).Load(context.Background(), f2, empty, []string{"animelists"}); err == nil {
+		t.Error("broken download and no cached copy: want an error")
+	}
+	f2.SetTransport(lists{animeListsURL: `<anime-list></anime-list>`})
+	if err := (&Lists{}).Load(context.Background(), f2, empty, []string{"animelists"}); err == nil {
+		t.Error("a list without entries: want an error")
+	}
+}
+
+// checked hands its parse back only for the bytes it validated, not for a
+// cached copy with the same content that fetch answered with instead.
+func TestCheckedReusesOnlyItsBytes(t *testing.T) {
+	c := &checked{parse: parseAnimeLists}
+	data := []byte(goodAnimeLists)
+	if err := c.validate(data); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.entriesOf(data); got[1].TVDB.ID != 100 {
+		t.Errorf("same bytes: %v", got)
+	}
+	if got := c.entriesOf([]byte(goodAnimeLists)); got != nil {
+		t.Errorf("other bytes: %v, want nil", got)
+	}
+	if err := c.validate([]byte(brokenAnimeLists)); err == nil || c.entriesOf(data) == nil {
+		t.Errorf("broken: %v; the earlier parse must stay", err)
+	}
+}
+
+// Once Ready, a list that fails (here a cached copy that doesn't parse) keeps
+// the loaded mapping instead of replacing it with the other list alone. On a
+// first load the other list is still used.
+func TestLoadKeepsMappingWhenAListFails(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	order := []string{"animelists", "fribb"}
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir, order); err != nil {
+		t.Fatal(err)
+	}
+	cached := filepath.Join(dir, "cache", "mapping", "anime-list-master.xml")
+	if err := os.WriteFile(cached, []byte(brokenAnimeLists), 0o644); err != nil { // fresh: no download
+		t.Fatal(err)
+	}
+	err := l.Load(context.Background(), f, dir, order)
+	if err == nil || !strings.Contains(err.Error(), "keeping") {
+		t.Errorf("a list failed: %v, want an error saying the mapping is kept", err)
+	}
+	if !l.ByAID(1).TVDB.HasException(1, 5) || l.ByAID(2).MAL != 7 || !l.Ready() {
+		t.Errorf("mapping not kept: 1 %+v, 2 %+v", l.ByAID(1), l.ByAID(2))
+	}
+
+	first := &Lists{}
+	if err := first.Load(context.Background(), f, dir, order); err == nil {
+		t.Error("first load with a broken list: want an error to log")
+	}
+	if !first.Ready() || first.ByAID(2).MAL != 7 || first.ByAID(1).AID != 0 {
+		t.Errorf("first load: ready %v, 1 %+v, 2 %+v; want fribb alone", first.Ready(), first.ByAID(1), first.ByAID(2))
+	}
+}

@@ -14,13 +14,15 @@ import (
 // animeListsURL: Anime-Lists, the XML list (see the package doc).
 const animeListsURL = "https://raw.githubusercontent.com/Anime-Lists/anime-lists/master/anime-list-master.xml"
 
-func getAnimeLists(ctx context.Context, f *fetch.Client) ([]byte, error) {
+// getAnimeLists downloads the list; parse is the full check a download must
+// also pass before it's cached (see checked).
+func getAnimeLists(ctx context.Context, f *fetch.Client, parse func([]byte) error) ([]byte, error) {
 	return f.Get(ctx, fetch.Request{URL: animeListsURL, Key: "mapping/anime-list-master.xml", TTL: 24 * time.Hour, Revalidate: true,
 		Validate: func(b []byte) error {
 			if !bytes.Contains(b[:min(len(b), 500)], []byte("<anime-list")) {
 				return errors.New("not an anime-list")
 			}
-			return nil
+			return parse(b)
 		}})
 }
 

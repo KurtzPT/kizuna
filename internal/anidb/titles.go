@@ -119,12 +119,26 @@ type Match struct {
 
 // Load downloads (at most daily) and parses the title dump. Most days it
 // hasn't changed (the server answers 304): then the loaded one is kept.
+// A download is parsed in full before it's cached, so a broken one never
+// replaces the good cached copy; that parse is used, not repeated.
 func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
+	var checked struct { // Validate can run after Load gave up (fetch doesn't cancel downloads)
+		sync.Mutex
+		data  []byte
+		byAID map[int][]Title
+	}
 	data, err := f.Get(ctx, fetch.Request{URL: titlesURL, Key: "anidb/animetitles.xml", TTL: 24 * time.Hour, Revalidate: true,
 		Validate: func(b []byte) error {
 			if !bytes.Contains(b[:min(len(b), 500)], []byte("<animetitles")) {
 				return errors.New("not an AniDB title dump")
 			}
+			byAID, err := parseTitles(b)
+			if err != nil {
+				return err
+			}
+			checked.Lock()
+			checked.data, checked.byAID = b, byAID
+			checked.Unlock()
 			return nil
 		}})
 	if err != nil {
@@ -138,18 +152,16 @@ func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
 		slog.Debug("AniDB title list unchanged; keeping the loaded one")
 		return nil
 	}
-	var dump struct {
-		Anime []struct {
-			AID    int     `xml:"aid,attr"`
-			Titles []Title `xml:"title"`
-		} `xml:"anime"`
+	checked.Lock()
+	byAID := checked.byAID
+	if len(checked.data) != len(data) || len(data) == 0 || &checked.data[0] != &data[0] {
+		byAID = nil // fetch answered with the cached copy, not the download Validate saw
 	}
-	if err := xml.Unmarshal(data, &dump); err != nil {
-		return err
-	}
-	byAID := make(map[int][]Title, len(dump.Anime))
-	for _, a := range dump.Anime {
-		byAID[a.AID] = a.Titles
+	checked.Unlock()
+	if byAID == nil {
+		if byAID, err = parseTitles(data); err != nil {
+			return err
+		}
 	}
 	t.set(byAID)
 	t.mu.Lock()
@@ -157,6 +169,27 @@ func (t *Titles) Load(ctx context.Context, f *fetch.Client) error {
 	t.mu.Unlock()
 	slog.Info("AniDB title list loaded", "anime", len(byAID), "titles", t.index.len())
 	return nil
+}
+
+// parseTitles reads the title dump; one without any anime is an error.
+func parseTitles(data []byte) (map[int][]Title, error) {
+	var dump struct {
+		Anime []struct {
+			AID    int     `xml:"aid,attr"`
+			Titles []Title `xml:"title"`
+		} `xml:"anime"`
+	}
+	if err := xml.Unmarshal(data, &dump); err != nil {
+		return nil, err
+	}
+	if len(dump.Anime) == 0 {
+		return nil, errors.New("no anime in the title dump")
+	}
+	byAID := make(map[int][]Title, len(dump.Anime))
+	for _, a := range dump.Anime {
+		byAID[a.AID] = a.Titles
+	}
+	return byAID, nil
 }
 
 // SetForTest replaces the title list (for tests in other packages).

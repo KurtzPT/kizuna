@@ -14,13 +14,15 @@ import (
 // fribbURL: Fribb/anime-lists, the JSON list (see the package doc).
 const fribbURL = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json"
 
-func getFribb(ctx context.Context, f *fetch.Client) ([]byte, error) {
+// getFribb downloads the list; parse is the full check a download must also
+// pass before it's cached (see checked).
+func getFribb(ctx context.Context, f *fetch.Client, parse func([]byte) error) ([]byte, error) {
 	return f.Get(ctx, fetch.Request{URL: fribbURL, Key: "mapping/fribb-anime-list-mini.json", TTL: 24 * time.Hour, Revalidate: true,
 		Validate: func(b []byte) error {
 			if len(bytes.TrimSpace(b)) == 0 || bytes.TrimSpace(b)[0] != '[' {
 				return errors.New("not a JSON list")
 			}
-			return nil
+			return parse(b)
 		}})
 }
 
