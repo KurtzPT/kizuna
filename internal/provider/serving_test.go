@@ -160,3 +160,40 @@ func TestUnmatchedPageKeptUntilShow(t *testing.T) {
 		t.Errorf("after a match with its show: %v, want the unmatched page gone", err)
 	}
 }
+
+// A season or episode match whose show lacks that season or episode is no
+// match: the title keeps its unmatched page, and the request says so.
+func TestMissingSeasonIsNoMatch(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, serve := reportsOn(t, p)
+	page := filepath.Join(dir, "data", report.UnmatchedKey("Kizuna Test")+".json")
+	store.Unmatched(report.Match{Mode: "anidb", Type: "season", Title: "Kizuna Test"})
+	store.Flush()
+	for _, body := range []string{`{"type":3,"parentTitle":"Kizuna Test","index":9}`,
+		`{"type":4,"grandparentTitle":"Kizuna Test","parentIndex":1,"index":99}`} {
+		if code := serve("POST", "/anidb/library/metadata/matches", body); code != 200 {
+			t.Fatalf("%s: HTTP %d, want 200", body, code)
+		}
+	}
+	store.Flush()
+	if _, err := os.Stat(page); err != nil {
+		t.Errorf("after matches without an item: %v, want the unmatched page kept", err)
+	}
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	n := 0 // alike requests are counted on one
+	for _, rq := range doc.Requests {
+		if rq.Answer != "no match" {
+			n = -100
+		}
+		n += max(rq.Count, 1)
+	}
+	if n != 2 {
+		t.Errorf("requests %+v, want both answered no match", doc.Requests)
+	}
+	serve("POST", "/anidb/library/metadata/matches", `{"type":3,"parentTitle":"Kizuna Test","index":1}`)
+	store.Flush()
+	if _, err := os.Stat(page); !os.IsNotExist(err) {
+		t.Errorf("after a match with its season: %v, want the unmatched page gone", err)
+	}
+}

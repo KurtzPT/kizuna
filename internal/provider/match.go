@@ -114,23 +114,30 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		slog.Debug("match: show not available", "root", root, "err", err)
 		return nil, err
 	}
-	// Only after the Fix Match list (it skips MIN_SCORE, so it finds
-	// candidates for titles that still don't match) and once the show is
-	// there: until then the title still has no match in Plex.
-	p.reports.Matched(title)
+	var it *Item
 	switch r.Type {
 	case 3:
-		if it := p.seasonItem(mode, s, deref(r.Index, 1), false); it != nil {
-			return []Item{*it}, nil
-		}
+		it = p.seasonItem(mode, s, deref(r.Index, 1), false)
 	case 4:
 		if ep := s.Episode(deref(r.ParentIndex, 1), deref(r.Index, 0)); ep != nil {
-			return []Item{p.episodeItem(mode, s, ep)}, nil
+			e := p.episodeItem(mode, s, ep)
+			it = &e
 		}
 	default:
-		return []Item{p.showItem(mode, s, false)}, nil
+		sh := p.showItem(mode, s, false)
+		it = &sh
 	}
-	return nil, nil
+	if it == nil { // the show has no such season or episode
+		if rq != nil {
+			rq.Answer = "no match"
+		}
+		return nil, nil
+	}
+	// Only after the Fix Match list (it skips MIN_SCORE, so it finds
+	// candidates for titles that still don't match) and once there is an
+	// item: until then the title still has no match in Plex.
+	p.reports.Matched(title)
+	return []Item{*it}, nil
 }
 
 // searchCandidates: an id tag in the show title or the file path (which
