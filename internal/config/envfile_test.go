@@ -48,10 +48,17 @@ func TestParseEnvFile(t *testing.T) {
 		"1BAD=x\n" +
 		"H=\"unclosed\n" +
 		"I=\"x\" y\n" +
-		"KIZUNA_CONFIG=/elsewhere\n"
+		"KIZUNA_CONFIG=/elsewhere\n" +
+		"J=   # only a comment\n" +
+		"K=\t# only a comment\n" +
+		"L=value\t# tab comment\n" +
+		"M='single # not a comment' # comment\n" +
+		"N=#not a comment\n" +
+		"O= \"quoted\"\t# comment\n"
 	got, problems := parseEnvFile([]byte(in))
 	want := map[string]string{"A": "later wins", "B": "spaced value", "C": "double # not a comment", "D": "single",
-		"E": "value", "F": "", "G": "a=b"}
+		"E": "value", "F": "", "G": "a=b",
+		"J": "", "K": "", "L": "value", "M": "single # not a comment", "N": "#not a comment", "O": "quoted"}
 	if len(got) != len(want) {
 		t.Errorf("got %d settings %v, want %d", len(got), got, len(want))
 	}

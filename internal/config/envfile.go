@@ -147,7 +147,7 @@ func parseEnvFile(data []byte) (out []envSetting, problems []string) {
 			problems = append(problems, fmt.Sprintf("line %d: %s only works in the environment", n, EnvFileVar))
 			continue
 		}
-		value, err := envValue(strings.TrimSpace(raw))
+		value, err := envValue(raw)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("line %d: %s: %v", n, key, err))
 			continue
@@ -161,16 +161,18 @@ func parseEnvFile(data []byte) (out []envSetting, problems []string) {
 	return out, problems
 }
 
+// envValue reads the text after "=". An unquoted value ends at a # that
+// follows a space or tab, so "KEY=   # note" is empty, like in a shell.
 func envValue(raw string) (string, error) {
-	if raw != "" && (raw[0] == '"' || raw[0] == '\'') {
-		end := strings.IndexByte(raw[1:], raw[0])
+	if t := strings.TrimSpace(raw); t != "" && (t[0] == '"' || t[0] == '\'') {
+		end := strings.IndexByte(t[1:], t[0])
 		if end < 0 {
 			return "", errors.New("missing closing quote")
 		}
-		if rest := strings.TrimSpace(raw[end+2:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		if rest := strings.TrimSpace(t[end+2:]); rest != "" && !strings.HasPrefix(rest, "#") {
 			return "", errors.New("text after the closing quote")
 		}
-		return raw[1 : end+1], nil
+		return t[1 : end+1], nil
 	}
 	if i := strings.Index(raw, " #"); i >= 0 {
 		raw = raw[:i]
