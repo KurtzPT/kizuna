@@ -102,10 +102,13 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 			errs = append(errs, fmt.Errorf("%s: %w", src, err))
 			continue
 		}
-		list, _ := c.Result(data)
-		got = append(got, downloaded{src, data, list})
 		fmt.Fprintf(h, "%s:%d:", src, len(data))
 		h.Write(data)
+		list, ok := c.Result(data)
+		if ok {
+			data = nil // parsed already: don't hold on to the download
+		}
+		got = append(got, downloaded{src, data, list})
 	}
 	if err := ctx.Err(); err != nil { // stopping: fetch may still answer with cached copies
 		return err
@@ -122,17 +125,25 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		return errors.Join(errs...)
 	}
 
-	entries := map[int]Entry{}
-	for _, g := range got {
+	var entries map[int]Entry // the first list's own map: this load made it
+	for i := range got {
+		g := &got[i]
 		list := g.list
 		if list == nil {
 			var err error
-			if list, err = listSources[g.src].parse(g.data); err != nil {
+			list, err = listSources[g.src].parse(g.data)
+			g.data = nil
+			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", g.src, err))
 				continue
 			}
 		}
-		added, filled := merge(entries, list)
+		added, filled := len(list), 0
+		if entries == nil {
+			entries = list
+		} else {
+			added, filled = merge(entries, list)
+		}
 		slog.Info("mapping loaded", "list", g.src, "entries", len(list), "new", added, "filled", filled)
 	}
 	listsLoaded := len(entries) > 0
@@ -141,6 +152,9 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	}
 	if len(errs) > 0 && l.Ready() { // keep the full mapping of an earlier load (custom entries included)
 		return errors.Join(append(errs, errors.New("keeping the mapping loaded earlier"))...)
+	}
+	if entries == nil {
+		entries = map[int]Entry{}
 	}
 	if customErr == nil {
 		// A broken custom file is reported but never costs the downloaded lists.
