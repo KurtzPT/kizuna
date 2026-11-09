@@ -265,6 +265,51 @@ func TestAutoTagNeedsItsMode(t *testing.T) {
 	}
 }
 
+// Only one id tag is allowed in the show title and file path together:
+// with two different ones the show gets no match (no GUID or title search
+// either), with one warning per title every 10 minutes. The show folder's
+// tag again in the file path or the file name is the same tag.
+func TestOneIDTag(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{69: {AID: 69, TVDB: mapping.Placement{ID: 81797, Season: -1, Mapped: true}, MAL: 21}})
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	guid := "tv.plex.agents.custom.kizuna.anidb://show/anidb-69"
+	cases := []struct {
+		mode        string
+		title, file string
+		want, how   string // want "": no match, how: the start of its note
+	}{
+		{"auto", "One Piece [anidb-69]", "/anime/One Piece [anidb-69]/One Piece [anidb-69] - 01.mkv", "anidb-69", "tag [anidb-69]"},
+		{"auto", "One Piece {anidb-69}", "/anime/One Piece [AniDB2-069]/01.mkv", "anidb-69", "tag {anidb-69}"},
+		{"auto", "One Piece", "/anime/One Piece [tvdb-81797]/One Piece [tvdb3-81797] - 01.mkv", "tvdb-81797", "tag [tvdb-81797]"},
+		{"auto", "One Piece [anidb-69] [tvdb-81797]", "", "", "id tags [anidb-69] [tvdb-81797]: only one is allowed"},
+		{"anidb", "One Piece [anidb-69]", "/anime/One Piece [anidb-69]/One Piece [mal-21] - 01.mkv", "", "id tags [anidb-69] [mal-21]: only one"},
+		{"tvdb", "One Piece", "/anime/One Piece [mal-21]/One Piece [mal-22] - 01.mkv", "", "id tags [mal-21] [mal-22]: only one"},
+	}
+	for _, c := range cases {
+		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		for range 3 { // the same title again: no new warning
+			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: guid, Filename: c.file}, nil)
+			if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0].root != c.want)) || !strings.HasPrefix(how, c.how) {
+				t.Errorf("/%s %q %q: got %v (%s), want %q (%s…)", c.mode, c.title, c.file, got, how, c.want, c.how)
+			}
+		}
+		restore()
+		warned := 0
+		if c.want == "" {
+			warned = 1
+		}
+		if n := strings.Count(logs.String(), "level=WARN msg=\"match: more than one id tag"); n != warned {
+			t.Errorf("/%s %q %q: %d warnings, want %d:\n%s", c.mode, c.title, c.file, n, warned, logs.String())
+		}
+	}
+}
+
 // An AniDB special the mapping doesn't list is the TVDB special with the same
 // number, but only on the entry that starts the series (Air Gear S1 = TVDB
 // S00E01); later entries and entries living in TVDB season 0 need an exception.

@@ -8,6 +8,7 @@ import (
 	"kizuna/internal/report"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -134,27 +135,38 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 
 // searchCandidates: an id tag in the show title or the file path (which
 // includes the show folder) wins, then the GUID Plex already has, then title
-// search. In /auto, an AniDB or TVDB tag whose mode is off is no match.
+// search. Only one id tag is allowed: with two different ones the show gets
+// no match. In /auto, an AniDB or TVDB tag whose mode is off is no match.
 // title is the show's title in r (Match picks it by r.Type); how says which
 // of them decided. The first title search results are added to noted (when
 // not nil) for the match report.
 func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
 	year, guid, manual := r.Year, r.GUID, r.Manual == 1
 	query := tagRe.ReplaceAllString(title, "")
-	for _, text := range []string{title, r.Filename} {
-		if m := tagRe.FindStringSubmatch(text); m != nil {
-			rules, need := p.tagRules(mode, m[1])
-			if need != "" { // the tag is the user's choice: no other mode, GUID or title search
-				if p.tagOffLogged.due(rules.Path) {
-					slog.Warn("match: id tag needs /"+rules.Path+", which is off", "tag", m[0], "set", need)
-				}
-				return nil, fmt.Sprintf("tag %s: /%s is off, set %s", m[0], rules.Path, need)
-			}
-			if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
-				return []candidate{{root, 100}}, "tag " + m[0]
-			}
-			slog.Debug("match: id tag not in the mapping", "tag", m[0])
+	switch tags := idTags(title, r.Filename); {
+	case len(tags) > 1: // which one the user meant is a guess: no tag, GUID or title search
+		names := make([]string, len(tags))
+		for i, m := range tags {
+			names[i] = m[0]
 		}
+		list := strings.Join(names, " ")
+		if p.tagsLogged.due(title) {
+			slog.Warn("match: more than one id tag; only one is allowed, the show gets no match", "title", title, "tags", list)
+		}
+		return nil, "id tags " + list + ": only one is allowed"
+	case len(tags) == 1:
+		m := tags[0]
+		rules, need := p.tagRules(mode, m[1])
+		if need != "" { // the tag is the user's choice: no other mode, GUID or title search
+			if p.tagOffLogged.due(rules.Path) {
+				slog.Warn("match: id tag needs /"+rules.Path+", which is off", "tag", m[0], "set", need)
+			}
+			return nil, fmt.Sprintf("tag %s: /%s is off, set %s", m[0], rules.Path, need)
+		}
+		if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
+			return []candidate{{root, 100}}, "tag " + m[0]
+		}
+		slog.Debug("match: id tag not in the mapping", "tag", m[0])
 	}
 	for _, re := range []*regexp.Regexp{guidRe, otherGUIDRe} {
 		if m := re.FindStringSubmatch(guid); m != nil {
@@ -201,6 +213,28 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 		return nil, fmt.Sprintf("title search: best score %d below MIN_SCORE %d", results[0].Score, p.cfg.MinScore)
 	}
 	return out, "title search"
+}
+
+// idTags returns the different id tags in texts (tagRe submatches), in
+// order. A tag written again, as the show folder's tag in the file path or
+// in the file name, is the same tag: same site and id, whatever the
+// brackets, case, site digit ([tvdb3-…]) or leading zeros.
+func idTags(texts ...string) [][]string {
+	var out [][]string
+	var seen []string
+	for _, text := range texts {
+		for _, m := range tagRe.FindAllStringSubmatch(text, -1) {
+			id := strings.ToLower(m[2])
+			if n, err := strconv.Atoi(id); err == nil {
+				id = strconv.Itoa(n)
+			}
+			if key := strings.ToLower(m[1]) + "-" + id; !slices.Contains(seen, key) {
+				seen = append(seen, key)
+				out = append(out, m)
+			}
+		}
+	}
+	return out
 }
 
 var mainLang = []string{"main"}
