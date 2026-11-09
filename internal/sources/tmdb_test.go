@@ -9,13 +9,14 @@ import (
 )
 
 // A season's overview comes from the season file the episode list reads:
-// one request for both. A season TMDB doesn't have (404) gives no text.
+// one request for both. A season the show doesn't list gives no text and
+// isn't asked (a 404 isn't cached); one it lists but doesn't have, its 404.
 func TestTMDBSeasonOverview(t *testing.T) {
 	const q = "?api_key=key&language=en-US"
 	const sq = q + "&append_to_response=images&include_image_language=en,ja,null"
 	f := fetch.New(t.TempDir())
 	n := &tvdbNet{answers: map[string]string{ // tvdbNet answers any host
-		"api.themoviedb.org/3/tv/77" + q:           `{"name":"Show","seasons":[{"season_number":1},{"season_number":2}]}`,
+		"api.themoviedb.org/3/tv/77" + q:           `{"name":"Show","seasons":[{"season_number":1},{"season_number":2},{"season_number":4}]}`,
 		"api.themoviedb.org/3/tv/77/season/1" + sq: `{"overview":"","episodes":[{"episode_number":1,"name":"One"}]}`,
 		"api.themoviedb.org/3/tv/77/season/2" + sq: `{"overview":"The second cour.","episodes":[{"episode_number":1,"name":"Two"}]}`,
 	}}
@@ -28,8 +29,17 @@ func TestTMDBSeasonOverview(t *testing.T) {
 	if got, err := tm.SeasonOverview(ctx, 77, 1); err != nil || got != "" {
 		t.Errorf("season 1 (empty overview): %q %v", got, err)
 	}
-	if got, err := tm.SeasonOverview(ctx, 77, 3); got != "" || !fetch.IsNotFound(err) {
-		t.Errorf("season 3: %q %v, want its 404", got, err)
+	if got, err := tm.SeasonOverview(ctx, 77, 3); got != "" || err != nil {
+		t.Errorf("season 3 (not listed): %q %v, want none", got, err)
+	}
+	if c := n.count("api.themoviedb.org/3/tv/77/season/3" + sq); c != 0 {
+		t.Errorf("season 3, not listed, asked %d times", c)
+	}
+	if got, err := tm.SeasonOverview(ctx, 77, 4); got != "" || !fetch.IsNotFound(err) {
+		t.Errorf("season 4 (listed, missing): %q %v, want its 404", got, err)
+	}
+	if got, err := tm.SeasonOverview(ctx, 78, 1); got != "" || !fetch.IsNotFound(err) {
+		t.Errorf("unknown show: %q %v, want its 404", got, err)
 	}
 	if eps, err := tm.Episodes(ctx, 77); err != nil || len(eps) != 2 {
 		t.Fatalf("episodes %+v %v", eps, err)
@@ -75,5 +85,27 @@ func TestTMDBSeasonArt(t *testing.T) {
 	}
 	if a, err := tm.SeasonArt(ctx, 78, 1); len(a.Posters) != 0 || !fetch.IsNotFound(err) {
 		t.Errorf("unknown show: %+v %v, want its 404", a, err)
+	}
+}
+
+// A movie's title and overview come from its details request: one request
+// and one cached file for Text and Details.
+func TestTMDBMovieTextFromDetails(t *testing.T) {
+	const u = "api.themoviedb.org/3/movie/99?api_key=key&language=en-US&append_to_response=credits,release_dates"
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		u: `{"title":"Movie","overview":"About it.","release_date":"2001-07-20","genres":[{"id":16,"name":"Animation"}]}`,
+	}}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	ctx := context.Background()
+	if name, overview, err := tm.Text(ctx, 99, true); err != nil || name != "Movie" || overview != "About it." {
+		t.Fatalf("text %q %q %v", name, overview, err)
+	}
+	if d, err := tm.Details(ctx, 99, true); err != nil || d.Date != "2001-07-20" || len(d.Genres) != 1 {
+		t.Fatalf("details %+v %v", d, err)
+	}
+	if len(n.asked) != 1 {
+		t.Errorf("asked %v, want only the details request", n.asked)
 	}
 }

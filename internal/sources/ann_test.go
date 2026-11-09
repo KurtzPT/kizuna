@@ -44,3 +44,22 @@ func TestParseANN(t *testing.T) {
 		t.Errorf("no-result answer: %+v %v", empty, err)
 	}
 }
+
+// The earliest Vintage date wins; a less precise one in the same year or
+// month gives way to the full date.
+func TestEarliestDate(t *testing.T) {
+	for _, c := range []struct {
+		dates []string
+		want  string
+	}{
+		{nil, ""},
+		{[]string{"2001-09-02", "1998-04-03"}, "1998-04-03"},
+		{[]string{"1998", "1998-09-25", "1998-04-03"}, "1998-04-03"},
+		{[]string{"1998-04", "1998"}, "1998-04"},
+		{[]string{"1998", "1999-01-01"}, "1998"},
+	} {
+		if got := earliestDate(c.dates); got != c.want {
+			t.Errorf("%v: got %q, want %q", c.dates, got, c.want)
+		}
+	}
+}

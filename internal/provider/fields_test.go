@@ -158,8 +158,9 @@ func TestLaterEntrySummary(t *testing.T) {
 		if s.Summary != c.want {
 			t.Errorf("%s: summary %q, want %q", c.name, s.Summary, c.want)
 		}
-		series := net.count("api4.thetvdb.com/v4/series/500/translations/eng") + net.count("api.themoviedb.org/3/tv/77")
-		if !c.series && series > 0 {
+		// TMDB's series text is in the show file, which a later entry reads
+		// for its season list: the summary above shows it isn't used.
+		if !c.series && net.count("api4.thetvdb.com/v4/series/500/translations/eng") > 0 {
 			t.Errorf("%s: a later entry fetched the series overview", c.name)
 		}
 	}

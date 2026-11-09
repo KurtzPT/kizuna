@@ -69,7 +69,8 @@ func (t *TMDB) TV(ctx context.Context, id int) (Show, error) {
 	return s, err
 }
 
-// Text returns the English title and overview of a TV show or a movie.
+// Text returns the English title and overview of a TV show or a movie. A
+// movie's come from its Details request and file: one request for both.
 func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview string, err error) {
 	if !movie {
 		s, err := t.TV(ctx, id)
@@ -79,8 +80,20 @@ func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview str
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
 	}
-	err = t.get(ctx, fmt.Sprintf("/movie/%d", id), "&language=en-US", fmt.Sprintf("tmdb/movie-%d.json", id), 7*24*time.Hour, &m)
+	path, query, key := detailsRequest(id, true)
+	err = t.get(ctx, path, query, key, detailsTTL, &m)
 	return m.Title, m.Overview, err
+}
+
+const detailsTTL = 7 * 24 * time.Hour
+
+// detailsRequest: the path, query and cache key of a show's or movie's
+// Details, with its people and ratings appended.
+func detailsRequest(id int, movie bool) (path, query, key string) {
+	if movie {
+		return fmt.Sprintf("/movie/%d", id), "&language=en-US&append_to_response=credits,release_dates", fmt.Sprintf("tmdb/movie-%d-details.json", id)
+	}
+	return fmt.Sprintf("/tv/%d", id), "&language=en-US&append_to_response=aggregate_credits,content_ratings", fmt.Sprintf("tmdb/tv-%d-details.json", id)
 }
 
 // Details returns genres, people, studio, content rating (US preferred) and
@@ -133,14 +146,11 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error)
 			} `json:"results"`
 		} `json:"release_dates"`
 	}
-	path, extra, key := fmt.Sprintf("/tv/%d", id), "aggregate_credits,content_ratings", fmt.Sprintf("tmdb/tv-%d-details.json", id)
-	if movie {
-		path, extra, key = fmt.Sprintf("/movie/%d", id), "credits,release_dates", fmt.Sprintf("tmdb/movie-%d-details.json", id)
-	}
 	if id == 0 {
 		return Details{}, nil
 	}
-	if err := t.get(ctx, path, "&language=en-US&append_to_response="+extra, key, 7*24*time.Hour, &r); err != nil {
+	path, query, key := detailsRequest(id, movie)
+	if err := t.get(ctx, path, query, key, detailsTTL, &r); err != nil {
 		return Details{}, err
 	}
 	d := Details{Date: r.FirstAir}
@@ -296,8 +306,12 @@ func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
 }
 
 // SeasonOverview returns the English overview of a TV show's season, from
-// the same request and cached file as the episode list.
+// the same request and cached file as the episode list. A season the show
+// doesn't list gives none and costs no request (see listsSeason).
 func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, error) {
+	if ok, err := t.listsSeason(ctx, id, season); !ok {
+		return "", err
+	}
 	var r struct {
 		Overview string `json:"overview"`
 	}
@@ -307,11 +321,9 @@ func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 
 // SeasonArt returns the posters of a TV show's season, English or textless
 // first, as TMDB orders them by votes. TMDB seasons have no backgrounds or
-// logos. A season the show doesn't list (often Specials) gives none and
-// costs no request: TMDB would answer 404, which isn't cached.
+// logos. A season the show doesn't list gives none and costs no request.
 func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
-	show, err := t.TV(ctx, id)
-	if err != nil || !slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }) {
+	if ok, err := t.listsSeason(ctx, id, season); !ok {
 		return Art{}, err
 	}
 	var r seasonImages
@@ -319,6 +331,17 @@ func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
 		return Art{}, err
 	}
 	return Art{Posters: r.posters()}, nil
+}
+
+// listsSeason: the show lists the season. One it doesn't (often Specials)
+// isn't asked for: TMDB would answer 404, which isn't cached. The show's
+// file is cached, and usually read already.
+func (t *TMDB) listsSeason(ctx context.Context, id, season int) (bool, error) {
+	show, err := t.TV(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }), nil
 }
 
 // seasonImages is the images part of a season file.
