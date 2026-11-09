@@ -3,12 +3,15 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"kizuna/internal/fetch"
 )
 
 // Crew is one episode's directors and writers.
@@ -118,8 +121,10 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 					crew[id] = c
 				case bctx.Err() != nil:
 					left = append(left, id)
-				default:
+				case crewAnswer(err):
 					t.crewFail(id, err)
+				default: // a login or network blip: the next build asks again
+					slog.Debug("tvdb: episode record not fetched", "episode", id, "err", err)
 				}
 				mu.Unlock()
 			}
@@ -144,6 +149,14 @@ func (t *TVDB) fetchCrew(ctx context.Context, id int) (Crew, error) {
 	return r.crew(), err
 }
 
+// crewAnswer: TheTVDB answered the request for the record itself with an
+// error (404, 500...), so it isn't asked again for a while. A failed login,
+// a switch to the legacy key or a network error says nothing about the record.
+func crewAnswer(err error) bool {
+	var se *fetch.StatusError
+	return errors.As(err, &se) && !errors.Is(err, errTVDBLogin)
+}
+
 func (t *TVDB) crewFail(id int, err error) {
 	t.crewMu.Lock()
 	t.crewFailed[id] = time.Now().Add(crewRetry)
@@ -152,9 +165,16 @@ func (t *TVDB) crewFail(id int, err error) {
 }
 
 // queueCrew fetches episode records in the background, one at a time, so
-// they never hold up a show build for long.
+// they never hold up a show build for long. Failures past their time are
+// forgotten here.
 func (t *TVDB) queueCrew(ids []int) {
 	t.crewMu.Lock()
+	now := time.Now()
+	for id, until := range t.crewFailed {
+		if !now.Before(until) {
+			delete(t.crewFailed, id)
+		}
+	}
 	var todo []int
 	for _, id := range ids {
 		if !t.crewQueued[id] {
@@ -168,7 +188,7 @@ func (t *TVDB) queueCrew(ids []int) {
 	}
 	go func() {
 		for _, id := range todo {
-			if _, err := t.fetchCrew(context.Background(), id); err != nil {
+			if _, err := t.fetchCrew(context.Background(), id); crewAnswer(err) {
 				t.crewFail(id, err)
 			}
 			t.crewMu.Lock()

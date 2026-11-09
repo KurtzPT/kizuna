@@ -118,6 +118,10 @@ func rejected(err error) bool {
 		(se.Code == http.StatusBadRequest || se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden)
 }
 
+// errTVDBLogin marks login errors: they say nothing about the record a call
+// asked for.
+var errTVDBLogin = errors.New("tvdb login")
+
 // login returns a bearer token and whether it's for the legacy (v3) API. A
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
 // 20 hours). t.mu is never held over the network: one login runs at a time,
@@ -144,7 +148,7 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 			case <-running:
 				continue // its outcome is in t now
 			case <-ctx.Done():
-				return "", legacy, fmt.Errorf("tvdb login: %w", ctx.Err())
+				return "", legacy, fmt.Errorf("%w: %w", errTVDBLogin, ctx.Err())
 			}
 		}
 		done := make(chan struct{})
@@ -173,7 +177,7 @@ func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
 	body, _ := json.Marshal(creds)
 	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + "/login", Method: "POST", Body: body, Quiet: true})
 	if err != nil {
-		return "", fmt.Errorf("tvdb login: %w", err)
+		return "", fmt.Errorf("%w: %w", errTVDBLogin, err)
 	}
 	var r struct {
 		Token string `json:"token"` // v3
@@ -186,7 +190,7 @@ func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
 			return token, nil
 		}
 	}
-	return "", errors.New("tvdb login: no token in the answer")
+	return "", fmt.Errorf("%w: no token in the answer", errTVDBLogin)
 }
 
 // loginDone records a login's outcome and reports whether to log in again

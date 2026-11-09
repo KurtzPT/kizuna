@@ -58,6 +58,49 @@ func TestEpisodePages(t *testing.T) {
 	}
 }
 
+// A failed login blocks no episode record: the next call asks for them as
+// soon as TheTVDB is back. A record TheTVDB answers 404 for is blocked, and
+// forgotten once its time is up.
+func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{
+		v4 + "/login":               `503 {}`,
+		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D","peopleType":"Director"}]}}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}); len(crew) != 0 || pending {
+		t.Fatalf("login down: crew %v pending %v, want none", crew, pending)
+	}
+	n.mu.Lock()
+	n.answers[v4+"/login"] = `{"data":{"token":"t4"}}`
+	n.mu.Unlock()
+	tv.mu.Lock()
+	tv.loginRetry = time.Time{} // the login pause is over
+	tv.mu.Unlock()
+
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 3})
+	if pending || strings.Join(crew[1].Directors, ",") != "D" {
+		t.Fatalf("login back: crew %+v pending %v, want episode 1's", crew, pending)
+	}
+	tv.crewMu.Lock()
+	_, failed1 := tv.crewFailed[1]
+	_, failed3 := tv.crewFailed[3]
+	tv.crewMu.Unlock()
+	if failed1 || !failed3 {
+		t.Errorf("blocked: 1 %v 3 %v, want only 3 (404)", failed1, failed3)
+	}
+
+	tv.crewMu.Lock()
+	tv.crewFailed[3] = time.Now().Add(-time.Second)
+	tv.crewMu.Unlock()
+	tv.queueCrew(nil)
+	tv.crewMu.Lock()
+	left := len(tv.crewFailed)
+	tv.crewMu.Unlock()
+	if left != 0 {
+		t.Errorf("%d expired failures kept, want 0", left)
+	}
+}
+
 // tokenNet is TheTVDB v4 with expiring tokens: login n hands out token "t<n>",
 // and data requests get a 401 unless they carry the good token.
 type tokenNet struct {
