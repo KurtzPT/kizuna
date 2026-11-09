@@ -30,6 +30,8 @@ type showSources struct {
 	tvdbText, tmdbText       lazy[text]
 	tvdbArt, tmdbArt         lazy[sources.Art]
 	tvdbDetails, tmdbDetails lazy[sources.Details]
+	anidbOnce                sync.Once // anidbDetails: AniDB's, built from a once, not per field
+	anidbDet                 sources.Details
 	mal                      lazy[sources.MALAnime]
 	ann                      lazy[sources.ANNAnime]
 
@@ -185,9 +187,7 @@ func (ss *showSources) art(src string) sources.Art {
 func (ss *showSources) details(src string) sources.Details {
 	switch src {
 	case "anidb":
-		if ss.a != nil {
-			return ss.a.Details()
-		}
+		return ss.anidbDetails()
 	case "tvdb":
 		if ss.series {
 			return ss.tvdbDetails.get()
@@ -202,6 +202,17 @@ func (ss *showSources) details(src string) sources.Details {
 		return ss.ann.get().Details
 	}
 	return sources.Details{}
+}
+
+// anidbDetails: AniDB's details, built from a on first use. A sync.Once,
+// not a lazy: a lazy's closure would cost every build an allocation.
+func (ss *showSources) anidbDetails() sources.Details {
+	ss.anidbOnce.Do(func() {
+		if ss.a != nil {
+			ss.anidbDet = ss.a.Details()
+		}
+	})
+	return ss.anidbDet
 }
 
 // pickDetails returns the first source's details that has the field.

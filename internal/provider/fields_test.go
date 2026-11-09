@@ -59,6 +59,22 @@ func TestSeriesGuard(t *testing.T) {
 
 func pd(d sources.Details, _ string) sources.Details { return d }
 
+// AniDB's details (its cast built from the characters) are built once per
+// show, not once per field that asks.
+func TestAniDBDetailsBuiltOnce(t *testing.T) {
+	a := &sources.AniDBAnime{Characters: []sources.AniDBCharacter{{Name: "Frieren", Seiyuu: "Atsumi Tanezaki"}}}
+	ss := &showSources{a: a}
+	if cast := ss.details("anidb").Cast; len(cast) != 1 || cast[0].Role != "Frieren" {
+		t.Fatalf("cast %+v", cast)
+	}
+	if n := testing.AllocsPerRun(10, func() { ss.details("anidb") }); n != 0 {
+		t.Errorf("%.0f allocations per later call, want 0", n)
+	}
+	if d := (&showSources{}).details("anidb"); len(d.Cast) != 0 { // no AniDB details
+		t.Errorf("without AniDB: %+v", d)
+	}
+}
+
 func TestANNFallback(t *testing.T) {
 	cfg := config.Config{TitleSources: []string{"ann"}, SummarySources: []string{"anidb", "ann"},
 		GenreSources: []string{"anidb", "ann"}, StudioSources: []string{"anidb"}}
