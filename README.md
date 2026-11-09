@@ -275,6 +275,7 @@ AniDB bans clients that ask too much, so these rules are built in. No setting ch
 | A ban pauses all calls for 24 h | more traffic would only extend it |
 | A rejected client pauses all calls for 24 h | when AniDB says `ANIDB_CLIENT` / `ANIDB_CLIENTVER` is wrong, one error names them. A restart with new values asks again at once |
 | Queued calls are checked again | a call waiting for its 4 s turn isn't sent, or counted, once a ban, backoff or rejected client came in ahead of it |
+| Stopping ends background calls | once Kizuna starts shutting down, no background call goes out (it could be cut off before its outcome is saved); Plex's calls still do |
 
 The state survives restarts (`anidb-state.json` in the data folder, replaced whole on every save), the 4 s gap
 included: the first call after a restart waits for the rest of it. If that file can't be read, Kizuna can't know

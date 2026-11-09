@@ -121,6 +121,7 @@ type AniDB struct {
 	// backedOffAt: when the last failure stepped the backoff up. A call
 	// that went out before it and fails too is the same outage.
 	backedOffAt time.Time
+	stopped     bool // Stop was called: no new background calls
 
 	// memoMu guards memo and prunedAt, apart from mu: mu is held over the
 	// state file's writes, which reading an entry from memory must not
@@ -219,7 +220,7 @@ func (c *AniDB) Prefetch(aid int) {
 		return
 	}
 	c.mu.Lock()
-	if c.queued[aid] {
+	if c.queued[aid] || c.stopped {
 		c.mu.Unlock()
 		return
 	}
@@ -238,6 +239,24 @@ func (c *AniDB) Prefetch(aid int) {
 // time, however many entries a /tvdb series asks for (only one call goes
 // out every 4 s anyway).
 const anidbPrefetchWorkers = 2
+
+// Stop ends background fetching once Kizuna starts shutting down: waiting
+// prefetches are dropped, and a background call not sent yet isn't sent
+// (the exit could cut it off before its outcome is recorded, and AniDB
+// would be asked about that anime again on the next start). Calls Plex
+// waits for still go out. Safe on a nil AniDB; later calls do nothing.
+func (c *AniDB) Stop() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopped = true
+	for _, aid := range c.pending {
+		delete(c.queued, aid)
+	}
+	c.pending = nil
+}
 
 // prefetchWorker fetches the waiting background entries, in order, until
 // none is left.

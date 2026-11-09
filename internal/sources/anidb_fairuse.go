@@ -44,6 +44,7 @@ const anidbRetry = 24 * time.Hour
 type anidbCall struct {
 	at   time.Time // its entry in state.Sent: when it was queued, then when it went out
 	sent bool      // it left the 4 s queue and went out
+	fg   bool      // a foreground caller (Plex) waits for it
 }
 
 // allowed checks ban, backoff, the anime's last failure and the daily limit,
@@ -60,7 +61,8 @@ func (c *AniDB) allowed(aid int, background bool) (bool, string) {
 	if why := c.paused(now); why != "" {
 		return false, why
 	}
-	if c.calling[aid] != nil { // the fetch layer runs one request per anime: this caller just waits for it
+	if call := c.calling[aid]; call != nil { // the fetch layer runs one request per anime: this caller just waits for it
+		call.fg = call.fg || !background
 		return true, ""
 	}
 	if why := c.admit(aid, background, now); why != "" {
@@ -100,6 +102,9 @@ func (c *AniDB) admit(aid int, background bool, now time.Time) string {
 			delete(c.state.Fetched, id)
 		}
 	}
+	if background && c.stopped {
+		return "stopping"
+	}
 	if at, failed := c.state.Failed[aid]; failed {
 		c.tellBlocked(aid, at)
 		return "this anime failed at " + at.Format(time.RFC3339) + "; retried 24 h later"
@@ -121,7 +126,7 @@ func (c *AniDB) admit(aid int, background bool, now time.Time) string {
 		return fmt.Sprintf("daily limit reached (%d calls in 24 h)", len(recent))
 	}
 	c.state.Sent = append(c.state.Sent, now)
-	c.calling[aid] = &anidbCall{at: now}
+	c.calling[aid] = &anidbCall{at: now, fg: !background}
 	slog.Debug("anidb: calling the API", "aid", aid, "background", background, "calls_24h", len(c.state.Sent), "limit", anidbDailyLimit)
 	return ""
 }
@@ -136,7 +141,8 @@ func (e *anidbNotSent) Unwrap() error { return ErrAniDBUnavailable }
 
 // sending runs when a call's turn in the 4 s queue comes, right before it
 // goes out (fetch's Before). The answer just ahead of it may have brought a
-// ban or a backoff: then it is stopped, and its count given back. Otherwise
+// ban or a backoff, or Kizuna may be stopping and nobody waits for it (a
+// background call): then it is stopped, and its count given back. Otherwise
 // its count moves to now, so the 24 h window starts when it really went out.
 func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 	c.mu.Lock()
@@ -157,6 +163,14 @@ func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 		// download started, and whose outcome is not recorded yet: that
 		// call may have failed, so this would ask the same anime twice.
 		return nil, &anidbNotSent{"the last call for this anime just ended"}
+	}
+	if call != nil && c.stopped && !call.fg {
+		// Exit could cut it off before its outcome is recorded.
+		c.uncount(call)
+		delete(c.calling, aid)
+		c.save()
+		slog.Debug("anidb: background call stopped before it went out", "aid", aid, "why", "stopping")
+		return nil, &anidbNotSent{"stopping"}
 	}
 	if call == nil {
 		// A caller that joined a call which ended before its own download

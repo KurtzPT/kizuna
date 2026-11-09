@@ -674,3 +674,65 @@ func TestAniDBGapSurvivesRestart(t *testing.T) {
 		t.Errorf("first call after the restart went out %v after the last one, want at least %v", at.Sub(last), anidbGap)
 	}
 }
+
+// Once stopping, no background call goes out: the waiting prefetches are
+// dropped, one queued behind the 4 s gap is stopped there with its count
+// given back (the exit could cut it off before its outcome is recorded), and
+// new ones aren't taken. A background call Plex joined, and Plex's own
+// calls, still go out.
+func TestAniDBStopEndsBackgroundCalls(t *testing.T) {
+	c, calls := fakeAniDBServer(t, func(aid int) [2]string {
+		return [2]string{"200", strings.Replace(anidbSample, `id="69"`, `id="`+strconv.Itoa(aid)+`"`, 1)}
+	})
+	u, err := url.Parse(anidbAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.f.ThrottleFrom(u.Host, time.Hour, time.Now()) // every call waits until the test opens the gap
+
+	admitted := make(admissions, 4)
+	old := slog.Default()
+	slog.SetDefault(slog.New(admitted))
+	for aid := 1; aid <= 3; aid++ {
+		c.Prefetch(aid)
+	}
+	for range anidbPrefetchWorkers { // 1 and 2 queued behind the gap, 3 waits for a worker
+		<-admitted
+	}
+	joined := make(chan error, 1)
+	go func() { // Plex asks for 1 too: it joins the background call
+		a, err := c.Anime(context.Background(), 1)
+		if err == nil && a.AID != 1 {
+			err = errors.New("wrong entry")
+		}
+		joined <- err
+	}()
+	for {
+		c.mu.Lock()
+		fg := c.calling[1] != nil && c.calling[1].fg
+		c.mu.Unlock()
+		if fg {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	c.Stop()
+	c.Prefetch(4) // after Stop: not taken
+	slog.SetDefault(old)
+	c.f.Throttle(u.Host, 0)
+
+	if err := <-joined; err != nil {
+		t.Fatalf("the call Plex joined: %v", err)
+	}
+	c.WaitIdle()
+	c.mu.Lock()
+	sent, calling, failed, pending, queued := len(c.state.Sent), len(c.calling), len(c.state.Failed), len(c.pending), len(c.queued)
+	c.mu.Unlock()
+	if calls.Load() != 1 || sent != 1 || calling != 0 || failed != 0 || pending != 0 || queued != 0 {
+		t.Fatalf("%d requests, %d counted, %d calling, %d failed, %d waiting, %d queued; want 1, 1, 0, 0, 0, 0",
+			calls.Load(), sent, calling, failed, pending, queued)
+	}
+	if a, err := c.Anime(context.Background(), 5); err != nil || a.AID != 5 || calls.Load() != 2 {
+		t.Fatalf("Plex's own call while stopping: %v, %d requests", err, calls.Load())
+	}
+}

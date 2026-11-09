@@ -154,10 +154,14 @@ func debugOn(ctx context.Context) bool { return slog.Default().Enabled(ctx, slog
 
 // Stop marks the provider as shutting down: requests still waiting for the
 // first list load answer 503 "stopping" at once instead of at the end of
-// their time, so the server's drain doesn't wait for them. Call it once the
-// shutdown starts; later calls do nothing.
+// their time, so the server's drain doesn't wait for them, and AniDB's
+// background fetches stop. Call it once the shutdown starts; later calls
+// do nothing.
 func (p *Provider) Stop() {
-	p.stopOnce.Do(func() { close(p.stopping) })
+	p.stopOnce.Do(func() {
+		close(p.stopping)
+		p.anidb.Stop()
+	})
 }
 
 // showTTL: how long a built model is served from memory (shorter when
