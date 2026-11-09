@@ -180,9 +180,9 @@ In **Manage Library → Edit → Advanced**:
 Save, then run **Scan Library Files** and **Refresh All Metadata**.
 
 > [!CAUTION]
-> **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first. For a HAMA
-> + Absolute Series Scanner library, follow [MIGRATION.md](MIGRATION.md): its script writes the `.plexmatch` hints
-> Plex's scanner needs, without renaming anything, with a dry run first.
+> **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first. For a
+> HAMA + Absolute Series Scanner library, follow [MIGRATION.md](MIGRATION.md): its script writes the `.plexmatch`
+> hints Plex's scanner needs, without renaming anything, with a dry run first.
 
 A large library takes **several days** to get all its AniDB details ([AniDB's limits](README.md#-anidb-fair-use)).
 Shows fill in on later refreshes.
@@ -349,6 +349,7 @@ this order:
 flowchart LR
     A["1️⃣ TVDB · TMDB · MAL · ANN<br/><i>oldest first, quick to download again</i>"] --> B["2️⃣ AniDB anime entries<br/><i>oldest first, slow to get back:<br/>200 a day</i>"]
     N["🔒 never: AniDB title list, mapping lists"]
+    B ~~~ N
 ```
 
 If the target still isn't reached, something else is filling the disk, and Kizuna logs a warning.
@@ -626,10 +627,10 @@ used for artwork and details:
 2. In Plex, run **Refresh Metadata** on the show.
 3. With `LOG_LEVEL=debug`, find the show's lines:
 
-| Log line | Mode | Tells you |
-|---|---|---|
-| `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` | how many AniDB episodes your pairs and `start…end` ranges cover (use case 5 covers 18; open ranges aren't counted) and how many were paired with TheTVDB |
-| `episode titles: source used … anidb=24 tvdb=0` | both | where each episode title came from |
+| Log line | Tells you |
+|---|---|
+| `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` only: how many AniDB episodes your pairs and `start…end` ranges cover (use case 5 covers 18; open ranges aren't counted) and how many were paired with TheTVDB |
+| `episode titles: source used … anidb=24 tvdb=0` | both modes: where each episode title came from |
 
 > [!TIP]
 > If your fix would help everyone, send it upstream to [Anime-Lists](https://github.com/Anime-Lists/anime-lists).
@@ -641,10 +642,25 @@ Logs go to **`logs/kizuna.log`** in the data folder and to `docker logs kizuna`,
 the first line after midnight (in `TZ`) the file is renamed `kizuna-YYYY-MM-DD.log` and a new one starts. API keys
 and Plex tokens are always shown as `***`.
 
-| Level | Shows |
-|---|---|
-| **`info`** | the `ready` line with the settings in effect (which keys are set, never their values; `tvdb=v4`, `v3` or `off` for the TheTVDB API in use) · `AniDB title list loaded` and `mapping loaded` with their counts · one `match` line per Plex match with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why nothing was found · one `show built` line per show, with `complete=false` when something was missing (AniDB details, part of an episode list, episode crew still being fetched) so it's rebuilt in 2 minutes, and an `AniDB details not available` line before it with `why=` when AniDB was the missing part · failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans |
-| **`debug`** | all of the above, plus every Plex request and match body · every outgoing call and cache decision · the top 5 title-search scores · why AniDB wasn't called · which source supplied each field (`show fields: source used`) · episode pairing counts · cache cleanup checks |
+**`LOG_LEVEL=info`** (default) logs:
+
+- the `ready` line with the settings in effect: which keys are set (never their values), and `tvdb=v4`, `v3` or `off`
+  for the TheTVDB API in use
+- `AniDB title list loaded` and `mapping loaded`, with their counts
+- one `match` line per Plex match, with **how** it was decided (`tag [anidb-23]`, `guid …`, `title search`) or why
+  nothing was found
+- one `show built` line per show. `complete=false` means something was missing (AniDB details, part of an episode
+  list, episode crew still being fetched), so it's rebuilt in 2 minutes; when AniDB was the missing part, an
+  `AniDB details not available` line before it says `why=`
+- failed requests, rejected API keys, a switch to the legacy TheTVDB key, AniDB backoff and bans
+
+**`LOG_LEVEL=debug`** adds:
+
+- every Plex request and match body
+- every outgoing call and cache decision
+- the top 5 title-search scores, and why AniDB wasn't called
+- which source supplied each field (`show fields: source used`) and the episode pairing counts
+- cache cleanup checks
 
 ## 🧰 Troubleshooting
 

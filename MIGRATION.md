@@ -37,7 +37,7 @@ number differently from Kizuna. Your files, subtitles and torrents stay untouche
 
 | HAMA mode | Folder tag | Episode numbers | Script mode | Kizuna provider | Hints written for |
 |---|---|---|---|---|---|
-| **`anidb`** | `[anidb-23]` or none | absolute (`- 033`) | `-m anidb` | `/anidb` | specials (`SP3`, `PV`…), a lone unnumbered movie. Openings/endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras) unless renamed |
+| **`anidb`** | `[anidb-23]` or none | absolute (`- 033`) | `-m anidb` | `/anidb` | specials (`SP3`, `PV`…), a lone unnumbered movie |
 | **`tvdb3`** | `[tvdb3-81797]` | absolute (`S02E26`) | `-m tvdb` | `/tvdb` | every episode outside season 1 |
 | **`tvdb`** | `[tvdb-81797]` | per season (`S02E01`) | `-m tvdb` | `/tvdb` | every episode outside season 1, [renumbered](#plain-tvdb-folders-per-season-numbers) to absolute |
 | a mix of the above | any | any | `-m auto` | `/auto` | per folder, by its tag ([rules](#auto-rules)) |
@@ -46,6 +46,9 @@ number differently from Kizuna. Your files, subtitles and torrents stay untouche
 For the ❌ modes the folder tag still finds the right show, but Kizuna numbers episodes its own way, so files numbered
 for those orders won't line up. The script warns about each such folder, and plans `[anidb2-…]` like `[anidb-…]`
 and `[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
+
+In every mode, openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras)
+unless you rename them.
 
 > [!IMPORTANT]
 > **Plain HAMA `tvdb` shows need the `[tvdb-…]` tag** (no digit after `tvdb`). That tag is the only way the script
@@ -270,7 +273,7 @@ new files in either of two ways:
 > [!NOTE]
 > Hints are written as `S00Exx`. Plex's `.plexmatch` documentation also allows `SPxx`, but Plex Media Server 1.43
 > reads that without a season and leaves the file out. The script warns about an `SPxx` line for a file it would
-hint.
+> hint.
 
 ### Openings and endings: Plex makes them extras
 
@@ -394,7 +397,7 @@ flowchart LR
     A["📁 Show folder"] --> B{"first id tag"}
     B -->|"[anidb-N], [anidb2-N]…"| C["anidb rules<br/><i>no Kizuna needed</i>"]
     B -->|"[tvdb-N], [tvdb3-N]…"| D["tvdb rules"]
-    B -->|"[mal-N], [imdb-tt…]…, or none"| E["ask Kizuna's /auto<br/><i>AUTO_DEFAULT + mapping</i>"]
+    B -->|"[mal-N], [imdb-tt…]…, or none"| E["ask Kizuna's<br/>/auto provider<br/><i>AUTO_DEFAULT + mapping</i>"]
 ```
 
 The tag can also be in a file name, as Kizuna reads it. `tvdb`-rule folders need Kizuna with a TheTVDB key

@@ -21,8 +21,8 @@ Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick th
 | 📺 **Wrong match or metadata** | wrong show, no match, wrong titles, episodes, seasons, artwork, specials |
 | 🛠️ **Migration script misread my files** | `kizuna-migrate.sh` planned a wrong hint, skipped files or failed |
 | 🐳 **Kizuna won't start, or Plex can't reach it** | startup, health check, Plex can't add the provider, rejected keys, AniDB bans |
-| 🐞 **Something else** | crashes, restarts, errors, memory or disk use, anything the others don't cover |
 | ✨ **Idea or feature request** | something Kizuna could do, or do better |
+| 🐞 **Something else** | crashes, restarts, errors, memory or disk use, anything the others don't cover |
 
 **Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file names,
 your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
@@ -149,7 +149,7 @@ flowchart LR
    gh release create v1.3.0 --target main --generate-notes
    ```
 
-**A beta testers can pin** (optional): tag `dev` with a pre-release version. It publishes `:1.3.0-beta.1`, never
+**A beta that testers can pin** (optional): tag `dev` with a pre-release version. It publishes `:1.3.0-beta.1`, never
 `:latest`:
 
 ```bash
@@ -180,15 +180,15 @@ that was released.
 ## 🗺️ Code map
 
 ```text
-cmd/kizuna/main.go         start-up, list refresh, `kizuna health` (Docker healthcheck)
-internal/config            environment variables
-internal/fetch             HTTP + disk cache + throttling + free-space cleanup (every source uses it)
-internal/logfile           daily log file, old days deleted
-internal/anidb             offline AniDB title list: search and title-language picking
-internal/mapping           AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
-internal/sources           AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
-internal/provider          modes, matching, show model, Plex JSON, HTTP routes
-scripts/kizuna-migrate.sh  .plexmatch hints for existing libraries (not part of the image)
+cmd/kizuna/main.go              start-up, list refresh, "kizuna health" (Docker healthcheck)
+internal/config                 environment variables
+internal/fetch                  HTTP + disk cache + throttling + free-space cleanup (every source uses it)
+internal/logfile                daily log file, old days deleted
+internal/anidb                  offline AniDB title list: search and title-language picking
+internal/mapping                AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
+internal/sources                AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
+internal/provider               modes, matching, show model, Plex JSON, HTTP routes
+scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not part of the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 ```
 

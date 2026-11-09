@@ -172,11 +172,12 @@ The first piece of evidence that names a show wins:
 
 | | Evidence | Example |
 |---|---|---|
-| 1 | **An id tag** in the folder or file name | `[anidb-69]` `[tvdb-81797]` `[tmdb-37854]` (a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too) `[imdb-tt0388629]` `[mal-21]` `[anilist-21]` `[kitsu-12]` `[ann-13]` (`{…}` works too) |
+| 1 | **An id tag** in the folder or file name | `[anidb-69]` `[tvdb-81797]` `[tmdb-37854]` `[imdb-tt0388629]` `[mal-21]` `[anilist-21]` `[kitsu-12]` `[ann-13]`, or the same in `{…}` |
 | 2 | **The GUID Plex already has** from another agent | `com.plexapp.agents.thetvdb://81797`, a HAMA `anidb-69` GUID, `imdb://tt0388629` |
 | 3 | **AniDB title search** in the offline title list (~1 ms, no API call) | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
 
-Ids from other sites become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
+A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
+become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
 several AniDB entries (a TVDB series with one entry per season) gives the series' first entry.
 
 ---
@@ -221,10 +222,14 @@ flowchart LR
    only on the entry that starts the series and isn't in TVDB season 0. Openings, endings and trailers only pair
    through an exception.
 
-| Mode | How the other sites are paired |
-|---|---|
-| **`/anidb`** | TheMovieDb the same way, by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's season and number |
-| **`/tvdb`** | through AniDB: an episode's place on the list gives its AniDB episode, and the mapping gives that episode's place on the other site. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet) is paired by absolute number, a special by its number in season 0. An episode whose AniDB entry the mapping puts on another TheMovieDb show gets no TheMovieDb title or crew |
+**The other sites** are paired per mode:
+
+- **`/anidb`**: TheMovieDb the same way, by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's
+  season and number.
+- **`/tvdb`**: through AniDB. An episode's place on the list gives its AniDB episode, and the mapping gives that
+  episode's place on the other site. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet)
+  is paired by absolute number, a special by its number in season 0. An episode whose AniDB entry the mapping puts on
+  another TheMovieDb show gets no TheMovieDb title or crew.
 
 **Picking the title:** `EPISODE_TITLES` sets the source order (default AniDB → TheTVDB → TheMovieDb), in both modes.
 The first **real** title wins: *Episode 12* or *TBA* don't count. AniDB titles follow `EPISODE_LANGS` (default
@@ -250,7 +255,7 @@ Wrong mapping? Correct it yourself with `anime-list-custom.xml` ([setup](SETUP.m
 
 AniDB bans clients that ask too much, so these rules are built in. No setting changes them:
 
-| Rule | |
+| Rule | Details |
 |---|---|
 | Finding a show never calls the API | it searches the daily title list |
 | One call every 4 s, at most 200 a day | AniDB's limits |

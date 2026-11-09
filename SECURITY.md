@@ -35,8 +35,8 @@ Kizuna has **no login, by design** (see [below](#%EF%B8%8F-how-kizuna-is-protect
 
 ## 📦 Supported versions
 
-Only the **latest release** (`:latest`) gets security fixes, as a patch release (`1.2.3` → `1.2.4`). Betas (`:dev`,
-`:1.2.3-beta.1`) aren't supported, though they usually get the fix first. All tags:
+Only the **latest release** (`:latest`) gets security fixes, as a patch release (`1.2.3` → `1.2.4`). Betas
+(`:1.2.3-beta.1`) and `:dev` aren't supported, though they usually get the fix first. All tags:
 [SETUP.md](SETUP.md#-2-run-kizuna).
 
 Update with:
@@ -64,7 +64,7 @@ may talk to it, and what it exposes:
 | **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, `Dockerfile` |
 | **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](README.md#-anidb-fair-use) |
 | **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |
-| **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, check below |
+| **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, [check it](#-supported-versions) |
 
 - **`ALLOW_FROM` makes an accidental port forward harmless.** A request from the internet comes from a public
   address and gets refused. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can
