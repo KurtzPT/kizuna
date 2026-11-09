@@ -49,8 +49,9 @@ func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
 
 // otherAt: an episode's place on TheMovieDb, through AniDB. An episode
 // whose AniDB entry is on another show there has none, nor has one a TMDB
-// exception says has no counterpart. Without an AniDB
-// counterpart (not cached yet, or a TheTVDB-only extra), a regular episode
+// exception says has no counterpart. Without an AniDB counterpart (not
+// cached yet, or a TheTVDB-only extra), or one the mapping doesn't place on
+// TheMovieDb (no TMDB season or exception), a regular episode
 // goes by its absolute number, which doesn't depend on how either site
 // splits seasons (an absolute number the other site doesn't have pairs with
 // nothing). A special has no absolute number: it keeps its number in season
@@ -142,7 +143,15 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 			}
 			if !otherOK { // on another show there: no pairing, not the absolute-number fallback
 				pr.other[sp] = otherPlace{}
-			} else if o, ok := es.at("tmdb", ae.Season, ae.ListIndex()); ok {
+				continue
+			}
+			if !es.tmdbPlaces(ae.Season, ae.ListIndex()) {
+				// No TMDB season or exception (a TMDB id only Fribb has): TheTVDB's
+				// spot says nothing about TheMovieDb's split, so otherAt pairs it
+				// by absolute number, as before the entry was cached.
+				continue
+			}
+			if o, ok := es.at("tmdb", ae.Season, ae.ListIndex()); ok {
 				pr.other[sp] = otherPlace{o, true}
 			} else if es.tmdb.HasException(ae.Season, ae.ListIndex()) { // the mapping says it has none there
 				pr.other[sp] = otherPlace{}

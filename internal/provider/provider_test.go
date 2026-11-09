@@ -493,7 +493,7 @@ func TestTVDBPairingPerSite(t *testing.T) {
 		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true},
 			TMDB: mapping.Placement{ID: 88, Season: 1, Mapped: true}}, // another TMDB show
 		300: {AID: 300, TVDB: mapping.Placement{ID: 500, Season: 3, Mapped: true},
-			TMDB: mapping.Placement{ID: 77, Season: 9}}, // no TMDB season: placed like on TheTVDB
+			TMDB: mapping.Placement{ID: 77, Season: 9}}, // no TMDB season: not placed (otherAt's absolute number)
 	})
 	p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "", "1")}
 	p.cfg.EpisodeLangs = []string{"en"}
@@ -501,8 +501,9 @@ func TestTVDBPairingPerSite(t *testing.T) {
 		{Season: 1, Index: 1, Titles: []anidb.Title{{Lang: "en", Text: "Entry 100"}}}}}
 
 	titles := map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"}
-	// 200 is on another TMDB show: no pairing, not the absolute-number fallback
-	other := map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}, {3, 1}: {spot{3, 1}, true}}
+	// 200 is on another TMDB show: no pairing, not the absolute-number fallback.
+	// 300 has no TMDB season: TheTVDB's spot would be a guess, so none.
+	other := map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}}
 
 	pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, first, nil), false)
 	if !ready {

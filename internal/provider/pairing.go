@@ -21,8 +21,9 @@ import (
 // number. In /tvdb, TheMovieDb is paired through AniDB: the place on TheTVDB's
 // list gives the AniDB episode, and the mapping gives its place on TheMovieDb
 // (none when the entry is on another TMDB show, or a TMDB exception says the
-// episode has no counterpart); without an AniDB
-// counterpart, by absolute number (tvdbPairing.otherAt).
+// episode has no counterpart); without an AniDB counterpart, or when the
+// mapping has no TMDB season or exception for it (TheTVDB's spot says nothing
+// about TheMovieDb's split), by absolute number (tvdbPairing.otherAt).
 
 // spotName is where an episode is on its list, for the match report: "S01E05",
 // or "E26" in absolute order.
@@ -152,8 +153,15 @@ func (p *Provider) spotsOf(e mapping.Entry) entrySpots {
 // a TMDB season gets TheTVDB's spot, except for the episodes a TMDB
 // exception lists.
 func (es entrySpots) at(site string, season, index int) (spot, bool) {
-	if site == "tmdb" && (es.tmdb.Mapped || es.tmdb.HasException(season, index)) {
+	if site == "tmdb" && es.tmdbPlaces(season, index) {
 		return spotOn(es.tmdb, es.startsTMDB, season, index)
 	}
 	return spotOn(es.tvdb, es.startsTVDB, season, index)
+}
+
+// tmdbPlaces reports whether the mapping itself places an AniDB episode on
+// TheMovieDb (a TMDB season, or a TMDB exception for it), rather than at
+// TheTVDB's spot.
+func (es entrySpots) tmdbPlaces(season, index int) bool {
+	return es.tmdb.Mapped || es.tmdb.HasException(season, index)
 }

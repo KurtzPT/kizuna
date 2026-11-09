@@ -391,6 +391,48 @@ func TestTVDBUnpairedEpisodeGoesByAbsoluteNumber(t *testing.T) {
 	}
 }
 
+// In /tvdb, a cached AniDB entry whose TMDB id has no TMDB season or
+// exception (an id only Fribb has) doesn't pair at TheTVDB's season and
+// number: TVDB S2E1 (absolute 3) stays TMDB S1E3, as before it was cached.
+func TestTVDBEntryWithoutTMDBSeasonGoesByAbsoluteNumber(t *testing.T) {
+	second := `<anime id="200"><type>TV Series</type><enddate>2010-01-01</enddate><episodes>
+<episode><epno type="1">1</epno><title xml:lang="en">Second Start</title></episode></episodes></anime>`
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		switch {
+		case path == "api.anidb.net/httpapi" && q["aid"][0] == "200":
+			return 200, second
+		case path == "api.themoviedb.org/3/tv/77/season/1":
+			return 200, `{"episodes":[{"episode_number":1,"name":"TMDB One"},{"episode_number":2,"name":"TMDB Two"},
+				{"episode_number":3,"name":"TMDB Three (right)","crew":[{"job":"Director","name":"Right Director"}]}]}`
+		case path == "api.themoviedb.org/3/tv/77/season/2":
+			return 200, `{"episodes":[{"episode_number":1,"name":"TMDB S2E1 (wrong)","crew":[{"job":"Director","name":"Wrong Director"}]}]}`
+		}
+		return testSeries(path, q)
+	}})
+	p.cfg.EpisodeTitles = []string{"tmdb", "tvdb", "anidb"}
+	p.lists.SetForTest(map[int]mapping.Entry{
+		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
+	})
+	if _, err := p.anidb.Anime(context.Background(), 200); err != nil {
+		t.Fatal(err)
+	}
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := s.Episode(2, 3)
+	if ep == nil {
+		t.Fatal("S02E03 missing")
+	}
+	if ep.titles["tmdb"] != "TMDB Three (right)" || strings.Join(ep.Directors, ",") != "Right Director" {
+		t.Errorf("S02E03: TMDB title %q directors %v, want TMDB S1E3's", ep.titles["tmdb"], ep.Directors)
+	}
+	if ep.titles["anidb"] != "Second Start" {
+		t.Errorf("S02E03: AniDB title %q, want AniDB 200's (the entry is cached)", ep.titles["anidb"])
+	}
+}
+
 // A partial episode list is used, but the show is rebuilt soon instead of
 // being kept for an hour with episodes missing.
 func TestPartialEpisodeListIsIncomplete(t *testing.T) {
