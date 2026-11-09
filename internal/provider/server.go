@@ -94,8 +94,9 @@ func (p *Provider) modeOff(m Mode) string {
 // everyTenMinutes reports a key as due at most once every 10 minutes, so a
 // Plex library scan doesn't repeat one warning per show.
 type everyTenMinutes struct {
-	mu sync.Mutex
-	at map[string]time.Time
+	mu  sync.Mutex
+	at  map[string]time.Time
+	max int // past this many keys all are forgotten (0 = no limit): an internet scan's addresses can't fill memory
 }
 
 func (e *everyTenMinutes) due(key string) bool {
@@ -104,7 +105,7 @@ func (e *everyTenMinutes) due(key string) bool {
 	if t, ok := e.at[key]; ok && time.Since(t) < 10*time.Minute {
 		return false
 	}
-	if e.at == nil {
+	if e.at == nil || (e.max > 0 && len(e.at) >= e.max) {
 		e.at = map[string]time.Time{}
 	}
 	e.at[key] = time.Now()

@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"sync"
-	"time"
 )
 
 // Access control. Plex can't send credentials to a provider, so Kizuna
@@ -175,21 +173,11 @@ func (a Access) hostAllowed(hostHeader string) bool {
 // ALLOWED_HOSTS with 403, and logs each refused client or host name once
 // every 10 minutes (an internet scan must not flood the log).
 func (p *Provider) guard(next http.Handler) http.Handler {
-	var (
-		mu     sync.Mutex
-		logged = map[string]time.Time{}
-	)
+	refused := &everyTenMinutes{max: 1000}
 	warnOnce := func(key, msg string, attrs ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		if at, ok := logged[key]; ok && time.Since(at) < 10*time.Minute {
-			return
+		if refused.due(key) {
+			slog.Warn(msg, attrs...)
 		}
-		if len(logged) > 1000 {
-			logged = map[string]time.Time{}
-		}
-		logged[key] = time.Now()
-		slog.Warn(msg, attrs...)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

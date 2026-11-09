@@ -198,6 +198,12 @@ func TestEveryTenMinutes(t *testing.T) {
 	if !e.due("a") {
 		t.Error("want a key due again after 10 minutes")
 	}
+	capped := everyTenMinutes{max: 2}
+	capped.due("a")
+	capped.due("b")
+	if !capped.due("c") || len(capped.at) != 1 || !capped.due("a") {
+		t.Errorf("past max: kept %v, want everything forgotten", capped.at)
+	}
 }
 
 // A show that isn't ready before the request's time runs out answers 503
