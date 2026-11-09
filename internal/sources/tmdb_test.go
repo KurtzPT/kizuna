@@ -42,7 +42,8 @@ func TestTMDBSeasonOverview(t *testing.T) {
 }
 
 // A season's posters come appended to the season file the episode list
-// reads (append_to_response=images): no request of their own.
+// reads (append_to_response=images): no request of their own, and the
+// episode list has them too. A season the show doesn't list isn't asked.
 func TestTMDBSeasonArt(t *testing.T) {
 	const q = "?api_key=key&language=en-US&append_to_response=images&include_image_language=en,ja,null"
 	f := fetch.New(t.TempDir())
@@ -55,8 +56,9 @@ func TestTMDBSeasonArt(t *testing.T) {
 	f.SetTransport(n)
 	tm := NewTMDB(f, "key")
 	ctx := context.Background()
-	if _, err := tm.Episodes(ctx, 77); err != nil {
-		t.Fatal(err)
+	_, posters, err := tm.EpisodesAndPosters(ctx, 77)
+	if err != nil || strings.Join(posters[2], " ") != tmdbImg+"/s2a.jpg "+tmdbImg+"/s2b.jpg" || len(posters) != 1 {
+		t.Fatalf("episode list's posters %v %v", posters, err)
 	}
 	a, err := tm.SeasonArt(ctx, 77, 2)
 	if err != nil || strings.Join(a.Posters, " ") != tmdbImg+"/s2a.jpg "+tmdbImg+"/s2b.jpg" || len(a.Backgrounds)+len(a.Logos) != 0 {
@@ -65,7 +67,13 @@ func TestTMDBSeasonArt(t *testing.T) {
 	if c := n.count("api.themoviedb.org/3/tv/77/season/2" + q); c != 1 {
 		t.Errorf("season 2 asked %d times, want 1 (the episode list's file)", c)
 	}
-	if a, err := tm.SeasonArt(ctx, 77, 3); len(a.Posters) != 0 || !fetch.IsNotFound(err) {
-		t.Errorf("season 3: %+v %v, want its 404", a, err)
+	if a, err := tm.SeasonArt(ctx, 77, 0); len(a.Posters) != 0 || err != nil {
+		t.Errorf("season 0: %+v %v, want none", a, err)
+	}
+	if c := n.count("api.themoviedb.org/3/tv/77/season/0" + q); c != 0 {
+		t.Errorf("season 0, not listed, asked %d times", c)
+	}
+	if a, err := tm.SeasonArt(ctx, 78, 1); len(a.Posters) != 0 || !fetch.IsNotFound(err) {
+		t.Errorf("unknown show: %+v %v, want its 404", a, err)
 	}
 }

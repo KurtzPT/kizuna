@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -52,11 +53,14 @@ func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 
 // Show is the part of a TMDB TV show we use.
 type Show struct {
-	Name     string `json:"name"`
-	Overview string `json:"overview"`
-	Seasons  []struct {
-		Number int `json:"season_number"`
-	} `json:"seasons"`
+	Name     string   `json:"name"`
+	Overview string   `json:"overview"`
+	Seasons  []Season `json:"seasons"`
+}
+
+// Season is one season a TMDB TV show lists.
+type Season struct {
+	Number int `json:"season_number"`
 }
 
 func (t *TMDB) TV(ctx context.Context, id int) (Show, error) {
@@ -201,16 +205,24 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error)
 
 // Episodes returns all episodes of a TMDB show (seasons fetched in parallel).
 func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
+	eps, _, err := t.EpisodesAndPosters(ctx, id)
+	return eps, err
+}
+
+// EpisodesAndPosters is Episodes, plus the posters of each season that has
+// any (SeasonArt's), read from the same files.
+func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[int][]string, error) {
 	show, err := t.TV(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
-		mu     sync.Mutex
-		wg     sync.WaitGroup
-		out    []Episode
-		failed []int // seasons that could not be had
-		last   error
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		out     []Episode
+		posters map[int][]string
+		failed  []int // seasons that could not be had
+		last    error
 	)
 	for _, s := range show.Seasons {
 		wg.Add(1)
@@ -230,6 +242,7 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 						Name       string `json:"name"`
 					} `json:"crew"`
 				} `json:"episodes"`
+				seasonImages
 			}
 			err := t.season(ctx, id, season, &r)
 			mu.Lock()
@@ -239,6 +252,12 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 					failed, last = append(failed, season), err
 				}
 				return
+			}
+			if p := r.posters(); len(p) > 0 {
+				if posters == nil {
+					posters = map[int][]string{}
+				}
+				posters[season] = p
 			}
 			for _, e := range r.Episodes {
 				ep := Episode{Season: season, Number: e.Number, Title: e.Name, Summary: e.Overview, Aired: e.Air, Minutes: e.Runtime}
@@ -262,9 +281,9 @@ func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 	sortEpisodes(out)
 	if len(failed) > 0 {
 		sort.Ints(failed)
-		return out, fmt.Errorf("%w: tmdb %d seasons %v: %v", ErrIncomplete, id, failed, last)
+		return out, posters, fmt.Errorf("%w: tmdb %d seasons %v: %v", ErrIncomplete, id, failed, last)
 	}
-	return out, nil
+	return out, posters, nil
 }
 
 // season reads one season file of a TV show, which Episodes, SeasonOverview
@@ -288,23 +307,35 @@ func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 
 // SeasonArt returns the posters of a TV show's season, English or textless
 // first, as TMDB orders them by votes. TMDB seasons have no backgrounds or
-// logos.
+// logos. A season the show doesn't list (often Specials) gives none and
+// costs no request: TMDB would answer 404, which isn't cached.
 func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
-	var r struct {
-		Images struct {
-			Posters []struct {
-				FilePath string `json:"file_path"`
-			} `json:"posters"`
-		} `json:"images"`
+	show, err := t.TV(ctx, id)
+	if err != nil || !slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }) {
+		return Art{}, err
 	}
+	var r seasonImages
 	if err := t.season(ctx, id, season, &r); err != nil {
 		return Art{}, err
 	}
-	var a Art
+	return Art{Posters: r.posters()}, nil
+}
+
+// seasonImages is the images part of a season file.
+type seasonImages struct {
+	Images struct {
+		Posters []struct {
+			FilePath string `json:"file_path"`
+		} `json:"posters"`
+	} `json:"images"`
+}
+
+func (r seasonImages) posters() []string {
+	var out []string
 	for _, p := range r.Images.Posters {
-		a.Posters = append(a.Posters, tmdbImg+p.FilePath)
+		out = append(out, tmdbImg+p.FilePath)
 	}
-	return a, nil
+	return out
 }
 
 // Art returns images of a TV show (movie=false) or a movie (movie=true),
