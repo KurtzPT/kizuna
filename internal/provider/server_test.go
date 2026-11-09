@@ -190,8 +190,7 @@ func TestStopDuringFirstLoad(t *testing.T) {
 }
 
 // A mode whose source isn't set up answers 503 with the reason (Plex keeps
-// what it has) and logs it once per 10 minutes (the global logger isn't
-// swapped here: that would change later tests' allocation counts); its description still
+// what it has) and logs it once per 10 minutes; its description still
 // answers, so Plex can add the provider. The other mode is unaffected.
 func TestModeOff(t *testing.T) {
 	dir := t.TempDir()
