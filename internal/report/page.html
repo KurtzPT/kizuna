@@ -45,7 +45,7 @@ code,.mono{font-family:var(--mono);font-size:12.5px}
 .src::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--c)}
 .src.bare{gap:0}
 [data-s="anidb"]{--c:var(--anidb)}[data-s="tvdb"]{--c:var(--tvdb)}[data-s="tmdb"],[data-s="tmdbmovie"]{--c:var(--tmdb)}
-[data-s="mal"]{--c:var(--mal)}[data-s="ann"]{--c:var(--ann)}[data-s="map"],[data-s="kizuna"],[data-s="anilist"],[data-s="imdb"],[data-s="kitsu"],[data-s="other"]{--c:var(--map)}[data-s="plex"]{--c:var(--plex)}
+[data-s="mal"]{--c:var(--mal)}[data-s="ann"]{--c:var(--ann)}[data-s="map"],[data-s="kizuna"],[data-s="show"],[data-s="anilist"],[data-s="imdb"],[data-s="kitsu"],[data-s="other"]{--c:var(--map)}[data-s="plex"]{--c:var(--plex)}
 .builds{margin:26px 0 0;display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
 .build{all:unset;cursor:pointer;flex:0 0 auto;min-width:210px;background:var(--surface);border:1px solid var(--rule);border-radius:5px;padding:9px 12px;display:grid;gap:3px}
 .build:hover{border-color:var(--faint)}
@@ -190,7 +190,7 @@ details[open]>summary::before{content:"\2212  "}
 <script>
 const DATA = /*KIZUNA_DATA*/null;
 
-const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",plex:"Plex"};
+const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",show:"Show",plex:"Plex"};
 const SITE_URL = {
   anidb:v=>"https://anidb.net/anime/"+v, tvdb:v=>"https://thetvdb.com/?tab=series&id="+v,
   tmdb:v=>"https://www.themoviedb.org/tv/"+v, tmdbmovie:v=>"https://www.themoviedb.org/movie/"+v,
