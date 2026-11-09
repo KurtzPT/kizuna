@@ -29,7 +29,7 @@ into one Plex provider.
 
 Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as a small web service next to Plex.
 
-| | |
+| Feature | What you get |
 |---|---|
 | 🔢 **Absolute numbering** | Episode 148 stays episode 148, in every mode |
 | 🗂️ **Three modes** | One AniDB entry per show, one TVDB series per show, or [both in one library](#auto-both-in-one-library) |
@@ -132,7 +132,7 @@ flowchart LR
  └─ Attack on Titan - S02E37.mkv     →  Season 2 · episode 37
 ```
 
-| | |
+| Part | Comes from |
 |---|---|
 | **Seasons** | TheTVDB's. A `Season 02/` folder works, but the `S02` in the name is enough |
 | **Episode numbers** | keep counting across seasons: season 1 ends at 25, so season 2 starts at **26** |
@@ -213,12 +213,26 @@ flowchart LR
     A --> L["title in EPISODE_LANGS<br/><i>en → x-jat</i>"]
 ```
 
-| | |
+**Pairing**, first rule that applies:
+
+1. Anime-Lists' per-episode exceptions.
+2. The AniDB entry's TVDB season and episode offset.
+3. For an AniDB special the mapping doesn't list: TheTVDB's special with the same number (`S1` = `S00E01`), but
+   only on the entry that starts the series and isn't in TVDB season 0. Openings, endings and trailers only pair
+   through an exception.
+
+| Mode | How the other sites are paired |
 |---|---|
-| **Pairing** | Anime-Lists' per-episode exceptions first, else each AniDB entry's TVDB season and episode offset. An AniDB special the mapping doesn't list is TheTVDB's special with the same number (`S1` = `S00E01`), but only on the entry that starts the series and isn't in TVDB season 0; openings, endings and trailers only pair through an exception. In `/anidb`, TheMovieDb is paired the same way by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's season and number. In `/tvdb`, through AniDB: an episode's place on the list gives its AniDB episode, and the mapping gives that episode's place on the other site. An episode whose AniDB entry the mapping puts on another TheMovieDb show gets no TheMovieDb title or crew. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet) is paired by absolute number, a special by its number in season 0 |
-| **Picking the title** | `EPISODE_TITLES` sets the order (default AniDB → TheTVDB → TheMovieDb), in both modes. The first **real** title wins: *Episode 12* or *TBA* don't count |
-| **AniDB languages** | `EPISODE_LANGS` (default English, then romaji). With none of those, the other sources' real titles come first, then AniDB's title in any language |
-| **In `/tvdb`** | a show spans several AniDB entries. Uncached ones are fetched in the background ([within AniDB's limits](#-anidb-fair-use)), so their titles appear on a later refresh |
+| **`/anidb`** | TheMovieDb the same way, by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's season and number |
+| **`/tvdb`** | through AniDB: an episode's place on the list gives its AniDB episode, and the mapping gives that episode's place on the other site. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet) is paired by absolute number, a special by its number in season 0. An episode whose AniDB entry the mapping puts on another TheMovieDb show gets no TheMovieDb title or crew |
+
+**Picking the title:** `EPISODE_TITLES` sets the source order (default AniDB → TheTVDB → TheMovieDb), in both modes.
+The first **real** title wins: *Episode 12* or *TBA* don't count. AniDB titles follow `EPISODE_LANGS` (default
+English, then romaji); with none of those, the other sources' real titles come first, then AniDB's title in any
+language.
+
+In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background
+([within AniDB's limits](#-anidb-fair-use)), so their titles appear on a later refresh.
 
 ### 🔗 Id mapping
 

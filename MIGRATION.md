@@ -353,7 +353,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
      …
 ```
 
-| | |
+| Topic | Rule |
 |---|---|
 | **Episode numbers** | stay absolute: `S02E26`, not `S02E01`. That's what Kizuna's `/tvdb` expects |
 | **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) or `TMDB_API_KEY` |
