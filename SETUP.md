@@ -227,7 +227,7 @@ Everything is an environment variable; [`compose.yml`](compose.yml) lists the co
 per-library settings to providers, so every setting applies to every mode and every library.
 
 **Or put them in a file:** Kizuna reads `kizuna.env` in the data folder (`/data/kizuna.env` in Docker), one
-`NAME=value` per line, the same names as below. [`.env.sample`](.env.sample) lists every setting with its default:
+`NAME=value` per line, the same names as below, in upper case (`port=` is ignored, also on Windows). [`.env.sample`](.env.sample) lists every setting with its default:
 
 ```bash
 # /change/me/kizuna.env
@@ -329,6 +329,10 @@ them. Refresh the show's metadata a few minutes later to fill them in. The legac
 | `LOGO_SOURCES` | `tvdb,tmdb` | tvdb tmdb | |
 | `ART_ALL_SOURCES` | `false` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
 | `SEASON_ART_FALLBACK` | `true` | `true` / `false` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art instead. `false`: nothing from that site, the next source in the list is asked. See below |
+
+**Image languages.** TheMovieDb art is English, Japanese or text-free only. TheTVDB posters and backgrounds put those
+first (best rated first), and other languages after them, so one only wins when there is nothing else; TheTVDB clear
+logos are English or text-free only.
 
 **Season art.** A show and each of its Plex seasons get the art of the season they stand for, where the site has season
 art of that kind: TheTVDB season posters and backgrounds (the legacy key: posters only), TheMovieDb season posters.

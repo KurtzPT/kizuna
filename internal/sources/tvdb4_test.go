@@ -326,8 +326,65 @@ func TestTVDBNoEnglishSwept(t *testing.T) {
 
 // artwork is a documented ArtworkBaseRecord, as a season record lists it.
 func artwork(id, kind, score int, image string) string {
+	return langArtwork(id, kind, score, image, "eng")
+}
+
+// langArtwork is artwork in a language; "" is null (text-free art).
+func langArtwork(id, kind, score int, image, lang string) string {
+	l := "null"
+	if lang != "" {
+		l = `"` + lang + `"`
+	}
 	return `{"height": 1000, "id": ` + strconv.Itoa(id) + `, "image": "` + image + `", "includesText": false,
-	  "language": "eng", "score": ` + strconv.Itoa(score) + `, "thumbnail": "", "type": ` + strconv.Itoa(kind) + `, "width": 680}`
+	  "language": ` + l + `, "score": ` + strconv.Itoa(score) + `, "thumbnail": "", "type": ` + strconv.Itoa(kind) + `, "width": 680}`
+}
+
+// Series and season posters and backgrounds: English, Japanese and
+// text-free art first, by score; other languages only after them. Clear
+// logos stay English or text-free only.
+func TestTVDBArtLanguage(t *testing.T) {
+	const img = "https://artworks.thetvdb.com/banners/v4/"
+	tv, _ := newTVDBTest(t, map[string]string{
+		v4 + "/login": `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/artworks": `{"data": {"id": 267440, "artworks": [` +
+			langArtwork(1, 2, 99, "/banners/v4/kor.jpg", "kor") + `,
+			` + langArtwork(2, 2, 10, "/banners/v4/eng.jpg", "eng") + `,
+			` + langArtwork(3, 2, 30, "/banners/v4/jpn.jpg", "jpn") + `,
+			` + langArtwork(4, 2, 20, "/banners/v4/none.jpg", "") + `,
+			` + langArtwork(5, 2, 50, "/banners/v4/rus.jpg", "rus") + `,
+			` + langArtwork(6, 3, 90, "/banners/v4/bg-zho.jpg", "zho") + `,
+			` + langArtwork(7, 3, 5, "/banners/v4/bg-none.jpg", "") + `,
+			` + langArtwork(8, 23, 90, "/banners/v4/logo-jpn.png", "jpn") + `,
+			` + langArtwork(9, 23, 5, "/banners/v4/logo-eng.png", "eng") + `]}, "status": "success"}`,
+		v4 + "/seasons/502/extended": `{"data": {"id": 502, "number": 2, "seriesId": 267440, "artwork": [` +
+			langArtwork(10, 7, 99, "/banners/v4/s-fra.jpg", "fra") + `,
+			` + langArtwork(11, 7, 1, "/banners/v4/s-jpn.jpg", "jpn") + `,
+			` + langArtwork(12, 8, 99, "/banners/v4/sb-deu.jpg", "deu") + `]}, "status": "success"}`,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	a, err := tv.Art(ctx, 267440)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(a.Posters, " "), img+"jpn.jpg "+img+"none.jpg "+img+"eng.jpg "+img+"kor.jpg "+img+"rus.jpg"; got != want {
+		t.Errorf("posters %s, want %s", got, want)
+	}
+	if got, want := strings.Join(a.Backgrounds, " "), img+"bg-none.jpg "+img+"bg-zho.jpg"; got != want {
+		t.Errorf("backgrounds %s, want %s", got, want)
+	}
+	if got, want := strings.Join(a.Logos, " "), img+"logo-eng.png"; got != want {
+		t.Errorf("logos %s, want %s", got, want)
+	}
+	s, err := tv.SeasonArt(ctx, 267440, 2, 502)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(s.Posters, " "), img+"s-jpn.jpg "+img+"s-fra.jpg"; got != want {
+		t.Errorf("season posters %s, want %s", got, want)
+	}
+	if got, want := strings.Join(s.Backgrounds, " "), img+"sb-deu.jpg"; got != want { // only one: still used
+		t.Errorf("season backgrounds %s, want %s", got, want)
+	}
 }
 
 // A season's art is the artwork of its aired-order season record
