@@ -18,13 +18,14 @@ const (
 
 // TMDB is a minimal TheMovieDb v3 client.
 type TMDB struct {
-	f   *fetch.Client
-	key string
+	f    *fetch.Client
+	key  string
+	keys *keyCheck
 }
 
 func NewTMDB(f *fetch.Client, key string) *TMDB {
 	f.Throttle("api.themoviedb.org", 50*time.Millisecond)
-	return &TMDB{f: f, key: key}
+	return &TMDB{f: f, key: key, keys: newKeyCheck("TMDB", "TMDB_API_KEY")}
 }
 
 func (t *TMDB) Enabled() bool { return t != nil && t.key != "" } // nil = not set up
@@ -34,7 +35,7 @@ func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Durati
 		return fmt.Errorf("tmdb: no api key")
 	}
 	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
-	return t.f.GetJSON(ctx, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
+	return t.keys.getJSON(ctx, t.f, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
 }
 
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).

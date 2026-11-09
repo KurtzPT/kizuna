@@ -17,11 +17,12 @@ const malAPI = "https://api.myanimelist.net/v2"
 type MAL struct {
 	f        *fetch.Client
 	clientID string
+	keys     *keyCheck
 }
 
 func NewMAL(f *fetch.Client, clientID string) *MAL {
 	f.Throttle("api.myanimelist.net", 500*time.Millisecond)
-	return &MAL{f: f, clientID: clientID}
+	return &MAL{f: f, clientID: clientID, keys: newKeyCheck("MyAnimeList", "MAL_CLIENT_ID")}
 }
 
 func (m *MAL) Enabled() bool { return m != nil && m.clientID != "" } // nil = not set up
@@ -55,7 +56,7 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 		Start  string `json:"start_date"`
 		Rating string `json:"rating"`
 	}
-	err := m.f.GetJSON(ctx, fetch.Request{
+	err := m.keys.getJSON(ctx, m.f, fetch.Request{
 		URL:     fmt.Sprintf("%s/anime/%d?fields=synopsis,main_picture,mean,genres,studios,start_date,rating", malAPI, id),
 		Key:     fmt.Sprintf("mal/v2-%d-full.json", id),
 		TTL:     30 * 24 * time.Hour,

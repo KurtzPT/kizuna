@@ -847,7 +847,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`). With a key, `TheTVDB has no episodes for this show`: use `/anidb` (or `/auto`) for it |
 | Episodes land in the wrong season | Plex's scanner decides seasons from file names and `.plexmatch` hints, not Kizuna. Write hints with [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](#-fixing-a-wrong-mapping) |
-| `source rejected the request: check its API key / client id` | That key or client id is wrong or expired |
+| `source rejected the request: check its API key / client id`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key or client id is wrong or expired. TMDB and MyAnimeList aren't asked again for 10 min (cached data still answers) |
 | `AniDB rejected the client` | AniDB doesn't know `ANIDB_CLIENT` / `ANIDB_CLIENTVER`: use the name and version of a client registered at anidb.net (protocol HTTP), then restart. Until then AniDB isn't asked for 24 h (cache only); new values are tried at once |
 | `TVDB rejected the API key` | TheTVDB refused `TVDB_API_KEY` (wrong key, or `pin required`: set `TVDB_PIN`) or `TVDB_LEGACY_API_KEY`. Kizuna skips TheTVDB and tries again in 10 min |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | The v4 key was refused, so Kizuna uses your legacy key until it restarts: no TheTVDB logos, studio or show crew meanwhile. Fix `TVDB_API_KEY` / `TVDB_PIN` and restart |
