@@ -120,7 +120,8 @@ func TestBadValuesWarnAndUseDefault(t *testing.T) {
 	}
 }
 
-// Kizuna needs AniDB or TheTVDB; TheMovieDb and MAL only add details.
+// Kizuna needs AniDB or TheTVDB; TheMovieDb and MAL only add details,
+// unless EPISODE_SOURCES puts tmdb first.
 func TestCheckSources(t *testing.T) {
 	if err := (Config{}).CheckSources(); err == nil || !strings.Contains(err.Error(), "ANIDB_CLIENT") {
 		t.Errorf("nothing set: %v, want an error naming ANIDB_CLIENT", err)
@@ -130,7 +131,19 @@ func TestCheckSources(t *testing.T) {
 			t.Errorf("%+v: %v, want nil", c, err)
 		}
 	}
-	if err := (Config{TMDBKey: "x", MALClientID: "x"}).CheckSources(); err == nil {
-		t.Error("only TMDB and MAL: nil, want an error")
+	for _, c := range []Config{
+		{TMDBKey: "x", MALClientID: "x", EpisodeSources: []string{"tvdb", "tmdb"}}, // TMDB only a fallback
+		{TMDBKey: "x", EpisodeSources: nil},                                        // EPISODE_SOURCES=none
+		{EpisodeSources: []string{"tmdb"}},                                         // tmdb first, but no key
+	} {
+		if err := c.CheckSources(); err == nil {
+			t.Errorf("%+v: nil, want an error", c)
+		}
+	}
+	// The user chose TheMovieDb's episode order: its key is enough.
+	for _, eps := range [][]string{{"tmdb"}, {"tmdb", "tvdb"}} {
+		if err := (Config{TMDBKey: "x", EpisodeSources: eps}).CheckSources(); err != nil {
+			t.Errorf("TMDB key, EPISODE_SOURCES %v: %v, want nil", eps, err)
+		}
 	}
 }

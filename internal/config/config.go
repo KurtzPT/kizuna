@@ -137,13 +137,18 @@ func Load() Config {
 
 // CheckSources fails without AniDB (for /anidb and /auto) and TheTVDB (for
 // /tvdb): Kizuna is built around their episode orders. TheMovieDb and the
-// others only add details.
+// others only add details, unless EPISODE_SOURCES puts tmdb first: then
+// its key is enough for /tvdb.
 func (c Config) CheckSources() error {
 	if c.AniDBClient != "" || c.TVDBKey != "" || c.TVDBLegacyKey != "" {
 		return nil
 	}
+	if c.TMDBKey != "" && len(c.EpisodeSources) > 0 && c.EpisodeSources[0] == "tmdb" {
+		return nil
+	}
 	return errors.New("no AniDB client and no TheTVDB key: " +
-		"set ANIDB_CLIENT (for /anidb and /auto), or TVDB_API_KEY or TVDB_LEGACY_API_KEY (for /tvdb). See SETUP.md")
+		"set ANIDB_CLIENT (for /anidb and /auto), or TVDB_API_KEY or TVDB_LEGACY_API_KEY (for /tvdb; " +
+		"TMDB_API_KEY only counts with EPISODE_SOURCES starting with tmdb). See SETUP.md")
 }
 
 // DefaultPort is Kizuna's port unless PORT or LISTEN says otherwise.
