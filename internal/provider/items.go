@@ -143,9 +143,8 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 // lightItem is a "Fix Match" search result built from the title dump only.
 func (p *Provider) lightItem(mode Mode, c candidate) Item {
 	title := c.root
-	if m := rootRe.FindStringSubmatch(c.root); m != nil {
-		aid, _ := strconv.Atoi(m[2])
-		if m[1] == "tvdb" {
+	if site, aid, ok := parseRoot(c.root); ok {
+		if site == "tvdb" {
 			aid = p.lists.FirstAID(aid)
 		}
 		if t := p.titles.Of(aid); len(t) > 0 {

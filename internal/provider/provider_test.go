@@ -26,9 +26,18 @@ func TestFillAbsolute(t *testing.T) {
 }
 
 func TestKeyRe(t *testing.T) {
-	for key, ok := range map[string]bool{"anidb-1": true, "tvdb-2-s0": true, "tvdb-2-s2-e33": true, "foo-1": false, "anidb-1-e2": false} {
+	for key, ok := range map[string]bool{"anidb-1": true, "tvdb-2-s0": true, "tvdb-2-s2-e33": true, "foo-1": false, "anidb-1-e2": false,
+		"anidb-01": false, "anidb-0": false, "tvdb-123456789": true, "tvdb-1234567890": false, "anidb-12345678901234567890-s1": false} {
 		if (keyRe.FindStringSubmatch(key) != nil) != ok {
 			t.Errorf("%s: want match=%v", key, ok)
+		}
+	}
+	if site, id, ok := parseRoot("tvdb-42"); site != "tvdb" || id != 42 || !ok {
+		t.Errorf("tvdb-42: got %q %d %v", site, id, ok)
+	}
+	for _, bad := range []string{"anidb-01", "anidb-1-s1", "anidb-12345678901234567890"} {
+		if _, _, ok := parseRoot(bad); ok {
+			t.Errorf("%s: want no show key", bad)
 		}
 	}
 }

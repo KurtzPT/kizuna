@@ -211,7 +211,8 @@ func writeTimedOut(w http.ResponseWriter) {
 	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the show wasn't ready in time; it is still being built, try again"})
 }
 
-var keyRe = regexp.MustCompile(`^((?:anidb|tvdb)-\d+)(?:-s(\d+)(?:-e(\d+))?)?$`)
+// keyRe is a rating key: a show key (rootPattern), plus a season and an episode.
+var keyRe = regexp.MustCompile(`^(` + rootPattern + `)(?:-s(\d+)(?:-e(\d+))?)?$`)
 
 func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	m := keyRe.FindStringSubmatch(r.PathValue("key"))

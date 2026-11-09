@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,16 +263,21 @@ func (p *Provider) pruneShows() {
 	}
 }
 
-var rootRe = regexp.MustCompile(`^(anidb|tvdb)-(\d+)$`)
+// rootPattern is a show key ("anidb-1", "tvdb-2"). The id has no leading
+// zero, so "anidb-01" isn't built and cached apart from "anidb-1", and at
+// most 9 digits: it fits an int (AniDB and TheTVDB ids are far shorter).
+const rootPattern = `(?:anidb|tvdb)-[1-9]\d{0,8}`
+
+var rootRe = regexp.MustCompile(`^` + rootPattern + `$`)
 
 // parseRoot splits a show key ("anidb-1", "tvdb-2") into its site and id.
 func parseRoot(root string) (site string, id int, ok bool) {
-	m := rootRe.FindStringSubmatch(root)
-	if m == nil {
+	if !rootRe.MatchString(root) {
 		return "", 0, false
 	}
-	id, _ = strconv.Atoi(m[2])
-	return m[1], id, true
+	site, n, _ := strings.Cut(root, "-")
+	id, _ = strconv.Atoi(n)
+	return site, id, true
 }
 
 func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
