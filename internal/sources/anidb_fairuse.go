@@ -292,6 +292,7 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID(), now
 	case errors.As(err, &entry):
 		c.state.Failed[aid] = now
+		c.state.Failures = 0 // AniDB answered: an outage before it is over
 		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid, "retry_anime_at", retryAnime, "err", err)
 	case call != nil && call.at.Before(c.backedOffAt):
 		// It went out before the failure that started this backoff (a slow

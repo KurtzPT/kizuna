@@ -626,6 +626,20 @@ func TestAniDBEpisodeListIndex(t *testing.T) {
 	}
 }
 
+// An answer about the anime (an <error> entry) shows AniDB is reachable: the
+// failures in a row before it are over, so the next outage starts again at
+// the first backoff step.
+func TestAniDBEntryAnswerEndsFailureStreak(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"200", "<error>Anime not found</error>"})
+	c.state.Failures = 3 // an outage, its backoff over
+	if _, err := c.Anime(context.Background(), 1); err == nil {
+		t.Fatal("want an error")
+	}
+	if c.state.Failures != 0 {
+		t.Errorf("%d failures in a row after AniDB answered, want 0", c.state.Failures)
+	}
+}
+
 // A restart keeps the 4 s gap from the last call the earlier run sent
 // (state.Sent): the first call after it waits for the rest of the gap.
 func TestAniDBGapSurvivesRestart(t *testing.T) {
