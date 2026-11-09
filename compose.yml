@@ -61,6 +61,7 @@ services:
       # RATING_COUNTRY: "US"              # e.g. "DE" or "GB,US"; other countries only as a last resort
       # DATE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
       # ART_ALL_SOURCES: "false"       # true = artwork from every listed source; false = first source that has any
+      # SEASON_ART_FALLBACK: "true"   # a TVDB/TMDB season without art: true = its series art; false = the next source
 
       # CACHE_MIN_FREE: "1GB"         # below this much free disk space, delete the oldest cache files...
       # CACHE_FREE_TARGET: "2GB"      # ...until this much is free; CACHE_MIN_FREE "0" = never

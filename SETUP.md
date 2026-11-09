@@ -325,6 +325,26 @@ them. Refresh the show's metadata a few minutes later to fill them in. The legac
 | `BACKGROUND_SOURCES` | `tvdb,tmdb` | tvdb tmdb | |
 | `LOGO_SOURCES` | `tvdb,tmdb` | tvdb tmdb | |
 | `ART_ALL_SOURCES` | `false` | `true` / `false` | `true`: images from **every** listed source; the first source's best one is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
+| `SEASON_ART_FALLBACK` | `true` | `true` / `false` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art instead. `false`: nothing from that site, the next source in the list is asked. See below |
+
+**Season art.** A show and each of its Plex seasons get the art of the season they stand for, where the site has season
+art of that kind: TheTVDB season posters and backgrounds (the legacy key: posters only), TheMovieDb season posters.
+No site has season logos, and TheMovieDb seasons have no backgrounds; AniDB, MyAnimeList and Anime News Network
+have one poster per entry. Those always give their series' (or entry's) art, whatever `SEASON_ART_FALLBACK` says.
+
+| | TheTVDB / TheMovieDb art of |
+|---|---|
+| `/anidb` show, the entry that starts its series | the series, then season 1 |
+| `/anidb` show, a later entry (*Attack on Titan Season 3*) | the season the [id mapping](#-fixing-a-wrong-mapping) puts it in (TVDB season 3) |
+| `/anidb` show, a movie or special among the series' specials | season 0 (TheMovieDb: the movie's own art) |
+| `/anidb` show in absolute order, or not mapped to a season | the series |
+| `/anidb` *Season 1* / *Specials* | the entry's season, as above (the first entry: season 1 alone) / season 0 |
+| `/tvdb` show | the series |
+| `/tvdb` *Season N* / *Specials* | TheTVDB's season N / 0; TheMovieDb's season that holds the same episodes, when it holds no other TheTVDB season's (else its series) |
+
+With `ART_ALL_SOURCES=true`, each source lists its season's art, then (with `SEASON_ART_FALLBACK`) its series',
+before the next source. Banners aren't sent: Plex's metadata providers have no image type for them. A
+[match report](#-match-reports) says, per source, how many images came from the season and how many from the series.
 
 **Episodes**
 
