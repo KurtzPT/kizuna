@@ -674,7 +674,8 @@ that matched nothing.
 A show's page has, for each of its last 5 builds:
 
 - **Checks**: what looks wrong. Episodes without a real title or air date, text with HTML entities that Plex shows
-  literally, a source that failed, AniDB entries still loading, a match by an inexact title
+  literally, a source that failed, AniDB entries still loading, a build with something missing, no source with a
+  title, summary or poster, a match by an inexact title
 - **Trace**: every download, cache read and in-memory answer of the build on a time line, so a slow or failing source
   stands out. Downloads that finish up to 2 minutes after the build are added to it
 - **Match**: what Plex sent, and how Kizuna decided: the id tag, the GUID, or the title search scores against
@@ -692,9 +693,9 @@ row, counted `×N`).
 `/anidb` and `/tvdb` builds of the same anime share a page, named after its AniDB entry (`anidb-1234.html`); a TheTVDB
 series that no AniDB entry maps to gets `tvdb-5678.html`. A title that matched nothing gets
 `unmatched-<title>-<hash>.html` (one per title, whatever the year), with the candidates and how to fix the match. It
-is removed once the title matches (with an id tag too), or after 30 days without a request about it. A page stays
-small (it keeps its newest builds and requests); delete the folder to start over. Turning reports off again leaves
-the folder as it is.
+is removed once the title matches (with an id tag too), or after 30 days without a request about it. A page is
+updated a few seconds after a build, the index at most every 30 s. A page stays small (it keeps its newest builds and
+requests); delete the folder to start over. Turning reports off again leaves the folder as it is.
 
 ## 🧰 Troubleshooting
 
