@@ -815,6 +815,26 @@ func TestTVDBWithoutAniDBIsComplete(t *testing.T) {
 	}
 }
 
+// A /tvdb series whose first AniDB entry is too new for the title dump is
+// still rebuilt soon while AniDB doesn't answer, not kept an hour without
+// AniDB's data.
+func TestTVDBNewEntryWithoutAniDBIsIncomplete(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		if path == "api.anidb.net/httpapi" {
+			return 500, ""
+		}
+		return testSeries(path, q)
+	}})
+	p.titles.SetForTest(map[int][]anidb.Title{}) // not in the dump yet
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Complete {
+		t.Error("AniDB details missing: want an incomplete show (rebuilt in 2 min)")
+	}
+}
+
 // /tvdb without AniDB details still has an original title (the title
 // dump's) and a runtime: the average of TheTVDB's regular episodes.
 func TestTVDBWithoutAniDBDetails(t *testing.T) {

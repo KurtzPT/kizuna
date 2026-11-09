@@ -280,8 +280,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.OriginalTitle = p.originalTitle(p.showTitles(aid, a)) // without details, from the title dump
 	if a != nil {
 		averageRuntime(s, a)
-	} else if p.anidb.Enabled() && len(p.titles.Of(aid)) > 0 {
-		s.Complete = false // AniDB details missing: rebuild soon (without ANIDB_CLIENT there are none to wait for)
+	} else if p.anidb.Enabled() && aid > 0 {
+		// AniDB details missing: rebuild soon (without ANIDB_CLIENT there are
+		// none to wait for). Also for an entry the title dump doesn't list
+		// yet: a new one, which AniDB has before the next dump.
+		s.Complete = false
 	}
 	if s.Minutes == 0 { // no AniDB details, or no runtimes there
 		s.Minutes = listRuntime(b.eps)
