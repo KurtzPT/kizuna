@@ -1,7 +1,8 @@
 # Fast checks on every push and pull request (the Docker workflow builds and
 # publishes the image):
-#   go         Go version in sync, gofmt, go vet (also for Windows and macOS),
-#              staticcheck, govulncheck, tests with the race detector
+#   go         Go version in sync, no PORT in the image, gofmt, go vet (also
+#              for Windows and macOS), staticcheck, govulncheck, tests with
+#              the race detector
 #   fuzz       a short run of every fuzz target
 #   script     bash syntax, ShellCheck and the behaviour tests of the scripts
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
@@ -45,6 +46,11 @@ jobs:
           docker=$(sed -n 's/^ARG GO_VERSION=//p' Dockerfile)
           if [ "$mod" != "$docker" ]; then
             echo "::error file=Dockerfile::ARG GO_VERSION=$docker, but go.mod says go $mod: make them match"
+            exit 1
+          fi
+          # PORT set in the image would override PORT in kizuna.env
+          if grep -Eq '^ENV .*\bPORT=' Dockerfile; then
+            echo "::error file=Dockerfile::the image must not set PORT (it would override PORT in kizuna.env)"
             exit 1
           fi
 
