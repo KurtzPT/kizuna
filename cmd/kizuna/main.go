@@ -34,9 +34,13 @@ import (
 )
 
 func main() {
+	// The settings file goes into the environment first, so every setting
+	// below can come from it. Its problems are logged once logging is set.
+	envFile, envErr := config.LoadEnvFile()
+
 	// Two levels: info (what happened) and debug (everything needed to see why).
 	level, bad := slog.LevelInfo, ""
-	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))); v {
+	switch v := strings.ToLower(strings.TrimSpace(config.LogLevel())); v {
 	case "", "info":
 	case "debug":
 		level = slog.LevelDebug
@@ -66,11 +70,18 @@ func main() {
 	if fileErr != nil {
 		slog.Warn("can't write the log file; logging to standard output only (check the data folder's permissions)", "err", fileErr)
 	}
+	if envErr != nil {
+		slog.Error("can't start: " + envErr.Error())
+		os.Exit(1)
+	}
 	if bad != "" {
 		slog.Warn("unknown LOG_LEVEL; using info", "LOG_LEVEL", bad, "allowed", "info,debug")
 	}
 
 	cfg := config.Load()
+	if !healthCheck {
+		envFile.Log()
+	}
 	fetch.UserAgent = "kizuna/" + provider.Version + " (personal Plex metadata provider)"
 	if healthCheck {
 		os.Exit(health(cfg))

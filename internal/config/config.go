@@ -1,5 +1,6 @@
-// Package config reads all settings from environment variables.
-// Every setting has a sensible default except the AniDB client name.
+// Package config reads all settings from environment variables, which may
+// come from a settings file (see LoadEnvFile). Every setting has a sensible
+// default except the AniDB client name.
 package config
 
 import (
@@ -156,6 +157,10 @@ func DataDir() string { return env("DATA_DIR", "./data") }
 // default 7; 0 = keep forever). Read before Load, like DataDir.
 func LogRetentionDays() int { return num("LOG_RETENTION_DAYS", 7, 0, math.MaxInt) }
 
+// LogLevel is LOG_LEVEL as given (trimmed); main checks it. Read before
+// Load, like DataDir.
+func LogLevel() string { return env("LOG_LEVEL", "") }
+
 // sourceList reads a comma-separated source order. "none" turns the field
 // off; unknown or unsupported names are dropped with a warning. A list with
 // no known source left uses the default, with a warning: a typo must not
@@ -257,6 +262,7 @@ func size(name string, def uint64) uint64 {
 }
 
 func env(name, def string) string {
+	markRead(name)
 	if v, ok := os.LookupEnv(name); ok && strings.TrimSpace(v) != "" {
 		return strings.TrimSpace(v)
 	}

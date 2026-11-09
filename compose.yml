@@ -12,6 +12,8 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    # Settings can also go in kizuna.env in the data folder (/change/me/kizuna.env), one NAME=value per line.
+    # Variables set here win over that file, even "": delete the lines below that the file sets. See SETUP.md > Settings.
     environment:
       # --- AniDB (required for summaries, episodes, specials) ---
       # Register a free HTTP client: anidb.net > Settings > Client > add client (protocol HTTP)

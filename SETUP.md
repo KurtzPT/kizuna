@@ -194,6 +194,25 @@ Shows fill in on later refreshes.
 Everything is an environment variable; [`compose.yml`](compose.yml) lists the common ones. Plex doesn't pass
 per-library settings to providers, so every setting applies to every mode and every library.
 
+**Or put them in a file:** Kizuna reads `kizuna.env` in the data folder (`/data/kizuna.env` in Docker), one
+`NAME=value` per line, the same names as below:
+
+```bash
+# /change/me/kizuna.env
+ANIDB_CLIENT=myclient
+TVDB_API_KEY=...
+TITLE_LANGS=en,main      # comments after a space are fine
+```
+
+- **Environment variables win over the file**, even when set to `""`: `TVDB_API_KEY: ""` in `compose.yml` keeps
+  TVDB off whatever the file says. Use the file for your settings and the environment for one-off changes.
+- `KIZUNA_CONFIG=/path/to/file` (environment only) reads that file instead; Kizuna won't start if it's missing.
+- `DATA_DIR` in the file moves the cache and logs, but not where the file is looked for.
+- Values may be in `"..."` or `'...'` (taken as written; needed for a `#` in a value). `export NAME=value` works too,
+  so a shell can `source` the same file.
+- At startup Kizuna logs which file it read, which settings the environment overrode, and any name it doesn't know
+  (a typo). It never logs the values. The file holds your API keys: keep it readable only by Kizuna's user.
+
 | You set | Kizuna |
 |---|---|
 | a variable to `""` or nothing | uses the default. For an API key the default is empty, so that source is off |
