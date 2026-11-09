@@ -247,7 +247,9 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode, waited, &StatusError{Code: resp.StatusCode, URL: Redact(r.URL)}
 	}
-	data = gunzip(data) // AniDB always gzips, even when not asked to
+	if data, err = gunzip(data, maxBody); err != nil { // AniDB always gzips, even when not asked to
+		return nil, resp.StatusCode, waited, err
+	}
 	if r.Validate != nil {
 		if err := r.Validate(data); err != nil {
 			return nil, resp.StatusCode, waited, fmt.Errorf("rejected answer: %w", err)
@@ -367,19 +369,24 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &se) && se.Code == http.StatusNotFound
 }
 
-func gunzip(data []byte) []byte {
+// gunzip unpacks a gzipped answer (any other is returned as is), up to
+// limit bytes. A corrupt or bigger one is an error: it must never be cached.
+func gunzip(data []byte, limit int64) ([]byte, error) {
 	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
-		return data
+		return data, nil
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return data
+		return nil, fmt.Errorf("corrupt gzip answer: %w", err)
 	}
-	out, err := io.ReadAll(zr)
+	out, err := io.ReadAll(io.LimitReader(zr, limit+1))
 	if err != nil {
-		return data
+		return nil, fmt.Errorf("corrupt gzip answer: %w", err)
 	}
-	return out
+	if int64(len(out)) > limit {
+		return nil, fmt.Errorf("answer larger than %d MB unpacked", limit>>20)
+	}
+	return out, nil
 }
 
 // Redact hides secrets in logged URLs: every query parameter whose name

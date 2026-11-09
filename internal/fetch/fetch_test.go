@@ -1,6 +1,8 @@
 package fetch
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -97,6 +99,49 @@ func TestDoneAfterLeavingInflight(t *testing.T) {
 	}
 	if stillInflight {
 		t.Fatal("Done ran while the download was still in flight")
+	}
+}
+
+func gzipped(t *testing.T, s string) []byte {
+	var b bytes.Buffer
+	zw := gzip.NewWriter(&b)
+	if _, err := zw.Write([]byte(s)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// gunzip unpacks up to its limit; a bigger or corrupt answer is an error,
+// never the packed bytes passed on as if they were the answer.
+func TestGunzipLimit(t *testing.T) {
+	z := gzipped(t, "0123456789")
+	if out, err := gunzip(z, 10); err != nil || string(out) != "0123456789" {
+		t.Fatalf("at the limit: %q %v", out, err)
+	}
+	if out, err := gunzip(z, 9); err == nil {
+		t.Fatalf("over the limit: %q, want an error", out)
+	}
+	if out, err := gunzip(z[:len(z)-6], 100); err == nil { // cut off
+		t.Fatalf("corrupt: %q, want an error", out)
+	}
+	if out, err := gunzip([]byte("<anime/>"), 1); err != nil || string(out) != "<anime/>" {
+		t.Fatalf("not gzipped: %q %v, want it as is", out, err)
+	}
+}
+
+// A corrupt gzipped answer fails the download and isn't cached.
+func TestCorruptGzipNotCached(t *testing.T) {
+	c := New(t.TempDir())
+	z := gzipped(t, "<anime/>")
+	c.SetTransport(okTransport(string(z[:len(z)-6])))
+	if _, err := c.Get(context.Background(), Request{URL: "http://api.example/x", Key: "x", NoStale: true}); err == nil {
+		t.Fatal("want an error")
+	}
+	if _, _, ok := c.Cached("x"); ok {
+		t.Fatal("corrupt answer cached")
 	}
 }
 
