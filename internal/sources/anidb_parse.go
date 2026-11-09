@@ -24,7 +24,7 @@ func (c *AniDB) validate(b []byte) (*AniDBAnime, error) {
 		about := func(s string) bool { return bytes.Contains(lower, []byte(s)) }
 		banned := about("banned")
 		return nil, &anidbEntryError{msg: strings.TrimSpace(string(head)), banned: banned,
-			client: !banned && (about("client") || about("protover"))}
+			client: !banned && (about("client") || about("protover")), answered: true}
 	}
 	if !inHead(b, "<anime") {
 		return nil, errors.New("anidb: unexpected answer") // e.g. a maintenance page: back off

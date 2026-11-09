@@ -643,6 +643,53 @@ func TestAniDBEntryAnswerEndsFailureStreak(t *testing.T) {
 	}
 }
 
+// An answer that only looks like an entry (XML that doesn't parse: cut off,
+// or another server's page) doesn't show AniDB is back: the streak goes on.
+// The anime still waits its 24 h.
+func TestAniDBUnreadableAnswerKeepsFailureStreak(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"200", `<anime id="1"><titles><title>cut off`})
+	c.state.Failures = 3
+	if _, err := c.Anime(context.Background(), 1); err == nil {
+		t.Fatal("want an error")
+	}
+	if c.state.Failures != 3 || c.state.Failed[1].IsZero() {
+		t.Errorf("%d failures in a row, anime failed at %v; want 3, now", c.state.Failures, c.state.Failed[1])
+	}
+}
+
+// A caller that came in after sending stopped a call, and joined that
+// call's download, leaves a call counted that nothing sends: the stopped
+// download's outcome gives it back. One already sent stays.
+func TestAniDBNotSentGivesBackLeftoverCall(t *testing.T) {
+	c, _ := fakeAniDB(t, [2]string{"200", anidbSample})
+	c.mu.Lock()
+	if why := c.admit(1, false, time.Now()); why != "" {
+		t.Fatal(why)
+	}
+	c.mu.Unlock()
+	c.result(1, nil, &anidbNotSent{"stopping"})
+	c.mu.Lock()
+	sent, calling := len(c.state.Sent), len(c.calling)
+	c.mu.Unlock()
+	if sent != 0 || calling != 0 {
+		t.Fatalf("%d calls counted, %d calling; want 0, 0", sent, calling)
+	}
+
+	c.mu.Lock()
+	if why := c.admit(2, false, time.Now()); why != "" {
+		t.Fatal(why)
+	}
+	c.calling[2].sent = true
+	c.mu.Unlock()
+	c.result(2, nil, &anidbNotSent{"the last call for this anime just ended"})
+	c.mu.Lock()
+	sent, kept := len(c.state.Sent), c.calling[2] != nil
+	c.mu.Unlock()
+	if sent != 1 || !kept {
+		t.Fatalf("a sent call: %d counted, still calling %v; want 1, true", sent, kept)
+	}
+}
+
 // A restart keeps the 4 s gap from the last call the earlier run sent
 // (state.Sent): the first call after it waits for the rest of the gap.
 func TestAniDBGapSurvivesRestart(t *testing.T) {

@@ -257,6 +257,9 @@ type anidbEntryError struct {
 	msg    string
 	banned bool
 	client bool
+	// answered: an <error> answer, so AniDB itself answered. XML that
+	// doesn't parse may be a cut-off answer or some other server's page.
+	answered bool
 }
 
 func (e *anidbEntryError) Error() string { return "anidb: " + e.msg }
@@ -279,7 +282,16 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	}
 	var notSent *anidbNotSent
 	if errors.As(err, &notSent) {
-		return // nothing went out: sending already gave its count back
+		// Nothing went out: sending already gave its count back. A caller
+		// that came in after sending stopped this call, and joined it, left
+		// a new call counted that no download sends: give that back too (a
+		// download started later counts its own call).
+		if cl := c.calling[aid]; cl != nil && !cl.sent {
+			c.uncount(cl)
+			delete(c.calling, aid)
+			c.save()
+		}
+		return
 	}
 	now := time.Now()
 	var entry *anidbEntryError
@@ -306,7 +318,9 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID(), now
 	case errors.As(err, &entry):
 		c.state.Failed[aid] = now
-		c.state.Failures = 0 // AniDB answered: an outage before it is over
+		if entry.answered {
+			c.state.Failures = 0 // AniDB answered: an outage before it is over
+		}
 		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid, "retry_anime_at", retryAnime, "err", err)
 	case call != nil && call.at.Before(c.backedOffAt):
 		// It went out before the failure that started this backoff (a slow
