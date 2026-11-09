@@ -192,9 +192,10 @@ the automatic match, and *Fix Match* for a season or an episode, still give no m
 A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
 become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers several AniDB entries (a
 TVDB series with one entry per season) gives the series' first entry, by that site's own placement (for `tmdb`,
-TheMovieDb's); movies and specials count only when nothing else does. A movie or special that lives among a TVDB
-series' specials is its own show in every mode; inside a `[tvdb-…]` tag only a title or file name that clearly names
-it finds it, with a warning ([movies and specials](SETUP.md#-movies-and-specials)).
+TheMovieDb's; for `imdb` and other ids, TheTVDB's, else TheMovieDb's); movies and specials count only when nothing
+else does. A movie or special that lives among a TVDB series' specials is its own show in every mode; inside a
+`[tvdb-…]` tag only a title or file name that clearly names it finds it, with a warning
+([movies and specials](SETUP.md#-movies-and-specials)).
 
 ---
 
