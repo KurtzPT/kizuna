@@ -16,11 +16,11 @@ import (
 // validate rejects answers that must not be cached, and returns the
 // parsed entry of one that may.
 func (c *AniDB) validate(b []byte) (*AniDBAnime, error) {
-	head := b[:min(len(b), 300)]
-	if bytes.Contains(head, []byte("<error")) {
+	if inHead(b, "<error") {
+		head := b[:min(len(b), headSize)]
 		return nil, &anidbEntryError{msg: strings.TrimSpace(string(head)), banned: bytes.Contains(bytes.ToLower(head), []byte("banned"))}
 	}
-	if !bytes.Contains(head, []byte("<anime")) {
+	if !inHead(b, "<anime") {
 		return nil, errors.New("anidb: unexpected answer") // e.g. a maintenance page: back off
 	}
 	a, err := parseAniDB(b)
@@ -28,6 +28,15 @@ func (c *AniDB) validate(b []byte) (*AniDBAnime, error) {
 		return nil, &anidbEntryError{msg: "unreadable XML: " + err.Error()}
 	}
 	return a, nil
+}
+
+// headSize: an answer's root element (or its error tag) is in its first
+// bytes; looking only there skips the rest of a big answer.
+const headSize = 300
+
+// inHead reports whether tag appears in the first headSize bytes of b.
+func inHead(b []byte, tag string) bool {
+	return bytes.Contains(b[:min(len(b), headSize)], []byte(tag))
 }
 
 const anidbPicture = "https://cdn.anidb.net/images/main/"

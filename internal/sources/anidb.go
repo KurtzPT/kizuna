@@ -145,7 +145,7 @@ func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
 		return m.anime, true
 	}
 	c.mu.Unlock()
-	data, age, ok := c.f.Cached(fmt.Sprintf("anidb/anime/%d.xml", aid))
+	data, age, ok := c.f.Cached(anidbKey(aid))
 	if !ok {
 		return nil, false
 	}
@@ -192,12 +192,12 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 		c.mu.Unlock()
 		slog.Debug("anidb: from memory", "aid", aid)
 		if fetch.Observing(ctx) { // the key is only built for a match report
-			fetch.Observe(ctx, fmt.Sprintf("anidb/anime/%d.xml", aid), fetch.KindMemory, start, nil)
+			fetch.Observe(ctx, anidbKey(aid), fetch.KindMemory, start, nil)
 		}
 		return m.anime, nil
 	}
 	c.mu.Unlock()
-	key := fmt.Sprintf("anidb/anime/%d.xml", aid)
+	key := anidbKey(aid)
 
 	// Read here, not by Get: the TTL depends on the entry's end date, and a
 	// stale copy is still used when the API may not be asked.
@@ -265,6 +265,9 @@ func (c *AniDB) remember(a *AniDBAnime) {
 		}
 	}
 }
+
+// anidbKey is the cache file of an anime's entry.
+func anidbKey(aid int) string { return fmt.Sprintf("anidb/anime/%d.xml", aid) }
 
 // anidbTTL: finished long ago -> rarely changes; airing or ended lately -> refresh every 6 days.
 func anidbTTL(endDate string) time.Duration {

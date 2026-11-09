@@ -1,7 +1,6 @@
 package sources
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -51,7 +50,7 @@ func (n *ANN) Anime(ctx context.Context, id int) (ANNAnime, error) {
 	}
 	data, err := n.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(annAPI, id), Key: fmt.Sprintf("ann/%d.xml", id),
 		TTL: 7 * 24 * time.Hour, Validate: func(b []byte) error {
-			if !bytes.Contains(b[:min(len(b), 300)], []byte("<ann")) {
+			if !inHead(b, "<ann") {
 				return errors.New("not an ANN answer")
 			}
 			return nil
