@@ -1,0 +1,50 @@
+# Deletes old sha-<short> builds from ghcr.io/<owner>/<repo> (every push to dev
+# makes one), with their per-platform images and attestations. Releases, :dev,
+# the newest 10 sha-* builds and any from the last 30 days are kept; the rules
+# are in scripts/ghcr-cleanup.sh.
+#
+# A dry run unless told otherwise: the run's log lists what it would delete.
+#   by hand  Actions -> ghcr-cleanup -> Run workflow, tick "delete"
+#   monthly  deletes only when the repository variable GHCR_CLEANUP_DELETE is
+#            "true" (Settings -> Secrets and variables -> Actions -> Variables)
+# Deleting needs the repository to have the Admin role on the package: package
+# settings -> Manage Actions access.
+#
+# Scheduled runs use the copy of this file on the default branch (main), so a
+# change here only takes effect once it's released to main.
+name: ghcr-cleanup
+
+on:
+  schedule:
+    - cron: "37 4 1 * *" # the 1st of every month, 04:37 UTC
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete (unticked, it's a dry run)
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ghcr-cleanup
+
+jobs:
+  cleanup:
+    name: cleanup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # check out the script
+      packages: write # list and delete package versions
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: clean up
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: ${{ github.event.repository.name }}
+          DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.delete || github.event_name == 'schedule' && vars.GHCR_CLEANUP_DELETE == 'true' }}
+        run: bash scripts/ghcr-cleanup.sh
