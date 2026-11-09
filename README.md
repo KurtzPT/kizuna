@@ -32,7 +32,7 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 | Feature | What you get |
 |---|---|
 | 🔢 **Absolute numbering** | Episode 148 stays episode 148, in every mode |
-| 🗂️ **Three modes** | One AniDB entry per show, one TVDB series per show, or [both in one library](#auto-both-in-one-library) |
+| 🗂️ **Three modes** | One AniDB entry per show, one TVDB series per show (its movies and OVAs apart), or [both in one library](#auto-both-in-one-library) |
 | 🏷️ **Matches by id** | `[anidb-8550]`, `[tvdb-81797]`, `[mal-21]`… in the folder name. No guessing |
 | 🔀 **Per-field sources** | Pick the source order for titles, summaries, posters, cast… separately |
 | 🖼️ **Your files win** | `poster.jpg`, `fanart.jpg`, `theme.mp3` next to your files override every online source |
@@ -120,7 +120,8 @@ flowchart LR
 - **Episode thumbnails** come from TheTVDB, since AniDB has none, through [pairing](#%EF%B8%8F-episode-titles-and-pairing).
   Missing AniDB summaries and dates are filled the same way.
 - **Without AniDB details** (no client, ban, daily limit), every episode still exists as *Episode N*. A later
-  refresh fills it in.
+  refresh fills it in. A movie or OVA that the mapping puts among a TVDB series' specials gets those episodes from
+  TheTVDB meanwhile.
 
 ### `/tvdb`: one TVDB series per show
 
@@ -141,6 +142,7 @@ flowchart LR
 | **Show details** | the series' first AniDB entry |
 | **Episode titles** | AniDB by default, from *each season's own* AniDB entry ([pairing](#%EF%B8%8F-episode-titles-and-pairing)) |
 | **No TVDB series** | an entry without one (most movies, many OVAs) uses the `/anidb` rules |
+| **Movies and specials** | an entry that lives only among the series' specials (One Piece Film Red is TheTVDB's S00E46) is its own show with the `/anidb` rules too. `S00Exx` files inside the series' folder stay its specials ([more](SETUP.md#-movies-and-specials)) |
 
 ### `/auto`: both in one library
 
@@ -183,7 +185,9 @@ warning. The same tag again (the folder's tag in the file name too) is fine.
 
 A `tmdb` tag is a TheMovieDb TV show; [movie ids](SETUP.md#-fixing-a-wrong-mapping) work too. Ids from other sites
 become an AniDB entry through the [id mapping](#-id-mapping). In `/anidb`, an id that covers
-several AniDB entries (a TVDB series with one entry per season) gives the series' first entry.
+several AniDB entries (a TVDB series with one entry per season) gives the series' first entry. A movie or special
+that lives among a TVDB series' specials is its own show in every mode; inside a `[tvdb-…]` tag only a title or file
+name that clearly names it finds it, with a warning ([movies and specials](SETUP.md#-movies-and-specials)).
 
 ---
 

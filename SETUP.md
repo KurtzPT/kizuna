@@ -6,7 +6,7 @@
 
 **From zero to a matched anime library in four steps.**
 
-[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](#%EF%B8%8F-settings) &nbsp;·&nbsp; [🩹 Mapping](#-fixing-a-wrong-mapping) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting)
+[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](#%EF%B8%8F-settings) &nbsp;·&nbsp; [🎬 Movies](#-movies-and-specials) &nbsp;·&nbsp; [🩹 Mapping](#-fixing-a-wrong-mapping) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting)
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 
@@ -175,7 +175,7 @@ In Plex Web, open **Settings → Metadata Agents**.
 | URL | Shows up in Plex as | Use it for |
 |---|---|---|
 | `http://<host>:32600/anidb` | Kizuna (AniDB) | every season is its own show, episodes numbered 1…n |
-| `http://<host>:32600/tvdb` | Kizuna (TVDB) | one show with TVDB seasons |
+| `http://<host>:32600/tvdb` | Kizuna (TVDB) | one show with TVDB seasons ([movies and specials](#-movies-and-specials) apart) |
 | `http://<host>:32600/auto` | Kizuna | one library that mixes both ([README](README.md#auto-both-in-one-library)) |
 
 You can add more than one; each is its own provider.
@@ -428,6 +428,27 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 
 ---
 
+## 🎬 Movies and specials
+
+The [id mapping](#-fixing-a-wrong-mapping) often puts an anime's movies, OVAs and specials among its TVDB series'
+specials: One Piece Film Red is TheTVDB's S00E46 of One Piece (`defaulttvdbseason="0"`). Such an entry is **its own
+show in every mode**, with the `/anidb` rules (the movie is `S01E01`), when it is found by an `[anidb-…]`, `[tmdb-…]`
+or other id tag, a GUID, or the title search.
+
+| You have | Kizuna |
+|---|---|
+| a movie folder tagged `[anidb-16983]` or `[tmdb-900667]` (its TheMovieDb movie) | that movie, exactly. **The sure way** |
+| an untagged movie folder, `One Piece Film Red` | the title search finds the movie, not the series |
+| a movie folder tagged with the series, `[tvdb-81797]` | the whole series, unless the folder or file name clearly names one of the series' movies or specials: then that one, with the warning `matched to an AniDB entry by name inside a TheTVDB id; may be wrong`, which names the tags to use. The same for another agent's TheTVDB GUID (`com.plexapp.agents.thetvdb://81797`) |
+| `One Piece - S00E46.mkv` inside the series' `/tvdb` folder | stays a special of the series |
+
+*Clearly* means: at least `MIN_SCORE`, and 10 points over the series' own title and the other movies' titles; two
+movies closer than that are told apart by the year Plex sends (or a `(2022)` in the name). A series with only one
+AniDB entry never goes by name. Without AniDB details (no `ANIDB_CLIENT`, or AniDB paused), such a show's episodes
+come from TheTVDB's specials at their mapped spots, so a `/tvdb` setup with only a TheTVDB key still gets a real
+movie. Its episodes carry their TheTVDB specials' GUIDs; the show has the movie's `tmdb://` and `imdb://`, not the
+series' `tvdb://`.
+
 ## 🩹 Fixing a wrong mapping
 
 Kizuna learns which AniDB entry is which TVDB series, season and episode from the
@@ -640,7 +661,8 @@ The AniDB entry is a two-episode OVA that TheTVDB has as S00E07 and S00E08. Put 
 <anime anidbid="1250" tvdbid="56789" defaulttvdbseason="0" episodeoffset="6" />
 ```
 
-In `/tvdb` the OVA's titles then land on those two specials.
+In `/tvdb` the OVA's titles then land on those two specials, and the OVA's own folder is its own show in every mode
+([movies and specials](#-movies-and-specials)).
 
 </details>
 
@@ -785,6 +807,7 @@ requests); delete the folder to start over. Turning reports off again leaves the
 | `/auto`: `match: id tag needs /tvdb, which is off` | The show's `[tvdb-…]` tag needs TheTVDB: set `TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`, or tag it `[anidb-…]`. For `/anidb` and an `[anidb-…]` tag: set `ANIDB_CLIENT` |
 | A request gets `503` `the show wasn't ready in time` | Its first build took longer than Plex's request may (25 s, often a slow AniDB answer or a queue of AniDB calls). Plex keeps what it has; the build goes on, and the next refresh gets the show |
 | A request gets `503` `the show can't be built now` | The reason follows: a source that didn't answer (`no episode list from TheTVDB`: TheTVDB is down), or a `tvdb-…` show asked through `/anidb` or `/auto` without a TheTVDB key (`needs TheTVDB, which is off`). Plex keeps what it has and asks again on a later refresh; for 2 minutes the failure is the answer, then the show is built again. Only a show that doesn't exist (an unknown AniDB id, `TheTVDB has no episodes for this show`) gets no match or a 404 |
+| A movie folder became the whole series, or `matched to an AniDB entry by name inside a TheTVDB id` | Tag the folder `[anidb-…]` or `[tmdb-…]` (the movie) instead of `[tvdb-…]` ([movies and specials](#-movies-and-specials)) |
 | Wrong show matched (remake, sequel) | Add an id tag, or use *Fix Match* in Plex: Kizuna lists up to 10 candidates with their ids |
 | No summaries, only *Episode N* titles | `ANIDB_CLIENT` isn't set, or AniDB is paused (ban, rejected client, daily limit, backoff). The `AniDB details not available` line before `show built` says which (`why=`); a later *Refresh Metadata* fills them in. After a failed call, AniDB's rules keep that one anime from being asked again for 24 h: look for `not asking about this anime again`. Its show is kept the usual hour meanwhile, and the first build after the block asks AniDB again |
 | `/tvdb` show has no episodes | Set `TVDB_API_KEY` (or `TVDB_LEGACY_API_KEY`). With a key, `TheTVDB has no episodes for this show`: use `/anidb` (or `/auto`) for it |

@@ -6,6 +6,8 @@
 //	/anidb  one AniDB entry per show. Season 1 = all episodes, absolute
 //	        numbers. Season 0 = specials/OP/ED/trailers.
 //	/tvdb   one TVDB series per show. TVDB seasons, absolute episode numbers.
+//	        An entry living only in the series' specials (a movie, an OVA) is
+//	        its own show (mapping.Entry.SpecialOnly).
 //	/auto   per show: an [anidb-N] tag or GUID gives the /anidb rules, a
 //	        [tvdb-N] one the /tvdb rules, anything else AUTO_DEFAULT's.
 //
