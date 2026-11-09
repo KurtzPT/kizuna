@@ -2,8 +2,8 @@ package mapping
 
 import "testing"
 
-// TestSetupDocExamples checks every anime-list-custom.xml example in SETUP.md
-// ("Fixing a wrong mapping") against the parser. Keep both in sync.
+// TestSetupDocExamples checks every anime-list-custom.xml example in MAPPING.md
+// against the parser. Keep both in sync.
 func TestSetupDocExamples(t *testing.T) {
 	list, err := parseAnimeLists([]byte(`<anime-list>
 <anime anidbid="1" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0" />

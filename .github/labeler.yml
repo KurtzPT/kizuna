@@ -10,6 +10,7 @@ metadata:
           - internal/provider/**
           - internal/report/**
           - internal/sources/**
+          - MAPPING.md
 
 migration:
   - changed-files:
