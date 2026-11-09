@@ -203,8 +203,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 
 	// Each site's series-level data describes the entry when it starts its
 	// series there: TheTVDB's and TheMovieDb's seasons may split differently.
-	ss := p.newSources(ctx, aid, a, entry, entry.TVDB.ID, tmdbID, movie,
+	ss := p.newSources(ctx, aid, entry, entry.TVDB.ID, tmdbID, movie,
 		firstEntry{tvdb: p.lists.StartsShow("tvdb", aid), tmdb: movie || p.lists.StartsShow("tmdb", aid)})
+	ss.setAniDB(ctx, a, entry)
 	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
 	var wg sync.WaitGroup
 	episodesOK := true
@@ -425,9 +426,9 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	// What doesn't depend on AniDB's answer starts before it is in, as that
 	// can take seconds (its fair-use gap): TheMovieDb's episode list,
 	// TheTVDB's crew records, and TheTVDB's and TheMovieDb's art.
-	b.prefetch(ctx, p)
+	b.start(ctx, p)
 	defer b.wait()
-	ss := p.newSources(ctx, aid, nil, entry, tvdbID, tmdbID, false, firstEntry{true, true})
+	ss := p.newSources(ctx, aid, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
 	ss.warmEarly()
 	wg.Wait()
@@ -493,12 +494,12 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 	var tmdbOK, titlesReady, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
-		tmdbOK = b.loadTMDB(ctx, p)
+		tmdbOK = b.loadTMDB(p)
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
 		pairs = tmdbSeasonPairs(s, b.tmdbEps, pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
+		crewReady = p.tvdbEpisodeCrew(s, b, pr)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()

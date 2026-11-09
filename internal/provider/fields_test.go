@@ -201,7 +201,8 @@ func TestLaterEntrySummary(t *testing.T) {
 		net := &fakeNet{answer: seasonTexts}
 		p := newTestProvider(t, net)
 		p.cfg.TitleSources = []string{"anidb"} // only the summary may ask for the series' text
-		ss := p.newSources(context.Background(), 100, c.a, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, firstEntry{c.series, c.series})
+		ss := p.newSources(context.Background(), 100, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, firstEntry{c.series, c.series})
+		ss.setAniDB(context.Background(), c.a, c.entry)
 		ss.mal.f = func() (sources.MALAnime, error) { return sources.MALAnime{Synopsis: "MAL."}, nil }
 		s := &Show{}
 		ss.fill(s)

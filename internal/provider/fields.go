@@ -72,10 +72,11 @@ type text struct{ title, summary string }
 // site (mapping.Lists.StartsShow).
 type firstEntry struct{ tvdb, tmdb bool }
 
-// newSources: entry is aid's mapping entry, for the ANN and MAL ids when
-// AniDB has no link to them or no details.
-func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnime, entry mapping.Entry, tvdb, tmdb int, movie bool, first firstEntry) *showSources {
-	ss := &showSources{p: p, aid: aid, a: a, tvdb: tvdb, tmdb: tmdb, movie: movie, first: first, rec: report.RecorderFrom(ctx),
+// newSources: entry is aid's mapping entry, for the season summaries. AniDB's
+// details, and the ANN and MAL entries, come with setAniDB, called once per
+// build.
+func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry, tvdb, tmdb int, movie bool, first firstEntry) *showSources {
+	ss := &showSources{p: p, aid: aid, tvdb: tvdb, tmdb: tmdb, movie: movie, first: first, rec: report.RecorderFrom(ctx),
 		show: seriesTarget}
 	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) {
 		d, ids, err := p.tvdb.DetailsAndSeasons(ctx, tvdb)
@@ -100,7 +101,6 @@ func (p *Provider) newSources(ctx context.Context, aid int, a *sources.AniDBAnim
 		}
 		return p.tmdb.SeasonArt(ctx, tmdb, n)
 	}
-	ss.setAniDB(ctx, a, entry)
 	return ss
 }
 

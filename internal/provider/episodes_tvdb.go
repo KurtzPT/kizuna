@@ -74,12 +74,11 @@ type tvdbBuild struct {
 	first          *sources.AniDBAnime // its details (nil = not available)
 	eps            []sources.Episode   // TheTVDB's episode list, absolute numbers filled in
 	// tmdbEps: TheMovieDb's episode list, for the titles and the crew;
-	// fetched once by loadTMDB (empty when the show isn't there).
+	// fetched by start (empty when the show isn't there).
 	tmdbEps episodeIndex
-	// prefetched: prefetch started TheMovieDb's episode list (into tmdbEps
-	// and tmdbOK, done with tmdbWG) and TheTVDB's crew records (into crew
-	// and crewPending, done with crewWG); else they are fetched when used.
-	prefetched     bool
+	// start fetches TheMovieDb's episode list (into tmdbEps and tmdbOK, done
+	// with tmdbWG) and TheTVDB's crew records (into crew and crewPending,
+	// done with crewWG).
 	tmdbWG, crewWG sync.WaitGroup
 	tmdbOK         bool
 	crew           map[int]sources.Crew
@@ -96,11 +95,10 @@ func (b *tvdbBuild) tmdbOn(p *Provider) bool {
 	return p.tmdb.Enabled() && b.tmdbID > 0
 }
 
-// prefetch starts what the build needs whatever AniDB answers: TheMovieDb's
+// start starts what the build needs whatever AniDB answers: TheMovieDb's
 // episode list (loadTMDB) and TheTVDB's crew records for the episode list's
 // episodes (tvdbEpisodeCrew). Both are always used: wait waits for them.
-func (b *tvdbBuild) prefetch(ctx context.Context, p *Provider) {
-	b.prefetched = true
+func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 	ids := make([]int, 0, len(b.eps))
 	for _, e := range b.eps {
 		if e.ID > 0 {
@@ -113,25 +111,20 @@ func (b *tvdbBuild) prefetch(ctx context.Context, p *Provider) {
 	}
 }
 
-// wait waits for what prefetch started.
+// wait waits for what start started.
 func (b *tvdbBuild) wait() {
 	b.tmdbWG.Wait()
 	b.crewWG.Wait()
 }
 
-// loadTMDB fetches TheMovieDb's episode list into b.tmdbEps. Returns false
-// when it failed or came back partial.
-func (b *tvdbBuild) loadTMDB(ctx context.Context, p *Provider) bool {
+// loadTMDB waits for TheMovieDb's episode list in b.tmdbEps (start fetches
+// it). Returns false when it failed or came back partial.
+func (b *tvdbBuild) loadTMDB(p *Provider) bool {
 	if !b.tmdbOn(p) {
 		return true
 	}
-	if b.prefetched {
-		b.tmdbWG.Wait()
-		return b.tmdbOK
-	}
-	var ok bool
-	b.tmdbEps, ok = p.seriesEpisodes(ctx, "tmdb", b.tmdbID)
-	return ok
+	b.tmdbWG.Wait()
+	return b.tmdbOK
 }
 
 // onTMDBShow reports whether an entry has a place on the show on TheMovieDb.
@@ -246,11 +239,8 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 // tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes from
 // its episode list (TheTVDB's) and TheMovieDb's, paired through AniDB like
 // the titles (pr). Returns false while episode crew is still being fetched.
-func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
+func (p *Provider) tvdbEpisodeCrew(s *Show, b *tvdbBuild, pr tvdbPairing) bool {
 	tm := pairedList{b.tmdbEps, pr.otherAt} // TheTVDB's list's crew is on the episodes already (episodesFromList)
-	if !b.prefetched {
-		return p.episodeCrew(ctx, s, tm)
-	}
 	b.crewWG.Wait()
 	applyCrew(s, b.crew, tm)
 	return !b.crewPending
