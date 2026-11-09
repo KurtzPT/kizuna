@@ -69,15 +69,16 @@ func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
 // tvdbBuild is what the steps of a /tvdb build share.
 type tvdbBuild struct {
 	tvdbID, tmdbID int                 // tmdbID 0 = no TheMovieDb show
-	first          *sources.AniDBAnime // the series' first AniDB entry (nil = not available)
+	aid            int                 // the series' first AniDB entry (0 = none), looked up once per build
+	first          *sources.AniDBAnime // its details (nil = not available)
 	eps            []sources.Episode   // TheTVDB's episode list, absolute numbers filled in
 	// tmdbEps: TheMovieDb's episode list, for the titles and the crew;
 	// fetched once by loadTMDB (empty when the show isn't there).
 	tmdbEps episodeIndex
 }
 
-func newTVDBBuild(tvdbID, tmdbID int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
-	return &tvdbBuild{tvdbID: tvdbID, tmdbID: tmdbID, first: first, eps: eps}
+func newTVDBBuild(tvdbID, tmdbID, aid int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
+	return &tvdbBuild{tvdbID: tvdbID, tmdbID: tmdbID, aid: aid, first: first, eps: eps}
 }
 
 // tmdbOn reports whether TheMovieDb's episode list can be had: only for a
@@ -104,17 +105,17 @@ func (b *tvdbBuild) onTMDBShow(e mapping.Entry) bool {
 	return e.TMDB.ID == 0 || e.TMDB.ID == b.tmdbID
 }
 
-// tvdbPairing walks every AniDB entry of a /tvdb series. b.first is already
-// fetched. Other entries come from the cache; missing ones are fetched in the
+// tvdbPairing walks every AniDB entry of a /tvdb series. b.first (b.aid's)
+// is already fetched: the first entry isn't looked up again, so a mapping
+// reload during the build can't pair with another entry's details. Other entries come from the cache; missing ones are fetched in the
 // background for the next build, and ready is false meanwhile. record notes
 // those missing entries in pr.loading, for the match report.
 func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready bool) {
 	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}
 	ready = true
-	firstAID := p.lists.FirstAID(b.tvdbID)
 	for _, aid := range p.lists.AIDsForTVDB(b.tvdbID) {
 		a := b.first
-		if aid != firstAID {
+		if aid != b.aid {
 			var fresh bool
 			if a, fresh = p.anidb.Peek(aid); !fresh && p.anidb.Enabled() {
 				p.anidb.Prefetch(aid)

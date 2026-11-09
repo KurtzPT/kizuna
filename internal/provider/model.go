@@ -260,7 +260,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	sources.FillAbsolute(eps)
-	b := newTVDBBuild(tvdbID, tmdbID, a, eps)
+	b := newTVDBBuild(tvdbID, tmdbID, aid, a, eps)
 	episodesFromList(s, b)
 	if a != nil {
 		s.OriginalTitle = p.originalTitle(a.Titles)
@@ -268,7 +268,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	} else if p.anidb.Enabled() && len(p.titles.Of(aid)) > 0 {
 		s.Complete = false // AniDB details missing: rebuild soon (without ANIDB_CLIENT there are none to wait for)
 	}
-	if !p.enrichTVDB(ctx, s, b, aid, entry) {
+	if !p.enrichTVDB(ctx, s, b, entry) {
 		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
 	}
 	finishTVDB(s, b)
@@ -304,12 +304,12 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 }
 
 // enrichTVDB adds the episode titles and crew and the show-level fields
-// (aid: the series' first AniDB entry, entry its mapping). They touch
+// (entry: the mapping of b.aid, the series' first AniDB entry). They touch
 // different parts of s, so both are fetched at once. TheMovieDb's episode
 // list is fetched once, for the titles and the crew. Returns false while
 // other AniDB entries or episode crew are still being fetched, or when a
 // source failed.
-func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid int, entry mapping.Entry) bool {
+func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, entry mapping.Entry) bool {
 	var wg sync.WaitGroup
 	var tmdbOK, titlesReady, crewReady bool
 	wg.Go(func() {
@@ -319,7 +319,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, aid in
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
-	sourcesOK := p.newSources(ctx, aid, b.first, entry, b.tvdbID, b.tmdbID, false, true).fill(s)
+	sourcesOK := p.newSources(ctx, b.aid, b.first, entry, b.tvdbID, b.tmdbID, false, true).fill(s)
 	wg.Wait()
 	return tmdbOK && titlesReady && crewReady && sourcesOK
 }
