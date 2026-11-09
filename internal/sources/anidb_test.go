@@ -349,11 +349,14 @@ func TestAniDBPrefetchWorkers(t *testing.T) {
 	for range len(aids) - anidbPrefetchWorkers {
 		<-arrived
 	}
-	for _, aid := range aids { // joins each download (or reads its cache) once it ended
+	// Each joins its download, or reads the cache once it ended (a download
+	// gone from fetch before its call ended is not asked again).
+	for _, aid := range aids {
 		if a, err := c.Anime(context.Background(), aid); err != nil || a.AID != aid {
 			t.Fatalf("anime %d: %v %v", aid, a, err)
 		}
 	}
+	c.working.Wait()
 	if int(calls.Load()) != len(aids) {
 		t.Fatalf("%d calls, want %d", calls.Load(), len(aids))
 	}
@@ -466,6 +469,54 @@ func TestAniDBConcurrentCallers(t *testing.T) {
 		if a == nil || a.AID != 69 || len(a.Episodes) != 7 {
 			t.Fatalf("caller %d: %+v", i, a)
 		}
+	}
+}
+
+// A caller that looked for the cache file while another caller's call was
+// out, and only asks once that call ended (its download gone from fetch),
+// gets the entry that call stored: AniDB is never asked twice.
+func TestAniDBNoSecondCallAfterAnotherStored(t *testing.T) {
+	c, calls := fakeAniDB(t, [2]string{"200", anidbSample})
+	ctx := context.Background()
+	if a, err := c.Anime(ctx, 69); err != nil || a == nil {
+		t.Fatalf("first call: %v %v", a, err)
+	}
+	// local found nothing (before the first call stored it); it asks now.
+	if a, err := c.ask(ctx, 69, false, nil, time.Now()); err != nil || a == nil || a.AID != 69 || *calls != 1 {
+		t.Fatalf("second caller: %v %v, %d requests, want the stored entry and 1", a, err, *calls)
+	}
+	// A caller that joined the call (allowed's shortcut) but whose own
+	// download started after it ended: its turn in the queue is refused.
+	var notSent *anidbNotSent
+	if _, err := c.sending(69, false); !errors.As(err, &notSent) {
+		t.Fatalf("new call right after a fetch: %v, want it not sent", err)
+	}
+	if len(c.state.Sent) != 1 || c.calling[69] != nil {
+		t.Fatalf("%d calls counted, calling %v; want 1, none", len(c.state.Sent), c.calling[69])
+	}
+}
+
+// An answer whose cache write fails is not asked again within 24 h, also
+// after its copy in memory expired, and after a restart.
+func TestAniDBFailedCacheWriteNotAskedAgain(t *testing.T) {
+	c, calls := fakeAniDB(t, [2]string{"200", anidbSample})
+	dir := filepath.Dir(c.statePath)
+	// A folder where the file goes: the write fails.
+	if err := os.MkdirAll(filepath.Join(dir, "anidb", "anime", "69.xml", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if a, err := c.Anime(ctx, 69); err != nil || a == nil {
+		t.Fatalf("first call: %v %v", a, err)
+	}
+	c.mu.Lock()
+	clear(c.memo) // an hour later
+	c.mu.Unlock()
+	if _, err := c.Anime(ctx, 69); !errors.Is(err, ErrAniDBUnavailable) || *calls != 1 {
+		t.Fatalf("after the memo expired: %v, %d requests; want unavailable and 1", err, *calls)
+	}
+	if ok, _ := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(69, false); ok {
+		t.Error("after a restart: allowed")
 	}
 }
 

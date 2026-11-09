@@ -95,6 +95,10 @@ type AniDB struct {
 		Failures    int               `json:"failures"` // failed calls in a row (backoff step)
 		RetryAt     time.Time         `json:"retry_at"` // no calls before this (backoff)
 		Failed      map[int]time.Time `json:"failed"`   // aid -> last failed call (no retry for 24 h)
+		// Fetched: aid -> last call AniDB answered with its entry. No call
+		// for it for 24 h either, even when its cache file is missing (a
+		// failed write, or a caller that looked before it was stored).
+		Fetched map[int]time.Time `json:"fetched,omitempty"`
 		// The client AniDB rejected (clientID) and when: no calls with it
 		// for anidbClientPause.
 		ClientRejected   string    `json:"client_rejected,omitempty"`
@@ -105,6 +109,7 @@ type AniDB struct {
 	queued   map[int]bool       // background fetches waiting or running
 	pending  []int              // background fetches waiting for a worker, in order
 	workers  int                // prefetch workers running
+	working  sync.WaitGroup     // the same workers (tests wait on it)
 	calling  map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
 	// failWhy: why an anime's last call failed (memory only: unknown after
 	// a restart). told: the failure whose 24 h block was already logged at
@@ -135,6 +140,9 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	c.load()
 	if c.state.Failed == nil {
 		c.state.Failed = map[int]time.Time{}
+	}
+	if c.state.Fetched == nil {
+		c.state.Fetched = map[int]time.Time{}
 	}
 	if client == "" {
 		slog.Warn("ANIDB_CLIENT not set: AniDB details (summaries, episodes) are off; register a client at anidb.net")
@@ -212,7 +220,7 @@ func (c *AniDB) Prefetch(aid int) {
 	}
 	c.mu.Unlock()
 	if start {
-		go c.prefetchWorker()
+		c.working.Go(c.prefetchWorker)
 	}
 }
 
@@ -255,19 +263,28 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 		}
 		return a, nil
 	}
-	key := anidbKey(aid)
 	if fresh {
 		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate))
-		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
+		fetch.Observe(ctx, anidbKey(aid), fetch.KindCache, start, nil)
 		return a, nil
 	}
+	return c.ask(ctx, aid, background, a, start)
+}
+
+// ask gets the entry from the API, when the fair use rules allow it, or
+// else returns stale (the old copy local found; nil = none).
+func (c *AniDB) ask(ctx context.Context, aid int, background bool, stale *AniDBAnime, start time.Time) (*AniDBAnime, error) {
+	key := anidbKey(aid)
 	if ok, why := c.allowed(aid, background); !ok {
-		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", a != nil)
-		if a != nil {
+		if a := c.again(ctx, aid, start); a != nil {
+			return a, nil
+		}
+		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", stale != nil)
+		if stale != nil {
 			if fetch.Observing(ctx) { // the error is only built for a match report
 				fetch.Observe(ctx, key, fetch.KindStale, start, fmt.Errorf("%w: %s", ErrAniDBUnavailable, why))
 			}
-			return a, nil // stale beats nothing
+			return stale, nil // stale beats nothing
 		}
 		err := fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
 		fetch.Observe(ctx, key, fetch.KindFail, start, err)
@@ -283,23 +300,49 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 	var parsed *AniDBAnime
 	var call *anidbCall
 	data, err := c.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, aid), Key: key,
-		Validate: func(b []byte) (err error) { parsed, err = c.validate(b); return err },
-		Before:   func() (err error) { call, err = c.sending(aid, background); return err },
-		Done:     func(err error) { c.result(aid, call, err) },
-		NoStale:  true, Quiet: true, Background: background})
+		Validate: func(b []byte) (err error) {
+			if parsed, err = c.validate(b); err == nil {
+				c.answered(aid) // before it is cached: a caller that misses the file can't call again
+			}
+			return err
+		},
+		Before:  func() (err error) { call, err = c.sending(aid, background); return err },
+		Done:    func(err error) { c.result(aid, call, err) },
+		NoStale: true, Quiet: true, Background: background})
 	if err != nil {
-		if a != nil {
+		if a := c.again(ctx, aid, start); a != nil {
 			return a, nil
+		}
+		if stale != nil {
+			return stale, nil
 		}
 		return nil, err
 	}
-	if a = parsed; a == nil {
+	a := parsed
+	if a == nil {
 		if a, err = parseAniDB(data); err != nil {
 			return nil, err
 		}
 	}
 	c.remember(a, true, time.Time{})
 	return a, nil
+}
+
+// again reads the cache once more when the API was not asked because aid
+// was fetched in the last 24 h: another caller's call may have stored the
+// entry since local looked. nil: no fresh copy there (that call's cache
+// write failed; AniDB is still not asked again).
+func (c *AniDB) again(ctx context.Context, aid int, start time.Time) *AniDBAnime {
+	if !c.fetchedLately(aid) {
+		return nil
+	}
+	a, fresh, _, _ := c.local(aid)
+	if a == nil || !fresh {
+		return nil
+	}
+	slog.Debug("anidb: from cache, fetched by another call", "aid", aid)
+	fetch.Observe(ctx, anidbKey(aid), fetch.KindCache, start, nil)
+	return a
 }
 
 // remember keeps a parsed entry in memory for an hour; mod is a stale

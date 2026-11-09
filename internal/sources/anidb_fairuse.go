@@ -85,7 +85,7 @@ func (c *AniDB) paused(now time.Time) string {
 	return ""
 }
 
-// admit checks the anime's last failure and the daily limit, and counts a
+// admit checks the anime's last call and the daily limit, and counts a
 // new call for aid ("" = allowed). Caller holds c.mu and saves.
 func (c *AniDB) admit(aid int, background bool, now time.Time) string {
 	for id, at := range c.state.Failed {
@@ -95,9 +95,17 @@ func (c *AniDB) admit(aid int, background bool, now time.Time) string {
 			delete(c.told, id)
 		}
 	}
+	for id, at := range c.state.Fetched {
+		if now.Sub(at) >= anidbRetry {
+			delete(c.state.Fetched, id)
+		}
+	}
 	if at, failed := c.state.Failed[aid]; failed {
 		c.tellBlocked(aid, at)
 		return "this anime failed at " + at.Format(time.RFC3339) + "; retried 24 h later"
+	}
+	if at, fetched := c.state.Fetched[aid]; fetched {
+		return "this anime was fetched at " + at.Format(time.RFC3339) + "; not asked again for 24 h"
 	}
 	recent := c.state.Sent[:0]
 	for _, t := range c.state.Sent {
@@ -159,6 +167,23 @@ func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 	call.at, call.sent = now, true
 	c.save()
 	return call, nil
+}
+
+// answered notes that AniDB answered aid's call with its entry, before the
+// entry is cached (result saves it).
+func (c *AniDB) answered(aid int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.state.Fetched[aid] = time.Now()
+}
+
+// fetchedLately reports whether AniDB answered a call for aid in the last
+// 24 h.
+func (c *AniDB) fetchedLately(aid int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, ok := c.state.Fetched[aid]
+	return ok && time.Since(at) < anidbRetry
 }
 
 // uncount takes a call that never went out off state.Sent. Caller holds c.mu.
@@ -285,7 +310,7 @@ func (c *AniDB) load() {
 	if fi, serr := os.Stat(c.statePath); serr == nil && fi.ModTime().Before(written) {
 		written = fi.ModTime()
 	}
-	c.state.BannedUntil, c.state.Sent, c.state.Failed = time.Time{}, nil, nil
+	c.state.BannedUntil, c.state.Sent, c.state.Failed, c.state.Fetched = time.Time{}, nil, nil, nil
 	c.state.Failures, c.state.RetryAt = 0, written.Add(anidbBanPause)
 	slog.Warn("AniDB state file unreadable: the ban and the calls of the last 24 h are unknown, so AniDB isn't asked until "+
 		"24 h after the file was last written (cache only until then)", "file", c.statePath,
