@@ -91,10 +91,13 @@ func (f EnvFile) Log() {
 	for _, p := range f.Problems {
 		slog.Warn("settings file: skipped a line", "path", f.Path, "problem", p)
 	}
-	for _, k := range slices.Concat(f.Keys, f.Overridden, f.Ignored) {
+	for _, k := range slices.Concat(f.Keys, f.Overridden) {
 		if !wasRead(k) && !slices.Contains(externalVars, k) {
 			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "setting", k)
 		}
+	}
+	for _, k := range f.Ignored {
+		slog.Warn("settings file: unknown setting (names must be upper case); ignoring it", "path", f.Path, "setting", k)
 	}
 }
 

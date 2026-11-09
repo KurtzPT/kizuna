@@ -243,7 +243,7 @@ TITLE_LANGS=en,main      # comments after a space are fine
 - Values may be in `"..."` or `'...'` (taken as written; needed for a `#` in a value). `export NAME=value` works too,
   so a shell can `source` the same file.
 - At startup Kizuna logs which file it read, which settings the environment overrode, and any name it doesn't know
-  (a typo). It never logs the values. The file holds your API keys: keep it readable only by Kizuna's user.
+  (a typo, or a name not in upper case). It never logs the values. The file holds your API keys: keep it readable only by Kizuna's user.
 
 | You set | Kizuna |
 |---|---|

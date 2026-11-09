@@ -247,6 +247,7 @@ const DefaultPort = 32600
 // listenAddr: LISTEN (a full address such as "127.0.0.1:32600") wins; else
 // PORT on every network interface.
 func listenAddr() string {
+	markRead("PORT") // a real setting even when LISTEN hides it: not a typo in the settings file
 	if v := env("LISTEN", ""); v != "" {
 		return v
 	}
