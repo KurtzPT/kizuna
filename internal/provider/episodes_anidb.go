@@ -54,6 +54,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			}
 			if e, ok := tvList.title(ep, "tvdb", record); ok {
 				paired++
+				ep.Directors, ep.Writers, ep.tvdbEp = e.Directors, e.Writers, e.ID // episodeCrew completes them
 				if fill {
 					ep.Thumb = firstOf(ep.Thumb, e.Thumb)
 					ep.Summary = firstOf(ep.Summary, e.Summary)
@@ -68,6 +69,6 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	slog.Debug("episode pairing", "root", s.Root, "tvdb", entry.TVDB.ID, "season", entry.TVDB.Season, "offset", entry.TVDB.Offset,
 		"exceptions", len(entry.TVDB.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
 		"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB)
-	crewOK := p.episodeCrew(ctx, s, tvList, tmList)
+	crewOK := p.episodeCrew(ctx, s, tmList)
 	return tvOK && tmOK && crewOK
 }

@@ -208,7 +208,5 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 // its episode list (TheTVDB's) and TheMovieDb's, paired through AniDB like
 // the titles (pr). Returns false while episode crew is still being fetched.
 func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
-	tv := pairedList{indexEpisodes(b.eps), func(ep *Ep) (spot, bool) { return ep.listed, true }}
-	tm := pairedList{b.tmdbEps, pr.otherAt}
-	return p.episodeCrew(ctx, s, tv, tm)
+	return p.episodeCrew(ctx, s, pairedList{b.tmdbEps, pr.otherAt}) // TheTVDB's crew is on the episodes already (episodesFromList)
 }

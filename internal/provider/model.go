@@ -64,6 +64,7 @@ type Ep struct {
 	pairs    map[string]string // source -> the episode there ("S01E05", "15207 · 3"), for the match report
 	anyTitle string            // AniDB title in any language: last resort
 	listed   spot              // /tvdb: season and in-season number on the episode list
+	tvdbEp   int               // the TheTVDB episode it is paired with (0 = none): its crew record's id
 	// listIndex: /anidb: the episode's number in Anime-Lists' mapping
 	// (sources.AniDBEpisode.ListIndex); 0 = Index.
 	listIndex int
@@ -315,11 +316,13 @@ func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Ent
 }
 
 // episodesFromList adds the episode list's episodes to s, at their season
-// and absolute number (specials at their number), with the list's title.
+// and absolute number (specials at their number), with the list's title
+// and crew (episodeCrew completes it).
 func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
-			Thumb: e.Thumb, Minutes: e.Minutes, listed: spot{e.Season, e.Number}}
+			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers,
+			listed: spot{e.Season, e.Number}, tvdbEp: e.ID}
 		if e.Season == 0 {
 			ep.Index = e.Number
 		}

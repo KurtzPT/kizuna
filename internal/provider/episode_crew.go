@@ -3,39 +3,35 @@ package provider
 import "context"
 
 // episodeCrew sets each episode's directors and writers: TheTVDB's, else
-// TheMovieDb's (per field). A TheTVDB v4 list has no crew: it's in one
-// record per episode (EpisodeCrew). Returns false while some of those are
-// still being fetched.
-func (p *Provider) episodeCrew(ctx context.Context, s *Show, tv, tm pairedList) bool {
+// TheMovieDb's (per field). The episodes already carry what TheTVDB's list
+// has (Ep.Directors, Ep.Writers) and the TheTVDB episode they are paired
+// with (Ep.tvdbEp), set where they were paired, so TheTVDB's list isn't
+// looked up again here. A TheTVDB v4 list has no crew: it's in one record
+// per episode (EpisodeCrew). Returns false while some of those are still
+// being fetched.
+func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList) bool {
 	var ids []int
 	s.eachEpisode(func(ep *Ep) {
-		if e, ok := tv.of(ep); ok && e.ID > 0 {
-			ids = append(ids, e.ID)
+		if ep.tvdbEp > 0 {
+			ids = append(ids, ep.tvdbEp)
 		}
 	})
 	crew, pending := p.tvdb.EpisodeCrew(ctx, ids)
 	s.eachEpisode(func(ep *Ep) {
-		te, tvOK := tv.of(ep)
-		me, tmOK := tm.of(ep)
-		if !tvOK && !tmOK {
-			return
+		if c, ok := crew[ep.tvdbEp]; ok && ep.tvdbEp > 0 {
+			ep.Directors, ep.Writers = c.Directors, c.Writers
 		}
-		var d, w []string
-		if tvOK {
-			d, w = te.Directors, te.Writers
-			if c, ok := crew[te.ID]; ok {
-				d, w = c.Directors, c.Writers
+		if len(ep.Directors) > 0 && len(ep.Writers) > 0 {
+			return // TheMovieDb's isn't needed
+		}
+		if me, ok := tm.of(ep); ok {
+			if len(ep.Directors) == 0 {
+				ep.Directors = me.Directors
+			}
+			if len(ep.Writers) == 0 {
+				ep.Writers = me.Writers
 			}
 		}
-		if tmOK {
-			if len(d) == 0 {
-				d = me.Directors
-			}
-			if len(w) == 0 {
-				w = me.Writers
-			}
-		}
-		ep.Directors, ep.Writers = d, w
 	})
 	return !pending
 }
