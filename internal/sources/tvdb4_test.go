@@ -2,6 +2,8 @@ package sources
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -244,5 +246,58 @@ func TestTVDBSeasonWithoutEnglishOnce(t *testing.T) {
 	_, _ = tv.SeasonOverview(ctx, 267440, 1)
 	if c := n.count(u); c != 2 {
 		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
+	}
+}
+
+// The extended series record that SeasonOverview and Details both read is
+// decoded once while its cache file keeps its time; a file written since is
+// read again. Records kept for seriesMemoFor go at the next one kept.
+func TestTVDBSeriesRecordOnce(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(&tvdbNet{answers: map[string]string{
+		v4 + "/login":                  `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/series/267440/extended": v4SeriesExtended,
+		v4 + "/series/1/extended":      `{"data": {"firstAired": "2001-01-01"}}`,
+	}})
+	tv := NewTVDB(f, "v4key", "", "")
+	ctx := context.Background()
+	if _, err := tv.SeasonOverview(ctx, 267440, 2); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "tvdb", "267440", "extended.json")
+	_, at, ok := f.CachedSince("tvdb/267440/extended.json")
+	if !ok {
+		t.Fatal("series record not cached")
+	}
+	if err := os.WriteFile(file, []byte(`{"data": {"firstAired": "2099-01-01"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(file, at, at); err != nil { // other bytes, same time: the decoded record stands
+		t.Fatal(err)
+	}
+	if d, err := tv.Details(ctx, 267440); err != nil || d.Date != "2013-04-07" {
+		t.Errorf("Details after SeasonOverview: %q %v, want the record already decoded", d.Date, err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(file, now, now); err != nil { // written since
+		t.Fatal(err)
+	}
+	if d, err := tv.Details(ctx, 267440); err != nil || d.Date != "2099-01-01" {
+		t.Errorf("Details after the file changed: %q %v, want it read again", d.Date, err)
+	}
+
+	tv.seriesMu.Lock()
+	m := tv.series[267440]
+	m.kept = now.Add(-seriesMemoFor)
+	tv.series[267440] = m
+	tv.seriesMu.Unlock()
+	if _, err := tv.Details(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	tv.seriesMu.Lock()
+	defer tv.seriesMu.Unlock()
+	if _, ok := tv.series[267440]; ok || len(tv.series) != 1 {
+		t.Errorf("%d records kept, want only the new one", len(tv.series))
 	}
 }

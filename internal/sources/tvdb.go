@@ -47,6 +47,55 @@ type TVDB struct {
 	// that answer stands (seasonTTL), so they aren't asked on every build.
 	seasonMu  sync.Mutex
 	noEnglish map[int]time.Time
+
+	// series: extended series records decoded lately (Details and
+	// SeasonOverview both read one in the same build), by series id.
+	seriesMu sync.Mutex
+	series   map[int]seriesMemo
+}
+
+// seriesMemo is one decoded extended series record. It stands for its cache
+// file while the file keeps the time it had when read; it is dropped
+// seriesMemoFor after that, at the next one kept, so a library scan doesn't
+// keep them all.
+type seriesMemo struct {
+	at, kept time.Time // the cache file's time; when it was kept
+	rec      *tvdbSeries
+}
+
+const seriesMemoFor = time.Minute
+
+// seriesTTL: how long the extended series record is cached.
+const seriesTTL = 7 * 24 * time.Hour
+
+// tvdbSeries: what Details and seasonID read of the extended series record.
+type tvdbSeries struct {
+	FirstAired string `json:"firstAired"`
+	Genres     []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
+	Companies []struct {
+		Name string `json:"name"`
+		Type *int   `json:"primaryCompanyType"`
+	} `json:"companies"`
+	Characters []struct {
+		Name       string `json:"name"` // character
+		PersonName string `json:"personName"`
+		PeopleType string `json:"peopleType"`
+		PersonImg  string `json:"personImgURL"`
+		Sort       int    `json:"sort"`
+	} `json:"characters"` // in sort order
+	Ratings []struct {
+		Name    string `json:"name"`
+		Country string `json:"country"`
+	} `json:"contentRatings"`
+	Seasons []struct {
+		ID     int `json:"id"`
+		Number int `json:"number"`
+		Type   struct {
+			Type string `json:"type"`
+		} `json:"type"`
+	} `json:"seasons"`
 }
 
 // seasonTTL: how long a season's text, or its lack of one, is kept.
@@ -66,7 +115,7 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
-		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}}
+		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}, series: map[int]seriesMemo{}}
 }
 
 func (t *TVDB) Enabled() bool { return t != nil && (t.key != "" || t.legacyKey != "") } // nil = not set up
@@ -434,21 +483,11 @@ func (t *TVDB) knownNoEnglish(sid int) bool {
 // seasonID finds a season's aired-order id in the extended series record
 // (0 if it isn't listed).
 func (t *TVDB) seasonID(ctx context.Context, id, season int) (int, error) {
-	var r struct {
-		Data struct {
-			Seasons []struct {
-				ID     int `json:"id"`
-				Number int `json:"number"`
-				Type   struct {
-					Type string `json:"type"`
-				} `json:"type"`
-			} `json:"seasons"`
-		} `json:"data"`
-	}
-	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
+	r, err := t.seriesRecord(ctx, id)
+	if err != nil {
 		return 0, err
 	}
-	for _, s := range r.Data.Seasons {
+	for _, s := range r.Seasons {
 		if s.Number == season && s.Type.Type == "official" {
 			return s.ID, nil
 		}
@@ -471,46 +510,22 @@ func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
 	if t.useLegacy(ctx) {
 		return t.details3(ctx, id)
 	}
-	var r struct {
-		Data struct {
-			FirstAired string `json:"firstAired"`
-			Genres     []struct {
-				Name string `json:"name"`
-			} `json:"genres"`
-			Companies []struct {
-				Name string `json:"name"`
-				Type *int   `json:"primaryCompanyType"`
-			} `json:"companies"`
-			Characters []struct {
-				Name       string `json:"name"` // character
-				PersonName string `json:"personName"`
-				PeopleType string `json:"peopleType"`
-				PersonImg  string `json:"personImgURL"`
-				Sort       int    `json:"sort"`
-			} `json:"characters"`
-			Ratings []struct {
-				Name    string `json:"name"`
-				Country string `json:"country"`
-			} `json:"contentRatings"`
-		} `json:"data"`
-	}
-	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), fmt.Sprintf("%d/extended.json", id), 7*24*time.Hour, &r); err != nil {
+	r, err := t.seriesRecord(ctx, id)
+	if err != nil {
 		return Details{}, err
 	}
-	d := Details{Date: r.Data.FirstAired}
-	for _, g := range r.Data.Genres {
+	d := Details{Date: r.FirstAired}
+	for _, g := range r.Genres {
 		d.Genres = append(d.Genres, g.Name)
 	}
 	for _, want := range []int{2, 3} { // TheTVDB company types: 2 studio, 3 production company
-		for _, c := range r.Data.Companies {
+		for _, c := range r.Companies {
 			if d.Studio == "" && c.Type != nil && *c.Type == want {
 				d.Studio = c.Name
 			}
 		}
 	}
-	people := r.Data.Characters
-	sort.SliceStable(people, func(i, j int) bool { return people[i].Sort < people[j].Sort })
-	for _, c := range people {
+	for _, c := range r.Characters {
 		switch c.PeopleType {
 		case "Actor":
 			d.Cast = append(d.Cast, Person{Name: c.PersonName, Role: c.Name, Photo: artURL(c.PersonImg)})
@@ -520,10 +535,48 @@ func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
 			d.Writers = appendNew(d.Writers, c.PersonName)
 		}
 	}
-	for _, c := range r.Data.Ratings {
+	for _, c := range r.Ratings {
 		d.addRating(alpha2(c.Country), c.Name)
 	}
 	return d, nil
+}
+
+// seriesRecord returns the extended series record, decoded once while its
+// cache file stays the same (seriesMemo). It is shared: read it, don't change it.
+func (t *TVDB) seriesRecord(ctx context.Context, id int) (*tvdbSeries, error) {
+	key := fmt.Sprintf("%d/extended.json", id)
+	t.seriesMu.Lock()
+	m, ok := t.series[id]
+	t.seriesMu.Unlock()
+	if ok {
+		start := time.Now()
+		if at, cached := t.f.CachedAt(cacheFolder(false) + key); cached && at.Equal(m.at) && time.Since(at) < seriesTTL {
+			fetch.Observe(ctx, cacheFolder(false)+key, fetch.KindCache, start, nil)
+			return m.rec, nil
+		}
+	}
+	var r struct {
+		Data tvdbSeries `json:"data"`
+	}
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/extended", id), key, seriesTTL, &r); err != nil {
+		return nil, err
+	}
+	people := r.Data.Characters
+	sort.SliceStable(people, func(i, j int) bool { return people[i].Sort < people[j].Sort })
+	// The file's time now is that of the bytes just read: downloads of one
+	// key don't overlap, and a stale copy answers only for a failed one.
+	if at, cached := t.f.CachedAt(cacheFolder(false) + key); cached {
+		now := time.Now()
+		t.seriesMu.Lock()
+		for id, m := range t.series {
+			if now.Sub(m.kept) >= seriesMemoFor {
+				delete(t.series, id)
+			}
+		}
+		t.series[id] = seriesMemo{at: at, kept: now, rec: &r.Data}
+		t.seriesMu.Unlock()
+	}
+	return &r.Data, nil
 }
 
 // Art returns posters, backgrounds and clear logos, highest score first.
