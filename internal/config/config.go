@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -132,6 +133,17 @@ func Load() Config {
 		CacheFreeTarget:    size("CACHE_FREE_TARGET", 2<<30),
 		MatchReports:       flag("MATCH_REPORTS", false),
 	}
+}
+
+// CheckSources fails when no mode can build a show: no AniDB client (for
+// /anidb and /auto) and no TheTVDB or TheMovieDb key (for /tvdb). Without
+// them Kizuna could only match titles and add Anime News Network details.
+func (c Config) CheckSources() error {
+	if c.AniDBClient != "" || c.TVDBKey != "" || c.TVDBLegacyKey != "" || c.TMDBKey != "" {
+		return nil
+	}
+	return errors.New("no AniDB client and no TheTVDB or TheMovieDb key, so no mode can build episodes: " +
+		"set ANIDB_CLIENT (for /anidb and /auto), or TVDB_API_KEY, TVDB_LEGACY_API_KEY or TMDB_API_KEY (for /tvdb). See SETUP.md")
 }
 
 // DefaultPort is Kizuna's port unless PORT or LISTEN says otherwise.

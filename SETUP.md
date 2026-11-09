@@ -44,6 +44,9 @@ AniDB account.
 | `/tvdb` | TheTVDB **or** TheMovieDb (TheTVDB is used when both are set) | seasons and episode lists |
 | `/auto` | AniDB **and** TheTVDB or TheMovieDb | both kinds of shows |
 
+With none of them (no `ANIDB_CLIENT`, no TheTVDB or TheMovieDb key) no mode can build episodes, so Kizuna doesn't
+start: it logs `can't start: no AniDB client and no TheTVDB or TheMovieDb key` and exits.
+
 Without an AniDB client, shows still match by title (from AniDB's offline title list), but get no AniDB details.
 
 **What each source can supply.** Every key you add is another source to pick from. You choose the order per field in

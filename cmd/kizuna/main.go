@@ -81,6 +81,10 @@ func main() {
 	cfg := config.Load()
 	if !healthCheck {
 		envFile.Log()
+		if err := cfg.CheckSources(); err != nil {
+			slog.Error("can't start: " + err.Error())
+			os.Exit(1)
+		}
 	}
 	fetch.UserAgent = "kizuna/" + provider.Version + " (personal Plex metadata provider)"
 	if healthCheck {

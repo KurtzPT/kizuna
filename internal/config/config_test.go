@@ -119,3 +119,19 @@ func TestBadValuesWarnAndUseDefault(t *testing.T) {
 		t.Errorf("LOG_RETENTION_DAYS=-3: %d (log %q), want 7 with a warning", days, log)
 	}
 }
+
+// Kizuna needs AniDB or TheTVDB/TheMovieDb: with none of them no mode can
+// build episodes.
+func TestCheckSources(t *testing.T) {
+	if err := (Config{}).CheckSources(); err == nil || !strings.Contains(err.Error(), "ANIDB_CLIENT") {
+		t.Errorf("nothing set: %v, want an error naming ANIDB_CLIENT", err)
+	}
+	for _, c := range []Config{{AniDBClient: "x"}, {TVDBKey: "x"}, {TVDBLegacyKey: "x"}, {TMDBKey: "x"}} {
+		if err := c.CheckSources(); err != nil {
+			t.Errorf("%+v: %v, want nil", c, err)
+		}
+	}
+	if err := (Config{MALClientID: "x"}).CheckSources(); err == nil {
+		t.Error("only MAL: nil, want an error (MAL has no episodes)")
+	}
+}
