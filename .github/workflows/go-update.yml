@@ -19,23 +19,26 @@ on:
     - cron: "17 6 * * 1" # Mondays 06:17 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+permissions: {}
 
 concurrency:
   group: go-update
 
 jobs:
   bump:
+    name: bump
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push the go-update/go-X.Y branch
+      pull-requests: write # open the pull request
+      actions: write       # start ci and docker on that branch
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: dev
+          persist-credentials: false
 
       - name: compare versions
         id: v
@@ -60,8 +63,10 @@ jobs:
       - name: skip if a pull request is already open
         id: open
         if: steps.v.outputs.new
+        env:
+          NEW: ${{ steps.v.outputs.new }}
         run: |
-          branch="go-update/go-${{ steps.v.outputs.new }}"
+          branch="go-update/go-$NEW"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
             echo "a pull request for $branch is already open"
@@ -83,7 +88,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git commit -am "Go $NEW"
-          git push --force origin "$BRANCH"
+          # the token only for this push, not left in .git/config
+          git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "$BRANCH"
 
           gh pr create --head "$BRANCH" --base dev --label dependencies \
             --title "Go $NEW" \

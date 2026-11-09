@@ -10,6 +10,7 @@
 # Every published image gets a signed build provenance attestation, so anyone
 # can check it was built here from this repo:
 #   gh attestation verify oci://ghcr.io/kurtzpt/kizuna:<tag> -R KurtzPT/kizuna
+# and carries an SBOM plus BuildKit's own provenance in the image index.
 name: docker
 
 on:
@@ -20,15 +21,23 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write     # attestation: sign with the workflow's identity (Sigstore)
-  attestations: write # attestation: store it on GitHub
+permissions: {}
+
+# a new push to a pull request replaces the run for the old one; pushes and
+# tags always finish, so every published tag gets its image
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   image:
+    name: image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write     # push the image to GHCR
+      id-token: write     # attestation: sign with the workflow's identity (Sigstore)
+      attestations: write # attestation: store it on GitHub
     env:
       # publish only from dev or a release tag (pull requests have a refs/pull/... ref)
       PUBLISH: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
@@ -38,6 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the stable-tag check below needs main's history
+          persist-credentials: false
 
       # :latest must only ever be something that was merged to main
       - name: stable tag is on main
@@ -102,6 +112,11 @@ jobs:
             GO_VERSION=${{ env.GO_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # in the image index, next to each platform's image: an SPDX SBOM
+          # (docker buildx imagetools inspect <image> --format '{{ json .SBOM }}')
+          # and full BuildKit provenance (build args, base image digests)
+          sbom: true
+          provenance: mode=max
 
       # Signed SLSA build provenance for the image just pushed (all its tags
       # share this digest), stored on GitHub and next to the image in GHCR.

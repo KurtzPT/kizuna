@@ -13,7 +13,9 @@ RUN go test ./... \
     go build -trimpath -ldflags "-s -w -X kizuna/internal/provider.Version=${VERSION}" -o /out/kizuna ./cmd/kizuna \
  && mkdir -p /out/data
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# pinned by digest so an image rebuild is reproducible; Dependabot opens a pull
+# request against dev when Google publishes a new one
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/kizuna /kizuna
 COPY --from=build --chown=1000:1000 /out/data /data
 ENV DATA_DIR=/data PORT=32600

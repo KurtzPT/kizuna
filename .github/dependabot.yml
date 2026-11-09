@@ -1,5 +1,8 @@
 # Weekly pull requests for outdated GitHub Actions and the distroless runtime
-# image. The golang build image is skipped: its version follows go.mod (see the
+# image (pinned by digest: a new digest is a pull request too). A release must be
+# 7 days old before it's proposed, so a hijacked or broken release has time to be
+# pulled first. The dependabot-automerge workflow merges the pull requests
+# against dev once the checks pass. The golang build image is skipped: its version follows go.mod (see the
 # Dockerfile), so a Go upgrade is a go.mod change. Kizuna has no Go module
 # dependencies outside the standard library, so there is nothing else to watch.
 #
@@ -14,6 +17,8 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -24,6 +29,8 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     ignore:
       - dependency-name: golang
     labels: ["dependencies"]
