@@ -322,3 +322,69 @@ func TestTVDBBackgroundCrewYields(t *testing.T) {
 	tv.f.Throttle(host, 0)
 	tv.crewQueue.Wait()
 }
+
+// A failed login (TheTVDB down, or the key rejected) is answered by the
+// expired cached copy, as a failed download is; without one, or for a
+// caller that asks for no stale copy, it's the call's error.
+func TestTVDBLoginDownServesStale(t *testing.T) {
+	for _, login := range []string{`503 {}`, `401 {"status":"failure"}`} {
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		n := &tvdbNet{answers: map[string]string{v4 + "/login": login}}
+		f.SetTransport(n)
+		tv := NewTVDB(f, "v4key", "", "")
+		p := filepath.Join(dir, "tvdb", "9", "eng.json")
+		if err := fetch.WriteFile(p, []byte(`{"data":{"name":"Stale"}}`)); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-30 * 24 * time.Hour)
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		if name, _, err := tv.Overview(ctx, 9); err != nil || name != "Stale" {
+			t.Errorf("login %s: overview %q %v, want the stale copy", login, name, err)
+		}
+		var r struct{}
+		if err := tv.getAs(ctx, false, getOpts{noStale: true}, "/series/9/translations/eng", "9/eng.json", seriesFilesTTL, &r); !errors.Is(err, errTVDBLogin) {
+			t.Errorf("login %s, no stale copy asked: err %v, want the login error", login, err)
+		}
+		if _, _, err := tv.Overview(ctx, 10); !errors.Is(err, errTVDBLogin) {
+			t.Errorf("login %s, nothing cached: err %v, want the login error", login, err)
+		}
+	}
+}
+
+// A renewal that fails without rejecting the key leaves the old token in
+// use while TheTVDB still accepts it; a rejection drops it.
+func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
+	cases := []struct {
+		login string
+		age   time.Duration
+		ok    bool
+	}{
+		{`503 {}`, 8 * 24 * time.Hour, true},
+		{`503 {}`, 29 * 24 * time.Hour, false}, // past its month
+		{`401 {"status":"failure"}`, 8 * 24 * time.Hour, false},
+	}
+	for _, c := range cases {
+		tv, n := newTVDBTest(t, map[string]string{
+			v4 + "/login":                     c.login,
+			v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
+			v4 + "/series/8/translations/eng": `{"data":{"name":"Other"}}`,
+		}, "v4key", "", "")
+		tv.mu.Lock()
+		tv.token, tv.tokenAt = "t-old", time.Now().Add(-c.age)
+		tv.mu.Unlock()
+		ctx := context.Background()
+		for _, id := range []int{9, 8} { // the second call is in the login pause
+			name, _, err := tv.Overview(ctx, id)
+			if got := err == nil && name != ""; got != c.ok {
+				t.Errorf("login %s, token %v old, series %d: %q %v, want ok %v", c.login, c.age, id, name, err, c.ok)
+			}
+		}
+		if logins := n.count(v4 + "/login"); logins != 1 {
+			t.Errorf("login %s, token %v old: %d logins, want 1", c.login, c.age, logins)
+		}
+	}
+}

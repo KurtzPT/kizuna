@@ -100,8 +100,15 @@ type tvdbSeries struct {
 	} `json:"seasons"`
 }
 
-// tvdbTokenLife: a v4 token is renewed after this long.
-const tvdbTokenLife = 7 * 24 * time.Hour
+// tvdbTokenLife: a v4 token is renewed after this long. TheTVDB accepts it
+// a month: while a renewal fails (not a rejected key), the old one is used up
+// to tvdbTokenValid. A v3 token: renewed after 20 hours, valid a day.
+const (
+	tvdbTokenLife   = 7 * 24 * time.Hour
+	tvdbTokenValid  = 28 * 24 * time.Hour
+	tvdb3TokenLife  = 20 * time.Hour
+	tvdb3TokenValid = 23 * time.Hour
+)
 
 // seriesFilesTTL: how long the series text and artwork are cached.
 const seriesFilesTTL = 7 * 24 * time.Hour
@@ -204,22 +211,28 @@ var errTVDBLogin = errors.New("tvdb login")
 
 // login returns a bearer token and whether it's for the legacy (v3) API. A
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
-// 20 hours). t.mu is never held over the network: one login runs at a time,
-// and callers that need a token meanwhile wait for it (or for their ctx).
+// 20 hours); while a renewal fails without the key being rejected, the old
+// token is used as long as it's valid. t.mu is never held over the network:
+// one login runs at a time, and callers that need a token meanwhile wait for
+// it (or for their ctx).
 func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 	for {
 		t.mu.Lock()
-		life := tvdbTokenLife
+		life, valid := tvdbTokenLife, tvdbTokenValid
 		if t.legacy {
-			life = 20 * time.Hour
+			life, valid = tvdb3TokenLife, tvdb3TokenValid
 		}
 		token, legacy, retryErr := t.token, t.legacy, t.loginErr
+		age := time.Since(t.tokenAt)
 		switch {
-		case token != "" && time.Since(t.tokenAt) < life:
+		case token != "" && age < life:
 			t.mu.Unlock()
 			return token, legacy, nil
 		case time.Now().Before(t.loginRetry):
 			t.mu.Unlock()
+			if token != "" && age < valid { // the renewal failed; a rejected key drops the token
+				return token, legacy, nil
+			}
 			return "", legacy, retryErr
 		}
 		if running := t.loggingIn; running != nil {
@@ -242,7 +255,9 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 		close(done)
 		again := t.loginDone(ctx, legacy, token, err)
 		t.mu.Unlock()
-		if !again {
+		// again: the legacy key takes over. A failure set the pause: the
+		// next round gives the old token, if still valid, or the error.
+		if !again && (err == nil || ctx.Err() != nil) {
 			return token, legacy, err
 		}
 	}
@@ -299,7 +314,7 @@ func (t *TVDB) loginDone(ctx context.Context, legacy bool, token string, err err
 	if legacy {
 		hint = "check TVDB_LEGACY_API_KEY"
 	}
-	t.loginErr, t.loginRetry = err, time.Now().Add(tvdbBadKeyPause)
+	t.token, t.loginErr, t.loginRetry = "", err, time.Now().Add(tvdbBadKeyPause)
 	slog.Error("TVDB rejected the API key: "+hint+"; TVDB is skipped until the next try",
 		"legacy", legacy, "retry_in", tvdbBadKeyPause, "err", err)
 	return false
@@ -338,7 +353,7 @@ func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key stri
 	for retried := false; ; retried = true {
 		token, tokenLegacy, err := t.login(ctx)
 		if err != nil {
-			return err
+			return t.stale(ctx, o, key, start, err, out)
 		}
 		if tokenLegacy != legacy {
 			return errTVDBSwitched
@@ -359,6 +374,22 @@ func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key stri
 		}
 		// No stale copy to answer with: try once more with a new token.
 	}
+}
+
+// stale answers a call whose login failed with the expired cached copy, as
+// fetch does for a failed download: old data beats none. Not when the caller
+// gave up or asked for no stale copy (noStale).
+func (t *TVDB) stale(ctx context.Context, o getOpts, key string, start time.Time, err error, out any) error {
+	if o.noStale || ctx.Err() != nil {
+		return err
+	}
+	data, age, ok := t.f.Cached(key)
+	if !ok {
+		return err
+	}
+	slog.Debug("tvdb login failed; using stale cache", "key", key, "age", age.Round(time.Minute), "err", err)
+	fetch.Observe(ctx, key, fetch.KindStale, start, err)
+	return json.Unmarshal(data, out)
 }
 
 func unauthorized(err error) bool {
