@@ -79,10 +79,11 @@ func (e AniDBEpisode) ListIndex() int {
 }
 
 // AniDB fetches anime details from the AniDB HTTP API, following its fair
-// use rules: one request every 4 s, at most 200 a day,
-// every answer cached for days, the same anime never asked twice in 24 h
-// (failures included), exponential backoff after failures and a 24 h pause
-// after a ban. All of it survives restarts (data/anidb-state.json).
+// use rules: one request every 4 s, at most 200 a day, every answer
+// cached for days, the same anime never asked twice in 24 h once AniDB
+// answered about it (an error too), exponential backoff after failures
+// without such an answer (those aren't counted) and a 24 h pause after a
+// ban. All of it survives restarts (data/anidb-state.json).
 type AniDB struct {
 	f         *fetch.Client
 	client    string
@@ -92,10 +93,10 @@ type AniDB struct {
 	mu    sync.Mutex
 	state struct {
 		BannedUntil time.Time         `json:"banned_until"`
-		Sent        []time.Time       `json:"sent"`     // API calls in the last 24 h
+		Sent        []time.Time       `json:"sent"`     // API calls in the last 24 h (not those that got no answer from AniDB)
 		Failures    int               `json:"failures"` // failed calls in a row (backoff step)
 		RetryAt     time.Time         `json:"retry_at"` // no calls before this (backoff)
-		Failed      map[int]time.Time `json:"failed"`   // aid -> last failed call (no retry for 24 h)
+		Failed      map[int]time.Time `json:"failed"`   // aid -> last call AniDB answered with an error or a ban (no retry for 24 h)
 		// Fetched: aid -> last call AniDB answered with its entry. No call
 		// for it for 24 h either, even when its cache file is missing (a
 		// failed write, or a caller that looked before it was stored).
@@ -110,9 +111,9 @@ type AniDB struct {
 	workers int                // prefetch workers running
 	working sync.WaitGroup     // the same workers (WaitIdle waits on it)
 	calling map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
-	// failWhy: why an anime's last call failed (memory only: unknown after
-	// a restart). told: the failure whose 24 h block was already logged at
-	// Info, so a show rebuilt every 2 minutes doesn't repeat it.
+	// failWhy: why a blocked anime's last call failed (memory only: unknown
+	// after a restart). told: the failure whose 24 h block was already
+	// logged at Info, so a show rebuilt every 2 minutes doesn't repeat it.
 	failWhy map[int]string
 	told    map[int]time.Time
 	// backedOffAt: when the last failure stepped the backoff up. A call

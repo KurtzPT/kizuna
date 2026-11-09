@@ -86,6 +86,12 @@ func fakeAniDBServer(t *testing.T, answer func(aid int) [2]string) (*AniDB, *ato
 		calls.Add(1)
 		aid, _ := strconv.Atoi(r.URL.Query().Get("aid"))
 		a := answer(aid)
+		if a[0] == "close" { // the connection drops after the request is read
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
 		code, _ := strconv.Atoi(a[0])
 		w.WriteHeader(code)
 		_, _ = w.Write([]byte(a[1]))
@@ -334,8 +340,9 @@ func TestAniDBGapCountsFromSend(t *testing.T) {
 // A call waiting in the 4 s queue when the answer ahead of it brings a ban
 // or a backoff is not sent when its turn comes: no request, its count given
 // back, the anime not marked failed, the backoff not stepped up again.
+// (The call ahead stays counted after a ban, not after a 500.)
 func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
-	for _, first := range [][2]string{{"200", "<error>Banned</error>"}, {"503", "Banned"}, {"500", "oops"}} {
+	for first, wantSent := range map[[2]string]int{{"200", "<error>Banned</error>"}: 1, {"503", "Banned"}: 1, {"500", "oops"}: 0} {
 		out, hold := make(chan struct{}), make(chan struct{})
 		c, calls := fakeAniDBServer(t, func(aid int) [2]string {
 			if aid != 1 {
@@ -375,9 +382,9 @@ func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
 		c.mu.Lock()
 		sent, failures, calling, failed := len(c.state.Sent), c.state.Failures, c.calling[2], c.state.Failed[2]
 		c.mu.Unlock()
-		if sent != 1 || !failed.IsZero() || failures > 1 || calling != nil {
-			t.Fatalf("after %v: %d calls counted, anime 2 failed at %v, %d failures, still calling %v; want 1, never, at most 1, no",
-				first, sent, failed, failures, calling)
+		if sent != wantSent || !failed.IsZero() || failures > 1 || calling != nil {
+			t.Fatalf("after %v: %d calls counted, anime 2 failed at %v, %d failures, still calling %v; want %d, never, at most 1, no",
+				first, sent, failed, failures, calling, wantSent)
 		}
 
 		c.mu.Lock()
@@ -460,8 +467,8 @@ func TestAniDBOverlappingFailuresOneStep(t *testing.T) {
 	for i, call := range calls {
 		c.result(i+1, call, failed)
 	}
-	if c.state.Failures != 1 || len(c.state.Failed) != 0 || len(c.state.Sent) != 3 {
-		t.Fatalf("%d failures (want 1), %d anime blocked (want 0: a server error is no anime's fault), %d calls counted (want 3)",
+	if c.state.Failures != 1 || len(c.state.Failed) != 0 || len(c.state.Sent) != 0 {
+		t.Fatalf("%d failures (want 1), %d anime blocked (want 0: a server error is no anime's fault), %d calls counted (want 0)",
 			c.state.Failures, len(c.state.Failed), len(c.state.Sent))
 	}
 }
@@ -828,18 +835,17 @@ func TestAniDBStopEndsBackgroundCalls(t *testing.T) {
 	}
 }
 
-// A network or server error (not a ban) is AniDB's or the connection's
-// fault, not the anime's: no anime waits 24 h, the backoff holds every call,
-// and once it ends the same anime is asked again. A call that never reached
-// AniDB (no connection) isn't one of the day's; one that may have is.
+// A failure without AniDB's answer about the anime (here a 500) is no
+// anime's fault: no anime waits 24 h, the backoff holds every call, and
+// once it ends the same anime is asked again.
 func TestAniDBOutageBlocksNoAnime(t *testing.T) {
 	c, calls := fakeAniDB(t, [2]string{"500", "oops"}, [2]string{"200", anidbSample})
 	ctx := context.Background()
 	if _, err := c.Anime(ctx, 1); err == nil {
 		t.Fatal("want an error")
 	}
-	if _, blocked := c.BlockedUntil(1); blocked || len(c.state.Sent) != 1 || c.state.Failures != 1 {
-		t.Fatalf("after a 500: blocked %v, %d calls counted, %d failures; want false, 1, 1", blocked, len(c.state.Sent), c.state.Failures)
+	if _, blocked := c.BlockedUntil(1); blocked || c.state.Failures != 1 {
+		t.Fatalf("after a 500: blocked %v, %d failures; want false, 1", blocked, c.state.Failures)
 	}
 	if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
 		t.Fatalf("during the backoff: calls=%d err=%v; want 1, unavailable", calls.Load(), err)
@@ -852,20 +858,69 @@ func TestAniDBOutageBlocksNoAnime(t *testing.T) {
 	}
 }
 
-func TestAniDBNoConnectionNotCounted(t *testing.T) {
-	c, _ := fakeAniDB(t)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+// Each kind of failed call: one without AniDB's answer about the anime
+// blocks no anime and isn't one of the day's calls (only the backoff
+// holds); a ban, a rejected client, an <error> about the anime and XML that
+// doesn't parse stay counted, and block the anime (a rejected client blocks
+// every call instead).
+func TestAniDBFailureKinds(t *testing.T) {
+	for name, c := range map[string]struct {
+		answer  [2]string // "refused": nothing listens; "close": the connection drops after the request
+		blocked bool      // the anime waits 24 h
+		counted bool      // one of the day's calls
+		pauses  bool      // every call waits (a backoff, a ban, a rejected client)
+	}{
+		"no connection":      {[2]string{"refused", ""}, false, false, true},
+		"connection dropped": {[2]string{"close", ""}, false, false, true},
+		"server error":       {[2]string{"500", "oops"}, false, false, true},
+		"client error":       {[2]string{"404", "not here"}, false, false, true},
+		"redirect":           {[2]string{"302", ""}, false, false, true},
+		"broken gzip":        {[2]string{"200", " not gzip"}, false, false, true},
+		"not AniDB's XML":    {[2]string{"200", "<html>maintenance</html>"}, false, false, true},
+		"ban":                {[2]string{"503", "Banned"}, true, true, true},
+		"banned answer":      {[2]string{"200", "<error>Banned</error>"}, true, true, true},
+		"rejected client":    {[2]string{"200", "<error>Client Values Missing or Invalid</error>"}, false, true, true},
+		"error answer":       {[2]string{"200", "<error>Anime not found</error>"}, true, true, false},
+		"unparseable XML":    {[2]string{"200", "<anime id=\"1\"><titles>"}, true, true, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, _ := fakeAniDB(t, c.answer)
+			if c.answer[0] == "refused" {
+				ln, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				addr := ln.Addr().String()
+				_ = ln.Close()
+				anidbAPI = "http://" + addr + "/?client=%s&clientver=%s&aid=%d"
+				a.f.Throttle(addr, 0)
+			}
+			if _, err := a.Anime(context.Background(), 1); err == nil {
+				t.Fatal("want an error")
+			}
+			_, blocked := a.BlockedUntil(1)
+			a.mu.Lock()
+			sent := len(a.state.Sent)
+			paused := a.paused(time.Now()) != ""
+			a.mu.Unlock()
+			if blocked != c.blocked || (sent == 1) != c.counted || sent > 1 || paused != c.pauses {
+				t.Fatalf("blocked %v (want %v), %d calls counted (want counted %v), every call paused %v (want %v)",
+					blocked, c.blocked, sent, c.counted, paused, c.pauses)
+			}
+		})
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close() // nothing listens there: the connection is refused
-	anidbAPI = "http://" + addr + "/?client=%s&clientver=%s&aid=%d"
-	c.f.Throttle(addr, 0)
-	if _, err := c.Anime(context.Background(), 1); err == nil {
-		t.Fatal("want an error")
-	}
-	if _, blocked := c.BlockedUntil(1); blocked || len(c.state.Sent) != 0 || c.state.Failures != 1 {
-		t.Fatalf("no connection: blocked %v, %d calls counted, %d failures; want false, 0, 1", blocked, len(c.state.Sent), c.state.Failures)
-	}
+	t.Run("answer too big", func(t *testing.T) { // too big to send here: fetch's error, straight to result
+		a, _ := fakeAniDB(t)
+		if ok, why := a.allowed(1, false); !ok {
+			t.Fatal(why)
+		}
+		call, err := a.sending(1, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.result(1, call, errors.New("answer larger than 64 MB"))
+		if _, blocked := a.BlockedUntil(1); blocked || len(a.state.Sent) != 0 || a.state.Failures != 1 {
+			t.Fatalf("blocked %v, %d calls counted, %d failures; want false, 0, 1", blocked, len(a.state.Sent), a.state.Failures)
+		}
+	})
 }
