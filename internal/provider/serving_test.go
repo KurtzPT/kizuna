@@ -37,6 +37,9 @@ func TestReadMatch(t *testing.T) {
 		{"query fallback", "?title=Query&year=2001&manual=true", `{"title":"Body"}`,
 			MatchRequest{Type: 2, Title: "Body", Year: 2001, Manual: 1}},
 		{"query only", "?type=2&title=Query", "", MatchRequest{Type: 2, Title: "Query"}},
+		{"JSON includeChildren", "", `{"type":3,"parentTitle":"Show","includeChildren":1}`,
+			MatchRequest{Type: 3, ParentTitle: "Show", IncludeChildren: 1}},
+		{"query includeChildren", "?includeChildren=1", "type=2&title=Show", MatchRequest{Type: 2, Title: "Show", IncludeChildren: 1}},
 		{"garbage numbers", "", `{"title":"Show","year":"soon","index":"x"}`, MatchRequest{Type: 2, Title: "Show"}},
 	}
 	for _, c := range cases {
