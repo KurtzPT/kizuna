@@ -105,3 +105,26 @@ func TestTitleApostrophes(t *testing.T) {
 		t.Errorf("CleanSummary: %q", got)
 	}
 }
+
+// Score rates a name against one anime's titles as Search would.
+func TestScore(t *testing.T) {
+	titles := []Title{{"main", "x-jat", "One Piece Film Red"}, {"official", "ja", "ONE PIECE FILM RED"}, {"short", "en", "Film Red"}}
+	for name, want := range map[string]int{
+		"One Piece Film Red":       100,
+		"one piece film red":       100, // the same title, another case
+		"One Piece - Film Red!":    98,
+		"One Piece Film Red (BD)":  98, // a bracketed part goes
+		"":                         0,
+		"[Group] (1080p) [abc123]": 0,
+	} {
+		if got := Score(name, titles); got != want {
+			t.Errorf("%q: %d, want %d", name, got, want)
+		}
+	}
+	if s := Score("One Piece", titles); s >= 80 {
+		t.Errorf("the series' own title: %d, want a weak score", s)
+	}
+	if s := Score("One Piece Film Gold", titles); s < 70 || s > 97 {
+		t.Errorf("a near title: %d, want an edit similarity", s)
+	}
+}

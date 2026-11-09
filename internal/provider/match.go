@@ -171,6 +171,11 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 			}
 			return nil, fmt.Sprintf("tag %s: /%s is off, set %s", m[0], rules.Path, need)
 		}
+		if strings.EqualFold(m[1], "tvdb") {
+			if c, note, ok := p.specialRoot(m[0], m[2], title, query, r.Filename, year); ok {
+				return []candidate{c}, "tag " + m[0] + ", " + note
+			}
+		}
 		if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
 			return []candidate{{root, 100}}, "tag " + m[0]
 		}
@@ -180,6 +185,13 @@ func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, not
 	}
 	for _, re := range []*regexp.Regexp{guidRe, otherGUIDRe} {
 		if m := re.FindStringSubmatch(guid); m != nil {
+			// Another agent's TheTVDB GUID names the series like a tag; Kizuna's
+			// own (and HAMA's) GUID is an earlier match or a Fix Match: kept.
+			if re == otherGUIDRe && (strings.EqualFold(m[1], "thetvdb") || strings.EqualFold(m[1], "tvdb")) {
+				if c, note, ok := p.specialRoot(guid, m[2], title, query, r.Filename, year); ok {
+					return []candidate{c}, "guid " + guid + ", " + note
+				}
+			}
 			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
 				return []candidate{{root, 100}}, "guid " + guid
 			}

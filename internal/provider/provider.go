@@ -68,6 +68,7 @@ type Provider struct {
 	offLogged    everyTenMinutes // requests for a mode that is off (server.go)
 	tagOffLogged everyTenMinutes // /auto id tags for a mode that is off (match.go)
 	tagsLogged   everyTenMinutes // titles with more than one id tag (match.go)
+	nameLogged   everyTenMinutes // titles matched by name inside a TheTVDB id (match_specials.go)
 	titles       *anidb.Titles
 	anidb        *sources.AniDB
 	lists        *mapping.Lists
@@ -132,7 +133,7 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	loaded := make(chan struct{})
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
-		tagsLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
+		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
 }
 
 // Loading marks the lists as still loading for the first time: /health

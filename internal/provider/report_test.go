@@ -258,3 +258,18 @@ func TestBuildChecksPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+// A match by name inside a TheTVDB id says so in the report, with the tags
+// that make it sure.
+func TestBuildChecksByName(t *testing.T) {
+	how := "tag [tvdb-81797], by name: AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure"
+	cs := buildChecks(&Show{Title: "Show", Complete: true}, &report.Build{Match: &report.Match{How: how, Score: 100}}, nil)
+	i := slices.IndexFunc(cs, func(c report.Check) bool { return c.Title == "Matched by name inside a TheTVDB id" })
+	if i < 0 || !strings.Contains(cs[i].Text, "use [anidb-16983] or [tmdb-900667] to be sure") {
+		t.Errorf("checks %+v, want the by-name check with the tags", cs)
+	}
+	if slices.ContainsFunc(buildChecks(&Show{Complete: true}, &report.Build{Match: &report.Match{How: "tag [tvdb-81797]"}}, nil),
+		func(c report.Check) bool { return c.Title == "Matched by name inside a TheTVDB id" }) {
+		t.Error("a plain tag match: want no by-name check")
+	}
+}

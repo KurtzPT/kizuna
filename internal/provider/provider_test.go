@@ -588,3 +588,102 @@ func TestSpecialOnlyIsItsOwnShow(t *testing.T) {
 		}
 	}
 }
+
+// A [tvdb-N] tag (or another agent's TheTVDB GUID) on a movie's folder: the
+// show title or the file name picks one of the series' special-only entries
+// when it clearly names it, with one warning per title every 10 minutes.
+// Anything else keeps the whole series.
+func TestTVDBTagNameSearch(t *testing.T) {
+	l, titles := onePiece()
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	newP := func() *Provider {
+		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", ""),
+			nameLogged: everyTenMinutes{max: 1000}}
+		p.cfg.MinScore = 80
+		return p
+	}
+	cases := []struct {
+		mode, title, file, guid string
+		year                    int
+		want, how               string // how: the start of the match note
+	}{
+		{"tvdb", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983",
+			"tag [tvdb-81797], by name: AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure"},
+		{"tvdb", "Movie [tvdb-81797]", "/anime/Movie [tvdb-81797]/[Group] One Piece Film Red (BD 1080p) [ABCD1234].mkv", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
+		{"anidb", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
+		{"auto", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
+		{"tvdb", "One Piece Film Red", "", "com.plexapp.agents.thetvdb://81797?lang=en", 0, "anidb-16983", "guid com.plexapp.agents.thetvdb://81797?lang=en, by name"},
+		{"tvdb", "One Piece Film Red", "", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", 0, "tvdb-81797", "guid "}, // Kizuna's own: kept
+		{"tvdb", "One Piece [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                                     // the series' own title
+		{"tvdb", "One Piece Movie [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                               // too weak
+		{"tvdb", "One Piece Film Re [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                             // Red and Z too close
+		{"tvdb", "Something Else [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},
+		{"anidb", "One Piece [tvdb-81797]", "", "", 0, "anidb-69", "tag [tvdb-81797]"},
+	}
+	for _, c := range cases {
+		p := newP()
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		for range 3 { // the same title again: no new warning
+			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid, Filename: c.file, Year: c.year}, nil)
+			if len(got) != 1 || got[0].root != c.want || !strings.HasPrefix(how, c.how) {
+				t.Errorf("/%s %q %q %q: got %v (%s), want %s (%s…)", c.mode, c.title, c.file, c.guid, got, how, c.want, c.how)
+			}
+		}
+		restore()
+		warned := 0
+		if strings.HasPrefix(c.want, "anidb-") && c.want != "anidb-69" {
+			warned = 1
+		}
+		if n := strings.Count(logs.String(), "level=WARN msg=\"match: matched to an AniDB entry by name"); n != warned {
+			t.Errorf("/%s %q: %d warnings, want %d:\n%s", c.mode, c.title, n, warned, logs.String())
+		}
+	}
+}
+
+// The name search inside a [tvdb-N] tag needs a clear winner: a margin over
+// the series' first entry, and of two equal special-only entries the one of
+// Plex's year. A series with one AniDB entry maps straight to it.
+func TestTVDBTagNameSearchTies(t *testing.T) {
+	l := &mapping.Lists{}
+	l.SetForTest(map[int]mapping.Entry{
+		1: {AID: 1, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}},
+		2: {AID: 2, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 0, Mapped: true}},
+		3: {AID: 3, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 1, Mapped: true}},
+		4: {AID: 4, TVDB: mapping.Placement{ID: 500, Season: 0, Offset: 2, Mapped: true}},
+		9: {AID: 9, TVDB: mapping.Placement{ID: 900, Season: 0, Mapped: true}}, // a series' only entry
+	})
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{
+		1: {{Type: "main", Lang: "x-jat", Text: "Kizuna Movies"}},
+		2: {{Type: "main", Lang: "x-jat", Text: "Kizuna Movie"}},
+		3: {{Type: "main", Lang: "x-jat", Text: "Kizuna Gekijouban (2010)"}},
+		4: {{Type: "main", Lang: "x-jat", Text: "Kizuna Gekijouban (2020)"}},
+		9: {{Type: "main", Lang: "x-jat", Text: "Lonely OVA"}},
+	})
+	p := &Provider{lists: l, titles: titles, tvdb: sources.NewTVDB(fetch.New(t.TempDir()), "key", "", "")}
+	p.cfg.MinScore = 80
+	cases := []struct {
+		title string
+		year  int
+		want  string
+	}{
+		{"Kizuna Movie [tvdb-500]", 0, "tvdb-500"},            // 100 against the series' 92: no margin
+		{"Kizuna Gekijouban [tvdb-500]", 0, "tvdb-500"},       // two entries, same score: a tie
+		{"Kizuna Gekijouban [tvdb-500]", 2020, "anidb-4"},     // Plex's year breaks it
+		{"Kizuna Gekijouban [tvdb-500]", 2015, "tvdb-500"},    // neither's year
+		{"Kizuna Gekijouban (2010) [tvdb-500]", 0, "anidb-3"}, // the exact title wins outright
+		{"Lonely OVA [tvdb-900]", 0, "tvdb-900"},              // one entry: no name search
+		{"Something Else [tvdb-900]", 0, "tvdb-900"},          //
+	}
+	for _, c := range cases {
+		got, how := p.searchCandidates(Modes["tvdb"], c.title, MatchRequest{Year: c.year}, nil)
+		if len(got) != 1 || got[0].root != c.want {
+			t.Errorf("%q year %d: got %v (%s), want %s", c.title, c.year, got, how, c.want)
+		}
+		if c.want == "tvdb-900" && strings.Contains(how, "by name") {
+			t.Errorf("%q: %s, want no name search for a series with one entry", c.title, how)
+		}
+	}
+}

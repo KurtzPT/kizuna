@@ -291,6 +291,33 @@ func (t *Titles) Search(query string, year, limit int) []Match {
 	return out
 }
 
+// Score scores a name against one anime's titles the way Search scores a
+// title (100 exact, 98 equal after normalizing, else edit similarity up to
+// 97), but without the index or the year: for comparing a few known entries.
+// 0 when either side is empty.
+func Score(query string, titles []Title) int {
+	q := Normalize(query)
+	if q == "" {
+		return 0
+	}
+	var sim similarity
+	qr := []rune(q)
+	best := 0
+	for _, ti := range titles {
+		norm := Normalize(ti.Text)
+		switch {
+		case norm == "":
+		case strings.EqualFold(ti.Text, strings.TrimSpace(query)):
+			return 100
+		case norm == q:
+			best = max(best, 98)
+		default:
+			best = max(best, sim.score(qr, norm))
+		}
+	}
+	return best
+}
+
 var queryYearRe = regexp.MustCompile(`\(((?:19|20)\d\d)\)`)
 
 // yearOf returns the year to look for: the one given, else a "(2011)" in

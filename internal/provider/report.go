@@ -322,6 +322,13 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 		out = append(out, report.Check{Level: report.LevelInfo, Title: fmt.Sprintf("Matched by title search with score %d", m.Score),
 			Text: "Not an exact title. If it is the wrong show, add an id tag such as [anidb-N] to the folder name.", Section: report.SectionMatch})
 	}
+	if m := b.Match; m != nil {
+		if _, note, ok := strings.Cut(m.How, ", by name: "); ok { // see specialByName
+			out = append(out, report.Check{Level: report.LevelWarn, Title: "Matched by name inside a TheTVDB id",
+				Text:    "The TheTVDB id names a whole series; the title or file name picked one of its movies or specials: " + note + ".",
+				Section: report.SectionMatch})
+		}
+	}
 	for j, codes := range with {
 		if pr := episodeProblems[j]; len(codes) > 0 {
 			out = append(out, report.Check{Level: pr.level, Title: plural(len(codes), "episode has", "episodes have") + pr.title,
