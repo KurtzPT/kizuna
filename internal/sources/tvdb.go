@@ -100,6 +100,12 @@ type tvdbSeries struct {
 	} `json:"seasons"`
 }
 
+// tvdbTokenLife: a v4 token is renewed after this long.
+const tvdbTokenLife = 7 * 24 * time.Hour
+
+// seriesFilesTTL: how long the series text and artwork are cached.
+const seriesFilesTTL = 7 * 24 * time.Hour
+
 // seasonTTL: how long a season's text (or its lack of one) and its
 // artwork are kept.
 const seasonTTL = 7 * 24 * time.Hour
@@ -151,7 +157,8 @@ func (t *TVDB) isLegacy() bool {
 // needs no token, and a login could hang on a TheTVDB that's down.
 func (t *TVDB) useLegacy(ctx context.Context, key string, ttl time.Duration) bool {
 	t.mu.Lock()
-	check := t.key != "" && t.legacyKey != "" && !t.legacy && t.loggingIn == nil
+	check := t.key != "" && t.legacyKey != "" && !t.legacy && t.loggingIn == nil &&
+		(t.token == "" || time.Since(t.tokenAt) >= tvdbTokenLife) // with a valid token, login is instant
 	t.mu.Unlock()
 	if check && !t.v4Fresh(key, ttl) {
 		_, _, _ = t.login(ctx)
@@ -202,7 +209,7 @@ var errTVDBLogin = errors.New("tvdb login")
 func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 	for {
 		t.mu.Lock()
-		life := 7 * 24 * time.Hour
+		life := tvdbTokenLife
 		if t.legacy {
 			life = 20 * time.Hour
 		}
@@ -451,7 +458,7 @@ func episodePages(id, first int, read func(page int) (more bool, err error)) err
 // gives "" and no error, and isn't asked again for seasonTTL.
 func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err error) {
 	key := fmt.Sprintf("%d/eng.json", id)
-	if t.useLegacy(ctx, key, 7*24*time.Hour) {
+	if t.useLegacy(ctx, key, seriesFilesTTL) {
 		return t.overview3(ctx, id)
 	}
 	if t.knownNoEnglish(t.noEnglishSeries, id) {
@@ -463,7 +470,7 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	err = t.getAs(ctx, false, getOpts{quiet: true}, fmt.Sprintf("/series/%d/translations/eng", id), key, 7*24*time.Hour, &r)
+	err = t.getAs(ctx, false, getOpts{quiet: true}, fmt.Sprintf("/series/%d/translations/eng", id), key, seriesFilesTTL, &r)
 	switch {
 	case noLanguage(err):
 		t.noEnglishUntil(t.noEnglishSeries, id)
@@ -698,7 +705,7 @@ func byScore(arts []tvdbArtwork) {
 // no-language first, highest score first.
 func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	key := fmt.Sprintf("%d/artworks.json", id)
-	if t.useLegacy(ctx, key, 7*24*time.Hour) {
+	if t.useLegacy(ctx, key, seriesFilesTTL) {
 		return t.art3(ctx, id)
 	}
 	var r struct {
@@ -706,7 +713,7 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 			Artworks []tvdbArtwork `json:"artworks"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), key, 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), key, seriesFilesTTL, &r); err != nil {
 		return Art{}, err
 	}
 	arts := r.Data.Artworks
