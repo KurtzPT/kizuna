@@ -187,7 +187,7 @@ const count = (text, re) => (text.match(re) || []).length;
     check(md.includes("- File: Lighthouse Keepers - S09E01.mkv"), `${what}: the latest match's bare file name`);
     if (n === 0) {
       check(md.includes("- File: Lighthouse Keepers - S01E01.mkv"), `${what}: the match's bare file name`);
-      check(md.includes("| S01E08 | AniDB 7 ep 8 | The Promise &lt;/script&gt;&lt;b&gt;x | AniDB | no air date |"), `${what}: the episode row with its pairing, title, source and issue`);
+      check(md.includes("| S01E08 | AniDB episode 8 of anime 7 | The Promise &lt;/script&gt;&lt;b&gt;x | AniDB | no air date |"), `${what}: the episode row with its pairing, title, source and issue`);
       check(md.includes("- Warning: A source failed: tmdb details. The other sources filled in. See [api.themoviedb.org] for it."), `${what}: a check, its address cut to the host`);
       check(md.includes("| Summary | TVDB | AniDB, TVDB |") && md.includes("| 7 | Lighthouse Keepers | 86 |") && md.includes("- Specials: 1 episode"), `${what}: the fields, candidates and seasons`);
     } else {

@@ -234,7 +234,9 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .ep-t{min-width:0;overflow-wrap:anywhere}
 .ep-i{display:block;color:var(--warn);font-size:13px}
 .ep-i::before{background:var(--warn);clip-path:polygon(50% 0,100% 100%,0 100%)}
-.ep-p{color:var(--muted);font:12.5px/1.6 var(--mono);min-width:0;overflow-wrap:anywhere}
+.ep-p{color:var(--muted);font-size:13px;line-height:1.6;min-width:0;overflow-wrap:anywhere}
+.ep-p .mono{font-size:12.5px}
+.pair-n{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 .ep-d{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .ep-x{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;padding:6px 16px 16px 38px;background:var(--sunk);border-top:1px solid var(--rule)}
 .ep-x.nothumb{grid-template-columns:minmax(0,1fr)}
@@ -489,6 +491,23 @@ const link = (u, text) => isUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="n
 const bytes = n => n >= 1024*1024 ? (n/1048576).toFixed(1)+" MB" : n >= 1024 ? (n/1024).toFixed(1)+" KB" : n+" B";
 const siteLink = (site, v) => SITE_URL[site] ? `<a href="${esc(SITE_URL[site](encodeURIComponent(v)))}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>` : esc(v);
 const se = (s, e) => `S${pad(s)}E${pad(e)}`;
+// An AniDB pairing is recorded as "<anime id> ep <episode>"; the episode can
+// carry AniDB's letter for a special, credits and the like ("S1", "C2").
+const ANIDB_EP = {S: "special", C: "credits", T: "trailer", P: "parody", O: "other"};
+function anidbPair(v) {
+  const m = /^(\d+) ep (\S+)$/.exec(String(v)); if (!m) return null;
+  const k = /^([SCTPO])(\d+)$/.exec(m[2]);
+  return {aid: m[1], kind: k ? ANIDB_EP[k[1]] : "episode", no: k ? k[2] : m[2]};
+}
+// One pairing as words: the episode first and strong, the anime it is in after.
+const pairText = (s, v) => { const p = s === "anidb" && anidbPair(v); return p ? `${p.kind} ${p.no} of anime ${p.aid}` : String(v); };
+const pairHTML = (s, v, short) => {
+  const p = s === "anidb" && anidbPair(v);
+  if (!p) return `<span class="mono">${esc(v)}</span>`;
+  const kind = short && p.kind === "episode" ? "ep" : p.kind;
+  return short ? `<b class="pair-n">${esc(kind)} ${esc(p.no)}</b> of ${esc(p.aid)}`
+    : `${esc(p.kind[0].toUpperCase() + p.kind.slice(1))} <b class="pair-n">${esc(p.no)}</b> <span class="dim">of anime</span> <a class="mono" href="https://anidb.net/anime/${esc(p.aid)}" target="_blank" rel="noopener noreferrer" title="This show's entry on AniDB">${esc(p.aid)}</a>`;
+};
 // Whole seconds as Go prints a duration: 6s, 1m30s, 2m0s, 1h0m5s.
 const dur = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return (h ? h+"h" : "") + (h || m ? m+"m" : "") + (s%60) + "s"; };
 // How a request was answered (report.Answer), in words.
@@ -685,11 +704,11 @@ function epMatcher(q) {
 }
 function epRow(i) {
   const e = EP.eps[i], open = EP.openEps.has(i);
-  const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `${name(s)} ${v}`).join(", ");
+  const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `${esc(name(s))} ${pairHTML(s, v, true)}`).join(", ");
   return `<div class="ep" data-i="${i}"><button class="ep-h" aria-expanded="${open}">
     <span class="ep-n">${se(e.s, e.e)}</span><span class="ep-f">${th(e.from)}</span>
     <span class="ep-t">${e.title ? esc(e.title) : `<span class="dim">Episode ${esc(e.e)}: no title was sent</span>`}${e.issue ? `<span class="ep-i">${esc(e.issue)}</span>` : ""}</span>
-    <span class="ep-p">${esc(pairs)}</span><span class="ep-d">${esc(e.date || "")}</span></button>${open ? episodeDetail(e) : ""}</div>`;
+    <span class="ep-p">${pairs}</span><span class="ep-d">${esc(e.date || "")}</span></button>${open ? episodeDetail(e) : ""}</div>`;
 }
 function episodeDetail(e) {
   const src = k => (e.src || {})[k] || null, rows = [];
@@ -704,7 +723,7 @@ function episodeDetail(e) {
   if (e.thumb) rows.push(["Thumbnail", src("thumb"), link(e.thumb), "mono"]);
   if ((e.guids || []).length) rows.push(["GUIDs", false, esc(e.guids.join("\n")), "mono"]);
   titles.forEach(([s, t], n) => rows.push([n ? "" : "Titles offered", s, esc(t) + (s === e.from ? '<span class="sentword">sent</span>' : "")]));
-  Object.entries(e.pairs || {}).forEach(([s, v], n) => rows.push([n ? "" : "Paired with", s, esc(v), "mono"]));
+  Object.entries(e.pairs || {}).forEach(([s, v], n) => rows.push([n ? "" : "Paired with", s, pairHTML(s, v)]));
   const img = isUrl(e.thumb) ? `<figure data-s="${esc(sk(src("thumb") || "other"))}"><a href="${esc(e.thumb)}" target="_blank" rel="noopener noreferrer"><img src="${esc(e.thumb)}" alt="Thumbnail sent for ${se(e.s, e.e)}" loading="lazy" referrerpolicy="no-referrer"></a></figure>` : "";
   return `<div class="ep-x ${img ? "" : "nothumb"}">${rec(rows)}${img}</div>`;
 }
@@ -953,7 +972,7 @@ function bugReport(S, b) {
   const eps = b.episodes || [];
   if (eps.length) {
     L.push("", `<details><summary>Episodes (${eps.length})</summary>`, "", "| Episode | Paired with | Title | Title from | Issue |", "|---|---|---|---|---|");
-    for (const e of eps) L.push(`| ${se(e.s, e.e)} | ${cell(Object.entries(e.pairs || {}).map(([s, v]) => `${name(s)} ${v}`).join("; "))} | ${cell(e.title)} | ${cell(e.from ? name(e.from) : "")} | ${safe(e.issue || "")} |`);
+    for (const e of eps) L.push(`| ${se(e.s, e.e)} | ${cell(Object.entries(e.pairs || {}).map(([s, v]) => `${name(s)} ${pairText(s, v)}`).join("; "))} | ${cell(e.title)} | ${cell(e.from ? name(e.from) : "")} | ${safe(e.issue || "")} |`);
     L.push("", "</details>");
   } else L.push("", `Episodes: ${b.epsTotal || 0} (the list is kept for the newest build only).`);
   return L.join("\n") + "\n";
