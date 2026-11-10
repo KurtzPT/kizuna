@@ -45,8 +45,9 @@ For the ❌ modes the folder tag still finds the right show, but Kizuna numbers 
 for those orders won't line up. The script warns about each such folder, and plans `[anidb2-…]` like `[anidb-…]`
 and `[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
 
-In every mode, openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras)
-unless you rename them. Kizuna can give those extras [readable titles](SETUP.md#readable-titles) (`Opening 1`).
+In every mode, openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras):
+the script plans nothing for them. Kizuna can give those extras [readable titles](SETUP.md#readable-titles)
+(`Opening 1`).
 
 HAMA features Kizuna leaves out on purpose, to stay small: collections, online theme songs and rating badges.
 Local `theme.mp3` files still work through *Plex Local Media*.
@@ -186,7 +187,7 @@ mode it carries on and prints a `note:` at the top saying what it can't plan wit
 | Look for | Means | Fix |
 |---|---|---|
 | an episode number that doesn't match the file | the script read the name differently | write that hint [by hand](#-your-own-plexmatch-files) |
-| a special, or an opening or ending's new name, on an unexpected `S00E` number | AniDB numbers them its own way | check against [variants](#openings-and-endings-with-variants) |
+| a special, or the number reported for an opening or ending, on an unexpected `S00E` number | AniDB numbers them its own way | check against [variants](#openings-and-endings-with-variants) |
 | a `tvdb` season that's off (`S03` where you expect `S02`) | TheTVDB's seasons differ from the release, or the mapping is wrong | [fix the mapping](MAPPING.md) |
 | renumbered `[tvdb-…]` files off by one | TheTVDB lists one episode more or less than your files | compare with TheTVDB before applying |
 | a `[tvdb-…]` file with no hint that should have one | its per-season number is also one of the season's absolute numbers | [rename it or hint it by hand](#plain-tvdb-folders-per-season-numbers) |
@@ -250,7 +251,7 @@ new files in either of two ways:
 | `Show [anidb-23]/Show - 01.mkv` … `- 148.mkv` | `S01E01` … `S01E148` | none |
 | `Show - S01E05.mkv` | `S01E05` | none |
 | `Specials/Show - 01.mkv` | `S00E01` | none |
-| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | none to keep them as extras ([titles](SETUP.md#readable-titles)), or ✋ rename to Kizuna's number, e.g. `Show - S00E101.mkv`, for specials: the script reports each one, with the name when it knows the number ([why](#openings-and-endings-plex-makes-them-extras), [variants](#openings-and-endings-with-variants)) |
+| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | none: they stay extras ([titles](SETUP.md#readable-titles)). The script reports each one and writes no hint ([why, and what you can do by hand](#openings-and-endings-plex-makes-them-extras)) |
 | specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `S00E01`) |
 | trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` → `S00E202` (AniDB's trailer numbers) |
 | a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
@@ -266,7 +267,7 @@ new files in either of two ways:
 📁 Hunter x Hunter (2011) [anidb-8550]
    Hunter x Hunter - 001.mkv … - 148.mkv     ← no hints needed
    Hunter x Hunter - SP1.mkv
-   NCOP1.mkv                                 ← stays an extra; as a special: "Hunter x Hunter - S00E101.mkv"
+   NCOP1.mkv                                 ← stays an extra: reported, no hint
    .plexmatch                                ← new:
      ep: S00E01: Hunter x Hunter - SP1.mkv
 ```
@@ -281,17 +282,24 @@ new files in either of two ways:
 Before it reads any `.plexmatch` hint, Plex's scanner checks each file name for an opening or ending, and makes
 every file that has one an **extra**. An extra still plays from the show page, but it isn't a special: it gets no
 Kizuna number or metadata, and an `ep:` hint can't change that. Which names Plex takes, what it does with the others
-and when the extras appear: [SETUP, "Openings and endings"](SETUP.md#-openings-and-endings). For a migration:
+and when the extras appear: [SETUP, "Openings and endings"](SETUP.md#-openings-and-endings).
 
-| Your file | After the switch | To do |
-|---|---|---|
-| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | nothing, or let Kizuna give it a [readable title](SETUP.md#readable-titles) (`Opening 1`, `Opening 1b`…), or rename it to its number to make it a special |
-| `Opening 1` `Ending` (the whole word, without `Creditless` or `Clean`) | **left out of the library** ([why](SETUP.md#-openings-and-endings)) | rename it: `OP1` for an extra, its number for a special. The script reports it like the row above: check these by hand |
-| `Show - 05 [ED fix].mkv` (an episode with such a word) | an extra, missing from the episodes | rename it without the word (the script warns) |
+**The script writes no hint for any opening or ending file**, however it is spelled. It never renames a file, so it
+only reports each one, with [Kizuna's number](#openings-and-endings-with-variants) for it when it knows it:
 
-To get an opening or ending as Kizuna's special, rename it to its number, e.g. `Show - S00E101.mkv`. The scanner
-reads that by itself, no hint needed, and the script prints the name to use when it knows the number. Not tested yet:
-whether an `ep:` hint works for a file named with the whole word (`Opening 1`).
+| Your file | After the switch | The script | To do |
+|---|---|---|---|
+| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | reports it, no hint | nothing, or let Kizuna give it a [readable title](SETUP.md#readable-titles) (`Opening 1`, `Opening 1b`…) |
+| `Opening 1` `Ending` `NCOpening 1` (the whole word, without `Creditless` or `Clean`) | **left out of the library**, as neither an extra nor an episode | reports it, no hint | ✋ rename it with `OP1` / `ED1` in place of the word, to have it as an extra |
+| `Show - 05 [ED fix].mkv` (an episode with such a word) | an extra, or left out (`[Ending fix]`): missing from the episodes | warns | ✋ rename it without the word |
+| `Show - S01E05 [ED fix].mkv` (a season and episode in the name) | an ordinary episode | no warning | nothing |
+| `op1` `ncop2` (small letters) | no extra: Plex only takes the words in capitals | reports it, no hint | ✋ rename it with `OP1` / `NCOP2`, to have it as an extra |
+
+**To have an opening or ending as Kizuna's special**, that is yours to do by hand, in two steps:
+
+1. Rename the file so that its name has none of the words Plex looks for, e.g. `Show - NCOP1.mkv` to
+   `Show - Theme 1.mkv`.
+2. Add its hint to the show's `.plexmatch`: `ep: S00E101: Show - Theme 1.mkv`, with the number the script reported.
 
 The extras appear when Plex refreshes the show's metadata, which [step 4](#-4-switch-the-library) does.
 
@@ -300,14 +308,14 @@ The extras appear when Plex refreshes the show's metadata, which [step 4](#-4-sw
 Kizuna numbers AniDB's opening credits from `S00E101` and endings from `S00E151`, one number per version. A variant
 shifts every number after it, so `OP2` isn't always `S00E102`:
 
-| AniDB credit | Title on AniDB | Plex | Your file | Rename it to |
-|---|---|---|---|---|
-| C1 | Opening 1a | `S00E101` | `NCOP1a.mkv` | `Show - S00E101.mkv` |
-| C2 | Opening 1b | `S00E102` | `NCOP1b.mkv` | `Show - S00E102.mkv` |
-| C3 | Opening 2 | **`S00E103`** | `NCOP2.mkv` | `Show - S00E103.mkv` |
-| C4 | Ending 1 | `S00E151` | `NCED1.mkv` | `Show - S00E151.mkv` |
+| AniDB credit | Title on AniDB | Kizuna's number | Your file |
+|---|---|---|---|
+| C1 | Opening 1a | `S00E101` | `NCOP1a.mkv` |
+| C2 | Opening 1b | `S00E102` | `NCOP1b.mkv` |
+| C3 | Opening 2 | **`S00E103`** | `NCOP2.mkv` |
+| C4 | Ending 1 | `S00E151` | `NCED1.mkv` |
 
-So the script asks Kizuna for the show's credit list and matches each file to a title, to print the right name:
+So the script asks Kizuna for the show's credit list and matches each file to a title, to report the right number:
 
 | Your file | Matched to |
 |---|---|

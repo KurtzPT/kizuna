@@ -72,10 +72,11 @@ EOF
 while IFS='|' read -r name want; do
 	check "credit_of \"$name\"" "$(credit_of "$name")" "$want"
 done <<'EOF'
-Show - NCOP1|op 1 -
-Show - OP1b|op 1 b
-Show - ED|ed 1 -
-Show - Ending 2a|ed 2 a
+Show - NCOP1|op 1 - NCOP1
+Show - OP1b|op 1 b OP1b
+Show - ED|ed 1 - ED
+Show - Ending 2a|ed 2 a Ending 2a
+[Group] Show - ncop2 [1080p]|op 2 - ncop2
 Show - 05|
 Show - S01E01|
 EOF
@@ -102,13 +103,54 @@ Show - S01E05|0
 EOF
 
 while IFS='|' read -r name want; do
-	check "plex_extra \"$name\"" "$(plex_extra "$name")" "$want"
+	check "plex_credit \"$name\"" "$(plex_credit "$name")" "$want"
 done <<'EOF'
-Show - NCOP1.mkv|NCOP1
-Show - OP1b.mkv|OP1b
-Show - Creditless Ending.mkv|Creditless Ending
-Show - 05.mkv|
-Show - Operation.mkv|
+Show - NCOP1|extra NCOP1
+Show - OP1b|extra OP1b
+Show - ED 2|extra ED 2
+Show - OPED|extra OPED
+Show - Creditless Opening|extra Creditless Opening
+Show - Creditless Ending|extra Creditless Ending
+Show - Clean Ending 2|extra Clean Ending 2
+Show - 05 [ED fix]|extra ED
+Show - Opening 1|dropped Opening 1
+Show - Ending|dropped Ending
+Show - NCOpening 1|dropped NCOpening 1
+Show - 05 [Ending fix]|dropped Ending
+Show Ending - NCED1|dropped Ending
+Show - S01E05 [ED fix]|
+Show - s01e05 - NCOP1|
+Show.S01.E05.NCOP1|
+Show - S01 05 - Opening 1|
+Show - S1 - NCOP1|extra NCOP1
+Show - op1|
+Show - ncop1|
+Show - opening 1|
+Show - 05|
+Show - Operation|
+EOF
+# What Plex makes of a lowercase "op1" is not known: its pattern doesn't
+# match, so the file is no extra. The script reports it, without a hint.
+
+while IFS='|' read -r name want; do
+	check "capital_credit \"$name\"" "$(capital_credit "$name")" "$want"
+done <<'EOF'
+op1|OP1
+ncop2|NCOP2
+ending 2A|ED2a
+Opening 01|OP1
+ed|ED
+Show|
+EOF
+
+while IFS='|' read -r name want; do
+	check "short_credit \"$name\"" "$(short_credit "$name")" "$want"
+done <<'EOF'
+Opening 1|OP1
+Ending|ED
+NCOpening 1|NCOP1
+Ending_2a|ED2a
+Opening a|OP a
 EOF
 
 while IFS='|' read -r value season want; do
@@ -233,6 +275,57 @@ mkdir -p "$WORK/dash/-lib/Show [anidb-1]"
 out=$(cd "$WORK/dash" && bash "$SCRIPT" -u "$NO_KIZUNA" -- -lib/ 2>&1)
 check "LIBRARY -lib: exit" "$?" "0"
 check_contains "LIBRARY -lib: planned" "$out" "+ ep: S00E01: Show - SP1.mkv"
+
+# openings and endings are reported and never hinted, whether Plex makes them
+# extras, leaves them out, or doesn't take the name (small letters)
+lib=$WORK/plex-credits
+show="$lib/Show [anidb-1]"
+mkdir -p "$show"
+for f in "Show - 01" "Show - Opening 1" "Show - Ending" "Show - NCOpening 1" "Show - S01E05 [ED fix]" \
+	"Show - 05 [ED fix]" "Show - 06 [Ending fix]" "Show - Creditless Opening" "Show - Clean Ending 2" \
+	"Show - NCOP1" "Show - S01.E07 - NCOP2" "Show - op1" "Show - ncop2"; do
+	: >"$show/$f.mkv"
+done
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "plex credits: exit" "$?" "0"
+# line_of FILE: the WARNING line of one file
+line_of() { grep -F "WARNING: $show/$1.mkv: " <<<"$out"; }
+# by_hand TEXT NUMBER: the end of a note, on making the file a special
+by_hand() {
+	printf '%s' "If you want it as a special, that is yours to do: rename it to a name without \"$1\" or another such word, and add \"ep: $2: <new name>\" to the show's .plexmatch by hand ($2 is Kizuna's number for it)"
+}
+stays="opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page) and gets no hint. "
+left="out of the library, as neither an extra nor an episode, so it gets no hint. To have it as an extra, rename it with "
+check "plex credits: Opening 1 is left out" "$(line_of "Show - Opening 1")" \
+	"WARNING: $show/Show - Opening 1.mkv: Plex's scanner leaves files with the whole word \"Opening 1\" in the name ${left}OP1 in place of that, e.g. to \"Show - OP1.mkv\". $(by_hand "Opening 1" S00E101)"
+check "plex credits: Ending is left out" "$(line_of "Show - Ending")" \
+	"WARNING: $show/Show - Ending.mkv: Plex's scanner leaves files with the whole word \"Ending\" in the name ${left}ED in place of that, e.g. to \"Show - ED.mkv\". $(by_hand "Ending" S00E151)"
+check "plex credits: NCOpening 1 is left out" "$(line_of "Show - NCOpening 1")" \
+	"WARNING: $show/Show - NCOpening 1.mkv: Plex's scanner leaves files with the whole word \"NCOpening 1\" in the name ${left}NCOP1 in place of that, e.g. to \"Show - NCOP1.mkv\". $(by_hand "NCOpening 1" S00E101)"
+check "plex credits: Creditless Opening stays an extra" "$(line_of "Show - Creditless Opening")" \
+	"WARNING: $show/Show - Creditless Opening.mkv: Plex's scanner makes files with \"Creditless Opening\" in the name $stays$(by_hand "Creditless Opening" S00E101)"
+check "plex credits: Clean Ending 2 stays an extra" "$(line_of "Show - Clean Ending 2")" \
+	"WARNING: $show/Show - Clean Ending 2.mkv: Plex's scanner makes files with \"Clean Ending 2\" in the name $stays$(by_hand "Clean Ending 2" S00E152)"
+check "plex credits: NCOP1 stays an extra" "$(line_of "Show - NCOP1")" \
+	"WARNING: $show/Show - NCOP1.mkv: Plex's scanner makes files with \"NCOP1\" in the name $stays$(by_hand "NCOP1" S00E101)"
+check "plex credits: an episode with ED in its name" "$(line_of "Show - 05 [ED fix]")" \
+	"WARNING: $show/Show - 05 [ED fix].mkv: Plex's scanner makes it an opening/ending extra, not an episode: its name contains \"ED\". Rename it without that"
+check "plex credits: an episode with Ending in its name" "$(line_of "Show - 06 [Ending fix]")" \
+	"WARNING: $show/Show - 06 [Ending fix].mkv: Plex's scanner leaves it out of the library: its name contains the whole word \"Ending\". Rename it without that"
+check "plex credits: SxxEyy is an episode, no warning" "$(grep -c 'S01E05' <<<"$out")" "0"
+check "plex credits: Sxx.Eyy is an episode, as Plex reads it" "$(grep -c 'S01\.E07' <<<"$out")" "0"
+small="Plex's scanner only takes these words in capitals, so \"%s\" doesn't make it an opening/ending extra, and the script writes no hint for openings and endings. To have it as an extra (Kizuna can then give it a readable title), rename it with %s in place of that, e.g. to \"Show - %s.mkv\". "
+# shellcheck disable=SC2059 # the format is the message above
+check "plex credits: op1 is no extra, and not hinted" "$(line_of "Show - op1")" \
+	"WARNING: $show/Show - op1.mkv: $(printf "$small" op1 OP1 OP1)$(by_hand op1 S00E101)"
+# shellcheck disable=SC2059
+check "plex credits: ncop2 is no extra, and not hinted" "$(line_of "Show - ncop2")" \
+	"WARNING: $show/Show - ncop2.mkv: $(printf "$small" ncop2 NCOP2 NCOP2)$(by_hand ncop2 S00E102)"
+check "plex credits: no hint at all" "$(grep -c '^  + ' <<<"$out")" "0"
+check_contains "plex credits: summary" "$out" "0 .plexmatch files to write, 0 hints in all, 0 files already have a hint, 10 warnings"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
+check "plex credits, apply: exit" "$?" "0"
+check "plex credits, apply: no .plexmatch written, no file renamed" "$(ls -A "$show" | wc -l | tr -d ' ')" "13"
 
 # a show folder named Extras: its .plexmatch is read like any other show's
 mkdir -p "$WORK/extras/Extras"
@@ -452,20 +545,31 @@ if ((have_jq)); then
 	check_contains "auto: other tag, Kizuna says anidb" "$out" "+ ep: S00E01: Other - SP1.mkv"
 	check_contains "auto: no match" "$out" "$lib/Nomatch: no match from Kizuna at $FAKE/auto; skipped"
 
-	# anidb mode with Kizuna: openings and endings get AniDB's own numbers
-	# (lowercase names, which Plex's scanner doesn't make extras)
+	# anidb mode with Kizuna: openings and endings are reported with AniDB's
+	# own numbers, and none is hinted, however it is spelled
 	lib=$WORK/credits
 	mkdir -p "$lib/Cred [anidb-1]"
-	for f in op1b op2 ed1 op1 op3 OP1a; do : >"$lib/Cred [anidb-1]/Cred - $f.mkv"; done
+	for f in op1b op2 ed1 op1 op3 OP1a "Opening 2" NCOP3 "S01.E02 - op2"; do : >"$lib/Cred [anidb-1]/Cred - $f.mkv"; done
 	out=$(bash "$SCRIPT" -u "$FAKE" "$lib" 2>&1)
 	check "credits: exit" "$?" "0"
-	check_contains "credits: variant" "$out" "+ ep: S00E102: Cred - op1b.mkv"
-	check_contains "credits: shifted by a variant" "$out" "+ ep: S00E103: Cred - op2.mkv"
-	check_contains "credits: ending" "$out" "+ ep: S00E151: Cred - ed1.mkv"
-	check_contains "credits: no letter when AniDB has variants" "$out" "+ ep: S00E101: Cred - op1.mkv"
-	check_contains "credits: ... warned" "$out" "AniDB has variants of this one; used 1a (S00E101)"
-	check_contains "credits: one AniDB doesn't list" "$out" "Cred - op3.mkv: OP3: not among this show's AniDB openings/endings; no hint"
-	check_contains "credits: an extra gets the name to rename it to" "$out" "To get it as Kizuna's S00E101, rename it, e.g. to \"Cred - S00E101.mkv\""
+	# number_of FILE: what the file's WARNING line says about its number
+	number_of() { grep -F "Cred - $1.mkv: " <<<"$out" | sed 's/.*, and add //'; }
+	by_hand_end="to the show's .plexmatch by hand"
+	check "credits: variant" "$(number_of op1b)" "\"ep: S00E102: <new name>\" $by_hand_end (S00E102 is Kizuna's number for it)"
+	check "credits: shifted by a variant" "$(number_of op2)" "\"ep: S00E103: <new name>\" $by_hand_end (S00E103 is Kizuna's number for it)"
+	check "credits: ending" "$(number_of ed1)" "\"ep: S00E151: <new name>\" $by_hand_end (S00E151 is Kizuna's number for it)"
+	check "credits: no letter when AniDB has variants" "$(number_of op1)" \
+		"\"ep: S00E101: <new name>\" $by_hand_end (S00E101 is Kizuna's number for it; AniDB has variants of this one: that is 1a's number)"
+	check "credits: one AniDB doesn't list" "$(number_of op3)" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP3: not among this show's AniDB openings/endings), $by_hand_end"
+	check "credits: an extra" "$(number_of OP1a)" "\"ep: S00E101: <new name>\" $by_hand_end (S00E101 is Kizuna's number for it)"
+	check "credits: a file Plex leaves out" "$(number_of "Opening 2")" "\"ep: S00E103: <new name>\" $by_hand_end (S00E103 is Kizuna's number for it)"
+	check "credits: an extra AniDB doesn't list" "$(number_of NCOP3)" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP3: not among this show's AniDB openings/endings), $by_hand_end"
+	check_contains "credits: a lowercase name is told the name in capitals" "$out" "rename it with OP1b in place of that, e.g. to \"Cred - OP1b.mkv\""
+	check "credits: a name Plex reads a season and episode in is left alone" "$(grep -c 'S01\.E02' <<<"$out")" "0"
+	check "credits: no hint at all" "$(grep -c '^  + ' <<<"$out")" "0"
+	check_contains "credits: summary" "$out" "0 .plexmatch files to write, 0 hints in all, 0 files already have a hint, 8 warnings"
 else
 	echo "SKIP fake-Kizuna checks (tvdb, auto and anidb with Kizuna): jq not found (install jq, or set JQ=gojq)"
 fi
