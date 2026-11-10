@@ -344,6 +344,9 @@ func (ss *showSources) fill(s *Show) {
 
 	art, by := ss.pickArt(ss.show, "", debug || ss.rec != nil)
 	s.Art = art
+	if ss.rec != nil {
+		s.artBy = &artSources{show: by}
+	}
 	if debug {
 		note("posters", countsText(by[posterArt]))
 		note("backgrounds", countsText(by[backgroundArt]))

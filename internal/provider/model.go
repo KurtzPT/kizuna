@@ -67,6 +67,10 @@ type Show struct {
 	// made once by setImages when the build is done (items.go).
 	images       []Image
 	seasonImages map[int][]Image
+
+	// artBy: which sources gave the art, for the match report (nil with the
+	// reports off).
+	artBy *artSources
 }
 
 // Ep is one episode at the season/index Plex's scanner gives the file.
@@ -89,6 +93,30 @@ type Ep struct {
 	// listIndex: /anidb: the episode's number in Anime-Lists' mapping
 	// (sources.AniDBEpisode.ListIndex); 0 = Index.
 	listIndex int
+	src       epSources // where the values above came from, for the match report
+}
+
+// srcCode names the source of an episode's value, for the match report. A
+// byte: noting it allocates nothing, so it is noted with the reports off too.
+type srcCode uint8
+
+const (
+	srcNone srcCode = iota
+	srcAniDB
+	srcTVDB
+	srcTMDB
+	srcShow // a movie's episode takes the show's
+)
+
+func (c srcCode) name() string {
+	return [...]string{"", "anidb", "tvdb", "tmdb", "show"}[c]
+}
+
+// epSources is where an episode's values came from (its title's source is
+// Ep.titleSrc). Each is set where the value is; one left on a value that
+// ended up empty means nothing.
+type epSources struct {
+	summary, date, thumb, minutes, directors, writers srcCode
 }
 
 // mapIndex is the number the mapping knows the episode by.
@@ -193,7 +221,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		for _, e := range a.Episodes {
 			title, anyTitle := p.anidbEpisodeTitle(e.Titles)
 			ep := Ep{Season: e.Season, Index: e.Index, Summary: e.Summary, Date: e.AirDate, Minutes: e.Minutes,
-				anyTitle: anyTitle, listIndex: e.ListIndex()}
+				anyTitle: anyTitle, listIndex: e.ListIndex(), src: epSources{summary: srcAniDB, date: srcAniDB, minutes: srcAniDB}}
 			ep.setTitle("anidb", title)
 			s.Episodes[e.Season] = append(s.Episodes[e.Season], ep)
 		}
@@ -232,6 +260,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	}
 	if isMovie && len(s.Episodes[1]) == 1 { // the movie itself: show its own title and summary
 		ep := &s.Episodes[1][0]
+		if strings.TrimSpace(s.Summary) != "" { // firstOf takes the show's
+			ep.src.summary = srcShow
+		}
 		ep.Title, ep.Summary = s.Title, firstOf(s.Summary, ep.Summary)
 		ep.titleSrc = "show" // for the match report: the show's title, not the episode source picked above
 		if special && a == nil {
@@ -472,7 +503,8 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
 			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers,
-			listed: spot{e.Season, e.Number}, tvdbEp: e.ID}
+			listed: spot{e.Season, e.Number}, tvdbEp: e.ID,
+			src: epSources{srcTVDB, srcTVDB, srcTVDB, srcTVDB, srcTVDB, srcTVDB}}
 		if e.Season == 0 {
 			ep.Index = e.Number
 		}

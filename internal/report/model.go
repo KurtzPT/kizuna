@@ -28,7 +28,7 @@ const (
 // saved page with another one (pages written before 2 have none) counts as
 // absent: it isn't listed, and the next write starts the page over. Raise
 // it when a change makes old data wrong for the page's script.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // page is what one HTML file renders: Kind names the page and the field
 // its data goes in (show, unmatched or index), Data is that data as JSON.
@@ -76,15 +76,18 @@ type Build struct {
 	Complete bool      `json:"complete"`
 	Error    string    `json:"error,omitempty"`
 
-	Match    *Match      `json:"match,omitempty"` // the match request that started the build, if one did
-	Trace    []Span      `json:"trace"`
-	Mapping  []MapRow    `json:"mapping,omitempty"`
-	Fields   []Field     `json:"fields,omitempty"`
-	Seasons  []Season    `json:"seasons,omitempty"`
-	Episodes []Episode   `json:"episodes,omitempty"` // kept for the newest build only
-	EpsTotal int         `json:"epsTotal"`
-	Output   [][2]string `json:"output,omitempty"`
-	Checks   []Check     `json:"checks,omitempty"`
+	Match    *Match     `json:"match,omitempty"` // the match request that started the build, if one did
+	Trace    []Span     `json:"trace"`
+	Mapping  []MapRow   `json:"mapping,omitempty"`
+	Fields   []Field    `json:"fields,omitempty"`
+	Art      []ArtGroup `json:"art,omitempty"` // kept for the newest build only
+	Seasons  []Season   `json:"seasons,omitempty"`
+	Episodes []Episode  `json:"episodes,omitempty"` // kept for the newest build only
+	EpsTotal int        `json:"epsTotal"`
+	// Item is the show item sent to Plex, as the JSON Plex got (without its
+	// seasons).
+	Item   json.RawMessage `json:"item,omitempty"`
+	Checks []Check         `json:"checks,omitempty"`
 }
 
 // Match is what Plex sent to .../matches and how Kizuna decided.
@@ -216,22 +219,55 @@ type Field struct {
 	Used    []string          `json:"used"`
 }
 
-// Season is one season of the built show and its episode count.
+// ArtGroup is the images of one kind that the show's or a season's item
+// sent to Plex, in the order sent. A level without images of a kind has no
+// group for it.
+type ArtGroup struct {
+	Level  string     `json:"level"`            // "show", or the season's name ("Season 2", "Specials")
+	Season *int       `json:"season,omitempty"` // the season's number; nil for the show
+	Kind   string     `json:"kind"`             // poster, background, logo
+	Images []ArtImage `json:"images"`
+}
+
+// ArtImage is one image sent to Plex.
+type ArtImage struct {
+	URL     string `json:"url"`
+	Src     string `json:"src,omitempty"`     // the source that gave it
+	Primary bool   `json:"primary,omitempty"` // the item's thumb (a poster) or art (a background)
+}
+
+// Season is one season of the built show: its episode count and what its
+// item sent to Plex besides its images (Build.Art). A season built without
+// art of its own has the show's poster as Thumb and no groups in Build.Art.
 type Season struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+	Index int    `json:"index"`
+	Thumb string `json:"thumb,omitempty"`
+	Art   string `json:"art,omitempty"`
+	Date  string `json:"date,omitempty"`
 }
 
 // Episode is one episode as sent to Plex.
 type Episode struct {
-	Season int               `json:"s"`
-	Index  int               `json:"e"`
-	Title  string            `json:"title"`
-	From   string            `json:"from,omitempty"`   // source of the title
-	Titles map[string]string `json:"titles,omitempty"` // every source's title
-	Pairs  map[string]string `json:"pairs,omitempty"`  // source -> where the episode is there ("S01E05", "15207 · 7")
-	Date   string            `json:"date,omitempty"`
-	Issue  string            `json:"issue,omitempty"`
+	Season    int               `json:"s"`
+	Index     int               `json:"e"`
+	Title     string            `json:"title"`
+	From      string            `json:"from,omitempty"`   // source of the title
+	Titles    map[string]string `json:"titles,omitempty"` // every source's title
+	Pairs     map[string]string `json:"pairs,omitempty"`  // source -> where the episode is there ("S01E05", "15207 · 7")
+	Summary   string            `json:"summary,omitempty"`
+	Date      string            `json:"date,omitempty"`
+	Thumb     string            `json:"thumb,omitempty"`
+	Minutes   int               `json:"minutes,omitempty"`
+	Directors []string          `json:"directors,omitempty"`
+	Writers   []string          `json:"writers,omitempty"`
+	Guids     []string          `json:"guids,omitempty"`
+	// Src: the source of summary, date, thumb, minutes, directors and
+	// writers (anidb, tvdb, tmdb, or show: a movie's episode has the show's
+	// summary), for those the episode has.
+	Src   map[string]string `json:"src,omitempty"`
+	Issue string            `json:"issue,omitempty"`
 }
 
 // Check is something in a build worth a look.

@@ -139,6 +139,11 @@ td.prose{font:13px/1.5 var(--sans)}
 .eps th{position:sticky;top:0;z-index:1}
 .eps tr.issue td{background:var(--warn-bg)}
 .eps tr.seasonrow td{background:var(--sunk);font:600 12px var(--sans);color:var(--muted);padding:6px 12px}
+.eps tr[data-ep]{cursor:pointer}
+.eps tr.epdetail td{background:var(--sunk);padding:0}
+.more{all:unset;cursor:pointer;display:inline-block;width:14px;color:var(--muted)}
+.more:focus-visible{outline:2px solid var(--anidb);outline-offset:2px}
+.kv dd .src{margin-right:8px}
 .flag{color:var(--warn);font:500 11.5px var(--mono);display:block}
 .pairs{display:flex;flex-direction:column;gap:2px}
 .pill{font:500 11px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
@@ -202,6 +207,10 @@ const pad = n => String(n).padStart(2,"0");
 const when = t => { const d = new Date(t); if (isNaN(d)) return ""; return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
 const clock = t => when(t).slice(11);
 const kv = rows => `<dl class="kv">${rows.map(([k,v]) => `<dt>${esc(k)}</dt><dd>${v === "" || v == null ? '<span class="dim">empty</span>' : esc(v)}</dd>`).join("")}</dl>`;
+// kvh is kv with values that are HTML already: the caller escapes them.
+const kvh = rows => `<dl class="kv">${rows.map(([k,v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+// A URL from a source is a link only when it is http(s); anything else is text.
+const link = u => /^https?:\/\/\S+$/i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u);
 const bytes = n => n >= 1024*1024 ? (n/1048576).toFixed(1)+" MB" : n >= 1024 ? (n/1024).toFixed(1)+" KB" : n+" B";
 const siteLink = (site, v) => SITE_URL[site] ? `<a href="${esc(SITE_URL[site](encodeURIComponent(v)))}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>` : esc(v);
 const se = (s, e) => `S${pad(s)}E${pad(e)}`;
@@ -336,19 +345,21 @@ function renderEpisodes(b, newest) {
     return `<div class="panel"><div class="empty">${esc(why)}${counts ? " "+esc(counts)+"." : ""}</div></div>`;
   }
   const eps = b.episodes, issues = eps.filter(e => e.issue).length;
+  shownEps = eps;
   let cur = null;
-  const rows = eps.map(e => {
+  const rows = eps.map((e, i) => {
     let pre = "";
     if (e.s !== cur) {
       cur = e.s;
       const n = eps.filter(x => x.s === e.s).length;
-      pre = `<tr class="seasonrow" data-season><td colspan="5">${e.s ? "Season "+e.s : "Specials"} <span class="mono dim">${n} episode${n === 1 ? "" : "s"}</span></td></tr>`;
+      const sn = (b.seasons || []).find(x => x.index === e.s);
+      pre = `<tr class="seasonrow" data-season><td colspan="5">${e.s ? "Season "+e.s : "Specials"} <span class="mono dim">${n} episode${n === 1 ? "" : "s"}${sn && sn.date ? " · first aired "+esc(sn.date) : ""}</span></td></tr>`;
     }
     const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `<span>${chip(s, name(s)+" "+v)}</span>`).join("");
     const otherTitles = Object.entries(e.titles || {}).filter(([s]) => s !== e.from);
     const others = otherTitles.map(([s, t]) => `${name(s)}: ${t}`).join("\n");
-    return pre + `<tr class="${e.issue ? "issue" : ""}" data-issue="${e.issue ? 1 : 0}">
-      <td class="nowrap">${se(e.s, e.e)}</td>
+    return pre + `<tr class="${e.issue ? "issue" : ""}" data-issue="${e.issue ? 1 : 0}" data-ep="${i}">
+      <td class="nowrap"><button class="more" aria-expanded="false" aria-label="Everything sent for ${se(e.s, e.e)}">+</button>${se(e.s, e.e)}</td>
       <td><div class="pairs">${pairs || '<span class="dim">none</span>'}</div></td>
       <td class="prose"${others ? ` title="${esc(others)}"` : ""}>${e.title ? esc(e.title) : `<span class="dim">Episode ${e.e}</span>`}${e.issue ? `<span class="flag">${esc(e.issue)}</span>` : ""}</td>
       <td>${e.from ? chip(e.from) : '<span class="dim">none</span>'}${others ? ` <span class="dim" title="${esc(others)}">+${otherTitles.length}</span>` : ""}</td>
@@ -356,8 +367,57 @@ function renderEpisodes(b, newest) {
   }).join("");
   return `<div class="panel">
     <div class="toolbar"><div class="seg" role="group" aria-label="Filter episodes"><button aria-pressed="true" data-f="all">All ${eps.length}</button><button aria-pressed="false" data-f="issue">Problems ${issues}</button></div>
-    <span class="dim" style="font-size:12.5px">Hover a title to see what the other sources called it.</span></div>
+    <span class="dim" style="font-size:12.5px">Click an episode for everything Plex got for it. Hover a title to see what the other sources called it.</span></div>
     <div class="eps"><table><thead><tr><th>Plex</th><th>Paired with</th><th>Title sent</th><th>Title from</th><th>Aired</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+// The episodes on the page, for episodeDetail: a row's detail is made when
+// it is opened, not for every episode of a long show.
+let shownEps = [];
+function episodeDetail(e) {
+  const src = k => (e.src || {})[k] ? chip(e.src[k]) : "";
+  const rows = [];
+  if (e.summary) rows.push(["Summary", src("summary") + esc(e.summary)]);
+  if (e.date) rows.push(["Aired", src("date") + esc(e.date)]);
+  if (e.minutes) rows.push(["Duration", src("minutes") + esc(e.minutes) + " min"]);
+  if ((e.directors || []).length) rows.push(["Directors", src("directors") + esc(e.directors.join(", "))]);
+  if ((e.writers || []).length) rows.push(["Writers", src("writers") + esc(e.writers.join(", "))]);
+  if ((e.guids || []).length) rows.push(["GUIDs", esc(e.guids.join("\n"))]);
+  if (e.thumb) rows.push(["Thumbnail", src("thumb") + link(e.thumb)]);
+  return rows.length ? kvh(rows) : `<div class="empty">Plex got only the number and the title for this episode.</div>`;
+}
+
+// Art: every image the show's and each season's item sent, in the order
+// sent. A season without a poster group whose item still has a thumb got
+// the show's poster.
+function renderArt(b, newest) {
+  if (!newest) return `<div class="panel"><div class="empty">The images are kept for the newest build only.</div></div>`;
+  const groups = b.art || [];
+  const borrowed = (b.seasons || []).filter(s => s.thumb && !groups.some(g => g.season === s.index && g.kind === "poster"));
+  if (!groups.length && !borrowed.length) return `<div class="panel"><div class="empty">${b.error ? "The build failed." : "No images were sent."}</div></div>`;
+  const row = (level, kind, lines) => `<tr><td class="prose nowrap">${esc(level)}</td><td class="nowrap">${esc(kind)}</td><td style="word-break:break-all">${lines.join("<br>")}</td></tr>`;
+  const rows = groups.map(g => row(g.level, `${g.kind} ${(g.images || []).length}`, (g.images || []).map(im =>
+    `${im.src ? chip(im.src) : '<span class="dim">source not recorded</span>'} ${link(im.url)}${im.primary ? ` <span class="pill built">${g.kind === "poster" ? "thumb" : "art"}</span>` : ""}`)));
+  for (const s of borrowed) rows.push(row(s.name, "poster", [`<span class="dim">none of its own: the show's poster</span> ${link(s.thumb)} <span class="pill built">thumb</span>`]));
+  return `<div class="panel" style="overflow-x:auto"><table><thead><tr><th>Of</th><th>Kind</th><th>Images, in the order sent</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+// The show item as sent: every key, lists in full with one entry per line.
+function renderItem(item) {
+  if (!item || typeof item !== "object") return '<div class="empty">Nothing: the build failed.</div>';
+  const one = (k, x) => {
+    if (x === null || typeof x !== "object") return typeof x === "string" ? link(x) : esc(x);
+    if (k === "Role") return esc(x.role ? `${x.tag} as ${x.role}` : x.tag) + (x.thumb ? " " + link(x.thumb) : "");
+    if (k === "Image") return esc(x.type) + " " + link(x.url);
+    if (k === "Guid") return esc(x.id);
+    if ("tag" in x && Object.keys(x).length === 1) return esc(x.tag);
+    return esc(JSON.stringify(x));
+  };
+  return kvh(Object.entries(item).map(([k, v]) => {
+    if (Array.isArray(v)) return [`${k} (${v.length})`, v.map(x => one(k, x)).join("\n")];
+    if (k === "duration" && typeof v === "number") return [k, `${esc(v)} ms (${Math.round(v/60000)} min)`];
+    return [k, v === "" ? '<span class="dim">empty</span>' : one(k, v)];
+  }));
 }
 
 const times = r => r.count > 1 ? ` <span class="pill" title="${r.count} times in a row; the time is the last">×${r.count}</span>` : "";
@@ -389,7 +449,7 @@ function renderShow() {
   const bi = S.builds.findIndex(b => b.id === curBuild), b = S.builds[bi];
   const warns = (b.checks || []).filter(c => c.level === "warn").length;
   const epIssues = (b.episodes || []).some(e => e.issue);
-  const toc = [["checks","Checks",(b.checks||[]).length,warns>0],["trace","Trace",ms(b.tookMs)],["match","Match",b.match?(b.match.candidates||[]).length||"":""],["ids","Id mapping",(b.mapping||[]).length||""],["fields","Fields",(b.fields||[]).length],["episodes","Episodes",b.epsTotal||"",epIssues],["output","Sent to Plex",""],["requests","Plex requests",(S.requests||[]).length]];
+  const toc = [["checks","Checks",(b.checks||[]).length,warns>0],["trace","Trace",ms(b.tookMs)],["match","Match",b.match?(b.match.candidates||[]).length||"":""],["ids","Id mapping",(b.mapping||[]).length||""],["fields","Fields",(b.fields||[]).length],["art","Art",(b.art||[]).reduce((n, g) => n + (g.images||[]).length, 0)||""],["episodes","Episodes",b.epsTotal||"",epIssues],["output","Sent to Plex",""],["requests","Plex requests",(S.requests||[]).length]];
   const checks = (b.checks || []).length ? (b.checks || []).map(c => `<div class="w ${c.level === "warn" ? "" : "info"}"><span class="ic">${c.level === "warn" ? "!" : "i"}</span><div><b>${esc(c.title)}</b>${c.text || c.section ? `<p>${esc(c.text || "")}${c.section ? ` <a href="#s-${esc(c.section)}">Show</a>` : ""}</p>` : ""}</div></div>`).join("")
     : `<div class="w none"><span class="ic">✓</span><div><b>Nothing to flag</b><p>Every field and episode looks fine.</p></div></div>`;
   app.innerHTML = header(`<a href="index.html">Kizuna reports</a> / <b>${esc(S.key)}</b>`, generated()) + `
@@ -408,8 +468,9 @@ function renderShow() {
       <section id="s-match"><h2>Match</h2><p class="lede">What Plex sent and how Kizuna chose the show.</p>${renderMatch(b, S.lastMatch)}</section>
       <section id="s-ids"><h2>Id mapping</h2><p class="lede">How the AniDB entries link to TVDB and TMDB in the mapping lists. These links decide which TVDB and TMDB pages are read and how episodes pair up.</p>${renderMapping(b)}</section>
       <section id="s-fields"><h2>Fields</h2><p class="lede">What each source offered for the show, in the configured order. The highlighted cell is what Plex got.</p>${renderFields(b)}</section>
+      <section id="s-art"><h2>Art</h2><p class="lede">Every image Plex got for the show and each season, with the source that gave it. Plex gets up to 10 of a kind.</p>${renderArt(b, bi === 0)}</section>
       <section id="s-episodes"><h2>Episodes</h2><p class="lede">${esc((b.seasons || []).map(s => `${s.name}: ${s.count}`).join(", ") || "No episodes.")}</p>${renderEpisodes(b, bi === 0)}</section>
-      <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, condensed: long lists are counted.</p><div class="panel">${(b.output || []).length ? kv(b.output) : '<div class="empty">Nothing: the build failed.</div>'}</div></section>
+      <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. Its seasons and episodes are separate items: see Art and Episodes.</p><div class="panel">${renderItem(b.item)}</div></section>
       <section id="s-requests"><h2>Plex requests</h2><p class="lede">The last ${(S.requests || []).length} requests about this show, newest first (up to 50 are kept). Rows answered by the selected build are shaded.</p>${renderRequests(S, curBuild)}</section>
     </main></div>`;
 }
@@ -477,6 +538,15 @@ document.addEventListener("click", e => {
     f.parentNode.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === f));
     const only = f.dataset.f === "issue";
     app.querySelectorAll(".eps tbody tr").forEach(tr => { tr.hidden = only && (tr.hasAttribute("data-season") || tr.dataset.issue !== "1"); });
+    return;
+  }
+  const row = e.target.closest("tr[data-ep]");
+  if (row && shownEps[row.dataset.ep]) {
+    const open = row.nextElementSibling && row.nextElementSibling.classList.contains("epdetail");
+    if (open) row.nextElementSibling.remove();
+    else row.insertAdjacentHTML("afterend", `<tr class="epdetail" data-issue="${esc(row.dataset.issue)}"><td colspan="5">${episodeDetail(shownEps[row.dataset.ep])}</td></tr>`);
+    const btn = row.querySelector(".more");
+    if (btn) { btn.setAttribute("aria-expanded", !open); btn.textContent = open ? "+" : "\u2212"; }
   }
 });
 document.addEventListener("input", e => {

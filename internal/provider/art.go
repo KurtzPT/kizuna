@@ -291,7 +291,7 @@ func (ss *showSources) seasonsFailed() []string {
 // report ("Season 3 posters"); "" = the show's (only the show is noted
 // with the reports off). count: also say which
 // sources gave them and how many, for the debug line or the report.
-func (ss *showSources) pickArt(t artTarget, season string, count bool) (a sources.Art, used [len(artKinds)][]sourceCount) {
+func (ss *showSources) pickArt(t artTarget, season string, count bool) (a sources.Art, used artUsed) {
 	all := ss.p.cfg.ArtAllSources
 	for _, k := range artKinds {
 		order := k.order(ss)
@@ -330,12 +330,43 @@ func (ss *showSources) fillSeasons(s *Show) {
 			s.SeasonArt[ps.n] = s.Art
 			continue
 		}
-		name := ""
-		if ss.rec != nil {
-			name = seasonTitle(ps.n)
+		if ss.rec == nil {
+			s.SeasonArt[ps.n], _ = ss.pickArt(ps.t, "", false)
+			continue
 		}
-		s.SeasonArt[ps.n], _ = ss.pickArt(ps.t, name, ss.rec != nil)
+		art, by := ss.pickArt(ps.t, seasonTitle(ps.n), true)
+		s.SeasonArt[ps.n] = art
+		if s.artBy == nil {
+			s.artBy = &artSources{}
+		}
+		if s.artBy.seasons == nil {
+			s.artBy.seasons = make(map[int]artUsed, len(ss.seasons))
+		}
+		s.artBy.seasons[ps.n] = by
 	}
+}
+
+// artUsed is pickArt's second value: per kind, how many of its images each
+// source gave, in the images' order.
+type artUsed = [len(artKinds)][]sourceCount
+
+// artSources is which sources gave a show's and its seasons' art, kept on
+// the Show for the match report: it lists the images the items carry, and
+// those are made from the Show once the build is done.
+type artSources struct {
+	show    artUsed
+	seasons map[int]artUsed
+}
+
+// sourceOf names the source of a kind's i-th image ("" = not known).
+func sourceOf(counts []sourceCount, i int) string {
+	for _, c := range counts {
+		if i < c.n {
+			return c.src
+		}
+		i -= c.n
+	}
+	return ""
 }
 
 // warmArt adds jobs that fetch, in parallel, the art each target will ask
