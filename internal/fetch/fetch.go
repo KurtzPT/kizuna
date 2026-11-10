@@ -69,6 +69,9 @@ type Request struct {
 	Before func() error
 	// Done, if set, gets the outcome of the network request once it ends,
 	// even when the caller stopped waiting (ctx). Not called on a cache hit.
+	// A call that joins a download already running for the same Key gets
+	// that download's answer: its own Headers, Validate, Before and Done
+	// aren't used.
 	Done func(error)
 	// Quiet: the caller logs failures itself; fetch only logs them at debug.
 	Quiet bool
@@ -208,7 +211,7 @@ func (c *Client) CachedAt(key string) (time.Time, bool) {
 
 func modTime(path string) (time.Time, bool) {
 	st, err := os.Stat(path)
-	if err != nil {
+	if err != nil || !st.Mode().IsRegular() { // like readCache
 		return time.Time{}, false
 	}
 	return st.ModTime(), true
@@ -249,9 +252,7 @@ func (c *Client) Stale(ctx context.Context, key string, start time.Time, err err
 	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
 		slog.Debug("request failed; using stale cache", "key", key, "age", time.Since(at).Round(time.Minute), "err", err)
 	}
-	if Observing(ctx) {
-		Observe(ctx, key, KindStale, start, err)
-	}
+	Observe(ctx, key, KindStale, start, err)
 	return data, true
 }
 
@@ -280,7 +281,7 @@ func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
 func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	id := r.Key
 	if id == "" {
-		id = r.Method + " " + r.URL
+		id = cmp.Or(r.Method, http.MethodGet) + " " + r.URL
 	}
 	c.mu.Lock()
 	cl, running := c.inflight[id]
@@ -359,8 +360,8 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	for k, v := range r.Headers {
 		req.Header.Set(k, v)
 	}
-	cached, tag := c.revalidation(r)
-	if cached != nil {
+	tag := c.revalidation(r)
+	if tag != "" {
 		req.Header.Set("If-None-Match", tag)
 	}
 	resp, err := c.http.Do(req)
@@ -379,14 +380,24 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	if len(data) > maxBody { // never cache a cut-off answer
 		return nil, resp.StatusCode, waited, fmt.Errorf("answer larger than %d MB", maxBody>>20)
 	}
-	if resp.StatusCode == http.StatusNotModified && cached != nil {
-		// Unchanged: the cached copy (validated when it was stored) is fresh again.
-		c.Touch(r.Key)
+	if resp.StatusCode == http.StatusNotModified && tag != "" {
+		// Unchanged: the cached copy (validated when it was stored) is fresh
+		// again. It is read only now: on a 200 it would be thrown away. Its
+		// bytes are still those the ETag was saved with: only this request's
+		// key writes it, one download at a time.
+		cached, err := os.ReadFile(c.path(r.Key))
+		if err != nil {
+			// Gone since (pruned) or unreadable: without the ETag, the next
+			// call downloads it in full.
+			_ = os.Remove(c.etagPath(r.Key))
+			return nil, resp.StatusCode, waited, fmt.Errorf("not modified, but the cached copy can't be read: %w", err)
+		}
+		c.touch(r.Key)
 		slog.Debug("not modified; cached copy is current", "key", r.Key, "etag", tag)
 		return cached, resp.StatusCode, waited, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, waited, &StatusError{Code: resp.StatusCode, URL: Redact(r.URL)}
+		return nil, resp.StatusCode, waited, &StatusError{Code: resp.StatusCode, URL: Redact(r.URL), Body: bytes.Clone(data[:min(len(data), maxErrorBody)])}
 	}
 	if data, err = gunzip(data, maxBody); err != nil { // AniDB always gzips, even when not asked to
 		return nil, resp.StatusCode, waited, err
@@ -414,21 +425,21 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	return data, resp.StatusCode, waited, nil
 }
 
-// revalidation returns the cached copy and its saved ETag when r may be
-// revalidated; nil when it must be downloaded in full (no copy, no ETag).
-func (c *Client) revalidation(r Request) ([]byte, string) {
+// revalidation returns the saved ETag when r may be revalidated; "" when it
+// must be downloaded in full (no ETag, or no cached copy). The copy is only
+// looked for here (a list can be 10 MB): do reads it once a 304 comes.
+func (c *Client) revalidation(r Request) string {
 	if !r.Revalidate || r.Key == "" {
-		return nil, ""
+		return ""
 	}
 	tag, err := os.ReadFile(c.etagPath(r.Key))
 	if err != nil || len(bytes.TrimSpace(tag)) == 0 {
-		return nil, ""
+		return ""
 	}
-	data, err := os.ReadFile(c.path(r.Key))
-	if err != nil {
-		return nil, ""
+	if _, ok := modTime(c.path(r.Key)); !ok {
+		return ""
 	}
-	return data, string(bytes.TrimSpace(tag))
+	return string(bytes.TrimSpace(tag))
 }
 
 // enqueue queues r on its host's throttle; nil when the host has none.
@@ -482,9 +493,9 @@ func WriteFile(path string, data []byte) error {
 	return err
 }
 
-// Touch marks a cached file as fresh again (a 304 answer: the source says
+// touch marks a cached file as fresh again (a 304 answer: the source says
 // the cached copy is still current).
-func (c *Client) Touch(key string) {
+func (c *Client) touch(key string) {
 	now := time.Now()
 	_ = os.Chtimes(c.path(key), now, now)
 }
@@ -500,7 +511,15 @@ func (c *Client) etagPath(key string) string { return c.path(key) + ".etag" }
 type StatusError struct {
 	Code int
 	URL  string
+	// Body: the start of the answer (up to maxErrorBody bytes, as received),
+	// for a caller that tells errors of one code apart (MyAnimeList answers
+	// a wrong client id with a 400 that only its body names).
+	Body []byte
 }
+
+// maxErrorBody: how much of an error answer a StatusError keeps. A copy, so
+// a big error page isn't kept whole while the error is remembered.
+const maxErrorBody = 512
 
 func (e *StatusError) Error() string { return fmt.Sprintf("HTTP %d from %s", e.Code, e.URL) }
 

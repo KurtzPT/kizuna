@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func names(t *testing.T, dir string) []string {
+func names(dir string) []string {
 	files, _ := filepath.Glob(filepath.Join(dir, "*.log"))
 	var out []string
 	for _, f := range files {
@@ -35,7 +35,7 @@ func TestDailyRotationAndRetention(t *testing.T) {
 	_, _ = l.Write([]byte("line\n")) // 7 Nov: rotates 6 Nov, deletes up to 3 Nov
 	l.Close()
 	want := []string{"kizuna-2026-11-04.log", "kizuna-2026-11-05.log", "kizuna-2026-11-06.log", "kizuna.log"}
-	if got := names(t, dir); !slices.Equal(got, want) {
+	if got := names(dir); !slices.Equal(got, want) {
 		t.Fatalf("files %v, want %v", got, want)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "kizuna-2026-11-05.log")); string(b) != "line\n" {
@@ -58,7 +58,7 @@ func TestHugeRetentionKeepsAll(t *testing.T) {
 		}
 		l.Close()
 		want := []string{"kizuna-2026-11-01.log", "kizuna-2026-11-02.log", "kizuna.log"}
-		if got := names(t, dir); !slices.Equal(got, want) {
+		if got := names(dir); !slices.Equal(got, want) {
 			t.Errorf("keep %d: files %v, want %v", keep, got, want)
 		}
 	}
@@ -170,7 +170,7 @@ func TestOldFileOnStartIsDated(t *testing.T) {
 	}
 	_, _ = l.Write([]byte("today\n"))
 	l.Close()
-	if got := names(t, dir); !slices.Equal(got, []string{"kizuna-2026-11-06.log", "kizuna.log"}) {
+	if got := names(dir); !slices.Equal(got, []string{"kizuna-2026-11-06.log", "kizuna.log"}) {
 		t.Fatalf("files %v", got)
 	}
 	if b, _ := os.ReadFile(cur); string(b) != "today\n" {

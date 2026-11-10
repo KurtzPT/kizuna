@@ -205,7 +205,12 @@ func (l *File) archive(day string) error {
 	if err != nil {
 		return err
 	}
-	return os.Remove(l.current())
+	if err := os.Remove(l.current()); err != nil {
+		// The lines are in the dated file now: emptying kizuna.log is as
+		// good, and keeps a retry from appending them a second time.
+		return os.Truncate(l.current(), 0)
+	}
+	return nil
 }
 
 // foreverDays and more keep every log: AddDate would overflow and wrap.

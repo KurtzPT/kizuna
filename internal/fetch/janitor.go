@@ -22,7 +22,7 @@ const tmpInUse = 5 * time.Minute
 // bytes are free again (or the cache is empty). Files that are cheap to
 // download again go first; AniDB anime entries, which cost one of the 200
 // daily API calls each, only when that is not enough. The title dump and
-// the mapping lists are never deleted (they are rewritten daily anyway and
+// the mapping lists are never deleted (they are refreshed daily anyway and
 // matching needs them). minFree = 0 turns it off. Runs until ctx is done.
 func (c *Client) KeepFree(ctx context.Context, minFree, target uint64) {
 	if minFree == 0 {

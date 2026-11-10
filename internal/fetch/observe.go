@@ -63,7 +63,7 @@ func (c *Client) CachedCtx(ctx context.Context, key string) ([]byte, time.Durati
 }
 
 func observe(ctx context.Context, r Request, start time.Time, kind Kind, err error) {
-	if ctx.Value(observerKey{}) == nil {
+	if !Observing(ctx) {
 		return
 	}
 	key := r.Key

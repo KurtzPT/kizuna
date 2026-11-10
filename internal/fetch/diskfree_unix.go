@@ -11,5 +11,11 @@ func diskFree(path string) (uint64, error) {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, err
 	}
-	return uint64(st.Bavail) * uint64(st.Bsize), nil
+	// Signed on FreeBSD, and negative once a non-root user is into the
+	// reserved blocks: that is no space, not a huge amount.
+	avail := int64(st.Bavail)
+	if avail < 0 {
+		avail = 0
+	}
+	return uint64(avail) * uint64(st.Bsize), nil
 }

@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -35,6 +36,9 @@ func TestRedact(t *testing.T) {
 // A network error repeats the whole URL in its message: it must be redacted too.
 func TestNetworkErrorRedacted(t *testing.T) {
 	c := New(t.TempDir())
+	c.SetTransport(roundTrip(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("dial failed")
+	}))
 	_, _, _, err := c.do(Request{URL: "http://127.0.0.1:1/x?api_key=SECRET&client=MYCLIENT"}, nil)
 	if err == nil {
 		t.Fatal("expected a connection error")
@@ -79,22 +83,27 @@ func TestWriteFileAtomic(t *testing.T) {
 	}
 }
 
-// okTransport answers every request with 200 and body.
-func okTransport(body string) roundTrip {
-	return func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
-	}
+// bodyNet answers every request with status (0 = 200) and body, and counts
+// them. A test changes status or body only while no request is under way.
+type bodyNet struct {
+	status int
+	body   string
+	sent   atomic.Int32
+}
+
+func (n *bodyNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	n.sent.Add(1)
+	return &http.Response{StatusCode: cmp.Or(n.status, http.StatusOK), Body: io.NopCloser(strings.NewReader(n.body)),
+		Header: http.Header{}, Request: r}, nil
 }
 
 // Before runs once the request's turn comes; an error stops it: nothing is
 // sent, nothing cached, and Done gets that error.
 func TestBeforeStopsRequest(t *testing.T) {
 	c := New(t.TempDir())
-	var calls atomic.Int32
-	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
-		calls.Add(1)
-		return okTransport("ok")(r)
-	}))
+	net := &bodyNet{body: "ok"}
+	c.SetTransport(net)
+	calls := &net.sent
 	stop := errors.New("banned meanwhile")
 	var done error
 	_, err := c.Get(context.Background(), Request{URL: "http://api.example/x", Key: "x", NoStale: true,
@@ -114,7 +123,7 @@ func TestBeforeStopsRequest(t *testing.T) {
 // after it starts its own download instead of joining the ended one.
 func TestDoneAfterLeavingInflight(t *testing.T) {
 	c := New(t.TempDir())
-	c.SetTransport(okTransport("ok"))
+	c.SetTransport(&bodyNet{body: "ok"})
 	stillInflight := true
 	r := Request{URL: "http://api.example/x", Key: "x"}
 	r.Done = func(error) {
@@ -164,7 +173,7 @@ func TestGunzipLimit(t *testing.T) {
 func TestCorruptGzipNotCached(t *testing.T) {
 	c := New(t.TempDir())
 	z := gzipped(t, "<anime/>")
-	c.SetTransport(okTransport(string(z[:len(z)-6])))
+	c.SetTransport(&bodyNet{body: string(z[:len(z)-6])})
 	if _, err := c.Get(context.Background(), Request{URL: "http://api.example/x", Key: "x", NoStale: true}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -179,12 +188,9 @@ func TestCorruptGzipNotCached(t *testing.T) {
 // NoStale.
 func TestGetStaleFallback(t *testing.T) {
 	c := New(t.TempDir())
-	var calls atomic.Int32
-	status, body := 200, "v1"
-	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
-		calls.Add(1)
-		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
-	}))
+	net := &bodyNet{body: "v1"}
+	c.SetTransport(net)
+	calls := &net.sent
 	ctx := context.Background()
 	r := Request{URL: "http://api.example/x", Key: "x", TTL: time.Hour,
 		Validate: func(b []byte) error {
@@ -215,7 +221,7 @@ func TestGetStaleFallback(t *testing.T) {
 		body   string
 	}{{500, "oops"}, {200, "bad"}} {
 		expire(t, c, r.Key)
-		status, body = answer.status, answer.body
+		net.status, net.body = answer.status, answer.body
 		if got := get(r); got != "v1" {
 			t.Errorf("%d %q: got %q, want the stale copy", answer.status, answer.body, got)
 		}
@@ -226,7 +232,7 @@ func TestGetStaleFallback(t *testing.T) {
 			t.Errorf("%d %q: cache now holds %q", answer.status, answer.body, data)
 		}
 	}
-	status, body = 200, "v2"
+	net.status, net.body = 200, "v2"
 	if got := get(r); got != "v2" {
 		t.Fatalf("source back: %q", got)
 	}
@@ -339,6 +345,7 @@ type etagServer struct {
 	mu         sync.Mutex
 	body, etag string
 	inm        []string
+	before304  func() // if set, runs before a 304 is answered
 }
 
 func (e *etagServer) set(body, etag string) {
@@ -363,6 +370,9 @@ func (e *etagServer) start(t *testing.T) string {
 		if e.etag != "" {
 			w.Header().Set("ETag", e.etag)
 			if inm == e.etag {
+				if e.before304 != nil {
+					e.before304()
+				}
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
@@ -484,5 +494,55 @@ func TestRevalidateWithoutETag(t *testing.T) {
 	srv.set("v3", `"d4"`)
 	if data, err := c.Get(ctx, r); err != nil || string(data) != "v3" || srv.sent(3) != "" {
 		t.Fatalf("pruned etag: %q %v, If-None-Match %q", data, err, srv.sent(3))
+	}
+}
+
+// With an ETag but no cached copy (pruned, its .etag file left), nothing is
+// asked conditionally: the list is downloaded in full.
+func TestRevalidateWithoutCopy(t *testing.T) {
+	srv := &etagServer{body: "v1", etag: `"a1"`}
+	c := New(t.TempDir())
+	r := Request{URL: srv.start(t), Key: "lists/list.xml", TTL: time.Hour, Revalidate: true}
+	ctx := context.Background()
+	if _, err := c.Get(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(c.path(r.Key)); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := c.Get(ctx, r); err != nil || string(data) != "v1" || srv.sent(1) != "" {
+		t.Fatalf("no copy: %q %v, If-None-Match %q; want a full download", data, err, srv.sent(1))
+	}
+}
+
+// The cached copy is read only once the 304 comes. Gone by then (pruned
+// while the request was out), the call fails and the ETag goes with it, so
+// the next call downloads the list in full: the ETag never vouches for
+// bytes it wasn't saved with.
+func TestRevalidateCopyGoneBy304(t *testing.T) {
+	srv := &etagServer{body: "v1", etag: `"a1"`}
+	c := New(t.TempDir())
+	r := Request{URL: srv.start(t), Key: "lists/list.xml", TTL: time.Hour, Revalidate: true}
+	ctx := context.Background()
+	if _, err := c.Get(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	expire(t, c, r.Key)
+	srv.mu.Lock()
+	srv.before304 = func() { // the request is out, its answer not yet
+		if err := os.Remove(c.path(r.Key)); err != nil {
+			t.Error(err)
+		}
+	}
+	srv.mu.Unlock()
+	if data, err := c.Get(ctx, r); err == nil || srv.sent(1) != `"a1"` {
+		t.Fatalf("copy gone by the 304: %q %v, If-None-Match %q; want an error", data, err, srv.sent(1))
+	}
+	if _, err := os.Stat(c.etagPath(r.Key)); !os.IsNotExist(err) {
+		t.Fatalf("the .etag file is kept without its copy: %v", err)
+	}
+	srv.set("v2", `"a1"`)
+	if data, err := c.Get(ctx, r); err != nil || string(data) != "v2" || srv.sent(2) != "" {
+		t.Fatalf("next call: %q %v, If-None-Match %q; want a full download", data, err, srv.sent(2))
 	}
 }

@@ -4,20 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-// bodyNet answers every request with its body.
-type bodyNet struct{ body string }
-
-func (b *bodyNet) RoundTrip(r *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(b.body)), Header: http.Header{}, Request: r}, nil
-}
 
 // A 200 answer that isn't JSON (a captive portal's page) is neither cached
 // nor decoded; with an older copy cached, that one answers.
@@ -124,27 +115,14 @@ func TestGetJSONDecodesOnce(t *testing.T) {
 // decoded the answer for the first caller only.
 func TestGetJSONJoined(t *testing.T) {
 	c := New(t.TempDir())
-	var sent atomic.Int32
-	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
-		sent.Add(1)
-		return okTransport(`{"A": 3}`)(r)
-	}))
+	net := &bodyNet{body: `{"A": 3}`}
+	c.SetTransport(net)
 	const host = "api.example"
 	c.Throttle(host, time.Hour)
 	if _, err := c.Get(context.Background(), Request{URL: "https://" + host + "/first"}); err != nil { // takes the hour's slot
 		t.Fatal(err)
 	}
 	l := c.limits[host]
-	waitQueue := func(done func() bool) { // until done says the queue is as wanted
-		l.mu.Lock()
-		for !done() {
-			changed := l.changed
-			l.mu.Unlock()
-			<-changed
-			l.mu.Lock()
-		}
-		l.mu.Unlock()
-	}
 	r := Request{URL: "https://" + host + "/j", Key: "j.json", TTL: time.Hour}
 	first, second := make(chan error), make(chan error)
 	var a, b struct{ A int }
@@ -153,9 +131,9 @@ func TestGetJSONJoined(t *testing.T) {
 		bg.Background = true
 		first <- c.GetJSON(context.Background(), bg, &a)
 	}()
-	waitQueue(func() bool { return len(l.bg) == 1 })
+	l.waitQueue(func() bool { return len(l.bg) == 1 })
 	go func() { second <- c.GetJSON(context.Background(), r, &b) }()
-	waitQueue(func() bool { return len(l.fg) == 1 }) // joined: the download moved up
+	l.waitQueue(func() bool { return len(l.fg) == 1 }) // joined: the download moved up
 	c.Throttle(host, 0)
 	if err := <-first; err != nil || a.A != 3 {
 		t.Errorf("first caller: %+v, %v", a, err)
@@ -163,7 +141,7 @@ func TestGetJSONJoined(t *testing.T) {
 	if err := <-second; err != nil || b.A != 3 {
 		t.Errorf("joined caller: %+v, %v", b, err)
 	}
-	if sent.Load() != 2 {
-		t.Errorf("%d requests sent, want 2 (one each for /first and the shared download)", sent.Load())
+	if n := net.sent.Load(); n != 2 {
+		t.Errorf("%d requests sent, want 2 (one each for /first and the shared download)", n)
 	}
 }

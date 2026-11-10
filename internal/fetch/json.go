@@ -12,15 +12,6 @@ import (
 // CDN's HTML page.
 var errNotJSON = errors.New("not JSON")
 
-// ValidJSON is a Validate for JSON APIs: an answer that isn't JSON is
-// neither cached nor used.
-func ValidJSON(data []byte) error {
-	if !json.Valid(data) {
-		return errNotJSON
-	}
-	return nil
-}
-
 // GetJSON is Get for a JSON API: the answer is decoded into out, which it
 // replaces. A downloaded answer must decode (after r's own Validate), or it
 // is neither cached nor used, like any rejected one: an answer that isn't
@@ -39,7 +30,10 @@ func (c *Client) GetJSON(ctx context.Context, r Request, out any) error {
 			}
 		}
 		if target.Kind() != reflect.Pointer || target.IsNil() {
-			return ValidJSON(data) // the Unmarshal below reports the bad out
+			if !json.Valid(data) {
+				return errNotJSON
+			}
+			return nil // the Unmarshal below reports the bad out
 		}
 		v := reflect.New(target.Type().Elem())
 		if err := json.Unmarshal(data, v.Interface()); err != nil {
@@ -62,6 +56,9 @@ func (c *Client) GetJSON(ctx context.Context, r Request, out any) error {
 	if ctx.Err() == nil && decoded.IsValid() {
 		target.Elem().Set(decoded.Elem())
 		return nil
+	}
+	if target.Kind() == reflect.Pointer && !target.IsNil() {
+		target.Elem().SetZero() // replaced, not merged into what out held
 	}
 	return json.Unmarshal(data, out)
 }

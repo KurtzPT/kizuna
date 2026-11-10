@@ -172,7 +172,7 @@ func TestThrottleAll(t *testing.T) {
 func TestBackgroundRequestsYield(t *testing.T) {
 	c := New(t.TempDir())
 	c.Throttle("api.example", time.Hour) // nothing slips through while the test queues; open lets them go
-	c.SetTransport(okTransport("ok"))
+	c.SetTransport(&bodyNet{body: "ok"})
 	l := c.limits["api.example"]
 	names := map[*ticket]string{}
 	queue := func(path string, background bool, wg *sync.WaitGroup) {
@@ -182,7 +182,7 @@ func TestBackgroundRequestsYield(t *testing.T) {
 				t.Error(err)
 			}
 		})
-		l.waitQueued(n + 1)
+		l.waitQueue(func() bool { return len(l.fg)+len(l.bg) > n })
 		c.mu.Lock()
 		names[c.inflight[path].ticket] = path
 		c.mu.Unlock()
@@ -210,11 +210,11 @@ func (l *hostLimit) queued() int {
 	return len(l.fg) + len(l.bg)
 }
 
-// waitQueued blocks until at least n requests wait in l's queues (every
-// enqueue signals a change).
-func (l *hostLimit) waitQueued(n int) {
+// waitQueue blocks until done, called with l.mu held, says l's queues are as
+// wanted (every change to them signals).
+func (l *hostLimit) waitQueue(done func() bool) {
 	l.mu.Lock()
-	for len(l.fg)+len(l.bg) < n {
+	for !done() {
 		changed := l.changed
 		l.mu.Unlock()
 		<-changed
