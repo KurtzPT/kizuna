@@ -152,6 +152,66 @@ func (s *Show) eachEpisode(f func(*Ep)) {
 	}
 }
 
+// anidbDetails is AniDB's answer for a show build's anime: its details, or
+// why there are none. Both builds read it, so the rule for when a show
+// without details is complete, and the log lines saying so, live here.
+type anidbDetails struct {
+	a   *sources.AniDBAnime
+	err error // why a is nil
+	// blocked: a is nil because the anime is in its 24 h block after an
+	// AniDB error (zero = not). The block itself is logged once, at Info
+	// (sources.AniDB).
+	blocked time.Time
+	off     bool // AniDB is not set up
+}
+
+// anidbDetailsOf asks AniDB for aid (within its fair use rules) and says why
+// it gave nothing.
+func (p *Provider) anidbDetailsOf(ctx context.Context, aid int) anidbDetails {
+	a, err := p.anidb.Anime(ctx, aid)
+	d := anidbDetails{a: a, err: err, off: !p.anidb.Enabled()}
+	if a == nil && !d.off {
+		if until, blocked := p.anidb.BlockedUntil(aid); blocked {
+			d.blocked = until
+		}
+	}
+	return d
+}
+
+// final: no rebuild can bring more from AniDB soon. Without ANIDB_CLIENT, or
+// while the anime is in its 24 h block, there are no details to wait for: the
+// show is complete as it is, not rebuilt every 2 minutes.
+func (d anidbDetails) final() bool { return d.a != nil || d.off || !d.blocked.IsZero() }
+
+// missingWords: what a build logs when AniDB gave no details, by why. A
+// build's words are fixed strings, so logging builds none per call.
+type missingWords struct{ blocked, retry, off string } // off "" = not logged
+
+var (
+	anidbShowMissing = missingWords{
+		blocked: "AniDB details not available; using titles, other sources and placeholder episodes until the anime's 24 h block ends",
+		retry:   "AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
+		off:     "AniDB not configured; using titles, other sources and placeholder episodes",
+	}
+	tvdbShowMissing = missingWords{
+		blocked: "AniDB details not available; using titles and other sources until the anime's 24 h block ends",
+		retry:   "AniDB details not available; using titles and other sources, retried in 2 min",
+	}
+)
+
+// logMissing logs why there are no details (nothing when there are).
+func (d anidbDetails) logMissing(aid int, w *missingWords) {
+	switch {
+	case d.a != nil:
+	case !d.blocked.IsZero():
+		slog.Debug(w.blocked, "aid", aid, "blocked_until", d.blocked.Format(time.RFC3339), "why", d.err)
+	case !d.off:
+		slog.Info(w.retry, "aid", aid, "why", d.err)
+	case w.off != "":
+		slog.Debug(w.off, "aid", aid)
+	}
+}
+
 // --- Mode "anidb": one AniDB entry, absolute numbering, no seasons ---------
 
 // buildAniDB: season 1 holds every regular episode (1..n, absolute); season 0
@@ -168,20 +228,13 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if p.listsEarly(aid, entry) {
 		lists.start(&early)
 	}
-	a, err := p.anidb.Anime(ctx, aid)
+	d := p.anidbDetailsOf(ctx, aid)
+	a := d.a
 	titles := p.showTitles(aid, a)
 	if len(titles) == 0 {
-		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, err)
+		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, d.err)
 	}
-	// Without ANIDB_CLIENT, or while the anime is in its 24 h block after an
-	// AniDB error, there are no details to wait for: the show is complete as
-	// it is (as in buildTVDB), not rebuilt every 2 minutes.
-	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: a != nil || !p.anidb.Enabled()}
-	if a == nil && p.anidb.Enabled() {
-		if until, blocked := p.anidb.BlockedUntil(aid); blocked {
-			s.Complete, s.anidbBlocked = true, until
-		}
-	}
+	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: d.final(), anidbBlocked: d.blocked}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	// movie: TheMovieDb's movie, by the mapping alone (mapping.Entry.Movie),
 	// so the GUIDs and TheMovieDb id are the same with and without AniDB
@@ -201,16 +254,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	s.episodeGuids = special
 
 	if a == nil {
-		switch {
-		case !s.anidbBlocked.IsZero(): // the block itself is logged once, at Info (sources.AniDB)
-			slog.Debug("AniDB details not available; using titles, other sources and placeholder episodes until the anime's 24 h block ends",
-				"aid", aid, "blocked_until", s.anidbBlocked.Format(time.RFC3339), "why", err)
-		case p.anidb.Enabled():
-			slog.Info("AniDB details not available; using titles, other sources and placeholder episodes, retried in 2 min",
-				"aid", aid, "why", err)
-		default:
-			slog.Debug("AniDB not configured; using titles, other sources and placeholder episodes", "aid", aid)
-		}
+		d.logMissing(aid, &anidbShowMissing)
 		s.Episodes[1] = nil
 		if special { // at their spots in TheTVDB's specials, filled from there (fillEpisodes)
 			s.Episodes[1] = p.specialEpisodes(entry, isMovie)
@@ -418,20 +462,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 
 	var wg sync.WaitGroup
 	defer wg.Wait() // a failed build too: AniDB's answer is cached for the next
-	var a *sources.AniDBAnime
-	var blocked bool // a is nil because the anime is in its 24 h block after an AniDB error
+	var d anidbDetails
 	if aid > 0 {
 		wg.Go(func() {
-			var err error
-			if a, err = p.anidb.Anime(ctx, aid); a == nil && p.anidb.Enabled() {
-				var until time.Time
-				if until, blocked = p.anidb.BlockedUntil(aid); blocked { // the block itself is logged once, at Info (sources.AniDB)
-					slog.Debug("AniDB details not available; using titles and other sources until the anime's 24 h block ends",
-						"aid", aid, "blocked_until", until.Format(time.RFC3339), "why", err)
-				} else {
-					slog.Info("AniDB details not available; using titles and other sources, retried in 2 min", "aid", aid, "why", err)
-				}
-			}
+			d = p.anidbDetailsOf(ctx, aid)
+			d.logMissing(aid, &tvdbShowMissing)
 		})
 	}
 	eps, epsErr := p.tvdb.Episodes(ctx, tvdbID)
@@ -463,16 +498,16 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	ss.tvdbTargets(plexSeasons(s))
 	ss.warmEarly()
 	wg.Wait()
+	a := d.a
 	b.first = a
 	ss.setAniDB(ctx, a, entry)
 	s.OriginalTitle = p.originalTitle(p.showTitles(aid, a)) // without details, from the title dump
 	if a != nil {
 		averageRuntime(s, a)
-	} else if p.anidb.Enabled() && aid > 0 && !blocked {
-		// AniDB details missing: rebuild soon (without ANIDB_CLIENT, or while
-		// the anime is in its 24 h block after an AniDB error, there are none
-		// to wait for). Also for an entry the title dump doesn't list yet: a
-		// new one, which AniDB has before the next dump.
+	} else if aid > 0 && !d.final() {
+		// AniDB details missing: rebuild soon (anidbDetails.final). Also for
+		// an entry the title dump doesn't list yet: a new one, which AniDB
+		// has before the next dump.
 		s.Complete = false
 	}
 	if s.Minutes == 0 { // no AniDB details, or no runtimes there
