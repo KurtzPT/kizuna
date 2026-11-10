@@ -9,12 +9,14 @@
 # Each show folder gets one .plexmatch with an "ep:" line for every file the
 # scanner would number differently from Kizuna:
 #   anidb rules  SP3 / PV / OVA                        -> ep: S00E03: Show - SP3.mkv etc.
-#                openings and endings get AniDB's own numbers (S00E101...) from
-#                Kizuna when it's reachable, so OP1a / OP1b / OP2 land on their
-#                own entries. But Plex's scanner makes every file named like
-#                NCOP1 / OP1b / ED2 / Creditless Opening an extra and ignores
-#                hints for it (PLEX_CREDIT_RE): those are reported with the name
-#                to rename them to instead of getting a hint
+#                openings and endings never get a hint, however they are
+#                spelled. Plex's scanner takes them by name before it reads a
+#                hint (PLEX_CREDIT_RE): a file named like NCOP1 / OP1b / ED2 /
+#                Creditless Opening becomes an extra, one named with the whole
+#                word (Opening 1, Ending) is left out of the library, and one
+#                in small letters (op1) is no extra. Each is only reported,
+#                with AniDB's own number (S00E101..., from Kizuna when it's
+#                reachable) for whoever renames the file and hints it by hand
 #                a folder's only video without a number -> ep: S01E01 (a movie)
 #   tvdb rules   absolute "Show - 033.mkv"             -> ep: S02E33: Show - 033.mkv
 #                plain HAMA [tvdb-N] folders (seasons counted from 1 each):
@@ -96,10 +98,19 @@ CREDIT_RE='^(nc)?(op|opening|ed|ending)[[:space:]]*0*([0-9]{1,2})?[[:space:]]*([
 # Plex's own opening/ending check (Plex Media Server 1.43, from its binary):
 #   (?:\b|_|\.)(?<title>(?:NC|(?:Creditless|Clean)[ ._])?(?<type>OP|ED|Opening|Ending|OPED)
 #   (?:[ ._]?(?<index>\d{1,2})[A-Za-z]?)?(?:[ ._][A-Za-z])?)(?:v\d)?(?:\b|_|\.)
-# A file whose name matches becomes an extra before .plexmatch hints are read.
-# Same pattern in bash ERE (\b as "not a letter or digit"), matched with case,
-# as Plex spells the words out in capitals. Group 2 is Plex's "title".
+# Plex takes a file whose name matches before .plexmatch hints are read: see
+# plex_credit for what it does with it. Same pattern in bash ERE (\b as "not
+# a letter or digit"), matched with case, as Plex spells the words out in
+# capitals. Group 2 is Plex's "title", 4 Creditless or Clean, 5 the word.
 PLEX_CREDIT_RE='(^|[^[:alnum:]])((NC|(Creditless|Clean)[ ._])?(OP|ED|Opening|Ending|OPED)([ ._]?[0-9]{1,2}[A-Za-z]?)?([ ._][A-Za-z])?)(v[0-9])?([^[:alnum:]]|$)'
+# Plex's season-and-episode check, from the same binary, in any case:
+#   (?<show>.*?)[s](?<season>[0-9]+)[._ ]*[e](?<ep>[0-9]+)...
+#   (?<show>.*?)[s](?<season>[0-9]{2})[-._ ]+(?<ep>[0-9]+)
+# A name it matches is an episode, and Plex doesn't look for an opening or
+# ending in it. Wider than SXE: no word boundaries, "S01.E05", "s01 05".
+PLEX_SXE_RE='s[0-9]+[._ ]*e[0-9]+|s[0-9]{2}[-._ ]+[0-9]+'
+# a spelled-out word and its number, as plex_credit prints them: "NCOpening 1"
+SHORT_CREDIT_RE='^(NC)?(OP|ED)[ ._]([0-9].*)$'
 # AniDB credit titles: "Opening 1a", "Opening 1 (b)", "Ending", "Ending 2: Song"
 CREDIT_TITLE_RE='^(opening|op|ending|ed)([[:space:]]*0*([0-9]+))?[[:space:]]*(\(([a-z])\)|([a-z]))?([^[:alnum:]]|$)'
 # other special patterns: "regex|base|number group" (no group = number 1)
@@ -139,8 +150,9 @@ name_tails() {
 	if ((${#words[@]} > 0)); then printf '%s\n' "${words[-1]}"; fi
 }
 
-# credit_of prints "op|ed NUMBER LETTER" for an opening or ending file name
-# (NCOP1 -> "op 1 -", OP1b -> "op 1 b", ED -> "ed 1 -"), or nothing.
+# credit_of prints "op|ed NUMBER LETTER TEXT" for an opening or ending file
+# name, TEXT being the part of the name that says so (Show - NCOP1 ->
+# "op 1 - NCOP1", OP1b -> "op 1 b OP1b", ED -> "ed 1 - ED"), or nothing.
 credit_of() {
 	local t kind num letter
 	while IFS= read -r t; do
@@ -150,7 +162,7 @@ credit_of() {
 			kind=${BASH_REMATCH[2],,} num=${BASH_REMATCH[3]:-1} letter=${BASH_REMATCH[4],,}
 			shopt -u nocasematch
 			if [[ $kind == e* ]]; then kind="ed"; else kind="op"; fi
-			echo "$kind $((10#$num)) ${letter:--}"
+			echo "$kind $((10#$num)) ${letter:--} $t"
 			return
 		fi
 		shopt -u nocasematch
@@ -172,27 +184,87 @@ credit_title() {
 	shopt -u nocasematch
 }
 
-# plex_extra prints the part of file name $1 that makes Plex's scanner treat
-# the file as an opening/ending extra ("NCOP", "OP1b"), or fails.
-plex_extra() {
+# plex_numbered says whether Plex reads a season and episode in file name $1
+# (without its extension).
+plex_numbered() {
+	shopt -s nocasematch
+	if [[ $1 =~ $PLEX_SXE_RE ]]; then
+		shopt -u nocasematch
+		return 0
+	fi
 	shopt -u nocasematch
-	[[ $1 =~ $PLEX_CREDIT_RE ]] || return 1
-	printf '%s' "${BASH_REMATCH[2]}"
+	return 1
 }
 
-# extra_note explains a file Plex makes an extra ($1 its name, $2 the part
-# that does it, $3 the special number it should get, if known, else $4 how to
-# find that number).
-extra_note() {
-	local note="Plex's scanner makes files with \"$2\" in the name opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page)"
-	if [[ -n ${3:-} ]]; then
-		note+=". To get it as Kizuna's $3, rename it, e.g. to \"${1/"$2"/$3}\""
-	elif [[ -n ${4:-} ]]; then
-		note+=". To make it a special, rename it with $4 in place of \"$2\""
-	else
-		note+=". To make it an episode, rename it without \"$2\""
+# plex_credit prints what Plex's scanner does with file name $1 (without its
+# extension) as an opening or ending, and the part of the name that does it:
+# "extra NCOP1" (an opening/ending extra) or "dropped Opening 1" (left out of
+# the library: the whole word Opening or Ending without Creditless or Clean
+# in front). Fails for a name Plex reads like any other. The Go port of the
+# same rules is CreditOf in internal/plex/title.go: keep the two in step.
+plex_credit() {
+	local kind=extra word
+	if plex_numbered "$1"; then return 1; fi
+	[[ $1 =~ $PLEX_CREDIT_RE ]] || return 1
+	word=${BASH_REMATCH[5]}
+	if [[ ($word == Opening || $word == Ending) && -z ${BASH_REMATCH[4]} ]]; then kind=dropped; fi
+	printf '%s %s\n' "$kind" "${BASH_REMATCH[2]}"
+}
+
+# short_credit prints the name Plex makes an extra of for a spelled-out one
+# ("Opening 1" -> "OP1", "NCOpening" -> "NCOP", "Ending a" -> "ED a").
+short_credit() {
+	local s=${1/Opening/OP}
+	s=${s/Ending/ED}
+	if [[ $s =~ $SHORT_CREDIT_RE ]]; then s=${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]}; fi
+	printf '%s' "$s"
+}
+
+# capital_credit prints the name Plex makes an extra of for an opening or
+# ending spelled another way ("op1" -> "OP1", "ncop2" -> "NCOP2",
+# "ending 2A" -> "ED2a"), or nothing.
+capital_credit() {
+	local nc word num letter
+	shopt -s nocasematch
+	if [[ $1 =~ $CREDIT_RE ]]; then
+		nc=${BASH_REMATCH[1]^^} word=${BASH_REMATCH[2],,} num=${BASH_REMATCH[3]} letter=${BASH_REMATCH[4],,}
+		shopt -u nocasematch
+		if [[ $word == e* ]]; then word=ED; else word=OP; fi
+		printf '%s' "$nc$word${num:+$((10#$num))}$letter"
+		return
 	fi
-	printf '%s; no hint' "$note"
+	shopt -u nocasematch
+}
+
+# credit_note explains an opening or ending file, which never gets a hint:
+# $1 the file's name, $2 what Plex does with it (extra or dropped, as
+# plex_credit says, or plain: it doesn't take the name), $3 the part of the
+# name that says so, $4 the special number it would have, if known, with $5
+# a remark on that number, else $5 how to find the number. The script
+# renames nothing, so making the file a special is left to the user: the
+# note only says how.
+credit_note() {
+	local note short
+	case $2 in
+	extra)
+		note="Plex's scanner makes files with \"$3\" in the name opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page) and gets no hint"
+		;;
+	dropped)
+		short=$(short_credit "$3")
+		note="Plex's scanner leaves files with the whole word \"$3\" in the name out of the library, as neither an extra nor an episode, so it gets no hint. To have it as an extra, rename it with $short in place of that, e.g. to \"${1/"$3"/$short}\""
+		;;
+	*)
+		short=$(capital_credit "$3")
+		note="Plex's scanner only takes these words in capitals, so \"$3\" doesn't make it an opening/ending extra, and the script writes no hint for openings and endings. To have it as an extra (Kizuna can then give it a readable title), rename it with $short in place of that, e.g. to \"${1/"$3"/$short}\""
+		;;
+	esac
+	note+=". If you want it as a special, that is yours to do: rename it to a name without \"$3\" or another such word, and add "
+	if [[ -n ${4:-} ]]; then
+		note+="\"ep: $4: <new name>\" to the show's .plexmatch by hand ($4 is Kizuna's number for it${5:+; $5})"
+	else
+		note+="an ep: hint for the new name, with ${5:-its number}, to the show's .plexmatch by hand"
+	fi
+	printf '%s' "$note"
 }
 
 # special_number maps other special file names to season-0 numbers
@@ -486,8 +558,8 @@ load_credits() {
 }
 
 # credit_index sets CREDIT_N to the Plex number of an opening or ending
-# ($1 op|ed, $2 number, $3 letter or -) and CREDIT_NOTE to anything worth a
-# warning. With Kizuna's titles it uses AniDB's own numbering; without them
+# ($1 op|ed, $2 number, $3 letter or -) and CREDIT_NOTE to anything worth
+# saying about it. With Kizuna's titles it uses AniDB's own numbering; without them
 # 100/150 + number, which is only safe without a variant letter.
 credit_index() {
 	local kind=$1 num=$2 letter=$3 l
@@ -501,7 +573,7 @@ credit_index() {
 			for l in {a..z}; do
 				if [[ -n ${CREDIT_AT["$kind $num $l"]:-} ]]; then
 					CREDIT_N=${CREDIT_AT["$kind $num $l"]}
-					CREDIT_NOTE="AniDB has variants of this one; used $num$l ($(printf 'S00E%02d' "$CREDIT_N")), change it if that's wrong"
+					CREDIT_NOTE="AniDB has variants of this one: that is $num$l's number"
 					break
 				fi
 			done
@@ -575,7 +647,7 @@ hint() {
 
 plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
-	local relative=0 se rs re pe
+	local relative=0 se rs re pk pe numbered ctext
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
 	for sub in "$dir"/*/; do
 		sub=$(basename "$sub")
@@ -606,7 +678,8 @@ plan_show() {
 	fi
 	shopt -u nocasematch
 	for v in "${videos[@]}"; do
-		if read -r ckind cnum cletter < <(credit_of "$(basename "${v%.*}")") && [[ $cletter != - ]]; then
+		stem=$(basename -- "${v%.*}")
+		if ! plex_numbered "$stem" && read -r ckind cnum cletter ctext < <(credit_of "$stem") && [[ $cletter != - ]]; then
 			SHOW_VARIANTS+=" $ckind"
 		fi
 	done
@@ -636,38 +709,36 @@ plan_show() {
 		ds=""
 		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); fi # a subfolder's season, if it has one
 
-		pe=$(plex_extra "$(basename "$v")") || pe=""
-		if read -r ckind cnum cletter < <(credit_of "$stem"); then
+		# what Plex makes of the name by itself: an episode (a season and
+		# episode in it), an opening/ending extra, a file it leaves out, or none
+		numbered=0 pk="" pe=""
+		if plex_numbered "$stem"; then
+			numbered=1
+		else
+			read -r pk pe < <(plex_credit "$stem") || pk="" pe=""
+		fi
+		# an opening or ending: reported, never hinted
+		if ((!numbered)) && read -r ckind cnum cletter ctext < <(credit_of "$stem"); then
+			if [[ -z $pk ]]; then pk=plain pe=$ctext; fi # not spelled the way Plex takes it
 			if [[ $rules == tvdb ]]; then # TVDB numbers its own specials; the 101+ scheme doesn't apply
-				if [[ -n $pe ]]; then
-					warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its TVDB number (S00Exx)")"
-				else
-					warn "$v: special file - add its TVDB number by hand (ep: S00Exx: $rel)"
-				fi
+				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its TVDB number (S00Exx)")"
 				continue
 			fi
 			if [[ $CREDITS_FOR != "$dir" ]]; then load_credits "$dir" "$v"; fi
 			if credit_index "$ckind" "$cnum" "$cletter"; then
-				if [[ -n $CREDIT_NOTE ]]; then warn "$v: $CREDIT_NOTE"; fi
-				if [[ -n $pe ]]; then
-					warn "$v: $(extra_note "$(basename "$v")" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")")"
-				else
-					hint "$rel" "$(printf 'S00E%02d' "$CREDIT_N")"
-				fi
-			elif [[ -n $pe ]]; then
-				warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)")"
+				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")" "$CREDIT_NOTE")"
 			else
-				warn "$v: ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE; no hint"
+				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)")"
 			fi
 			continue
 		fi
 		n=$(special_number "$stem")
 		if ((n > 0)); then
-			if [[ -n $pe ]]; then
+			if [[ -n $pk ]]; then
 				if [[ $rules == tvdb ]]; then
-					warn "$v: $(extra_note "$(basename "$v")" "$pe" "" "its TVDB number (S00Exx)")"
+					warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its TVDB number (S00Exx)")"
 				else
-					warn "$v: $(extra_note "$(basename "$v")" "$pe" "$(printf 'S00E%02d' "$n")")"
+					warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$n")")"
 				fi
 			elif [[ $rules == tvdb ]]; then
 				warn "$v: special file - add its TVDB number by hand (ep: S00Exx: $rel)"
@@ -676,8 +747,11 @@ plan_show() {
 			fi
 			continue
 		fi
-		if [[ -n $pe ]]; then # an episode whose name Plex reads as an opening/ending
-			warn "$v: Plex's scanner may make it an opening/ending extra: its name contains \"$pe\". If it's missing from the show after the scan, rename it without that"
+		# an episode whose name Plex reads as an opening/ending
+		if [[ $pk == extra ]]; then
+			warn "$v: Plex's scanner makes it an opening/ending extra, not an episode: its name contains \"$pe\". Rename it without that"
+		elif [[ $pk == dropped ]]; then
+			warn "$v: Plex's scanner leaves it out of the library: its name contains the whole word \"$pe\". Rename it without that"
 		fi
 		abs=$(absolute_number "$stem")
 		shopt -s nocasematch
@@ -811,14 +885,14 @@ main() {
 		curl -fsS --max-time 10 "$URL/health" >/dev/null || die "Kizuna is not ready at $URL (set -u or KIZUNA_URL)"
 		KIZUNA=1
 	elif command -v curl >/dev/null && command -v jq >/dev/null && curl -fsS --max-time 10 "$URL/health" >/dev/null 2>&1; then
-		KIZUNA=1 # optional in anidb and auto modes: AniDB's own numbers for openings and endings, and in auto the tvdb shows
+		KIZUNA=1 # optional in anidb and auto modes: AniDB's own numbers for openings and endings (reported, not hinted), and in auto the tvdb shows
 	else
 		if [[ $MODE == auto ]]; then
 			echo "note: Kizuna not reachable at $URL (or no curl/jq): only folders tagged [anidb-N] are planned;" >&2
 			echo "      [tvdb-N] folders, other tags and untagged folders are skipped (start Kizuna or set -u)" >&2
 		fi
-		echo "note: Kizuna not reachable at $URL (or no curl/jq): openings and endings are numbered from their" >&2
-		echo "      file names, and variants such as OP1b are only reported (start Kizuna or set -u to fix that)" >&2
+		echo "note: Kizuna not reachable at $URL (or no curl/jq): the numbers reported for openings and endings come" >&2
+		echo "      from their file names, and variants such as OP1b get none (start Kizuna or set -u to fix that)" >&2
 	fi
 
 	for d in "$LIBRARY"/*/; do
