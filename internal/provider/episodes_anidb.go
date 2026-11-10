@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 
 	"kizuna/internal/mapping"
@@ -107,12 +108,13 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			if e, ok := tvList.title(ep, "tvdb", record); ok {
 				paired++
 				ep.Directors, ep.Writers, ep.tvdbEp = e.Directors, e.Writers, e.ID // episodeCrew completes them
+				ep.src.directors, ep.src.writers = srcTVDB, srcTVDB
 				if fill {
-					ep.Thumb = firstOf(ep.Thumb, e.Thumb)
-					ep.Summary = firstOf(ep.Summary, e.Summary)
-					ep.Date = firstOf(ep.Date, e.Aired)
+					fillTVDB(&ep.Thumb, e.Thumb, &ep.src.thumb)
+					fillTVDB(&ep.Summary, e.Summary, &ep.src.summary)
+					fillTVDB(&ep.Date, e.Aired, &ep.src.date)
 					if ep.Minutes == 0 {
-						ep.Minutes = e.Minutes
+						ep.Minutes, ep.src.minutes = e.Minutes, srcTVDB
 					}
 				}
 			}
@@ -125,4 +127,15 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	}
 	crewOK := p.episodeCrew(ctx, s, tmList)
 	return tvOK && tmOK && crewOK
+}
+
+// fillTVDB gives a blank *v TheTVDB's value, and notes in src when it took
+// one: the episode's report says which source each value came from.
+func fillTVDB(v *string, tvdb string, src *srcCode) {
+	if strings.TrimSpace(*v) != "" {
+		return
+	}
+	if *v = firstOf(tvdb); *v != "" {
+		*src = srcTVDB
+	}
 }

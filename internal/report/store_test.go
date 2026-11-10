@@ -27,8 +27,8 @@ func readDoc(t *testing.T, dir, key string, v any) {
 	}
 }
 
-// A page keeps the newest maxBuilds builds (episodes for the newest only)
-// and maxRequests requests, across flushes and a restart.
+// A page keeps the newest maxBuilds builds (episodes and art for the newest
+// only) and maxRequests requests, across flushes and a restart.
 func TestStoreKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, "test")
@@ -38,7 +38,10 @@ func TestStoreKeepsNewest(t *testing.T) {
 	for i := range maxBuilds + 2 {
 		r := NewRecorder("anidb-1", "anidb")
 		r.b.ID, r.b.Start = fmt.Sprint(i), time.Date(2026, 1, 1, 0, i, 0, 0, time.UTC)
-		r.Finish(time.Second, nil, Result{Head: ShowHead{Title: "Show"}, Episodes: []Episode{{Season: 1, Index: i}}})
+		season := 1
+		r.Finish(time.Second, nil, Result{Head: ShowHead{Title: "Show"}, Episodes: []Episode{{Season: 1, Index: i}},
+			Seasons: []Season{{Name: "Season 1", Count: 1, Index: 1}}, Item: json.RawMessage(`{"title":"Show"}`),
+			Art: []ArtGroup{{Level: "Season 1", Season: &season, Kind: "poster", Images: []ArtImage{{URL: fmt.Sprint("https://img.example/", i)}}}}})
 		s.AddBuild("anidb-1", r)
 		if i == 3 {
 			s.Flush()
@@ -63,6 +66,19 @@ func TestStoreKeepsNewest(t *testing.T) {
 	}
 	if len(doc.Builds[0].Episodes) != 1 || len(doc.Builds[1].Episodes) != 0 {
 		t.Error("only the newest build keeps its episodes")
+	}
+	newest := doc.Builds[0].Art
+	if len(newest) != 1 || newest[0].Season == nil || *newest[0].Season != 1 || len(newest[0].Images) != 1 ||
+		newest[0].Images[0].URL != fmt.Sprint("https://img.example/", maxBuilds+1) {
+		t.Errorf("the newest build's art %+v, want its own", newest)
+	}
+	for i, b := range doc.Builds {
+		if i > 0 && (b.Art != nil || b.Episodes != nil) {
+			t.Errorf("build %d keeps art %+v and %d episodes: only the newest does", i, b.Art, len(b.Episodes))
+		}
+		if string(b.Item) != `{"title":"Show"}` || len(b.Seasons) != 1 {
+			t.Errorf("build %d: item %s seasons %+v, want both kept on every build", i, b.Item, b.Seasons)
+		}
 	}
 	if len(doc.Requests) != maxRequests || doc.Requests[0].Status != 999 || doc.Requests[1].Status != maxRequests+4 {
 		t.Errorf("%d requests, newest %d then %d", len(doc.Requests), doc.Requests[0].Status, doc.Requests[1].Status)
@@ -121,12 +137,17 @@ func TestUnmatchedKey(t *testing.T) {
 
 // Text from a source can't end the page's script or add markup.
 func TestRenderEscapes(t *testing.T) {
-	data, _ := json.Marshal(ShowDoc{Key: "anidb-1", ShowHead: ShowHead{Title: `</script><img src=x onerror=alert(1)> & co`}})
+	// The item is JSON made elsewhere, without HTML escaping: marshaling
+	// the page's data escapes it too.
+	item := json.RawMessage(`{"title":"</script><img src=x onerror=alert(2)> & item"}`)
+	data, _ := json.Marshal(ShowDoc{Key: "anidb-1", ShowHead: ShowHead{Title: `</script><img src=x onerror=alert(1)> & co`},
+		Builds: []Build{{ID: "b", Item: item}}})
 	html, err := render(page{Kind: "show", Version: "test", Data: data})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(html, []byte("<img src=x")) || bytes.Count(html, []byte("</script>")) != 1 || bytes.Contains(html, []byte(" & co")) {
+	if bytes.Contains(html, []byte("<img src=x")) || bytes.Count(html, []byte("</script>")) != 1 || bytes.Contains(html, []byte(" & co")) ||
+		bytes.Contains(html, []byte(" & item")) {
 		t.Error("source text reached the HTML unescaped")
 	}
 	if bytes.Contains(html, dataSlot) {
@@ -139,7 +160,9 @@ func TestRenderEscapes(t *testing.T) {
 		Version string
 		Show    ShowDoc
 	}
-	if err := json.Unmarshal(html[start:end], &got); err != nil || got.Kind != "show" || got.Version != "test" || got.Show.Key != "anidb-1" {
+	var sent struct{ Title string }
+	if err := json.Unmarshal(html[start:end], &got); err != nil || got.Kind != "show" || got.Version != "test" || got.Show.Key != "anidb-1" ||
+		len(got.Show.Builds) != 1 || json.Unmarshal(got.Show.Builds[0].Item, &sent) != nil || sent.Title != "</script><img src=x onerror=alert(2)> & item" {
 		t.Errorf("page data %+v (%v)", got, err)
 	}
 }
@@ -432,7 +455,8 @@ func TestFactsAndFinish(t *testing.T) {
 	}
 
 	res := Result{Head: ShowHead{Title: "Show"}, Mapping: []MapRow{{AID: 1}}, Complete: true, Seasons: []Season{{Name: "Season 1", Count: 2}},
-		Episodes: []Episode{{Season: 1, Index: 1}, {Season: 1, Index: 2}}, EpsTotal: 2, Output: [][2]string{{"title", "Show"}},
+		Episodes: []Episode{{Season: 1, Index: 1}, {Season: 1, Index: 2}}, EpsTotal: 2, Item: json.RawMessage(`{"title":"Show"}`),
+		Art:    []ArtGroup{{Level: "show", Kind: "poster", Images: []ArtImage{{URL: "https://img.example/p", Src: "tvdb", Primary: true}}}},
 		Checks: []Check{{Level: LevelInfo, Title: "third"}, {Level: LevelInfo, Title: "fourth"}}}
 	r.Finish(1500*time.Millisecond, nil, res)
 	b, head := r.snapshot(func() {})
@@ -444,7 +468,7 @@ func TestFactsAndFinish(t *testing.T) {
 		t.Errorf("checks %s, want the recorded ones, then the result's, in order", got)
 	}
 	if head.Title != "Show" || b.TookMS != 1500 || b.Error != "" || !b.Complete || len(b.Mapping) != 1 || len(b.Seasons) != 1 ||
-		len(b.Episodes) != 2 || b.EpsTotal != 2 || len(b.Output) != 1 || b.Match == nil || len(b.Fields) != 1 {
+		len(b.Episodes) != 2 || b.EpsTotal != 2 || string(b.Item) != `{"title":"Show"}` || len(b.Art) != 1 || b.Match == nil || len(b.Fields) != 1 {
 		t.Errorf("build %+v head %+v, want the result's values", b, head)
 	}
 
@@ -555,7 +579,7 @@ func TestOldSchemaIgnored(t *testing.T) {
 			t.Errorf("indexed %v: unmatched page %+v, want it started over: the new match and request only", indexed, u)
 		}
 		for _, page := range []string{"anidb-1", un} {
-			if data, err := os.ReadFile(filepath.Join(dir, page+".html")); err != nil || !bytes.Contains(data, []byte(`"schema":2`)) {
+			if data, err := os.ReadFile(filepath.Join(dir, page+".html")); err != nil || !bytes.Contains(data, []byte(`"schema":3`)) {
 				t.Errorf("%s.html (%v): want the new page", page, err)
 			}
 		}

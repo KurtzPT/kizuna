@@ -302,12 +302,11 @@ func TestMetadataBuildReport(t *testing.T) {
 		t.Fatalf("%d builds, want 2", len(doc.Builds))
 	}
 	first, second := doc.Builds[1], doc.Builds[0]
-	guid := ""
-	for _, kv := range first.Output {
-		if kv[0] == "guid" {
-			guid = kv[1]
-		}
+	var item Item
+	if err := json.Unmarshal(first.Item, &item); err != nil {
+		t.Fatalf("first build's item %s: %v", first.Item, err)
 	}
+	guid := item.GUID
 	if first.Mode != "auto" || first.Match != nil || !strings.Contains(guid, ".auto://") {
 		t.Errorf("first build /%s, guid %q: want /auto's", first.Mode, guid)
 	}
@@ -435,9 +434,10 @@ func TestFinishReportChecksOrder(t *testing.T) {
 	if !reflect.DeepEqual(b.Checks, want) {
 		t.Errorf("checks\n%+v\nwant\n%+v", b.Checks, want)
 	}
-	if doc.Title != "Show &amp; Tell" || b.Complete || b.EpsTotal != 2 || len(b.Episodes) != 2 || len(b.Seasons) != 1 || b.Seasons[0] != (report.Season{Name: "Season 1", Count: 2}) ||
-		len(b.Output) == 0 || len(b.Mapping) == 0 || b.TookMS != 1000 || b.Error != "" {
-		t.Errorf("build %+v, want the show's head, seasons, episodes, output and mapping", b)
+	if doc.Title != "Show &amp; Tell" || b.Complete || b.EpsTotal != 2 || len(b.Episodes) != 2 || len(b.Seasons) != 1 ||
+		b.Seasons[0] != (report.Season{Name: "Season 1", Count: 2, Index: 1, Date: "2020-01-01"}) ||
+		len(b.Item) == 0 || len(b.Mapping) == 0 || b.TookMS != 1000 || b.Error != "" {
+		t.Errorf("build %+v, want the show's head, seasons, episodes, item and mapping", b)
 	}
 
 	// A failed build: the head and the mapping only.
@@ -447,7 +447,7 @@ func TestFinishReportChecksOrder(t *testing.T) {
 	store.Flush()
 	doc = report.ShowDoc{}
 	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
-	if b := doc.Builds[0]; len(doc.Builds) != 2 || b.Error != "boom" || b.Complete || b.Checks != nil || b.Episodes != nil || b.Output != nil || len(b.Mapping) == 0 || doc.Title != "Kizuna Test" {
+	if b := doc.Builds[0]; len(doc.Builds) != 2 || b.Error != "boom" || b.Complete || b.Checks != nil || b.Episodes != nil || b.Item != nil || b.Art != nil || b.Seasons != nil || len(b.Mapping) == 0 || doc.Title != "Kizuna Test" {
 		t.Errorf("failed build %+v (title %q), want its error, the mapping and the entry's title", doc.Builds[0], doc.Title)
 	}
 }

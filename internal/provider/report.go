@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -161,12 +163,13 @@ func matchBy(d decision) report.MatchBy {
 var htmlEntity = regexp.MustCompile(`&(?:[a-zA-Z]{2,8}|#\d{1,6}|#x[0-9a-fA-F]{1,6});`)
 
 // finishReport fills in a finished build: the show's ids, the mapping, the
-// episodes, the item Plex gets and the checks.
+// seasons, episodes and images as their items send them, the show item
+// Plex gets and the checks.
 func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err error, took time.Duration) {
 	if rec == nil {
 		return
 	}
-	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the output
+	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the item and the episodes' GUIDs
 	aids := p.aidsOf(root)
 	res := report.Result{Mapping: p.mappingRows(aids)}
 	if s != nil {
@@ -177,13 +180,24 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 	res.Head.IDs = p.idsOf(root, aids)
 	if s != nil {
 		res.Complete = s.Complete
-		for _, n := range s.Seasons() {
-			res.Seasons = append(res.Seasons, report.Season{Name: seasonTitle(n), Count: len(s.Episodes[n])})
+		show := p.showItem(mode, s, false)
+		res.Item = itemJSON(show)
+		res.Art = artGroups(nil, "show", nil, show, s.artBy.of(nil))
+		for _, n := range plexSeasons(s) {
+			it := p.seasonItem(mode, s, n, false)
+			if it == nil {
+				continue
+			}
+			res.Art = artGroups(res.Art, it.Title, &n, *it, s.artBy.of(&n))
+			if _, ok := s.Episodes[n]; !ok {
+				continue // placeholders' Specials: Plex gets the season, the build has no list for it
+			}
+			res.Seasons = append(res.Seasons, report.Season{Name: it.Title, Count: len(s.Episodes[n]),
+				Index: n, Thumb: it.Thumb, Art: it.Art, Date: it.OriginallyAvailableAt})
 			res.EpsTotal += len(s.Episodes[n])
 		}
 		var with [][]string
-		res.Episodes, with = episodeRows(s)
-		res.Output = outputRows(p.showItem(mode, s, false))
+		res.Episodes, with = p.episodeRows(mode, s)
 		res.Checks = buildChecks(s, rec.Facts(), with)
 	}
 	rec.Finish(took, err, res)
@@ -274,9 +288,62 @@ func placementSeason(n int) string {
 	return strconv.Itoa(n)
 }
 
-// episodeRows lists the episodes as Plex gets them and, per
-// episodeProblems, the episodes with that problem ("S01E05").
-func episodeRows(s *Show) ([]report.Episode, [][]string) {
+// itemJSON is an item as the handlers write it (writeJSON).
+func itemJSON(it Item) json.RawMessage {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(it); err != nil {
+		return nil
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+}
+
+// of returns the sources of the show's art (n nil) or a season's; a nil
+// artSources (a show not built by a recorded build) knows none.
+func (a *artSources) of(n *int) artUsed {
+	switch {
+	case a == nil:
+		return artUsed{}
+	case n == nil:
+		return a.show
+	}
+	return a.seasons[*n]
+}
+
+// imageKinds: Plex's image types (artImages) as the report's kinds.
+var imageKinds = map[string]struct {
+	name string
+	kind artKind
+}{"coverPoster": {"poster", posterArt}, "background": {"background", backgroundArt}, "clearLogo": {"logo", logoArt}}
+
+// artGroups adds the images an item carries (artImages: up to 10 of a kind,
+// each kind's in a row) to out, one group per kind, with the source that
+// gave each: by counts every image picked, in the same order. The item's
+// thumb and art are marked. A season item without art of its own carries no
+// images, so it adds no group: its thumb is the show's poster (seasonItem),
+// which the season's row has (report.Season.Thumb).
+func artGroups(out []report.ArtGroup, level string, season *int, it Item, by artUsed) []report.ArtGroup {
+	var g *report.ArtGroup
+	for _, im := range it.Image {
+		k, ok := imageKinds[im.Type]
+		if !ok {
+			continue
+		}
+		if g == nil || g.Kind != k.name {
+			out = append(out, report.ArtGroup{Level: level, Season: season, Kind: k.name})
+			g = &out[len(out)-1]
+		}
+		primary := k.kind == posterArt && im.URL == it.Thumb || k.kind == backgroundArt && im.URL == it.Art
+		g.Images = append(g.Images, report.ArtImage{URL: im.URL, Src: sourceOf(by[k.kind], len(g.Images)), Primary: primary})
+	}
+	return out
+}
+
+// episodeRows lists the episodes as Plex gets them (what episodeItem sends,
+// each value with its source) and, per episodeProblems, the episodes with
+// that problem ("S01E05").
+func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string) {
 	var out []report.Episode
 	with := make([][]string, len(episodeProblems))
 	for _, n := range s.Seasons() {
@@ -289,11 +356,45 @@ func episodeRows(s *Show) ([]report.Episode, [][]string) {
 					with[j] = append(with[j], fmt.Sprintf("S%02dE%02d", ep.Season, ep.Index))
 				}
 			}
-			out = append(out, report.Episode{Season: ep.Season, Index: ep.Index, Title: ep.Title, From: ep.titleSrc,
-				Titles: ep.titles, Pairs: ep.pairs, Date: ep.Date, Issue: strings.Join(issues, "; ")})
+			out = append(out, sentEpisode(p.episodeItem(mode, s, ep), ep, strings.Join(issues, "; ")))
 		}
 	}
 	return out, with
+}
+
+// sentEpisode is an episode's row. Its values are read off it, the item Plex
+// gets for ep, so the row can't differ from what was sent; ep says where each
+// came from. The title stays ep's: the item says "Episode N" for an episode
+// without one, the report says it has none.
+func sentEpisode(it Item, ep *Ep, issue string) report.Episode {
+	e := report.Episode{Season: ep.Season, Index: ep.Index, Title: ep.Title, From: ep.titleSrc, Titles: ep.titles, Pairs: ep.pairs,
+		Summary: it.Summary, Date: it.OriginallyAvailableAt, Thumb: it.Thumb, Minutes: it.Duration / 60000, Issue: issue}
+	for _, d := range it.Director {
+		e.Directors = append(e.Directors, d.Tag)
+	}
+	for _, w := range it.Writer {
+		e.Writers = append(e.Writers, w.Tag)
+	}
+	for _, g := range it.Guid {
+		e.Guids = append(e.Guids, g.ID)
+	}
+	for _, f := range [...]struct {
+		name string
+		has  bool
+		src  srcCode
+	}{
+		{"summary", e.Summary != "", ep.src.summary}, {"date", e.Date != "", ep.src.date}, {"thumb", e.Thumb != "", ep.src.thumb},
+		{"minutes", e.Minutes > 0, ep.src.minutes}, {"directors", len(e.Directors) > 0, ep.src.directors},
+		{"writers", len(e.Writers) > 0, ep.src.writers},
+	} {
+		if f.has && f.src != srcNone {
+			if e.Src == nil {
+				e.Src = map[string]string{}
+			}
+			e.Src[f.name] = f.src.name()
+		}
+	}
+	return e
 }
 
 // episodeProblems is what can be wrong with an episode as Plex gets it:
@@ -389,67 +490,6 @@ func plural(n int, one, many string) string {
 		return "1 " + one
 	}
 	return strconv.Itoa(n) + " " + many
-}
-
-// outputRows condenses the show item Plex gets.
-func outputRows(it Item) [][2]string {
-	var out [][2]string
-	add := func(k, v string) {
-		if v != "" {
-			out = append(out, [2]string{k, v})
-		}
-	}
-	tags := func(ts []Tag) string {
-		var s []string
-		for _, t := range ts {
-			s = append(s, t.Tag)
-		}
-		return strings.Join(s, ", ")
-	}
-	add("ratingKey", it.RatingKey)
-	add("guid", it.GUID)
-	add("title", it.Title)
-	add("originalTitle", it.OriginalTitle)
-	add("summary", it.Summary)
-	if it.Year > 0 {
-		add("year", strconv.Itoa(it.Year))
-	}
-	add("originallyAvailableAt", it.OriginallyAvailableAt)
-	add("studio", it.Studio)
-	add("contentRating", it.ContentRating)
-	if it.Duration > 0 {
-		add("duration", fmt.Sprintf("%d ms (%d min)", it.Duration, it.Duration/60000))
-	}
-	add("Genre", tags(it.Genre))
-	add("Director", tags(it.Director))
-	add("Writer", tags(it.Writer))
-	add("Role", firstThree(len(it.Role), func(i int) string {
-		if it.Role[i].Role == "" {
-			return it.Role[i].Tag
-		}
-		return it.Role[i].Tag + " as " + it.Role[i].Role
-	}))
-	var guids []string
-	for _, g := range it.Guid {
-		guids = append(guids, g.ID)
-	}
-	add("Guid", strings.Join(guids, ", "))
-	add("thumb", it.Thumb)
-	add("art", it.Art)
-	counts := map[string]int{}
-	var order []string
-	for _, im := range it.Image {
-		if counts[im.Type] == 0 {
-			order = append(order, im.Type)
-		}
-		counts[im.Type]++
-	}
-	var imgs []string
-	for _, t := range order {
-		imgs = append(imgs, fmt.Sprintf("%d %s", counts[t], t))
-	}
-	add("Image", strings.Join(imgs, ", "))
-	return out
 }
 
 // --- show fields -------------------------------------------------------------

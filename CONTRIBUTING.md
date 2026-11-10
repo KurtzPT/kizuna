@@ -143,5 +143,5 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 | a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) / [SETTINGS.md](SETTINGS.md) (what a user sees or sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
-| something to the match reports | what is recorded: `internal/provider/report.go`; the page: `internal/report/page.html` |
+| something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`); the page: `internal/report/page.html` |
 | a migration rule | `scripts/kizuna-migrate.sh`, then [MIGRATION.md](MIGRATION.md) |

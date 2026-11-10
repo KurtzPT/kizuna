@@ -31,16 +31,17 @@ func applyCrew(s *Show, crew map[int]sources.Crew, tm pairedList) {
 	s.eachEpisode(func(ep *Ep) {
 		if c, ok := crew[ep.tvdbEp]; ok && ep.tvdbEp > 0 {
 			ep.Directors, ep.Writers = c.Directors, c.Writers
+			ep.src.directors, ep.src.writers = srcTVDB, srcTVDB
 		}
 		if len(ep.Directors) > 0 && len(ep.Writers) > 0 {
 			return // TheMovieDb's isn't needed
 		}
 		if me, ok := tm.of(ep); ok {
 			if len(ep.Directors) == 0 {
-				ep.Directors = me.Directors
+				ep.Directors, ep.src.directors = me.Directors, srcTMDB
 			}
 			if len(ep.Writers) == 0 {
-				ep.Writers = me.Writers
+				ep.Writers, ep.src.writers = me.Writers, srcTMDB
 			}
 		}
 	})

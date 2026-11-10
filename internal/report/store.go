@@ -474,8 +474,8 @@ func (s *Store) writeShow(key string, p *pending) error {
 	}
 	slices.SortStableFunc(doc.Builds, func(a, b Build) int { return b.Start.Compare(a.Start) })
 	doc.Builds = doc.Builds[:min(len(doc.Builds), maxBuilds)]
-	for i := 1; i < len(doc.Builds); i++ { // episode lists are long: the newest build's only
-		doc.Builds[i].Episodes = nil
+	for i := 1; i < len(doc.Builds); i++ { // episode and image lists are long: the newest build's only
+		doc.Builds[i].Episodes, doc.Builds[i].Art = nil, nil
 	}
 	for _, rq := range p.requests {
 		if m := rq.Match; m != nil && (doc.LastMatch == nil || !m.Time.Before(doc.LastMatch.Time)) {

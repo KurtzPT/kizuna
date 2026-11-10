@@ -338,9 +338,12 @@ A show's page has, for each of its last 5 builds:
 - **Id mapping**: the AniDB entries behind the show and their TheTVDB and TheMovieDb seasons and offsets
 - **Fields**: what every source offered for the title, summary, genres, cast, studio, crew, content rating, date and
   artwork, and which one Plex got (per the [source settings](SETTINGS.md#-sources-per-field))
+- **Art** (newest build only): every image Plex got for the show and for each season, in the order sent, with the
+  source that gave it and which one is the poster or background shown
 - **Episodes** (newest build only): every episode as Plex gets it, where it is on each source, and which source gave
-  its title
-- **Sent to Plex**: the show item Kizuna answered with
+  its title. Click an episode for the rest Plex got: summary, air date, runtime, directors, writers and thumbnail,
+  each with its source
+- **Sent to Plex**: the show item Kizuna answered with, whole: every genre, role, GUID and image
 
 and the last 50 Plex requests about the show, each with the build that answered it (the same request repeated is one
 row, counted `×N`).

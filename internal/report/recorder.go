@@ -3,6 +3,7 @@ package report
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -219,7 +220,8 @@ type Result struct {
 	Seasons  []Season
 	Episodes []Episode
 	EpsTotal int
-	Output   [][2]string
+	Art      []ArtGroup
+	Item     json.RawMessage
 	Checks   []Check // go after the ones recorded while the build ran
 }
 
@@ -236,7 +238,7 @@ func (r *Recorder) Finish(took time.Duration, err error, res Result) {
 	}
 	r.head = res.Head
 	r.b.Mapping, r.b.Complete, r.b.Seasons = res.Mapping, res.Complete, res.Seasons
-	r.b.Episodes, r.b.EpsTotal, r.b.Output = res.Episodes, res.EpsTotal, res.Output
+	r.b.Episodes, r.b.EpsTotal, r.b.Art, r.b.Item = res.Episodes, res.EpsTotal, res.Art, res.Item
 	r.b.Checks = append(r.b.Checks, res.Checks...)
 	r.finished = time.Now()
 }
