@@ -1,14 +1,20 @@
 # Adds area labels (metadata, migration, running, documentation) to pull
-# requests from the files they change; the rules are in .github/labeler.yml.
+# requests from the files they change; the rules are in .github/labeler.yml,
+# read as the pull request has them.
 #
-# pull_request_target so pull requests from forks can be labelled too: it runs
-# this file from the base branch with a token that can write labels. It never
-# checks out or runs the pull request's code, only reads its list of files.
-# Dependabot and go-update pull requests already carry "dependencies".
+# pull_request, so it runs from the pull request itself whatever its base
+# branch (dev), with a token that can write labels. Only for branches of
+# this repository: a fork's token is read-only under pull_request, and
+# pull_request_target, which could label a fork, runs from the default branch
+# only (main, which has no workflows before v0.1.0). A fork's pull request
+# gets its area labels by hand.
+#
+# Dependabot and go-update pull requests already carry "dependencies": they
+# are left alone, so the release notes list them under it and not an area.
 name: labeler
 
 on:
-  pull_request_target: # zizmor: ignore[dangerous-triggers] no checkout, see above
+  pull_request:
     types: [opened, synchronize, reopened]
 
 permissions: {}
@@ -16,7 +22,10 @@ permissions: {}
 jobs:
   label:
     name: label
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read       # read .github/labeler.yml
