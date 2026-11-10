@@ -236,7 +236,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 				ep.setTitle("anidb", f.title)
 				ep.anyTitle = f.any
 				if rec != nil {
-					ep.setPair("anidb", fmt.Sprintf("%d · %s", f.aid, f.epNo))
+					ep.setPair("anidb", fmt.Sprintf("%d ep %s", f.aid, f.epNo))
 				}
 			}
 		})

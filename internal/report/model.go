@@ -86,8 +86,13 @@ type Build struct {
 	EpsTotal int        `json:"epsTotal"`
 	// Item is the show item sent to Plex, as the JSON Plex got (without its
 	// seasons).
-	Item   json.RawMessage `json:"item,omitempty"`
-	Checks []Check         `json:"checks,omitempty"`
+	Item json.RawMessage `json:"item,omitempty"`
+	// ItemSrc is the source of Item's values, by item key ("title", "Genre",
+	// "thumb"; an image by its place in the list: "Image.0"). A key Kizuna
+	// knows no single source for (ratingKey, guid, Guid, duration) has none.
+	// Builds recorded before it have no ItemSrc at all.
+	ItemSrc map[string]string `json:"itemSrc,omitempty"`
+	Checks  []Check           `json:"checks,omitempty"`
 }
 
 // Match is what Plex sent to .../matches and how Kizuna decided.
@@ -255,7 +260,7 @@ type Episode struct {
 	Title     string            `json:"title"`
 	From      string            `json:"from,omitempty"`   // source of the title
 	Titles    map[string]string `json:"titles,omitempty"` // every source's title
-	Pairs     map[string]string `json:"pairs,omitempty"`  // source -> where the episode is there ("S01E05", "15207 · 7")
+	Pairs     map[string]string `json:"pairs,omitempty"`  // source -> where the episode is there ("S01E05", "15207 ep 7")
 	Summary   string            `json:"summary,omitempty"`
 	Date      string            `json:"date,omitempty"`
 	Thumb     string            `json:"thumb,omitempty"`

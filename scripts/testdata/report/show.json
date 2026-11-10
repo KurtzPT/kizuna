@@ -1,0 +1,144 @@
+{
+  "schema": 3,
+  "key": "anidb-7",
+  "title": "Lighthouse Keepers </script><b>x",
+  "orig": "灯台守",
+  "ids": [
+    {"site": "anidb", "value": "7"},
+    {"site": "tvdb", "value": "500"},
+    {"site": "imdb", "value": "tt0000007"},
+    {"site": "made-up", "value": "\"><i>y"}
+  ],
+  "builds": [
+    {
+      "id": "20261110T210225.000001-tvdb-500",
+      "root": "tvdb-500",
+      "mode": "tvdb",
+      "start": "2026-11-10T21:02:25Z",
+      "tookMs": 1840,
+      "complete": false,
+      "match": {
+        "time": "2026-11-10T21:02:20Z",
+        "mode": "tvdb",
+        "type": "show",
+        "title": "Lighthouse Keepers",
+        "year": 2004,
+        "file": "/media/Anime/Lighthouse Keepers (2004)/Season 01/Lighthouse Keepers - S01E01.mkv",
+        "how": "title search",
+        "by": {"search": "found", "best": 86},
+        "min": 80,
+        "root": "tvdb-500",
+        "score": 86,
+        "candidates": [
+          {"aid": 7, "title": "Lighthouse Keepers", "score": 86},
+          {"aid": 8, "title": "Lighthouse <i>Weepers</i>", "score": 61}
+        ]
+      },
+      "trace": [
+        {"src": "kizuna", "label": "Show fields and artwork", "kind": "step", "start": 0, "end": 900},
+        {"src": "tvdb", "label": "tvdb4/500/series.json", "kind": "net", "start": 10, "end": 420},
+        {"src": "anidb", "label": "anidb/7.xml", "kind": "cache", "start": 12, "end": 14},
+        {"src": "tmdb", "label": "https://api.themoviedb.org/3/tv/77", "note": "status 500", "kind": "fail", "start": 20, "end": 700},
+        {"src": "nowhere", "label": "late <b>one</b>", "kind": "net", "start": 1900, "end": 2400}
+      ],
+      "mapping": [
+        {"aid": 7, "name": "Lighthouse Keepers", "tvdb": 500, "tvdbSeason": "1", "tmdb": 77, "tmdbSeason": "1", "exceptions": 2},
+        {"aid": 9, "name": "Lighthouse Keepers: Low Tide", "tvdb": 500, "tvdbSeason": "2", "tvdbOffset": 12}
+      ],
+      "fields": [
+        {"name": "Title", "order": ["anidb", "tvdb"], "asked": ["anidb"], "offered": {"anidb": "Lighthouse Keepers </script><b>x"}, "used": ["anidb"]},
+        {"name": "Summary", "order": ["anidb", "tvdb"], "asked": ["anidb", "tvdb"], "offered": {"anidb": "", "tvdb": "SHOW-SUMMARY-TEXT about a keeper."}, "used": ["tvdb"]},
+        {"name": "Posters", "order": ["tvdb", "tmdb"], "asked": ["tvdb", "tmdb"], "offered": {"tvdb": "2 posters", "tmdb": "1 poster"}, "used": ["tvdb", "tmdb"]},
+        {"name": "Studio", "order": [], "asked": [], "offered": {}, "used": []},
+        {"name": "Season 1 Posters", "order": ["tvdb"], "asked": ["tvdb"], "offered": {"tvdb": ""}, "used": []}
+      ],
+      "art": [
+        {"level": "show", "kind": "poster", "images": [
+          {"url": "https://artworks.thetvdb.com/p1.jpg", "src": "tvdb", "primary": true},
+          {"url": "https://image.tmdb.org/t/p/original/p2.jpg", "src": "tmdb"},
+          {"url": "javascript:alert(1)", "src": "tvdb"}
+        ]},
+        {"level": "show", "kind": "background", "images": [{"url": "https://artworks.thetvdb.com/b1.jpg", "primary": true}]},
+        {"level": "Season 1", "season": 1, "kind": "poster", "images": [{"url": "https://artworks.thetvdb.com/s1.jpg", "src": "tvdb", "primary": true}]}
+      ],
+      "seasons": [
+        {"name": "Specials", "count": 1, "index": 0, "thumb": "https://artworks.thetvdb.com/p1.jpg"},
+        {"name": "Season 1", "count": 3, "index": 1, "thumb": "https://artworks.thetvdb.com/s1.jpg", "date": "2004-04-02"},
+        {"name": "Season 2", "count": 1, "index": 2, "thumb": "javascript:alert(1)", "date": "2005-04-01"}
+      ],
+      "episodes": [
+        {"s": 0, "e": 1, "title": "Harbour Special", "from": "tvdb", "titles": {"tvdb": "Harbour Special"}, "pairs": {"tvdb": "S00E01"}},
+        {"s": 1, "e": 1, "title": "First Light", "from": "anidb", "titles": {"anidb": "First Light", "tvdb": "The First Light"}, "pairs": {"anidb": "7 ep 1", "tvdb": "S01E01"},
+          "summary": "EPISODE-SUMMARY-TEXT one.", "date": "2004-04-02", "thumb": "https://artworks.thetvdb.com/e1.jpg", "minutes": 24,
+          "directors": ["A Director"], "writers": ["A Writer"], "guids": ["tvdb://9001"],
+          "src": {"summary": "tvdb", "date": "anidb", "thumb": "tvdb", "minutes": "anidb", "directors": "tvdb", "writers": "tmdb"}},
+        {"s": 1, "e": 8, "title": "The Promise </script><b>x", "from": "anidb", "titles": {"anidb": "The Promise </script><b>x"}, "pairs": {"anidb": "7 ep 8"},
+          "summary": "EPISODE-SUMMARY-TEXT eight.", "thumb": "javascript:alert(1)", "src": {"summary": "anidb", "thumb": "tvdb"}, "issue": "no air date"},
+        {"s": 1, "e": 12, "title": "", "pairs": {"tvdb": "S01E12"}, "date": "2004-06-18", "src": {"date": "tvdb"}, "issue": "no title from any source: Plex shows \"Episode 12\""},
+        {"s": 2, "e": 8, "title": "Low Tide", "from": "tvdb", "titles": {"tvdb": "Low Tide", "tmdb": "Ebb"}, "pairs": {"anidb": "9 ep 8", "tvdb": "S02E08", "tmdb": "S02E08"}, "date": "2005-05-20", "src": {"date": "tvdb"}}
+      ],
+      "epsTotal": 5,
+      "item": {
+        "ratingKey": "tvdb-500",
+        "key": "/library/metadata/tvdb-500/children",
+        "guid": "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-500",
+        "type": "show",
+        "title": "Lighthouse Keepers </script><b>x",
+        "originalTitle": "灯台守",
+        "summary": "SHOW-SUMMARY-TEXT about a keeper.",
+        "year": 2004,
+        "originallyAvailableAt": "2004-04-02",
+        "duration": 1440000,
+        "thumb": "https://artworks.thetvdb.com/p1.jpg",
+        "art": "javascript:alert(1)",
+        "Genre": [{"tag": "Drama"}, {"tag": "Sea"}],
+        "Role": [
+          {"tag": "CAST-NAME One", "role": "Keeper", "thumb": "https://cdn.example/c1.jpg", "order": 1},
+          {"tag": "CAST-NAME Two", "role": "", "thumb": "javascript:alert(1)", "order": 2}
+        ],
+        "Guid": [{"id": "tvdb://500"}],
+        "Image": [
+          {"type": "coverPoster", "url": "https://artworks.thetvdb.com/p1.jpg", "alt": "Lighthouse Keepers"},
+          {"type": "coverPoster", "url": "https://image.tmdb.org/t/p/original/p2.jpg", "alt": "Lighthouse Keepers"},
+          {"type": "coverPoster", "url": "javascript:alert(1)", "alt": "x"},
+          {"type": "background", "url": "https://artworks.thetvdb.com/b1.jpg", "alt": "Lighthouse Keepers"},
+          {"type": "background", "url": "https://artworks.thetvdb.com/b2.jpg"},
+          {"type": "clearLogo", "url": "https://artworks.thetvdb.com/l1.png"}
+        ]
+      },
+      "itemSrc": {"title": "anidb", "summary": "tvdb", "thumb": "tvdb", "Image.0": "tvdb", "Image.1": "tmdb", "Image.2": "tvdb", "__proto__x": "<u>z</u>"},
+      "checks": [
+        {"level": "warn", "title": "A source failed: tmdb details", "text": "The other sources filled in. See https://api.themoviedb.org/3/tv/77?api_key=SECRET for it.", "section": "fields"},
+        {"level": "info", "title": "1 episode has no air date", "text": "S01E08.", "section": "episodes"}
+      ]
+    },
+    {
+      "id": "20261110T205942.000001-anidb-7",
+      "root": "anidb-7",
+      "mode": "auto",
+      "start": "2026-11-10T20:59:42Z",
+      "tookMs": 30000,
+      "complete": false,
+      "error": "Get \"https://api.anidb.example/httpapi?aid=7\": context deadline exceeded",
+      "trace": [],
+      "mapping": [{"aid": 7, "name": "Lighthouse Keepers"}],
+      "epsTotal": 0
+    }
+  ],
+  "requests": [
+    {"time": "2026-11-10T21:02:26Z", "mode": "tvdb", "method": "GET", "url": "/tvdb/library/metadata/tvdb-500?includeChildren=1", "build": "20261110T210225.000001-tvdb-500", "answer": {"kind": "new"}, "status": 200, "bytes": 20480, "tookMs": 1841.2},
+    {"time": "2026-11-10T21:02:20Z", "mode": "tvdb", "method": "POST", "url": "/tvdb/library/metadata/matches", "answer": {"kind": "memory", "age": 6}, "status": 200, "bytes": 512, "tookMs": 2.5, "count": 3},
+    {"time": "2026-11-10T21:00:12Z", "mode": "auto", "method": "GET", "url": "/auto/library/metadata/anidb-7", "build": "20261110T205942.000001-anidb-7", "answer": {"kind": "unavailable"}, "note": "<img src=x onerror=alert(1)>", "status": 503, "bytes": 64, "tookMs": 30000}
+  ],
+  "lastMatch": {
+    "time": "2026-11-10T21:05:00Z",
+    "mode": "tvdb",
+    "type": "season",
+    "title": "Lighthouse Keepers [tvdb-500]",
+    "file": "C:\\Media\\Anime\\Lighthouse Keepers [tvdb-500]\\Season 09\\Lighthouse Keepers - S09E01.mkv",
+    "how": "tag [tvdb-500]; tvdb-500 has no season 9",
+    "by": {"id": "tag", "text": "[tvdb-500]", "missing": "season 9"},
+    "min": 80,
+    "query": "Lighthouse Keepers"
+  }
+}

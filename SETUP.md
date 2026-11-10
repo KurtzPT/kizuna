@@ -322,38 +322,48 @@ and Plex tokens are always shown as `***`.
 
 The logs answer *what happened when*. The match reports answer *what did Kizuna do with this show*: one HTML page per
 show in **`reports/`** in the data folder. They are off by default: set **`MATCH_REPORTS=true`** to turn them on.
-Open **`reports/index.html`** in a browser (straight from the folder: the pages need no server and no internet). The
-index lists every show, newest activity first, with the ones that have something to check marked, and the titles
-that matched nothing.
+Open **`reports/index.html`** in a browser (straight from the folder: the pages need no server, and nothing but the
+images you open comes from the internet). The index lists every show, newest activity first, and the titles that
+matched nothing. Filter it by title or id, by provider (`/anidb`, `/tvdb`, `/auto`), and the shows by their newest
+build: failed, incomplete, or with something to check.
 
-A show's page has, for each of its last 5 builds:
+A show's page starts with what Plex asked and what it got, in a sentence, and how many of the values sent came from
+each source. A source has one colour on every page: a bar in it beside a value says where the value came from. Then,
+for the one of its last 5 builds picked at the top:
 
-- **Checks**: what looks wrong. Episodes without a real title or air date, text with HTML entities that Plex shows
-  literally, a source that failed, AniDB entries still loading, a build with something missing, no source with a
-  title, summary or poster, a match by an inexact title
-- **Trace**: every download, cache read and in-memory answer of the build on a time line, so a slow or failing source
-  stands out. Downloads that finish up to 2 minutes after the build are added to it
+- **What to check** (when there is something): what looks wrong. Episodes without a real title or air date, text
+  with HTML entities that Plex shows literally, a source that failed, AniDB entries still loading, a build with
+  something missing, no source with a title, summary or poster, a match by an inexact title
 - **Match**: what Plex sent, and how Kizuna decided: the id tag, the GUID, or the title search scores against
   `MIN_SCORE`. The latest match request is kept too, for builds that a later metadata request started
-- **Id mapping**: the AniDB entries behind the show and their TheTVDB and TheMovieDb seasons and offsets
-- **Fields**: what every source offered for the title, summary, genres, cast, studio, crew, content rating, date and
-  artwork, and which one Plex got (per the [source settings](SETTINGS.md#-sources-per-field))
-- **Art** (newest build only): every image Plex got for the show and for each season, in the order sent, with the
-  source that gave it and which one is the poster or background shown
-- **Episodes** (newest build only): every episode as Plex gets it, where it is on each source, and which source gave
-  its title. Click an episode for the rest Plex got: summary, air date, runtime, directors, writers and thumbnail,
-  each with its source
-- **Sent to Plex**: the show item Kizuna answered with, whole: every genre, role, GUID and image
+- **Sources**: the AniDB entries behind the show and their TheTVDB and TheMovieDb seasons and offsets, then what every
+  source offered for the title, summary, genres, cast, studio, crew, content rating, date and artwork, and which one
+  Plex got (per the [source settings](SETTINGS.md#-sources-per-field))
+- **Episodes** (newest build only): every episode as Plex gets it, season by season, where it is on each source, and
+  which source gave its title. Search by title (any source's) or by number (`s01e08`, `1x08`, `s2`, `8`), or show
+  only the episodes with a problem. Open an episode for the rest Plex got: summary, air date, runtime, directors,
+  writers and thumbnail, each with its source
+- **Art** (newest build only): a gallery of every image Plex got for the show and for each season, in the order sent,
+  with the source that gave it and which one is the poster or background shown. A level's images are downloaded only
+  when you open it, an episode's thumbnail when you open the episode
+- **Sent to Plex**: the show item Kizuna answered with, whole: every genre, role, GUID and image, each value with its
+  source when it has one
+- **Timeline**: every download, cache read and in-memory answer of the build on a time line, so a slow or failing
+  source stands out. Downloads that finish up to 2 minutes after the build are added to it
+- **Plex requests**: the last 50 Plex requests about the show, each with the build that answered it (the same request
+  repeated is one row, counted "N times")
 
-and the last 50 Plex requests about the show, each with the build that answered it (the same request repeated is one
-row, counted `×N`).
+**Copy for a bug report** copies the picked build as Markdown, to paste into an issue: the Kizuna version, the build
+and its checks, the match and its candidates, the id mapping, the source used for each field, and each episode's
+number, pairing, title, title source and problem. It leaves out what is yours: folders (a file keeps only its name),
+Plex request URLs, summaries, cast and image addresses.
 
 `/anidb` and `/tvdb` builds of the same anime share a page, named after its AniDB entry (`anidb-1234.html`); a TheTVDB
 series that no AniDB entry maps to gets `tvdb-5678.html`. A title that matched nothing gets
-`unmatched-<title>-<hash>.html` (one per title, whatever the year), with the candidates and how to fix the match. It
-is removed once the title matches (with an id tag too), or after 30 days without a request about it. A page is
-updated a few seconds after a build, the index at most every 30 s. A page stays small (it keeps its newest builds and
-requests); delete the folder to start over. Turning reports off again leaves the folder as it is.
+`unmatched-<title>-<hash>.html` (one per title, whatever the year), with why nothing matched, the candidates and how
+to fix it. It is removed once the title matches (with an id tag too), or after 30 days without a request about it. A
+page is updated a few seconds after a build, the index at most every 30 s. A page stays small (it keeps its newest
+builds and requests); delete the folder to start over. Turning reports off again leaves the folder as it is.
 
 ## 🧰 Troubleshooting
 
