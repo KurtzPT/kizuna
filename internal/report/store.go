@@ -47,7 +47,8 @@ const (
 	flushEvery = 2 * time.Second
 	// unmatchedMaxAge: an unmatched title's page goes once Plex hasn't asked
 	// about the title for this long (renamed, matched another way, or gone
-	// from the library).
+	// from the library). page.html says it in words ("after 30 days");
+	// TestPageRepeatsLimits keeps them in step.
 	unmatchedMaxAge = 30 * 24 * time.Hour
 )
 
@@ -93,19 +94,71 @@ func Open(dir, version string) (*Store, error) {
 			slog.Warn("reports: index unreadable; starting a new one", "err", err)
 		}
 	}
+	known := map[string]bool{"index": true}
 	for _, r := range rows {
-		if expired(r) {
-			s.indexDirty = true
-			if err := s.remove(r.Key); err != nil {
-				slog.Warn("reports: can't remove an old unmatched page", "page", r.Key, "err", err)
-			}
+		known[r.Key] = true
+		s.openRow(r, false)
+	}
+	// Pages the index doesn't list: written less than indexEvery before a
+	// crash, or the index was unreadable. Unlisted, they would never expire
+	// or go once their title matches.
+	files, err := os.ReadDir(filepath.Join(dir, "data"))
+	if err != nil {
+		slog.Warn("reports: can't list the saved pages", "err", err)
+	}
+	for _, f := range files {
+		key, ok := strings.CutSuffix(f.Name(), ".json")
+		if !ok || known[key] || f.IsDir() {
 			continue
 		}
-		if _, err := os.Stat(s.pagePath(r.Key)); err == nil {
-			s.index[r.Key] = r
+		if r, ok := s.rowFromData(key); ok {
+			s.openRow(r, true)
 		}
 	}
 	return s, nil
+}
+
+// openRow takes an index row into the index at Open: an expired one is
+// removed, one whose page is gone is dropped. added: the saved index
+// didn't list it.
+func (s *Store) openRow(r IndexRow, added bool) {
+	if expired(r) {
+		s.indexDirty = true
+		if err := s.remove(r.Key); err != nil {
+			slog.Warn("reports: can't remove an old unmatched page", "page", r.Key, "err", err)
+		}
+		return
+	}
+	if _, err := os.Stat(s.pagePath(r.Key)); err == nil {
+		s.index[r.Key] = r
+		s.indexDirty = s.indexDirty || added
+	} else {
+		s.indexDirty = s.indexDirty || !added // its page is gone: the index page drops the link
+	}
+}
+
+// rowFromData rebuilds the index row of a page from its saved data; false
+// if the data is unreadable or not a page.
+func (s *Store) rowFromData(key string) (IndexRow, bool) {
+	data, err := os.ReadFile(s.dataPath(key))
+	if err != nil {
+		slog.Warn("reports: can't read a page's saved data", "page", key, "err", err)
+		return IndexRow{}, false
+	}
+	if strings.HasPrefix(key, "unmatched-") {
+		var doc UnmatchedDoc
+		if json.Unmarshal(data, &doc) != nil || doc.Match.Title == "" {
+			return IndexRow{}, false
+		}
+		doc.Key = key
+		return unmatchedRow(doc), true
+	}
+	var doc ShowDoc
+	if json.Unmarshal(data, &doc) != nil {
+		return IndexRow{}, false
+	}
+	doc.Key = key
+	return showRow(doc), true
 }
 
 // Run writes pending updates every flushEvery until ctx ends, then
@@ -383,7 +436,7 @@ func (s *Store) writeShow(key string, p *pending) error {
 		}
 	}
 	slices.SortStableFunc(doc.Builds, func(a, b Build) int { return b.Start.Compare(a.Start) })
-	doc.Builds = doc.Builds[:min(len(doc.Builds), MaxBuilds)]
+	doc.Builds = doc.Builds[:min(len(doc.Builds), maxBuilds)]
 	for i := 1; i < len(doc.Builds); i++ { // episode lists are long: the newest build's only
 		doc.Builds[i].Episodes = nil
 	}
@@ -393,34 +446,20 @@ func (s *Store) writeShow(key string, p *pending) error {
 		}
 	}
 	doc.Requests = newestRequests(doc.Requests, p.requests)
-	if len(doc.Builds) == 0 && doc.Title == "" { // requests for a show whose build never got recorded
+	if doc.Title == "" { // no build recorded yet, or none that learned the title
 		doc.Title = key
+	}
+	// Never null in the page's data: the page lists both.
+	if doc.Builds == nil {
+		doc.Builds = []Build{}
+	}
+	if doc.Requests == nil {
+		doc.Requests = []Request{}
 	}
 	if err := s.writePage(key, "show", doc); err != nil {
 		return err
 	}
-	row := IndexRow{Key: key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
-	for _, b := range doc.Builds {
-		if !slices.Contains(row.Roots, b.Root) {
-			row.Roots = append(row.Roots, b.Root)
-		}
-		if !slices.Contains(row.Modes, b.Mode) {
-			row.Modes = append(row.Modes, b.Mode)
-		}
-	}
-	if len(doc.Builds) > 0 {
-		b := doc.Builds[0]
-		row.Last, row.Complete = b.Start, b.Complete && b.Error == ""
-		for _, c := range b.Checks {
-			if c.Level == LevelWarn {
-				row.Checks++
-			}
-		}
-	}
-	if len(doc.Requests) > 0 && doc.Requests[0].Time.After(row.Last) {
-		row.Last = doc.Requests[0].Time
-	}
-	s.setIndex(row, false)
+	s.setIndex(showRow(doc), false)
 	return nil
 }
 
@@ -448,21 +487,55 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 	if doc.Match.Title == "" { // only requests, and the no-match itself was never recorded
 		return nil
 	}
+	if doc.Requests == nil {
+		doc.Requests = []Request{} // never null in the page's data
+	}
 	if err := s.writePage(key, "unmatched", doc); err != nil {
 		return err
 	}
-	row := IndexRow{Key: key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
+	s.setIndex(unmatchedRow(doc), false)
+	return nil
+}
+
+// showRow is a show page's index row.
+func showRow(doc ShowDoc) IndexRow {
+	row := IndexRow{Key: doc.Key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
+	for _, b := range doc.Builds {
+		if !slices.Contains(row.Roots, b.Root) {
+			row.Roots = append(row.Roots, b.Root)
+		}
+		if !slices.Contains(row.Modes, b.Mode) {
+			row.Modes = append(row.Modes, b.Mode)
+		}
+	}
+	if len(doc.Builds) > 0 {
+		b := doc.Builds[0]
+		row.Last, row.Complete, row.Failed = b.Start, b.Complete && b.Error == "", b.Error != ""
+		for _, c := range b.Checks {
+			if c.Level == LevelWarn {
+				row.Checks++
+			}
+		}
+	}
+	if len(doc.Requests) > 0 && doc.Requests[0].Time.After(row.Last) {
+		row.Last = doc.Requests[0].Time
+	}
+	return row
+}
+
+// unmatchedRow is an unmatched title's index row.
+func unmatchedRow(doc UnmatchedDoc) IndexRow {
+	row := IndexRow{Key: doc.Key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
 		Requests: len(doc.Requests), MinScore: doc.Match.MinScore, Modes: []string{doc.Match.Mode}}
 	if len(doc.Match.Candidates) > 0 {
 		c := doc.Match.Candidates[0]
 		row.Best, row.Score = fmt.Sprintf("anidb-%d %s", c.AID, c.Title), c.Score
 	}
-	s.setIndex(row, false)
-	return nil
+	return row
 }
 
 // newestRequests puts added (oldest first) before old (newest first) and
-// keeps MaxRequests. A request like the one before it (Plex asks the same
+// keeps maxRequests. A request like the one before it (Plex asks the same
 // thing again and again) only counts up that one, so it doesn't push
 // different requests out.
 func newestRequests(old, added []Request) []Request {
@@ -475,7 +548,7 @@ func newestRequests(old, added []Request) []Request {
 			continue
 		}
 		out = slices.Insert(out, 0, r)
-		out = out[:min(len(out), MaxRequests)]
+		out = out[:min(len(out), maxRequests)]
 	}
 	return out
 }
@@ -514,7 +587,7 @@ func (s *Store) writePage(key, kind string, data any) error {
 	if err != nil {
 		return err
 	}
-	html, err := Render(Page{Kind: kind, Generated: time.Now().UTC(), Version: s.version, Data: raw})
+	html, err := render(page{Kind: kind, Generated: time.Now().UTC(), Version: s.version, Data: raw})
 	if err != nil {
 		return err
 	}

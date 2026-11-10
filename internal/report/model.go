@@ -15,15 +15,17 @@ import (
 	"time"
 )
 
-// Limits per page: the newest builds and requests are kept.
+// Limits per page: the newest builds and requests are kept. page.html says
+// maxRequests in words ("up to 50 are kept"); TestPageRepeatsLimits keeps
+// them in step.
 const (
-	MaxBuilds   = 5
-	MaxRequests = 50
+	maxBuilds   = 5
+	maxRequests = 50
 )
 
-// Page is what one HTML file renders: Kind names the page and the field
+// page is what one HTML file renders: Kind names the page and the field
 // its data goes in (show, unmatched or index), Data is that data as JSON.
-type Page struct {
+type page struct {
 	Kind      string          `json:"kind"`
 	Generated time.Time       `json:"generated"`
 	Version   string          `json:"version"`
@@ -92,6 +94,12 @@ type Match struct {
 	Root       string      `json:"root,omitempty"` // the show picked; "" = no match
 	Score      int         `json:"score,omitempty"`
 	Candidates []Candidate `json:"candidates,omitempty"`
+	// TagRule: an id tag rule said no match (two different tags, or a tag
+	// whose provider is off), so the title search never ran.
+	TagRule bool `json:"tagRule,omitempty"`
+	// Query is the title without its id tags, when it has any: what the
+	// title search looks for, and what a new tag goes after.
+	Query string `json:"query,omitempty"`
 }
 
 // Candidate is one title search result.
@@ -103,7 +111,7 @@ type Candidate struct {
 
 // Span is one row of a build's trace, in ms from the build's start.
 type Span struct {
-	Src   string   `json:"src"` // anidb, tvdb, tmdb, mal, ann, map, kizuna
+	Src   string   `json:"src"` // anidb, tvdb, tmdb, mal, ann, map, kizuna, other
 	Label string   `json:"label"`
 	Note  string   `json:"note,omitempty"`
 	Kind  SpanKind `json:"kind"`
@@ -112,7 +120,7 @@ type Span struct {
 }
 
 // SpanKind is how a trace row's data came. All but SpanStep are
-// fetch.Kind's values, converted as they are.
+// fetch.Kind's values, converted as they are (TestSpanKindsAreFetchKinds).
 type SpanKind string
 
 const (
@@ -228,6 +236,7 @@ type IndexRow struct {
 	Modes    []string  `json:"modes,omitempty"`
 	Last     time.Time `json:"last"`
 	Complete bool      `json:"complete"`
+	Failed   bool      `json:"failed,omitempty"` // the newest build failed
 	Checks   int       `json:"checks"`
 	Builds   int       `json:"builds"`
 	Requests int       `json:"requests"`

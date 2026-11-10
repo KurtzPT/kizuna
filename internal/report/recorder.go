@@ -17,13 +17,13 @@ import (
 // after the page was written queues the build again (see Store.AddBuild).
 type Recorder struct {
 	mu        sync.Mutex
-	start     time.Time
 	b         Build
 	head      ShowHead
 	finished  time.Time                  // when Finish ran; zero while the build runs
 	written   bool                       // the store wrote it since its last change
 	requeue   func()                     // set by the store: write the build again
 	summaries map[summaryKey]*summaryRow // past maxTraceRows: each source and kind's summary row
+	failRows  int                        // failed and stale rows kept whole, up to maxFailRows
 }
 
 type summaryKey struct {
@@ -34,8 +34,8 @@ type summaryKey struct {
 // summaryRow counts the rows a summary row stands for; its label is written
 // only by snapshot, so a counted row costs no formatting.
 type summaryRow struct {
-	i, n int    // its index in the trace, rows counted
-	last string // the last one's label
+	i, n       int    // its index in the trace, rows counted
+	last, note string // the last one's label and note
 }
 
 // maxTraceRows caps a build's trace: past it, rows are counted into one
@@ -43,15 +43,39 @@ type summaryRow struct {
 // crew files from the cache).
 const maxTraceRows = 120
 
+// maxFailRows: failed and stale rows, what the trace is mostly read for,
+// stay whole rows past maxTraceRows, up to this many in all; only past it
+// are they counted too (a source down for a whole long show).
+const maxFailRows = 100
+
 // lateFor is how long after its build a download is still added to it.
 const lateFor = 2 * time.Minute
 
 // NewRecorder starts recording a build of root, caused by a request to mode.
-// The id is unique: builds dedupe per root, so two at the same instant have
-// different roots. It holds only [0-9a-zT.-], safe in a URL.
+// The id is unique: its time is later than that of every id before it, even
+// when the clock hasn't moved since (two builds of a root right after each
+// other). It holds only [0-9a-zT.-], safe in a URL.
 func NewRecorder(root, mode string) *Recorder {
 	now := time.Now()
-	return &Recorder{start: now, b: Build{ID: now.UTC().Format("20060102T150405.000000") + "-" + root, Root: root, Mode: mode, Start: now}}
+	return &Recorder{b: Build{ID: idTime(now).UTC().Format("20060102T150405.000000") + "-" + root, Root: root, Mode: mode, Start: now}}
+}
+
+var lastID struct {
+	sync.Mutex
+	at time.Time
+}
+
+// idTime is now cut to the id's microseconds, or one microsecond past the
+// last id's time when now isn't later than that.
+func idTime(now time.Time) time.Time {
+	lastID.Lock()
+	defer lastID.Unlock()
+	at := now.Truncate(time.Microsecond)
+	if !at.After(lastID.at) {
+		at = lastID.at.Add(time.Microsecond)
+	}
+	lastID.at = at
+	return at
 }
 
 // ID names the build; requests answered by it point to it.
@@ -62,7 +86,7 @@ func (r *Recorder) ID() string {
 	return r.b.ID
 }
 
-func (r *Recorder) sinceStart(t time.Time) int64 { return t.Sub(r.start).Milliseconds() }
+func (r *Recorder) sinceStart(t time.Time) int64 { return t.Sub(r.b.Start).Milliseconds() }
 
 // Span adds a trace row that ran from start for took.
 func (r *Recorder) Span(src, label, note string, kind SpanKind, start time.Time, took time.Duration) {
@@ -85,10 +109,15 @@ func (r *Recorder) Span(src, label, note string, kind SpanKind, start time.Time,
 	}
 }
 
-// addSpan appends a row, or past maxTraceRows counts it into its source and
-// kind's summary row; caller holds r.mu.
+// addSpan appends a row, or past maxTraceRows (maxFailRows for a failed or
+// stale one) counts it into its source and kind's summary row; caller holds
+// r.mu.
 func (r *Recorder) addSpan(sp Span) {
-	if len(r.b.Trace) < maxTraceRows || sp.Kind == SpanStep {
+	failed := sp.Kind == SpanFail || sp.Kind == SpanStale
+	if len(r.b.Trace) < maxTraceRows || sp.Kind == SpanStep || failed && r.failRows < maxFailRows {
+		if failed {
+			r.failRows++
+		}
 		r.b.Trace = append(r.b.Trace, sp)
 		return
 	}
@@ -104,7 +133,7 @@ func (r *Recorder) addSpan(sp Span) {
 	}
 	sum := &r.b.Trace[m.i]
 	sum.Start, sum.End = min(sum.Start, sp.Start), max(sum.End, sp.End)
-	m.n, m.last = m.n+1, sp.Label
+	m.n, m.last, m.note = m.n+1, sp.Label, sp.Note
 }
 
 // Step times a step of the build: call the returned func when it ends.
@@ -187,6 +216,9 @@ func (r *Recorder) snapshot(requeue func()) (Build, ShowHead) {
 	for _, m := range r.summaries {
 		b.Trace[m.i].Label = fmt.Sprintf("%d more like this", m.n)
 		b.Trace[m.i].Note = "last: " + m.last
+		if m.note != "" { // a failure's error
+			b.Trace[m.i].Note += ": " + m.note
+		}
 	}
 	slices.SortStableFunc(b.Trace, func(x, y Span) int {
 		return cmp.Or(cmp.Compare(x.Start, y.Start), strings.Compare(x.Label, y.Label))

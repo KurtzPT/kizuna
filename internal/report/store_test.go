@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"kizuna/internal/fetch"
 )
 
 func readDoc(t *testing.T, dir, key string, v any) {
@@ -23,15 +26,15 @@ func readDoc(t *testing.T, dir, key string, v any) {
 	}
 }
 
-// A page keeps the newest MaxBuilds builds (episodes for the newest only)
-// and MaxRequests requests, across flushes and a restart.
+// A page keeps the newest maxBuilds builds (episodes for the newest only)
+// and maxRequests requests, across flushes and a restart.
 func TestStoreKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range MaxBuilds + 2 {
+	for i := range maxBuilds + 2 {
 		r := NewRecorder("anidb-1", "anidb")
 		r.b.ID, r.b.Start = fmt.Sprint(i), time.Date(2026, 1, 1, 0, i, 0, 0, time.UTC)
 		r.Finish(time.Second, nil, ShowHead{Title: "Show"}, func(b *Build) {
@@ -42,7 +45,7 @@ func TestStoreKeepsNewest(t *testing.T) {
 			s.Flush()
 		}
 	}
-	for i := range MaxRequests + 5 {
+	for i := range maxRequests + 5 {
 		s.AddRequest(Request{Key: "anidb-1", URL: "/r", Status: i})
 	}
 	s.Flush()
@@ -56,18 +59,18 @@ func TestStoreKeepsNewest(t *testing.T) {
 
 	var doc ShowDoc
 	readDoc(t, dir, "anidb-1", &doc)
-	if len(doc.Builds) != MaxBuilds || doc.Builds[0].Start.Minute() != MaxBuilds+1 {
+	if len(doc.Builds) != maxBuilds || doc.Builds[0].Start.Minute() != maxBuilds+1 {
 		t.Fatalf("%d builds, newest at minute %d", len(doc.Builds), doc.Builds[0].Start.Minute())
 	}
 	if len(doc.Builds[0].Episodes) != 1 || len(doc.Builds[1].Episodes) != 0 {
 		t.Error("only the newest build keeps its episodes")
 	}
-	if len(doc.Requests) != MaxRequests || doc.Requests[0].Status != 999 || doc.Requests[1].Status != MaxRequests+4 {
+	if len(doc.Requests) != maxRequests || doc.Requests[0].Status != 999 || doc.Requests[1].Status != maxRequests+4 {
 		t.Errorf("%d requests, newest %d then %d", len(doc.Requests), doc.Requests[0].Status, doc.Requests[1].Status)
 	}
 	var rows []IndexRow
 	readDoc(t, dir, "index", &rows)
-	if len(rows) != 1 || rows[0].Key != "anidb-1" || rows[0].Builds != MaxBuilds {
+	if len(rows) != 1 || rows[0].Key != "anidb-1" || rows[0].Builds != maxBuilds {
 		t.Errorf("index %+v", rows)
 	}
 }
@@ -120,7 +123,7 @@ func TestUnmatchedKey(t *testing.T) {
 // Text from a source can't end the page's script or add markup.
 func TestRenderEscapes(t *testing.T) {
 	data, _ := json.Marshal(ShowDoc{Key: "anidb-1", ShowHead: ShowHead{Title: `</script><img src=x onerror=alert(1)> & co`}})
-	html, err := Render(Page{Kind: "show", Version: "test", Data: data})
+	html, err := render(page{Kind: "show", Version: "test", Data: data})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,21 +135,25 @@ func TestRenderEscapes(t *testing.T) {
 	}
 	start := bytes.Index(html, []byte("const DATA = ")) + len("const DATA = ")
 	end := start + bytes.Index(html[start:], []byte(";\n"))
-	var page struct {
+	var got struct {
 		Kind    string
 		Version string
 		Show    ShowDoc
 	}
-	if err := json.Unmarshal(html[start:end], &page); err != nil || page.Kind != "show" || page.Version != "test" || page.Show.Key != "anidb-1" {
-		t.Errorf("page data %+v (%v)", page, err)
+	if err := json.Unmarshal(html[start:end], &got); err != nil || got.Kind != "show" || got.Version != "test" || got.Show.Key != "anidb-1" {
+		t.Errorf("page data %+v (%v)", got, err)
 	}
 }
 
-// Two builds at the same instant (of two roots: one build per root runs at
-// a time) get their own ids, safe in a URL.
+// Two builds of a root at the same instant (the clock didn't move between
+// them) get their own ids, safe in a URL.
 func TestBuildIDs(t *testing.T) {
-	a, b := NewRecorder("anidb-1", "anidb"), NewRecorder("tvdb-2", "tvdb")
-	b.b.ID = strings.Replace(b.b.ID, b.b.ID[:strings.IndexByte(b.b.ID, '-')], a.b.ID[:strings.IndexByte(a.b.ID, '-')], 1) // same instant
+	now := time.Now().Add(time.Hour) // later than every id so far
+	at1, at2 := idTime(now), idTime(now)
+	if !at2.After(at1) {
+		t.Errorf("id times %v then %v: not later", at1, at2)
+	}
+	a, b := NewRecorder("anidb-1", "anidb"), NewRecorder("anidb-1", "anidb")
 	if a.ID() == b.ID() {
 		t.Errorf("ids %q and %q", a.ID(), b.ID())
 	}
@@ -296,6 +303,23 @@ func TestRequestsCollapseAndLastMatch(t *testing.T) {
 	if doc.LastMatch == nil || doc.LastMatch.Title != "second" {
 		t.Errorf("last match %+v, want the second", doc.LastMatch)
 	}
+	// The page's script calls .length and .map on the lists: a page with
+	// requests and no build has an empty list of builds, not null.
+	data, err := os.ReadFile(filepath.Join(dir, "data", "anidb-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"builds":[]`)) || bytes.Contains(data, []byte(`null`)) {
+		t.Errorf("page data %s: want builds [] and no null", data)
+	}
+	key := s.Unmatched(Match{Mode: "anidb", Title: "Asked Once"})
+	s.Flush()
+	if data, err = os.ReadFile(filepath.Join(dir, "data", key+".json")); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"requests":[]`)) {
+		t.Errorf("unmatched page data %s: want requests []", data)
+	}
 }
 
 // Pages are written at every flush, the index at most every indexEvery,
@@ -380,5 +404,129 @@ func TestTraceCap(t *testing.T) {
 	last := fmt.Sprintf("last: crew/%d.json", maxTraceRows+299)
 	if sum == nil || sum.Label != "300 more like this" || sum.Note != last || sum.Src != "tvdb" {
 		t.Errorf("summary row %+v", sum)
+	}
+}
+
+// Failed and stale rows are what the trace is read for: past maxTraceRows
+// they stay whole rows with their error, up to maxFailRows; past that their
+// summary row keeps the last one's error.
+func TestTraceCapKeepsFailures(t *testing.T) {
+	r := NewRecorder("tvdb-1", "tvdb")
+	now := time.Now()
+	for i := range maxTraceRows {
+		r.Span("tvdb", fmt.Sprintf("crew/%d.json", i), "", SpanCache, now, 0)
+	}
+	r.Span("tvdb", "tvdb/stale.json", "HTTP 503", SpanStale, now, 0)
+	for i := range maxFailRows + 9 { // the stale row counts too: the last 10 are summed up
+		r.Span("tmdb", fmt.Sprintf("tmdb/%d.json", i), fmt.Sprintf("HTTP 500 #%d", i), SpanFail, now, 0)
+	}
+	b, _ := r.snapshot(func() {})
+	rows := map[string]Span{}
+	for _, sp := range b.Trace {
+		rows[sp.Label] = sp
+	}
+	if sp := rows["tvdb/stale.json"]; sp.Kind != SpanStale || sp.Note != "HTTP 503" {
+		t.Errorf("stale row past maxTraceRows %+v, want it whole with its error", sp)
+	}
+	lastWhole := maxFailRows - 2
+	if sp := rows[fmt.Sprintf("tmdb/%d.json", lastWhole)]; sp.Note != fmt.Sprintf("HTTP 500 #%d", lastWhole) {
+		t.Errorf("failure %d %+v, want it whole with its error", lastWhole, sp)
+	}
+	sum := rows["10 more like this"]
+	if want := fmt.Sprintf("last: tmdb/%d.json: HTTP 500 #%d", maxFailRows+8, maxFailRows+8); sum.Kind != SpanFail || sum.Note != want {
+		t.Errorf("failures past maxFailRows: summary %+v, want note %q", sum, want)
+	}
+	if len(b.Trace) != maxTraceRows+maxFailRows+1 {
+		t.Errorf("%d rows, want %d", len(b.Trace), maxTraceRows+maxFailRows+1)
+	}
+}
+
+// Pages written less than indexEvery before a crash, or listed in an index
+// that can't be read, are listed again at the next start, so they still
+// expire and go once their title matches.
+func TestOpenListsUnindexedPages(t *testing.T) {
+	defer func(d time.Duration) { indexEvery = d }(indexEvery)
+	indexEvery = time.Hour
+	dir := t.TempDir()
+	s, _ := Open(dir, "test")
+	s.AddBuild("anidb-1", finished("anidb-1"))
+	s.flush(false) // the first index write is due: it lists anidb-1
+	failed := NewRecorder("anidb-2", "anidb")
+	failed.Finish(time.Second, errors.New("AniDB is down"), ShowHead{Title: "Second"}, nil)
+	s.AddBuild("anidb-2", failed)
+	newKey := s.Unmatched(Match{Mode: "anidb", Title: "New Title", MinScore: 80, Candidates: []Candidate{{AID: 9, Title: "Close", Score: 60}}})
+	oldKey := s.Unmatched(Match{Mode: "anidb", Title: "Old Title"})
+	s.flush(false) // the pages, not the index: then the process dies
+	var old UnmatchedDoc
+	readDoc(t, dir, oldKey, &old)
+	old.Last = time.Now().Add(-unmatchedMaxAge - time.Hour) // and its title isn't asked about for a month
+	data, _ := json.Marshal(old)
+	if err := os.WriteFile(filepath.Join(dir, "data", oldKey+".json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ = Open(dir, "test")
+	if r := s.index["anidb-2"]; r.Title != "Second" || !r.Failed || r.Complete || r.Builds != 1 {
+		t.Errorf("unlisted show row %+v, want it rebuilt from its data, failed", r)
+	}
+	if r := s.index[newKey]; r.Title != "New Title" || r.Best != "anidb-9 Close" || r.Score != 60 || r.MinScore != 80 {
+		t.Errorf("unlisted unmatched row %+v, want it rebuilt from its data", r)
+	}
+	if _, ok := s.index[oldKey]; ok {
+		t.Error("unlisted old unmatched page listed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, oldKey+".html")); !os.IsNotExist(err) {
+		t.Errorf("unlisted old unmatched page still there: %v", err)
+	}
+	s.Matched("New Title")
+	s.Flush()
+	if _, err := os.Stat(filepath.Join(dir, newKey+".html")); !os.IsNotExist(err) {
+		t.Errorf("unlisted unmatched page still there after its title matched: %v", err)
+	}
+	var rows []IndexRow
+	readDoc(t, dir, "index", &rows)
+	if len(rows) != 2 {
+		t.Errorf("index %+v, want both shows", rows)
+	}
+
+	// An unreadable index: every page is listed again from its data.
+	if err := os.WriteFile(filepath.Join(dir, "data", "index.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = Open(dir, "test")
+	if len(s.index) != 2 || !s.indexDirty {
+		t.Errorf("index %+v (dirty %v), want both shows and a rewrite", s.index, s.indexDirty)
+	}
+	s.Flush()
+	if s, _ = Open(dir, "test"); s.indexDirty || len(s.index) != 2 {
+		t.Errorf("index %+v (dirty %v): an index that lists every page is kept as it is", s.index, s.indexDirty)
+	}
+}
+
+// The index says a failed newest build failed, as the show page does.
+func TestIndexRowFailed(t *testing.T) {
+	ok := showRow(ShowDoc{Builds: []Build{{Complete: true}}})
+	failed := showRow(ShowDoc{Builds: []Build{{Complete: true, Error: "boom"}}})
+	if !ok.Complete || ok.Failed || failed.Complete || !failed.Failed {
+		t.Errorf("rows %+v and %+v", ok, failed)
+	}
+}
+
+// Trace kinds are fetch's kinds converted as they are.
+func TestSpanKindsAreFetchKinds(t *testing.T) {
+	for k, sk := range map[fetch.Kind]SpanKind{fetch.KindNet: SpanNet, fetch.KindCache: SpanCache, fetch.KindStale: SpanStale,
+		fetch.KindFail: SpanFail, fetch.KindMemory: SpanMemory} {
+		if SpanKind(k) != sk {
+			t.Errorf("fetch kind %q, span kind %q", k, sk)
+		}
+	}
+}
+
+// page.html says the limits in words.
+func TestPageRepeatsLimits(t *testing.T) {
+	for _, want := range []string{fmt.Sprintf("up to %d are kept", maxRequests), fmt.Sprintf("after %d days without a request", unmatchedMaxAge/(24*time.Hour))} {
+		if !bytes.Contains(pageHTML, []byte(want)) {
+			t.Errorf("page.html doesn't say %q", want)
+		}
 	}
 }
