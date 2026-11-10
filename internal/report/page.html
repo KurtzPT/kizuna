@@ -311,14 +311,14 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .axis{font:13px var(--tech);font-variant-numeric:tabular-nums;color:var(--muted);margin-bottom:4px}
 .ticks{position:relative;height:18px}
 .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
-.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.ticks span:first-child{transform:none}.ticks span.end{transform:translateX(-100%)}
 .trow{padding:3px 0}
 .trow .lbl{display:flex;gap:8px;min-width:0;align-items:baseline}
 .trow .lbl .th{flex:none;width:62px}
 .trow .lbl .t{font:12.5px/1.5 var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .trow .lbl .t.step{font:13.5px var(--prose)}
 .trow .ms{font:13px var(--tech);font-variant-numeric:tabular-nums;color:var(--muted);text-align:right}
-.track{position:relative;align-self:center;height:18px;background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),var(--rule) calc(25% - 1px) 25%)}
+.track{position:relative;align-self:center;height:18px;background:repeating-linear-gradient(90deg,transparent 0 calc(var(--grid,25%) - 1px),var(--rule) calc(var(--grid,25%) - 1px) var(--grid,25%))}
 .span{position:absolute;top:4px;height:10px;min-width:3px;background:var(--c)}
 .span.cache{background:none;box-shadow:inset 0 0 0 1.5px var(--c)}
 .span.memory{background:none;border:1.5px dotted var(--c)}
@@ -343,7 +343,9 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .noans .rq,.noans .rq-cols{grid-template-columns:142px minmax(0,1fr) 50px 68px 68px}
 .rq{border-top:1px solid var(--rule);font-size:13.5px;font-variant-numeric:tabular-nums;align-items:baseline}
 .rq:nth-child(2){border-top:0}
-.rq.cur{background:var(--sunk)}
+tr.own td{background:color-mix(in srgb,var(--ink) 4%,transparent)}
+.owntag{margin-left:8px;font:500 12.5px var(--tech);font-stretch:90%;color:var(--muted)}
+.rq.cur{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .rq .u{font:12.5px/1.6 var(--mono);overflow-wrap:anywhere;min-width:0}
 .rq .note{display:block;font:13px/1.45 var(--prose);color:var(--muted)}
 .rq .r,.rq-cols .r{text-align:right}
@@ -369,6 +371,10 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .steps b{font:600 17px/1.3 var(--tech);font-stretch:90%}
 .steps p{margin:3px 0 0;text-wrap:balance}
 .steps .ex{display:block;margin:8px 0 2px;padding:8px 12px;background:var(--sunk);border:1px solid var(--rule);border-radius:3px;font:12.5px/1.6 var(--mono);overflow-wrap:anywhere;max-width:86ch}
+.exbox{display:flex;margin:8px 0 2px;max-width:86ch}
+.exbox .ex{flex:1;min-width:0;margin:0;border-radius:3px 0 0 3px}
+.exc{cursor:pointer;flex:none;padding:0 14px;background:var(--surface);border:1px solid var(--rule);border-left:0;border-radius:0 3px 3px 0;color:var(--ink);font:600 13px var(--tech);font-stretch:90%}
+.exc:hover{background:var(--sunk)}
 
 /* Index */
 .filters{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:0 0 36px}
@@ -591,7 +597,12 @@ function renderTrace(b) {
   const sent = b.tookMs;
   const total = Math.max(1, sent, ...rows.map(r => r.end));
   const pct = x => (x/total*100).toFixed(2)+"%";
-  const ticks = (total < 8 ? [0,1] : [0,.25,.5,.75,1]).map(f => `<span style="left:${f*100}%">${ms(total*f)}</span>`).join("");
+  // Round steps (1, 2, 2.5 or 5 times a power of ten), about four across: 0, 2 s, 4 s, 6 s.
+  const raw = total / 4, p10 = 10 ** Math.floor(Math.log10(raw)), step = total < 8 ? total : [1, 2, 2.5, 5, 10].map(m => m * p10).find(x => x >= raw);
+  const tickText = v => v === 0 ? "0" : v < 1000 ? `${+v.toFixed(1)} ms` : `${+(v / 1000).toFixed(2)} s`;
+  const marks = []; for (let v = 0; v <= total + 1e-9; v += step) marks.push(v);
+  const ticks = marks.map(v => { const f = v / total; return `<span class="${f > .94 ? "end" : ""}" style="left:${(f*100).toFixed(2)}%">${tickText(v)}</span>`; }).join("");
+  const grid = (step / total * 100).toFixed(3) + "%";
   const kindNote = {net:"downloaded",cache:"from the cache",memory:"from memory",stale:"old copy used",fail:"failed"};
   const body = rows.map(r => {
     const late = r.kind !== "step" && r.start > sent;
@@ -602,7 +613,7 @@ function renderTrace(b) {
       <div class="track"><div class="span ${esc(cls)}" data-s="${esc(sk(r.src))}" style="left:${pct(r.start)};width:${pct(Math.max(r.end-r.start,0))}"></div></div>
       <div class="ms">${ms(r.end-r.start)}</div></div>`;
   }).join("");
-  return `<div class="panel"><div class="trace">
+  return `<div class="panel"><div class="trace" style="--grid:${grid}">
     <div class="axis"><span></span><div class="ticks">${ticks}</div><span></span></div>
     <div class="tracebox">${body}<div class="sentcol"><span></span><div style="position:relative"><div class="sentline" style="left:${pct(sent)}"></div></div><span></span></div></div></div>
     <ul class="legend"><li><i></i>downloaded</li><li><i class="cache"></i>from the cache</li><li><i class="memory"></i>from memory</li><li><i class="fail"></i>failed</li><li><i class="late"></i>finished after the build</li><li><i class="sentk"></i>sent to Plex at ${ms(sent)}</li></ul></div>`;
@@ -656,9 +667,12 @@ function renderMapping(b) {
   const rows = b.mapping || [];
   if (!rows.length) return `<div class="panel"><div class="empty">The mapping lists have no entry for this show, so only AniDB's own data and links were used.</div></div>`;
   const none = '<span class="dim">none</span>', zero = '<span class="dim">0</span>';
+  // Season 0 is where TVDB and TMDB keep specials; the page's own entry is marked.
+  const season = v => v === "0" ? "Specials" : esc(v || "");
+  const own = /^anidb-(\d+)$/.exec(String((DATA.show || {}).key || ""));
   const intro = rows.length > 1 ? `<div class="say">TVDB ${esc(rows[0].tvdb)} is made of <b>${rows.length} AniDB entries</b>. Each fills a TVDB season, or part of one from an offset.</div>` : "";
   return `<div class="panel scroll" tabindex="0" role="region" aria-label="Id mapping">${intro}<table class="tbl stack"><thead><tr><th>AniDB</th><th>Name</th><th>TVDB</th><th class="num">TVDB season</th><th class="num">Offset</th><th>TMDB</th><th class="num">TMDB season</th><th class="num">Per-episode mappings</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td class="id" data-l="AniDB">${siteLink("anidb", r.aid)}</td><td data-l="Name">${esc(r.name)}</td><td class="id" data-l="TVDB">${r.tvdb ? siteLink("tvdb", r.tvdb) : none}</td><td class="num" data-l="TVDB season">${esc(r.tvdbSeason || "")}</td><td class="num" data-l="Offset">${r.tvdbOffset ? esc(r.tvdbOffset) : zero}</td><td class="id" data-l="TMDB">${r.tmdb ? siteLink(r.tmdbSeason === "movie" ? "tmdbmovie" : "tmdb", r.tmdb) : none}</td><td class="num" data-l="TMDB season">${esc(r.tmdbSeason || "")}</td><td class="num" data-l="Per-episode">${r.exceptions ? esc(r.exceptions) : zero}</td></tr>`).join("")}</tbody></table></div>`;
+    ${rows.map(r => `<tr class="${own && String(r.aid) === own[1] ? "own" : ""}"><td class="id" data-l="AniDB">${siteLink("anidb", r.aid)}</td><td data-l="Name">${esc(r.name)}${own && String(r.aid) === own[1] ? ' <span class="owntag">this show</span>' : ""}</td><td class="id" data-l="TVDB">${r.tvdb ? siteLink("tvdb", r.tvdb) : none}</td><td class="num" data-l="TVDB season">${season(r.tvdbSeason)}</td><td class="num" data-l="Offset">${r.tvdbOffset ? esc(r.tvdbOffset) : zero}</td><td class="id" data-l="TMDB">${r.tmdb ? siteLink(r.tmdbSeason === "movie" ? "tmdbmovie" : "tmdb", r.tmdb) : none}</td><td class="num" data-l="TMDB season">${season(r.tmdbSeason)}</td><td class="num" data-l="Per-episode">${r.exceptions ? esc(r.exceptions) : zero}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 // A field's value as the sources gave it is one line of text, made by Kizuna.
@@ -700,9 +714,13 @@ function renderFields(b) {
   if (!fields.length) return `<div class="panel"><div class="empty">${b.error ? "The build failed before any field was filled." : "No fields were recorded for this build."}</div></div>`;
   const cols = [];
   for (const f of fields) for (const s of f.order) if (!cols.includes(s)) cols.push(s);
-  const head = `<tr><th>Field</th>${cols.map(c => `<th class="srcc" data-s="${esc(sk(c))}">${esc(name(c))}</th>`).join("")}<th>Why</th></tr>`;
   // A season's art fields repeat the show's: folded until asked for.
   const extra = f => /^(Specials|Season \d+) /.test(f.name);
+  // Columns by each source's usual place in the show's own fields, so the small numbers read left to right in most rows.
+  const shown = fields.filter(f => !extra(f)).length ? fields.filter(f => !extra(f)) : fields;
+  const place = c => { const r = shown.filter(f => f.order.includes(c)).map(f => f.order.indexOf(c)); return r.length ? r.reduce((x, y) => x + y, 0) / r.length : Infinity; };
+  cols.sort((x, y) => place(x) - place(y));
+  const head = `<tr><th>Field</th>${cols.map(c => `<th class="srcc" data-s="${esc(sk(c))}">${esc(name(c))}</th>`).join("")}<th>Why</th></tr>`;
   const nExtra = fields.filter(extra).length;
   const rows = fields.map(f => {
     const used = f.used || [], asked = f.asked || [], off = f.offered || {}, go = fieldGoto(b, f.name);
@@ -1072,6 +1090,19 @@ function copyDialog(md, btn) {
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
   ta.focus(); ta.select();
 }
+// The example name on an unmatched page: copied as is, or selected for Ctrl+C.
+async function copyExample(btn) {
+  const code = btn.previousElementSibling, text = code.textContent;
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("no clipboard");
+    await navigator.clipboard.writeText(text);
+    copied(btn);
+  } catch (err) {
+    const r = document.createRange(); r.selectNodeContents(code);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    btn.textContent = "Press Ctrl+C";
+  }
+}
 async function copyReport(btn) {
   const S = DATA.show, b = S.builds.find(x => x.id === curBuild) || S.builds[0];
   const md = bugReport(S, b);
@@ -1185,7 +1216,7 @@ function renderUnmatched() {
   const reqs = U.requests || [];
   // The example tag goes after the title without its tags: a second tag is no match too.
   const example = `${m.query || m.title} ${best ? `[anidb-${best.aid}]` : "[anidb-12345]"}`;
-  const ex = `<code class="ex">${esc(example)}</code>`;
+  const ex = `<span class="exbox"><code class="ex">${esc(example)}</code><button class="exc" data-copyex>Copy</button></span>`;
   const said = {
     tags: `The name has more than one id tag (<code>${esc(by.text)}</code>). Kizuna doesn't guess which one is meant, so it answered with no match and didn't search by title.`,
     off: `The id tag <code>${esc(by.text)}</code> needs the <code>/${esc(by.off)}</code> provider, which is off. A tag is never replaced by a title search, so Kizuna answered with no match.`,
@@ -1312,6 +1343,7 @@ document.addEventListener("click", e => {
   const sec = t.closest('a[href^="#"]');
   if (sec && DATA.kind === "show") { e.preventDefault(); goTo(sec.getAttribute("href").slice(1)); return; }
   if (t.closest("#copy")) { copyReport(t.closest("#copy")); return; }
+  if (t.closest("[data-copyex]")) { copyExample(t.closest("[data-copyex]")); return; }
   if (t.closest("[data-close]")) { t.closest("dialog").close(); return; }
   const ixs = t.closest("[data-ixs]"), ixm = t.closest("[data-ixm]"), ixb = ixs || ixm;
   if (ixb) {
