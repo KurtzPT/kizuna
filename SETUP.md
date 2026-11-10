@@ -347,7 +347,8 @@ for the one of its last 5 builds picked at the top:
   with the source that gave it and which one is the poster or background shown. A level's images are downloaded only
   when you open it, an episode's thumbnail when you open the episode
 - **Sent to Plex**: the show item Kizuna answered with, whole: every genre, role, GUID and image, each value with its
-  source when it has one
+  source when it has one. The images and the cast's photos are downloaded only when you open their row, the poster
+  and background only while the pointer is on their address
 - **Timeline**: every download, cache read and in-memory answer of the build on a time line, so a slow or failing
   source stands out. Downloads that finish up to 2 minutes after the build are added to it
 - **Plex requests**: the last 50 Plex requests about the show, each with the build that answered it (the same request
