@@ -115,8 +115,12 @@ body:
     attributes:
       label: Settings you changed
       description: |
-        Every environment variable you set except the keys (just say *set* / *not set* for those).
-        `docker inspect kizuna --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -vE 'KEY|PIN|CLIENT_ID'`
+        Every setting you changed, except the keys and names: for `ANIDB_CLIENT`, `TVDB_API_KEY`, `TVDB_PIN`,
+        `TVDB_LEGACY_API_KEY`, `TMDB_API_KEY` and `MAL_CLIENT_ID` just say *set* / *not set*. Settings can be in
+        two places, so paste both; the commands leave out lines with KEY, PIN, CLIENT or TOKEN, but check
+        before you post:
+        - the settings file in the data folder: `grep -vE '^[[:space:]]*(#|$)|KEY|PIN|CLIENT|TOKEN' /change/me/kizuna.env`
+        - the container's environment: `docker inspect kizuna --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -vE 'KEY|PIN|CLIENT|TOKEN'`
       render: shell
       placeholder: |
         ANIDB_CLIENT=set  TVDB_API_KEY=set  TVDB_LEGACY_API_KEY=not set  TMDB_API_KEY=not set  MAL_CLIENT_ID=not set

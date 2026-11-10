@@ -25,7 +25,7 @@ body:
     id: command
     attributes:
       label: The exact command you ran
-      placeholder: "./scripts/kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime"
+      placeholder: "./kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime"
     validations:
       required: true
 
@@ -51,7 +51,7 @@ body:
       label: Dry-run output for those shows
       description: |
         The planned hints and every `WARNING` line for them:
-        `./scripts/kizuna-migrate.sh -m <mode> /mnt/media/Anime > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
+        `./kizuna-migrate.sh -m <mode> /mnt/media/Anime > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
       render: text
     validations:
       required: true

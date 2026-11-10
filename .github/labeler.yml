@@ -1,7 +1,9 @@
 # Area labels for pull requests, by the files they change (labeler workflow).
 # Release notes are grouped by these (release.yml); a pull request's type label
-# (bug, enhancement) is still set by hand. Labels are only ever added: removing
-# one by hand sticks.
+# (bug, enhancement) is still set by hand. Labels are only ever added, never
+# removed (sync-labels is off), but every run adds all that match again: a
+# label removed by hand comes back with the next push to the pull request
+# while it still changes those files. Remove it after the last push.
 metadata:
   - changed-files:
       - any-glob-to-any-file:

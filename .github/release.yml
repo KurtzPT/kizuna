@@ -1,20 +1,24 @@
 # Groups GitHub's auto-generated release notes ("Generate release notes") by
 # the labels of the merged pull requests. Release pull requests (dev -> main,
 # label "release") are left out: the notes list what they brought in instead.
+# A pull request is listed once, under the first category that matches. The
+# type labels (enhancement, bug: set by hand) come first, so they win over the
+# area labels the labeler adds to almost every pull request; the areas only
+# group what has neither.
 changelog:
   exclude:
     labels: ["duplicate", "invalid", "wontfix", "question", "release"]
   categories:
     - title: ✨ New features
       labels: ["enhancement"]
+    - title: 🐛 Bug fixes
+      labels: ["bug"]
     - title: 📺 Matching and metadata
       labels: ["metadata"]
     - title: 🛠️ Migration script
       labels: ["migration"]
     - title: 🐳 Running Kizuna
       labels: ["running"]
-    - title: 🐛 Bug fixes
-      labels: ["bug"]
     - title: 📖 Documentation
       labels: ["documentation"]
     - title: 📦 Dependencies

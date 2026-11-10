@@ -18,7 +18,11 @@ https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md
 
 ## Kind of change
 
-<!-- Tick all that apply: the pull request is labelled from them, and the release notes are grouped by label. -->
+<!--
+Tick all that apply, for the reviewer: nothing reads these boxes. The area labels (metadata, migration,
+running, documentation) are added from the files you change; a maintainer sets the bug or enhancement
+label. The release notes are grouped by label.
+-->
 
 - [ ] 🐛 Bug fix
 - [ ] ✨ New feature or setting
