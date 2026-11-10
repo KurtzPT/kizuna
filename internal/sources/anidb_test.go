@@ -871,7 +871,7 @@ func TestAniDBFailureKinds(t *testing.T) {
 		"server error":       {[2]string{"500", "oops"}, false, false, true},
 		"client error":       {[2]string{"404", "not here"}, false, false, true},
 		"redirect":           {[2]string{"302", ""}, false, false, true},
-		"broken gzip":        {[2]string{"200", " not gzip"}, false, false, true},
+		"broken gzip":        {[2]string{"200", "\x1f\x8b not gzip"}, false, false, true},
 		"not AniDB's XML":    {[2]string{"200", "<html>maintenance</html>"}, false, false, true},
 		"ban":                {[2]string{"503", "Banned"}, true, true, true},
 		"banned answer":      {[2]string{"200", "<error>Banned</error>"}, true, true, true},
