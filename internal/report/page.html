@@ -79,8 +79,8 @@ main{min-width:0}
 .ids{display:flex;flex-wrap:wrap;gap:4px 18px;margin:12px 0 0;padding:0;list-style:none;font:13px var(--tech);font-stretch:90%;color:var(--muted)}
 .ids a,.ids span.v{font:12.5px var(--mono);color:var(--ink);margin-left:5px}
 
-.builds{display:flex;gap:0;margin:28px 0 0;border-bottom:1px solid var(--edge);overflow-x:auto}
-.build{cursor:pointer;flex:0 0 auto;background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;padding:8px 22px 9px 0;margin-right:22px;text-align:left;display:grid;gap:1px;color:var(--muted)}
+.builds{display:flex;gap:0;margin:28px 0 0;box-shadow:inset 0 -1px 0 var(--edge);overflow-x:auto}
+.build{cursor:pointer;flex:0 0 auto;background:none;border:0;border-bottom:3px solid transparent;padding:8px 22px 9px 0;margin-right:22px;text-align:left;display:grid;gap:1px;color:var(--muted)}
 .build:hover{color:var(--ink)}
 .build[aria-pressed="true"]{border-bottom-color:var(--ink);color:var(--ink)}
 .build:focus-visible{outline-offset:-2px}
@@ -97,7 +97,7 @@ main{min-width:0}
 .st.fail::before{--m:10px;border-radius:0;background:linear-gradient(45deg,transparent 41%,var(--bad) 41% 59%,transparent 59%),linear-gradient(-45deg,transparent 41%,var(--bad) 41% 59%,transparent 59%)}
 
 .opening{margin:22px 0 44px;display:grid;gap:18px}
-.verdict{font:17px/1.5 var(--prose);margin:0;max-width:66ch;text-wrap:balance}
+.verdict{font:17px/1.5 var(--prose);margin:0;max-width:160ch;text-wrap:balance}
 .verdict code{font-size:.88em}
 .mixbox{max-width:760px}
 .mixbox p{margin:0 0 6px;font-size:13px;color:var(--muted)}
@@ -197,7 +197,7 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .fold-h{cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;width:100%;background:none;border:0;padding:10px 16px 10px 38px;text-align:left;position:relative}
 .fold-h:hover{background:var(--sunk)}
 .fold-h:focus-visible{outline-offset:-2px}
-.fold-h::before{content:"";position:absolute;left:15px;top:50%;margin-top:1px;width:7px;height:7px;border-right:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);transform:translateY(-50%) rotate(-45deg);transition:transform .12s}
+.fold-h::before{content:"";position:absolute;left:15px;top:50%;margin-top:-2.5px;width:7px;height:7px;border-right:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);transform:translateY(-50%) rotate(-45deg);transition:transform .12s}
 .fold-h[aria-expanded="true"]::before{left:17px;transform:translateY(-85%) rotate(45deg)}
 .fold-t{font:600 17px/1.3 var(--tech);font-stretch:90%;min-width:5.2em}
 .fold-m{color:var(--muted);font-size:13.5px}
@@ -225,6 +225,11 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .ep-h:hover{background:var(--sunk)}
 .ep-h:focus-visible{outline-offset:-2px}
 .ep-h[aria-expanded="true"]{background:var(--sunk)}
+/* A smaller chevron on the seasons' line: says a row opens. Fixed top: a row can wrap. */
+.ep-h{position:relative}
+.ep-h::before{content:"";position:absolute;left:17px;top:16px;width:5px;height:5px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:translateY(-50%) rotate(-45deg);transition:transform .12s}
+.ep-h:hover::before,.ep-h[aria-expanded="true"]::before{border-color:var(--ink)}
+.ep-h[aria-expanded="true"]::before{left:18.5px;transform:translateY(-75%) rotate(45deg)}
 .ep-n{font:600 13.5px/1.45 var(--tech);font-variant-numeric:tabular-nums}
 .ep-t{min-width:0;overflow-wrap:anywhere}
 .ep-i{display:block;color:var(--warn);font-size:13px}
@@ -318,7 +323,7 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .filters{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:0 0 36px}
 .filters .count{color:var(--muted);font-size:13.5px}
 .ix td.t b{font-weight:600}
-.ix td.st-c,.ix td.nowrap{white-space:nowrap}
+.ix td.st-c,.ix td.nowrap,.ix td.id{white-space:nowrap}
 .ix .chk{color:var(--warn);font-weight:600;white-space:nowrap}
 .ix .chk::before{background:var(--warn);clip-path:polygon(50% 0,100% 100%,0 100%)}
 .ix .modes code+code{margin-left:8px}
@@ -335,7 +340,7 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
   .ep-x.fresh,.fold-b.fresh{animation:open .14s ease-out}
   @keyframes open{from{opacity:0;transform:translateY(-3px)}}
 }
-@media (prefers-reduced-motion:reduce){.fold-h::before{transition:none}}
+@media (prefers-reduced-motion:reduce){.fold-h::before,.ep-h::before{transition:none}}
 
 @media (max-width:900px){
   html{scroll-padding-top:64px}
@@ -355,18 +360,20 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
   .rec:not(.plain) .rec-k{grid-column:1/-1}
   .check{grid-template-columns:minmax(0,1fr)}
   .ep-cols{display:none}
-  .ep-h{grid-template-columns:78px minmax(0,1fr) auto;grid-template-areas:"n n d" "f t t" "p p p";gap:2px 12px;padding:9px 12px 9px 16px}
+  .ep-h{grid-template-columns:78px minmax(0,1fr) auto;grid-template-areas:"n n d" "f t t" "p p p";gap:2px 12px;padding:9px 12px 9px 34px}
+  /* The row chevron on the seasons' chevron line, beside the number. */
+  .ep-h::before{left:15.5px;top:19px}.ep-h[aria-expanded="true"]::before{left:17px}
   .ep-n{grid-area:n}.ep-d{grid-area:d}.ep-f{grid-area:f}.ep-t{grid-area:t}.ep-p{grid-area:p}
-  .ep-x{grid-template-columns:minmax(0,1fr);padding:4px 12px 14px 16px}
+  .ep-x{grid-template-columns:minmax(0,1fr);padding:4px 12px 14px 34px}
   /* The header wraps here: the chevron stays on the title's line. */
-  .fold-h{padding-left:34px}.fold-h::before{left:14px;top:21px}
+  .fold-h{padding-left:34px}.fold-h::before{left:14px;top:22.5px}
   .fold-th{margin-left:0;width:100%;flex-wrap:wrap;gap:2px 18px}
   .tally.tail{display:none}
   /* A record's label has its own line here: the bar starts under it. */
   .rec:not(.plain) .rec-r>.th::before{top:27.25px}
   .ep-x .rec-r>.th::before{top:26.25px}
   .rec:not(.plain) .rec-r.cont>.th::before{top:0}
-  .fold-c{min-width:0}
+  .fold-c{min-width:0;flex-basis:100%}
   /* Narrow columns: even lines would leave half of each empty. */
   .lede,.empty,.check p,.steps p{text-wrap:pretty}
   .filters{margin-bottom:28px}
