@@ -10,6 +10,7 @@ import (
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -351,7 +352,7 @@ func (o idOutcome) how() string {
 
 // nameNote says which entry was picked by name and which tag makes it sure.
 func (o idOutcome) nameNote() string {
-	return fmt.Sprintf("AniDB %d, may be wrong; use %s to be sure", o.aid, o.sure)
+	return report.ByName{AID: o.aid, Sure: o.sure}.Note()
 }
 
 // how is the title search's part of decision.how ("" when it didn't run).
@@ -365,28 +366,4 @@ func (o searchOutcome) how() string {
 		return fmt.Sprintf("title search: best score %d below MIN_SCORE %d", o.best, o.min)
 	}
 	return ""
-}
-
-// tagRuleStopped: an id tag rule said no match and the title search never
-// ran (in a Fix Match list it still does).
-func (d decision) tagRuleStopped() bool {
-	return len(d.cands) == 0 && d.id.stops() && d.search.kind == searchNotRun
-}
-
-// byTitleSearch: the title search alone found the show, no id.
-func (d decision) byTitleSearch() bool {
-	return d.id.kind == idNone && d.search.kind == searchFound
-}
-
-// byNameNote is the rest of how after "by name: ", for a show picked by name
-// inside a TheTVDB id (ok false = it wasn't).
-func (d decision) byNameNote() (note string, ok bool) {
-	if d.id.aid == 0 {
-		return "", false
-	}
-	note = d.id.nameNote()
-	if d.search.kind != searchNotRun {
-		note += "; " + d.search.how()
-	}
-	return note, true
 }

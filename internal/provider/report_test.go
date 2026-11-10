@@ -3,10 +3,13 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +53,8 @@ func TestMatchReport(t *testing.T) {
 		t.Fatalf("%d builds, want 1", len(doc.Builds))
 	}
 	b := doc.Builds[0]
-	if b.Root != "tvdb-500" || b.Mode != "tvdb" || !b.Complete || b.Match == nil || b.Match.Root != "tvdb-500" || b.Match.How != "title search" {
+	if b.Root != "tvdb-500" || b.Mode != "tvdb" || !b.Complete || b.Match == nil || b.Match.Root != "tvdb-500" || b.Match.How != "title search" ||
+		b.Match.By != (report.MatchBy{Search: report.SearchFound, Best: 100}) {
 		t.Errorf("build %s /%s complete %v match %+v", b.Root, b.Mode, b.Complete, b.Match)
 	}
 	if doc.Title != "Kizuna Test" || !slices.Contains(doc.IDs, report.ID{Site: "tmdb", Value: "77"}) {
@@ -73,8 +77,8 @@ func TestMatchReport(t *testing.T) {
 	if ep.Title != "The Start" || ep.From != "anidb" || ep.Pairs["anidb"] != "100 · 1" {
 		t.Errorf("S01E01 %+v: want AniDB's title, paired with AniDB 100 episode 1", ep)
 	}
-	if len(doc.Requests) != 2 || doc.Requests[1].Answer != "new build" || doc.Requests[0].Build != b.ID ||
-		!strings.HasPrefix(doc.Requests[0].Answer, "memory") {
+	if len(doc.Requests) != 2 || doc.Requests[1].Answer != (report.Answer{Kind: report.AnswerNewBuild}) || doc.Requests[0].Build != b.ID ||
+		doc.Requests[0].Answer.Kind != report.AnswerMemory || doc.Requests[0].Answer.Age < 0 || doc.Requests[0].Answer.After != 0 {
 		t.Errorf("requests %+v: want the match (new build), then the metadata request from memory", doc.Requests)
 	}
 	if doc.LastMatch == nil || doc.LastMatch.Root != "tvdb-500" {
@@ -83,7 +87,8 @@ func TestMatchReport(t *testing.T) {
 
 	var un report.UnmatchedDoc
 	readJSON(t, filepath.Join(dir, "data", report.UnmatchedKey("Nothing Like This At All")+".json"), &un)
-	if un.Match.Root != "" || un.Match.Mode != "anidb" || len(un.Requests) != 1 || un.Match.TagRule || un.Match.Query != "" {
+	if un.Match.Root != "" || un.Match.Mode != "anidb" || len(un.Requests) != 1 || un.Match.By.TagRule() || un.Match.Query != "" ||
+		un.Match.By.ID != "" || un.Match.By.Search == "" || un.Match.By.Search == report.SearchFound {
 		t.Errorf("unmatched %+v: want a title search no-match, the title without tags", un)
 	}
 	for _, page := range []string{"index", "anidb-100", un.Key} {
@@ -106,13 +111,14 @@ func TestAutoTagModeOffReport(t *testing.T) {
 	readJSON(t, filepath.Join(dir, "data", report.UnmatchedKey("Kizuna Test")+".json"), &un)
 	want := "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY"
 	if un.Match.Root != "" || un.Match.How != want || len(un.Requests) != 1 ||
-		un.Requests[0].Answer != "no match" || un.Requests[0].Note != want {
+		un.Requests[0].Answer != (report.Answer{Kind: report.AnswerNoMatch}) || un.Requests[0].Note != want {
 		t.Errorf("unmatched %+v, want no match: %s", un, want)
 	}
 	// The page says a tag rule decided, not the title search, and its
 	// example tag goes after the title without the tag already there.
-	if !un.Match.TagRule || un.Match.Query != "Kizuna Test" {
-		t.Errorf("match %+v: want a tag rule, query %q", un.Match, "Kizuna Test")
+	by := report.MatchBy{ID: report.MatchTagOff, Text: "[tvdb-500]", Off: "tvdb", Need: "TVDB_API_KEY or TVDB_LEGACY_API_KEY"}
+	if !un.Match.By.TagRule() || un.Match.By != by || un.Match.Query != "Kizuna Test" {
+		t.Errorf("match %+v: want a tag rule, %+v, query %q", un.Match, by, "Kizuna Test")
 	}
 }
 
@@ -138,14 +144,109 @@ func TestRecordMatchTagRule(t *testing.T) {
 		if m.How != c.how {
 			t.Errorf("how %q, want %q", m.How, c.how)
 		}
-		if m.TagRule != c.want || m.Query != "Show" {
-			t.Errorf("%s: tag rule %v query %q, want %v and %q", c.how, m.TagRule, m.Query, c.want, "Show")
+		if m.By.TagRule() != c.want || m.Query != "Show" {
+			t.Errorf("%s: tag rule %v query %q, want %v and %q", c.how, m.By.TagRule(), m.Query, c.want, "Show")
 		}
 	}
 	byTag := decision{title: "Show [anidb-1]", id: idOutcome{kind: idTag, text: "[anidb-1]"}, cands: []candidate{{"anidb-1", 100}}}
-	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, byTag); m.TagRule || m.How != "tag [anidb-1]" || m.Root != "anidb-1" || m.Score != 100 {
+	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, byTag); m.By.TagRule() || m.How != "tag [anidb-1]" || m.Root != "anidb-1" || m.Score != 100 ||
+		m.By != (report.MatchBy{ID: report.MatchTag, Text: "[anidb-1]"}) {
 		t.Errorf("a match by tag: %+v, want no tag rule no-match", m)
 	}
+}
+
+// How each request was answered, as the report's kinds: a build that
+// failed, the failure answering again, a request that gave up, the show
+// from memory, a new build and a Fix Match list.
+func TestRequestAnswers(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	reportsOn(t, p)
+	ask := func(ctx context.Context) (report.Answer, error) {
+		rq := &report.Request{Mode: "anidb"}
+		_, err := p.show(report.WithRequest(ctx, rq), "anidb-100")
+		return rq.Answer, err
+	}
+	bg := context.Background()
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("TheTVDB is down") }
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the failed build's warning
+	first, _ := ask(bg)
+	again, err := ask(bg)
+	restore()
+	if first != (report.Answer{Kind: report.AnswerUnavailable}) {
+		t.Errorf("a build that fails: %+v, want not available", first)
+	}
+	if err == nil || again.Kind != report.AnswerFailed || again.Age < 0 || again.After != 120 {
+		t.Errorf("the failure again (%v): %+v, want failed, built again after 2 minutes", err, again)
+	}
+
+	p.mu.Lock()
+	clear(p.failed)
+	p.mu.Unlock()
+	release := make(chan struct{})
+	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
+		<-release
+		return p.buildShow(ctx, root)
+	}
+	gone, cancel := context.WithCancel(bg)
+	cancel() // each caller gives up at once; the build goes on
+	for _, who := range []string{"the build's starter", "one that joined it"} {
+		if a, err := ask(gone); !timedOut(err) || a != (report.Answer{Kind: report.AnswerTimedOut}) {
+			t.Errorf("%s (%v): %+v, want timed out", who, err, a)
+		}
+	}
+	p.mu.Lock()
+	b := p.builds["anidb-100"]
+	p.mu.Unlock()
+	close(release)
+	<-b.done
+	if a, err := ask(bg); err != nil || a.Kind != report.AnswerMemory || a.Age < 0 || a.After != 0 {
+		t.Errorf("the built show (%v): %+v, want from memory", err, a)
+	}
+	p.buildFn = nil
+	p.mu.Lock()
+	clear(p.shows)
+	p.mu.Unlock()
+	if a, err := ask(bg); err != nil || a != (report.Answer{Kind: report.AnswerNewBuild}) {
+		t.Errorf("the show gone from memory (%v): %+v, want a new build", err, a)
+	}
+	rq := &report.Request{Mode: "anidb"}
+	if items, err := p.Match(report.WithRequest(bg, rq), Modes["anidb"], MatchRequest{Type: 2, Title: "Kizuna Test", Manual: 1}); err != nil || len(items) == 0 ||
+		rq.Answer != (report.Answer{Kind: report.AnswerFixMatch}) {
+		t.Errorf("Fix Match (%v): %d items, %+v, want a list", err, len(items), rq.Answer)
+	}
+}
+
+// A field's record: the sources asked up to the one used, all of them
+// when none had a value or every source's images are joined, and the ones
+// used.
+func TestRecordFields(t *testing.T) {
+	rec := report.NewRecorder("anidb-1", "anidb")
+	ss := &showSources{rec: rec}
+	order := []string{"anidb", "tvdb", "tmdb"}
+	value := func(src string) string { return "from " + src }
+	ss.recordField("Title", order, "tvdb", value)
+	ss.recordField("Summary", order, "", value)
+	ss.recordArt("Posters", order, []sourceCount{{"tvdb", 14}, {"tmdb", 9}}, true, value)
+	ss.recordArt("Backgrounds", order, []sourceCount{{"tvdb", 3}}, false, value)
+	ss.recordArt("Logos", order, nil, false, value)
+	all := map[string]string{"anidb": "from anidb", "tvdb": "from tvdb", "tmdb": "from tmdb"}
+	upToTVDB := map[string]string{"anidb": "from anidb", "tvdb": "from tvdb"}
+	want := []report.Field{
+		{Name: "Title", Order: order, Asked: []string{"anidb", "tvdb"}, Offered: upToTVDB, Used: []string{"tvdb"}},
+		{Name: "Summary", Order: order, Asked: order, Offered: all},
+		{Name: "Posters", Order: order, Asked: order, Offered: all, Used: []string{"tvdb", "tmdb"}},
+		{Name: "Backgrounds", Order: order, Asked: []string{"anidb", "tvdb"}, Offered: upToTVDB, Used: []string{"tvdb"}},
+		{Name: "Logos", Order: order, Asked: order, Offered: all},
+	}
+	if got := rec.Facts().Fields; !reflect.DeepEqual(got, want) {
+		t.Errorf("fields\n%+v\nwant\n%+v", got, want)
+	}
+	// With the reports off nothing is noted, and nothing is asked again.
+	off := &showSources{}
+	never := func(string) string { t.Error("a source's value was read with the reports off"); return "" }
+	off.recordField("Title", order, "tvdb", never)
+	off.recordArt("Posters", order, []sourceCount{{"tvdb", 1}}, true, never)
 }
 
 // A field with no sources (X_SOURCES=none) has an empty order in the
@@ -158,8 +259,8 @@ func TestRecordFieldEmptyOrder(t *testing.T) {
 	}
 	rec := report.NewRecorder("anidb-1", "anidb")
 	ss := &showSources{rec: rec}
-	ss.recordField("Studio", nil, "", false, func(string) string { return "" })
-	rec.Finish(time.Second, nil, report.ShowHead{Title: "Show"}, nil)
+	ss.recordField("Studio", nil, "", func(string) string { return "" })
+	rec.Finish(time.Second, nil, report.Result{Head: report.ShowHead{Title: "Show"}})
 	store.AddBuild("anidb-1", rec)
 	store.Flush()
 	data, err := os.ReadFile(filepath.Join(dir, "data", "anidb-1.json"))
@@ -283,16 +384,71 @@ func TestBuildChecksIncomplete(t *testing.T) {
 		return slices.ContainsFunc(cs, func(c report.Check) bool { return c.Title == "Built with something missing" })
 	}
 	s := &Show{Title: "Show", Complete: false}
-	if !generic(buildChecks(s, &report.Build{}, nil)) {
+	if !generic(buildChecks(s, report.Facts{}, nil)) {
 		t.Error("nothing says why: want the generic check")
 	}
-	failed := &report.Build{Checks: []report.Check{{Level: report.LevelWarn, Title: "A source failed: tmdb", Cause: true}}}
-	if generic(buildChecks(s, failed, nil)) {
+	rec := report.NewRecorder("anidb-1", "anidb")
+	rec.Check(report.Check{Level: report.LevelInfo, Title: "Something else"})
+	if !generic(buildChecks(s, rec.Facts(), nil)) {
+		t.Error("a recorded check that doesn't say why: want the generic check")
+	}
+	rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: tmdb", Cause: true})
+	if generic(buildChecks(s, rec.Facts(), nil)) {
 		t.Error("a failed source already says why: no generic check")
 	}
 	s.Placeholders = true
-	if generic(buildChecks(s, &report.Build{}, nil)) {
+	if generic(buildChecks(s, report.Facts{}, nil)) {
 		t.Error("placeholder episodes already say why: no generic check")
+	}
+}
+
+// The checks of a finished build, in the report: the ones recorded while
+// it ran, then buildChecks' in its order.
+func TestFinishReportChecksOrder(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, _ := reportsOn(t, p)
+	rec := report.NewRecorder("anidb-100", "anidb")
+	rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: tmdb", Cause: true})
+	rec.SetMatch(&report.Match{Mode: "anidb", Title: "Show", Root: "anidb-100", Score: 90, By: report.MatchBy{Search: report.SearchFound, Best: 90}})
+	ss := &showSources{rec: rec}
+	ss.recordField("Summary", []string{"anidb", "tvdb"}, "", func(string) string { return "" })
+	s := &Show{Root: "anidb-100", Title: "Show &amp; Tell", Complete: false, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1, Title: "One", Date: "2020-01-01"}, {Season: 1, Index: 2}}}}
+	p.finishReport(rec, "anidb-100", s, nil, time.Second)
+	store.AddBuild("anidb-100", rec)
+	store.Flush()
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if len(doc.Builds) != 1 {
+		t.Fatalf("%d builds, want 1", len(doc.Builds))
+	}
+	b := doc.Builds[0]
+	want := []report.Check{
+		{Level: report.LevelWarn, Title: "A source failed: tmdb"},
+		{Level: report.LevelInfo, Title: "Matched by title search with score 90",
+			Text: "Not an exact title. If it is the wrong show, add an id tag such as [anidb-N] to the folder name.", Section: report.SectionMatch},
+		{Level: report.LevelWarn, Title: "1 episode has no real title",
+			Text: `S01E02. No source in EPISODE_TITLES has a title for them, or only a placeholder like "Episode 5".`, Section: report.SectionEpisodes},
+		{Level: report.LevelInfo, Title: "1 episode has no air date", Text: "S01E02.", Section: report.SectionEpisodes},
+		{Level: report.LevelWarn, Title: "HTML entity in the show's title or summary", Text: "Plex shows it literally.", Section: report.SectionFields},
+		{Level: report.LevelWarn, Title: "No source had a summary", Text: "Asked: anidb, tvdb.", Section: report.SectionFields},
+	}
+	if !reflect.DeepEqual(b.Checks, want) {
+		t.Errorf("checks\n%+v\nwant\n%+v", b.Checks, want)
+	}
+	if doc.Title != "Show &amp; Tell" || b.Complete || b.EpsTotal != 2 || len(b.Episodes) != 2 || len(b.Seasons) != 1 || b.Seasons[0] != (report.Season{Name: "Season 1", Count: 2}) ||
+		len(b.Output) == 0 || len(b.Mapping) == 0 || b.TookMS != 1000 || b.Error != "" {
+		t.Errorf("build %+v, want the show's head, seasons, episodes, output and mapping", b)
+	}
+
+	// A failed build: the head and the mapping only.
+	failed := report.NewRecorder("anidb-100", "anidb")
+	p.finishReport(failed, "anidb-100", nil, errors.New("boom"), time.Second)
+	store.AddBuild("anidb-100", failed)
+	store.Flush()
+	doc = report.ShowDoc{}
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if b := doc.Builds[0]; len(doc.Builds) != 2 || b.Error != "boom" || b.Complete || b.Checks != nil || b.Episodes != nil || b.Output != nil || len(b.Mapping) == 0 || doc.Title != "Kizuna Test" {
+		t.Errorf("failed build %+v (title %q), want its error, the mapping and the entry's title", doc.Builds[0], doc.Title)
 	}
 }
 
@@ -308,7 +464,7 @@ func TestBuildChecksPlaceholders(t *testing.T) {
 	}{{false, time.Time{}, "until the next build"}, {true, time.Time{}, "Set ANIDB_CLIENT"},
 		{true, until, "block asking again until 2026-11-10 18:30 UTC"}} {
 		s := &Show{Title: "Show", Complete: c.complete, Placeholders: true, anidbBlocked: c.blocked}
-		cs := buildChecks(s, &report.Build{}, nil)
+		cs := buildChecks(s, report.Facts{}, nil)
 		i := slices.IndexFunc(cs, func(c report.Check) bool { return c.Title == "Placeholder episodes" })
 		if i < 0 || !strings.Contains(cs[i].Text, c.want) || c.complete && strings.Contains(cs[i].Text, "next build") {
 			t.Errorf("complete %v blocked %v: checks %+v, want placeholder text with %q", c.complete, c.blocked, cs, c.want)
@@ -319,17 +475,57 @@ func TestBuildChecksPlaceholders(t *testing.T) {
 	}
 }
 
-// A match by name inside a TheTVDB id says so in the report, with the tags
-// that make it sure.
-func TestBuildChecksByName(t *testing.T) {
-	how := "tag [tvdb-81797], by name: AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure"
-	cs := buildChecks(&Show{Title: "Show", Complete: true}, &report.Build{Match: &report.Match{How: how, Score: 100}}, nil)
-	i := slices.IndexFunc(cs, func(c report.Check) bool { return c.Title == "Matched by name inside a TheTVDB id" })
-	if i < 0 || !strings.Contains(cs[i].Text, "use [anidb-16983] or [tmdb-900667] to be sure") {
-		t.Errorf("checks %+v, want the by-name check with the tags", cs)
+// The checks a build's match brings, word for word: a title search that
+// wasn't exact, and a match by name inside a TheTVDB id, with the tags that
+// make it sure. Everything else that decided brings none.
+func TestBuildChecksMatch(t *testing.T) {
+	const guid = "com.plexapp.agents.thetvdb://81797?lang=en"
+	search := func(score int) *report.Check {
+		return &report.Check{Level: report.LevelInfo, Title: "Matched by title search with score " + strconv.Itoa(score),
+			Text: "Not an exact title. If it is the wrong show, add an id tag such as [anidb-N] to the folder name.", Section: report.SectionMatch}
 	}
-	if slices.ContainsFunc(buildChecks(&Show{Complete: true}, &report.Build{Match: &report.Match{How: "tag [tvdb-81797]"}}, nil),
-		func(c report.Check) bool { return c.Title == "Matched by name inside a TheTVDB id" }) {
-		t.Error("a plain tag match: want no by-name check")
+	byName := func(note string) *report.Check {
+		return &report.Check{Level: report.LevelWarn, Title: "Matched by name inside a TheTVDB id",
+			Text:    "The TheTVDB id names a whole series; the title or file name picked one of its movies or specials: " + note + ".",
+			Section: report.SectionMatch}
+	}
+	film := &report.ByName{AID: 16983, Sure: "[anidb-16983] or [tmdb-900667]"}
+	for _, c := range []struct {
+		name  string
+		by    report.MatchBy
+		score int
+		want  *report.Check
+	}{
+		{"title search, 90", report.MatchBy{Search: report.SearchFound, Best: 90}, 90, search(90)},
+		{"title search, 99", report.MatchBy{Search: report.SearchFound, Best: 99}, 99, search(99)},
+		{"title search, exact", report.MatchBy{Search: report.SearchFound, Best: 100}, 100, nil},
+		{"tag", report.MatchBy{ID: report.MatchTag, Text: "[anidb-69]"}, 100, nil},
+		{"guid", report.MatchBy{ID: report.MatchGUID, Text: guid}, 100, nil},
+		{"tag, by name", report.MatchBy{ID: report.MatchTag, Text: "[tvdb-81797]", ByName: film}, 100,
+			byName("AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure")},
+		{"tag, by name, a lower name score", report.MatchBy{ID: report.MatchTag, Text: "[tvdb-81797]", ByName: film}, 87,
+			byName("AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure")},
+		{"guid, by name", report.MatchBy{ID: report.MatchGUID, Text: guid, ByName: &report.ByName{AID: 8857, Sure: "[anidb-8857]"}}, 100,
+			byName("AniDB 8857, may be wrong; use [anidb-8857] to be sure")},
+		// what a build's match never is, but the facts can say
+		{"tag, then a title search", report.MatchBy{ID: report.MatchTag, Text: "[anidb-69]", Search: report.SearchFound, Best: 90}, 90, nil},
+		{"title search, nothing", report.MatchBy{Search: report.SearchNone}, 0, nil},
+		{"title search, below min", report.MatchBy{Search: report.SearchLow, Best: 62}, 0, nil},
+		{"title search, no such season", report.MatchBy{Search: report.SearchFound, Best: 90, Missing: "season 3"}, 0, nil},
+		{"two tags", report.MatchBy{ID: report.MatchManyTags, Text: "[anidb-69] {mal-21}"}, 0, nil},
+		{"tag mode off", report.MatchBy{ID: report.MatchTagOff, Text: "[anidb-69]", Off: "anidb", Need: "ANIDB_CLIENT"}, 0, nil},
+	} {
+		facts := report.Facts{Match: &report.Match{By: c.by, Score: c.score}}
+		got := buildChecks(&Show{Title: "Show", Complete: true}, facts, nil)
+		var want []report.Check
+		if c.want != nil {
+			want = []report.Check{*c.want}
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: checks %+v, want %+v", c.name, got, want)
+		}
+	}
+	if got := buildChecks(&Show{Title: "Show", Complete: true}, report.Facts{}, nil); got != nil {
+		t.Errorf("a build no match started: checks %+v, want none", got)
 	}
 }

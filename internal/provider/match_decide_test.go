@@ -8,6 +8,7 @@ import (
 	"kizuna/internal/anidb"
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -75,41 +76,84 @@ func TestDecisionHow(t *testing.T) {
 	}
 }
 
-// The predicates say what reading the reason's words said before them: a
-// tag rule's no-match starts "id tags " or "tag " and names no title
-// search, a match by title search alone is "title search", and a pick by
-// name is what follows ", by name: ".
-func TestDecisionPredicates(t *testing.T) {
+// The report's facts (matchBy) say what reading the reason's words said
+// before them: a tag rule's no-match starts "id tags " or "tag " and names
+// no title search, a match by title search alone is "title search", and a
+// pick by name is what follows ", by name: " (in a Fix Match list, up to
+// the title search's part).
+func TestMatchByFromDecision(t *testing.T) {
 	stopped := map[string]bool{"two tags": true, "tag mode off": true, "tag mode off, anidb": true}
 	bySearch := map[string]bool{"title search": true, "list: title search": true}
 	notes := map[string]string{
 		"tag, by name":                  "AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure",
 		"guid, by name":                 "AniDB 8857, may be wrong; use [anidb-8857] to be sure",
-		"list: tag, by name":            "AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure; title search",
-		"list: guid, by name, no title": "AniDB 8857, may be wrong; use [anidb-8857] to be sure; title search: no similar title",
+		"list: tag, by name":            "AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure",
+		"list: guid, by name, no title": "AniDB 8857, may be wrong; use [anidb-8857] to be sure",
 	}
+	const guid = "com.plexapp.agents.thetvdb://81797?lang=en"
+	facts := map[string]report.MatchBy{
+		"tag":                     {ID: report.MatchTag, Text: "[anidb-69]"},
+		"tag, by name":            {ID: report.MatchTag, Text: "[tvdb-81797]", ByName: &report.ByName{AID: 16983, Sure: "[anidb-16983] or [tmdb-900667]"}},
+		"guid":                    {ID: report.MatchGUID, Text: guid},
+		"guid, by name":           {ID: report.MatchGUID, Text: guid, ByName: &report.ByName{AID: 8857, Sure: "[anidb-8857]"}},
+		"two tags":                {ID: report.MatchManyTags, Text: "[anidb-69] {mal-21}"},
+		"tag mode off":            {ID: report.MatchTagOff, Text: "[tvdb3-81797]", Off: "tvdb", Need: "TVDB_API_KEY or TVDB_LEGACY_API_KEY"},
+		"tag mode off, anidb":     {ID: report.MatchTagOff, Text: "[anidb-69]", Off: "anidb", Need: "ANIDB_CLIENT"},
+		"title search":            {Search: report.SearchFound, Best: 100},
+		"title search, nothing":   {Search: report.SearchNone},
+		"title search, below min": {Search: report.SearchLow, Best: 62},
+		"list: tag, no title":     {ID: report.MatchTag, Text: "[anidb-69]", Search: report.SearchNone},
+		"list: two tags":          {ID: report.MatchManyTags, Text: "[anidb-69] {mal-21}", Search: report.SearchFound, Best: 100},
+		"list: guid, by name, no title": {ID: report.MatchGUID, Text: guid, ByName: &report.ByName{AID: 8857, Sure: "[anidb-8857]"},
+			Search: report.SearchNone},
+	}
+	seen := 0
 	for _, c := range howForms() {
-		if got := c.d.tagRuleStopped(); got != stopped[c.name] {
-			t.Errorf("%s: tagRuleStopped %v, want %v", c.name, got, stopped[c.name])
+		by := matchBy(c.d)
+		if want, ok := facts[c.name]; ok {
+			seen++
+			if !reflect.DeepEqual(by, want) {
+				t.Errorf("%s: facts %+v, want %+v", c.name, by, want)
+			}
+		}
+		if got := by.TagRule(); got != stopped[c.name] {
+			t.Errorf("%s: TagRule %v, want %v", c.name, got, stopped[c.name])
 		}
 		fromWords := len(c.d.cands) == 0 && (strings.HasPrefix(c.how, "id tags ") || strings.HasPrefix(c.how, "tag ")) && !strings.Contains(c.how, "title search")
-		if got := c.d.tagRuleStopped(); got != fromWords {
-			t.Errorf("%s: tagRuleStopped %v, the words say %v", c.name, got, fromWords)
+		if got := by.TagRule(); got != fromWords {
+			t.Errorf("%s: TagRule %v, the words say %v", c.name, got, fromWords)
 		}
-		if got := c.d.byTitleSearch(); got != bySearch[c.name] || got != (c.how == "title search") {
-			t.Errorf("%s: byTitleSearch %v, want %v", c.name, got, bySearch[c.name])
+		if got := by.TitleSearch(); got != bySearch[c.name] || got != (c.how == "title search") {
+			t.Errorf("%s: TitleSearch %v, want %v", c.name, got, bySearch[c.name])
 		}
 		want, wantOK := notes[c.name]
-		if got, ok := c.d.byNameNote(); got != want || ok != wantOK {
-			t.Errorf("%s: byNameNote %q %v, want %q %v", c.name, got, ok, want, wantOK)
-		}
 		_, cut, cutOK := strings.Cut(c.how, ", by name: ")
-		if got, ok := c.d.byNameNote(); got != cut || ok != cutOK {
-			t.Errorf("%s: byNameNote %q %v, the words say %q %v", c.name, got, ok, cut, cutOK)
+		if got := by.ByName != nil; got != wantOK || got != cutOK {
+			t.Errorf("%s: by name %v, want %v; the words say %v", c.name, got, wantOK, cutOK)
+			continue
+		}
+		if by.ByName == nil {
+			continue
+		}
+		if got := by.ByName.Note(); got != want {
+			t.Errorf("%s: note %q, want %q", c.name, got, want)
+		}
+		// The words after "by name: " are the note, and in a Fix Match list
+		// (which is in no report) the title search's part after it.
+		if rest := want; c.d.search.kind != searchNotRun {
+			rest += "; " + c.d.search.how()
+			if cut != rest {
+				t.Errorf("%s: the words say %q, want the note and the title search's part %q", c.name, cut, rest)
+			}
+		} else if cut != want {
+			t.Errorf("%s: note %q, the words say %q", c.name, want, cut)
 		}
 	}
-	if d := (decision{}); d.how() != "" || d.tagRuleStopped() || d.byTitleSearch() {
-		t.Errorf("an empty decision: how %q, tag rule %v, title search %v; want none", d.how(), d.tagRuleStopped(), d.byTitleSearch())
+	if seen != len(facts) {
+		t.Errorf("%d of the %d forms with facts are in howForms", seen, len(facts))
+	}
+	if d := (decision{}); d.how() != "" || matchBy(d) != (report.MatchBy{}) || matchBy(d).TagRule() || matchBy(d).TitleSearch() {
+		t.Errorf("an empty decision: how %q, facts %+v; want none", d.how(), matchBy(d))
 	}
 }
 
