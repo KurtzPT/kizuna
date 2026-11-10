@@ -691,8 +691,8 @@ const FIELD_GROUP = {Posters: "poster", Backgrounds: "background", Logos: "logo"
 function fieldGoto(b, fname) {
   const k = FIELD_ITEM[fname];
   if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k + (FIELD_GROUP[fname] ? "/" + FIELD_GROUP[fname] : ""), label: "Open in Sent to Plex"};
-  const m = /^(Specials|Season \d+) (posters|backgrounds|logos)$/.exec(fname);
-  if (m) return {to: "art:" + m[1] + "/" + FIELD_GROUP[m[2][0].toUpperCase() + m[2].slice(1)], label: `Open ${m[1]} in Art`};
+  const m = /^(Specials|Season \d+) (posters|backgrounds|logos)$/i.exec(fname);
+  if (m) return {to: "art:" + m[1] + "/" + FIELD_GROUP[m[2][0].toUpperCase() + m[2].slice(1).toLowerCase()], label: `Open ${m[1]} in Art`};
   return null;
 }
 function renderFields(b) {
