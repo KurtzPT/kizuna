@@ -69,6 +69,8 @@ services:
       # LOG_RETENTION_DAYS: "7"      # days of old logs kept in /change/me/logs; 0 = keep forever
       # LOG_LEVEL: "debug"          # info (default) or debug: everything needed to see why something went wrong
       # MATCH_REPORTS: "true"       # an HTML report per show in /change/me/reports (default false)
+      # PLEX_URL: "http://192.168.1.10:32400"  # with PLEX_TOKEN: opening and ending extras get the titles
+      # PLEX_TOKEN: "<plex-token>"             # "Opening 1", "Ending 2" instead of "OP1", "NCED2" (SETUP.md)
       # --- who may talk to Kizuna (it has no login: Plex can't send one) ---
       # ALLOW_FROM: "private"         # client addresses: private (LAN, Docker, Tailscale), IPs, networks
                                       # e.g. "192.168.1.10" = only the Plex server; "any" = no limit

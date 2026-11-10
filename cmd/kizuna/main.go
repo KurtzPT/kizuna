@@ -29,6 +29,7 @@ import (
 	"kizuna/internal/fetch"
 	"kizuna/internal/logfile"
 	"kizuna/internal/mapping"
+	"kizuna/internal/plex"
 	"kizuna/internal/provider"
 	"kizuna/internal/report"
 	"kizuna/internal/sources"
@@ -206,6 +207,11 @@ func serve(cfg config.Config) error {
 			slog.Warn("can't write match reports (check the data folder's permissions)", "err", err)
 		}
 	}
+	// Opening and ending titles (PLEX_URL + PLEX_TOKEN): set through Plex's API.
+	if renamer := extraTitles(cfg); renamer != nil {
+		p.SetExtras(renamer.Queue)
+		defer renamer.Stop()
+	}
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
 	loaded := p.Loading()
@@ -234,6 +240,24 @@ func serve(cfg config.Config) error {
 	return nil
 }
 
+// extraTitles returns what renames Plex's opening and ending extras, or nil
+// when PLEX_URL and PLEX_TOKEN aren't both set (a half or bad setup is
+// logged: it would look like the feature doing nothing).
+func extraTitles(cfg config.Config) *plex.Renamer {
+	switch {
+	case cfg.PlexURL == "" && cfg.PlexToken == "":
+		return nil
+	case cfg.PlexURL == "" || cfg.PlexToken == "":
+		slog.Warn("PLEX_URL and PLEX_TOKEN are both needed to set the opening and ending titles in Plex: only one is set, so they stay as Plex names them")
+		return nil
+	}
+	if why := plex.CheckURL(cfg.PlexURL); why != "" {
+		slog.Warn("PLEX_URL isn't a web address, so the opening and ending titles stay as Plex names them", "why", why)
+		return nil
+	}
+	return plex.New(cfg.PlexURL, cfg.PlexToken, nil)
+}
+
 // drain stops the server within timeout in all: it waits for the requests
 // still running, then for the show builds that outlived theirs (Plex gave
 // up on them). A build queues its match report only when it ends, and
@@ -260,7 +284,7 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
 		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", u(cfg.DateSources),
 		"episode_fill", u(cfg.EpisodeFillSources), "episode_titles", u(cfg.EpisodeTitles), "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", max(cfg.CacheFreeTarget, cfg.CacheMinFree)>>20,
-		"match_reports", cfg.MatchReports)
+		"match_reports", cfg.MatchReports, "extra_titles", cfg.PlexURL != "" && cfg.PlexToken != "")
 }
 
 // listen opens the address Kizuna serves on. A port that another program

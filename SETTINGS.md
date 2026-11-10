@@ -6,7 +6,7 @@
 
 **Every setting, its default and what it changes.**
 
-[📄 Where settings go](#-where-settings-go) &nbsp;·&nbsp; [🔑 Keys](#-accounts--keys) &nbsp;·&nbsp; [🎯 Matching](#-matching--titles) &nbsp;·&nbsp; [🔀 Sources](#-sources-per-field) &nbsp;·&nbsp; [🖥️ Server](#%EF%B8%8F-server) &nbsp;·&nbsp; [🛡️ Access](#%EF%B8%8F-access) &nbsp;·&nbsp; [💾 Cache](#-storage--cache) &nbsp;·&nbsp; [📝 Logging](#-logging) &nbsp;·&nbsp; [🧭 Setup](SETUP.md)
+[📄 Where settings go](#-where-settings-go) &nbsp;·&nbsp; [🔑 Keys](#-accounts--keys) &nbsp;·&nbsp; [🎯 Matching](#-matching--titles) &nbsp;·&nbsp; [🔀 Sources](#-sources-per-field) &nbsp;·&nbsp; [🖥️ Server](#%EF%B8%8F-server) &nbsp;·&nbsp; [🛡️ Access](#%EF%B8%8F-access) &nbsp;·&nbsp; [💾 Cache](#-storage--cache) &nbsp;·&nbsp; [📝 Logging](#-logging) &nbsp;·&nbsp; [🎵 Openings](#-opening-and-ending-titles) &nbsp;·&nbsp; [🧭 Setup](SETUP.md)
 
 <sub>Setting Kizuna up for the first time? Follow <a href="SETUP.md">SETUP.md</a>: it needs only the keys. Come back
 here to change what Kizuna does.</sub>
@@ -280,3 +280,17 @@ When a source fails (TheTVDB: its login too), an expired cached copy answers ins
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` (or 100000 and up) = keep forever |
 | `TZ` | UTC (image) · system time zone (binary) | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
 | `MATCH_REPORTS` | `false` | `true`: write a [match report](SETUP.md#-match-reports) per show to `reports/` in the data folder |
+
+## 🎵 Opening and ending titles
+
+Plex names the opening and ending extras it makes from your files after the file: `OP1`, `NCED2`. With both settings
+below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own API. How it works, and how the titles
+are made: [SETUP](SETUP.md#-openings-and-endings).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network |
+| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner. It gives full access to the server: keep the settings file private. Kizuna sends it only to `PLEX_URL` and never logs it |
+
+With only one of the two set, or a `PLEX_URL` that isn't a web address, Kizuna logs a warning at start and leaves the
+titles alone.

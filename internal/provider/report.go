@@ -23,6 +23,11 @@ import (
 // SetReports turns the match reports on (nil = off).
 func (p *Provider) SetReports(s *report.Store) { p.reports = s }
 
+// SetExtras sets what is called, with the show's GUID, each time Plex asks
+// for a show's extras, which it does on every metadata refresh of the show.
+// Call it before serving.
+func (p *Provider) SetExtras(f func(guid string)) { p.extras = f }
+
 // reportKey is the report page of a show: its AniDB entry, so /anidb and
 // /tvdb builds of one anime share a page; a TVDB series without one keeps
 // its own key.

@@ -455,3 +455,41 @@ func TestBuildTime(t *testing.T) {
 		t.Errorf("little time left: %v, want %v", got, minBuildTime)
 	}
 }
+
+// Plex asks for a show's extras on every refresh. The answer is an empty
+// list (not a 404, which Plex logs as an error), without building the show,
+// and a show's request is passed on with its GUID.
+func TestExtras(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p.buildFn = func(context.Context, string) (*Show, error) {
+		t.Error("the show was built")
+		return nil, errors.New("no build")
+	}
+	var asked []string
+	for _, on := range []bool{false, true} {
+		if on {
+			p.SetExtras(func(guid string) { asked = append(asked, guid) })
+		}
+		for _, path := range []string{
+			"/anidb/library/metadata/anidb-23/extras?updating=1&X-Plex-Container-Size=50",
+			"/anidb/library/metadata/anidb-23-s1/extras",
+			"/anidb/library/metadata/anidb-23-s1-e2/extras",
+		} {
+			rec := plexRequest(context.Background(), p, "GET", path, "")
+			var got Container
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+				t.Fatalf("%s: %d %s", path, rec.Code, rec.Body)
+			}
+			if mc := got.MediaContainer; mc.Size != 0 || len(mc.Metadata) != 0 || mc.Identifier != Modes["anidb"].Identifier() {
+				t.Errorf("%s: %s", path, rec.Body)
+			}
+		}
+	}
+	if want := []string{"tv.plex.agents.custom.kizuna.anidb://show/anidb-23"}; !slices.Equal(asked, want) {
+		t.Errorf("asked %v, want %v", asked, want)
+	}
+	if rec := plexRequest(context.Background(), p, "GET", "/anidb/library/metadata/nonsense/extras", ""); rec.Code != 404 {
+		t.Errorf("a bad key: %d", rec.Code)
+	}
+}

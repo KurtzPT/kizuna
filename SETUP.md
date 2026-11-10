@@ -6,7 +6,7 @@
 
 **From zero to a matched anime library in four steps.**
 
-[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](SETTINGS.md) &nbsp;·&nbsp; [🎬 Movies](#-movies-and-specials) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting) &nbsp;·&nbsp; [🩹 Mapping fixes](MAPPING.md)
+[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [⚙️ Settings](SETTINGS.md) &nbsp;·&nbsp; [🎬 Movies](#-movies-and-specials) &nbsp;·&nbsp; [🎵 Openings](#-openings-and-endings) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting) &nbsp;·&nbsp; [🩹 Mapping fixes](MAPPING.md)
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 
@@ -221,6 +221,64 @@ TheTVDB season:
 |---|---|
 | a movie id, and no regular TheTVDB season or no TV show id | the movie's `tmdb://` and `imdb://`, not the series' `tvdb://` |
 | a regular TheTVDB season and a TheMovieDb TV show id | the series' `tvdb://` and that TV show's `tmdb://` |
+
+## 🎵 Openings and endings
+
+Plex's scanner decides by itself which files are openings and endings, from the file name alone. It does so before
+Kizuna is asked anything and before it reads a [`.plexmatch`](MIGRATION.md#-how-it-works) hint, so neither can change
+it. What follows was read from Plex Media Server 1.43.5 and checked on a library.
+
+**Which files.** Plex looks for one of these as a separate word in the name (a space, `.`, `_`, `-` or a bracket on
+each side), spelled in capitals as shown:
+
+| The name has | Examples | Plex makes the file |
+|---|---|---|
+| `OP`, `ED` or `OPED`, with or without `NC` in front | `OP1` `NCED2` `OP 1` `ED_03` `NCOP` | an opening or ending **extra** |
+| `Creditless` or `Clean`, then `Opening`, `Ending`, `OP`, `ED` or `OPED` | `Creditless Opening` `Clean Ending 2` | an opening or ending **extra** |
+| `Opening` or `Ending` without `Creditless` or `Clean` | `Opening 1` `Ending` `NCOpening` | **nothing**: the file is left out of the library, as neither an extra nor an episode |
+| the word in small letters | `op1` `ncop` | no opening or ending: the name is read like any other |
+| a season and episode | `Show - S00E101` | an episode: Plex doesn't look for the words in such a name |
+
+- After the word may come a number of 1 or 2 digits (`OP1`, `OP 01`, `OP.1`), one letter (`OP1a`, `OP1 b`) and a
+  version (`OP1v2`).
+- The first such word in the name counts, wherever it is: an episode named `Show - 05 [ED fix].mkv` becomes an ending
+  extra too.
+- `OP` and `OPED` are openings, `ED` is an ending.
+
+**What you get.** An extra plays from the show's page (*Extras*), as an *Opening* or *Ending*. It is not a special:
+it has no episode number and nothing from Kizuna, and its title is just the words Plex found: `OP1`, `NCED2`,
+`Creditless Opening`. To have an opening as a special with its AniDB title instead, name the file by its number,
+e.g. `Show - S00E101.mkv` ([the numbers](MIGRATION.md#openings-and-endings-with-variants)).
+
+**When.** Plex adds, renames and removes these extras only when it refreshes the show's metadata. *Scan Library
+Files* alone doesn't: after adding or renaming such a file, use *Refresh Metadata* on the show (or *Refresh All
+Metadata* on the library).
+
+### Readable titles
+
+Set [`PLEX_URL` and `PLEX_TOKEN`](SETTINGS.md#-opening-and-ending-titles) and Kizuna gives these extras readable
+titles, made from the same words in the file name:
+
+| File | Plex's title | With `PLEX_URL` |
+|---|---|---|
+| `Show - OP01.mkv` | `OP01` | **Opening 1** |
+| `Show - OP01a.mkv` · `Show - OP 1 a.mkv` | `OP01a` · `OP 1 a` | **Opening 1a** |
+| `Show - OP02.mkv` | `OP02` | **Opening 2** |
+| `Show - OP1v2.mkv` | `OP1` | **Opening 1 v2** |
+| `Show - NCED2.mkv` · `Show - Clean Ending 2.mkv` | `NCED2` · `Clean Ending 2` | **Ending 2** |
+| `Show - NCOP.mkv` | `NCOP` | **Opening** |
+| `Show - OPED.mkv` | `OPED` | **Opening & Ending** |
+| `Show - NCED1.mkv` next to `Show - ED1.mkv` | `NCED1` | **Ending 1 (creditless)** |
+
+How it works, and what follows from it:
+
+- Plex sets every extra's title back to its own on each metadata refresh. It also asks Kizuna for the show's extras
+  at that moment (Kizuna has none), so Kizuna knows: 15 seconds and again 2 minutes later it looks the show up in
+  Plex and sets the titles that differ. Right after a refresh you may see Plex's titles for a moment.
+- Nothing happens until Plex refreshes a show. After setting the two values, run *Refresh All Metadata* once.
+- Kizuna only changes the titles of opening and ending extras, only for shows matched by Kizuna, in every library
+  that has the show. Your files are never touched, and the titles come from the file names: AniDB isn't asked.
+- The log has a `plex: extra renamed` line per title, and a warning when Plex can't be reached or refuses the token.
 
 ## 📜 Logs
 

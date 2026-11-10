@@ -73,8 +73,9 @@ type Provider struct {
 	mal          *sources.MAL
 	ann          *sources.ANN
 
-	access  Access        // ALLOW_FROM / ALLOWED_HOSTS
-	reports *report.Store // match reports; nil = off
+	access  Access            // ALLOW_FROM / ALLOWED_HOSTS
+	reports *report.Store     // match reports; nil = off
+	extras  func(guid string) // called when Plex asks for a show's extras; nil = nothing to do (SetExtras)
 
 	loaded   chan struct{} // closed once the first list load is over (see Loading)
 	stopping chan struct{} // closed by Stop

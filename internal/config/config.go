@@ -92,6 +92,11 @@ type Config struct {
 	CacheMinFree, CacheFreeTarget uint64
 	// MatchReports writes an HTML report per show to <DataDir>/reports.
 	MatchReports bool
+
+	// PlexURL and PlexToken: the Plex server's address and an account token.
+	// With both, the opening and ending extras Plex makes from local files
+	// get readable titles through Plex's API (internal/plex).
+	PlexURL, PlexToken string
 }
 
 func Load() Config {
@@ -134,6 +139,8 @@ func Load() Config {
 		CacheMinFree:       size("CACHE_MIN_FREE", 1<<30),
 		CacheFreeTarget:    size("CACHE_FREE_TARGET", 2<<30),
 		MatchReports:       flag("MATCH_REPORTS", false),
+		PlexURL:            env("PLEX_URL", ""),
+		PlexToken:          env("PLEX_TOKEN", ""),
 	}
 }
 
