@@ -201,7 +201,9 @@ func (l *File) archive(day string) error {
 	}
 	_, err = io.Copy(dst, src)
 	src.Close()
-	dst.Close()
+	if cerr := dst.Close(); err == nil {
+		err = cerr // the last lines may not have reached the dated file: kizuna.log is kept
+	}
 	if err != nil {
 		return err
 	}
