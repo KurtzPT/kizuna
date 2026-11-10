@@ -274,7 +274,7 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 		// ending extras back to their file names: the moment to plan their
 		// renaming (PLEX_URL, internal/plex).
 		if m[2] == "" && p.onExtras != nil {
-			p.onExtras(mode.Identifier() + "://show/" + m[1])
+			p.onExtras(mode.GUID("show", m[1]))
 		}
 		writeJSON(w, http.StatusOK, container(mode, nil, 0, 0))
 		return

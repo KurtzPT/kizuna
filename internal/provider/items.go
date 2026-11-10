@@ -19,7 +19,7 @@ func base(mode Mode, typ, rk, title string) Item {
 	if typ != "episode" {
 		key += "/children"
 	}
-	return Item{RatingKey: rk, Key: key, GUID: mode.Identifier() + "://" + typ + "/" + rk, Type: typ, Title: title}
+	return Item{RatingKey: rk, Key: key, GUID: mode.GUID(typ, rk), Type: typ, Title: title}
 }
 
 func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
@@ -109,7 +109,7 @@ func (p *Provider) seasonItem(mode Mode, s *Show, n int, withChildren bool) *Ite
 	it := base(mode, "season", seasonKey(s, n), seasonTitle(n))
 	it.Index = intp(n)
 	it.ParentRatingKey, it.ParentKey = s.Root, metadataPath+"/"+s.Root
-	it.ParentGUID, it.ParentType, it.ParentTitle = mode.Identifier()+"://show/"+s.Root, "show", s.Title
+	it.ParentGUID, it.ParentType, it.ParentTitle = mode.GUID("show", s.Root), "show", s.Title
 	if len(s.Art.Posters) > 0 {
 		it.ParentThumb = s.Art.Posters[0]
 	}
@@ -153,9 +153,9 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 	it.Summary, it.Duration = e.Summary, e.Minutes*60000
 	setDate(&it, e.Date)
 	it.ParentRatingKey, it.ParentKey = sk, metadataPath+"/"+sk
-	it.ParentGUID, it.ParentType, it.ParentTitle = mode.Identifier()+"://season/"+sk, "season", seasonTitle(e.Season)
+	it.ParentGUID, it.ParentType, it.ParentTitle = mode.GUID("season", sk), "season", seasonTitle(e.Season)
 	it.GrandparentRatingKey, it.GrandparentKey = s.Root, metadataPath+"/"+s.Root
-	it.GrandparentGUID, it.GrandparentType, it.GrandparentTitle = mode.Identifier()+"://show/"+s.Root, "show", s.Title
+	it.GrandparentGUID, it.GrandparentType, it.GrandparentTitle = mode.GUID("show", s.Root), "show", s.Title
 	if len(s.Art.Posters) > 0 {
 		it.GrandparentThumb = s.Art.Posters[0]
 	}

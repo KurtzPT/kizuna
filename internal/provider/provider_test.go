@@ -26,6 +26,24 @@ func TestFillAbsolute(t *testing.T) {
 	}
 }
 
+// Plex stores these GUIDs: their format must not change, and a show's must
+// read back as its key (guidRe).
+func TestModeGUID(t *testing.T) {
+	for _, c := range []struct{ mode, typ, key, want string }{
+		{"anidb", "show", "anidb-23", "tv.plex.agents.custom.kizuna.anidb://show/anidb-23"},
+		{"tvdb", "season", "tvdb-81797-s2", "tv.plex.agents.custom.kizuna.tvdb://season/tvdb-81797-s2"},
+		{"auto", "episode", "anidb-23-s1-e5", "tv.plex.agents.custom.kizuna.auto://episode/anidb-23-s1-e5"},
+	} {
+		if got := Modes[c.mode].GUID(c.typ, c.key); got != c.want {
+			t.Errorf("%s GUID(%q, %q) = %q, want %q", c.mode, c.typ, c.key, got, c.want)
+		}
+	}
+	m := guidRe.FindStringSubmatch(Modes["anidb"].GUID("show", "anidb-23"))
+	if m == nil || m[1]+"-"+m[2] != "anidb-23" {
+		t.Errorf("guidRe on a show GUID: %q, want anidb-23", m)
+	}
+}
+
 func TestKeyRe(t *testing.T) {
 	for key, ok := range map[string]bool{"anidb-1": true, "tvdb-2-s0": true, "tvdb-2-s2-e33": true, "foo-1": false, "anidb-1-e2": false,
 		"anidb-01": false, "anidb-0": false, "tvdb-123456789": true, "tvdb-1234567890": false, "anidb-12345678901234567890-s1": false} {

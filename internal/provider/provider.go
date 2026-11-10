@@ -46,6 +46,11 @@ type Mode struct {
 // Identifier is the Plex provider id and GUID scheme of the mode.
 func (m Mode) Identifier() string { return m.id }
 
+// GUID is the GUID of one of the mode's items: typ is "show", "season" or
+// "episode", key the item's rating key. Plex stores these and guidRe reads
+// them back, so every GUID is made here.
+func (m Mode) GUID(typ, key string) string { return m.id + "://" + typ + "/" + key }
+
 // withID sets a mode's Identifier. Every Mode is one of Modes, made by it.
 func withID(m Mode) Mode {
 	m.id = "tv.plex.agents.custom." + config.Name + "." + m.Path
