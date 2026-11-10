@@ -128,7 +128,7 @@ flowchart LR
 - **Movies** are one-episode AniDB entries: `S01E01`, with the movie's own title and summary.
 - **Episode thumbnails** come from TheTVDB, since AniDB has none, through [pairing](#%EF%B8%8F-episode-titles-and-pairing).
   Missing AniDB summaries and dates are filled the same way.
-- **Without AniDB details** (no client, ban, daily limit), every episode still exists as *Episode N*. A later
+- **Without AniDB details** (ban, daily limit), every episode still exists as *Episode N*. A later
   refresh fills it in.
 
 ### `/tvdb`: one TVDB series per show
@@ -146,7 +146,7 @@ flowchart LR
 | **Seasons** | TheTVDB's. A `Season 02/` folder works, but the `S02` in the name is enough |
 | **Episode numbers** | keep counting across seasons: season 1 ends at 25, so season 2 starts at **26** |
 | **Specials** | season 0, with TheTVDB's numbers |
-| **Episode list** | TheTVDB, always. A show TheTVDB doesn't have finds nothing in `/tvdb`: use `/anidb` for it |
+| **Episode list** | TheTVDB, always. A `[tvdb-…]` series TheTVDB has no episodes for finds nothing in `/tvdb`: use `/anidb` for it |
 | **Show details** | the series' first AniDB entry |
 | **Episode titles** | AniDB by default, from *each season's own* AniDB entry ([pairing](#%EF%B8%8F-episode-titles-and-pairing)) |
 | **No TVDB series** | an entry without one (most movies, many OVAs) uses the `/anidb` rules |

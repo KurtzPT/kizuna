@@ -81,6 +81,6 @@ services:
     ports:
       - "32600:32600"        # host:container. Keep it on your LAN; Plex can't authenticate to providers
     volumes:
-      # Data folder on this machine: cache, AniDB state, mapping overrides and logs
+      # Data folder on this machine: settings file (kizuna.env), cache, AniDB state, mapping corrections, match reports and logs
       # (logs/kizuna.log, older days logs/kizuna-YYYY-MM-DD.log). Must be writable by the user above.
       - /change/me:/data

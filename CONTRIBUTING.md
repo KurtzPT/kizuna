@@ -42,7 +42,7 @@ go test ./...
 go build -o kizuna ./cmd/kizuna
 ```
 
-Run it locally against a scratch data folder (all settings are environment variables, see
+Run it locally against a scratch data folder (all settings can be environment variables, see
 [SETTINGS.md](SETTINGS.md)):
 
 ```bash
@@ -123,7 +123,7 @@ By contributing, you agree that your work is released under the [GPL-3.0](LICENS
 
 ```text
 cmd/kizuna/main.go              start-up, list refresh, "kizuna health" (Docker healthcheck)
-internal/config                 environment variables
+internal/config                 settings: environment variables and the settings file
 internal/fetch                  HTTP + disk cache + throttling + free-space cleanup (every source uses it)
 internal/logfile                daily log file, old days deleted
 internal/anidb                  offline AniDB title list: search and title-language picking

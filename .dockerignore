@@ -6,3 +6,12 @@ data
 *.exe
 scripts
 assets
+unraid
+compose.yml
+.gitignore
+.gitattributes
+kizuna
+*.test
+*.out
+coverage.*
+plan.txt

@@ -89,6 +89,12 @@ flowchart LR
     G -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes; specials:<br/>same number (use case 6)</i>"]
 ```
 
+**The same AniDB episode in two `<mapping>` lines of one entry.** A real episode beats "none", in either order:
+`;1-0;` under `tvdbseason="0"` plus `;1-26;` under `tvdbseason="1"` says "special 1 isn't a TVDB special, it is
+S01E26". Two *different* episodes for one AniDB episode is a mistake in the entry: Kizuna uses the first and logs
+a warning (`an AniDB episode is paired with two different episodes`) that names the file and the entry. Fix your
+own entry, or correct the list's entry in your `anime-list-custom.xml`.
+
 ## 🧩 Use cases
 
 | # | Problem | Fix |

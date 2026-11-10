@@ -89,8 +89,9 @@ flowchart LR
     B -- "has a value" --> W
 ```
 
-`none` turns a field off. A list where no source is set up leaves its field empty, and Kizuna warns at startup
-(`no usable source in these lists`); set it to `none` if you want it empty.
+`none` turns a field off. A list where no source is set up leaves its field empty. For a list you set yourself,
+Kizuna warns at startup (`no usable source in these lists`); set it to `none` if you want it empty. A list left at
+its default only gets an info line naming the key that would fill it.
 
 **What each source can supply:**
 
@@ -118,7 +119,7 @@ flowchart LR
 
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
-| `TITLE_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS` |
+| `TITLE_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | AniDB's title follows `TITLE_LANGS`. In `/anidb`, TheTVDB's and TheMovieDb's names are the whole series', so they're only used on the entry that starts it ([below](#show-details)): a sequel season or a movie among the specials keeps its own AniDB title |
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | In `/anidb`, a later entry of a series gets its season's summary from TheTVDB and TheMovieDb: see below |
 | `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | AniDB: its main ("infobox") tags |
 | `CAST_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
@@ -128,8 +129,8 @@ flowchart LR
 | `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
-**A series' later entries in `/anidb`.** TheTVDB and TheMovieDb TV data describe the whole series, so for genres,
-cast, crew, studio, rating and date they're only used on the AniDB entry that starts the series (a TheMovieDb movie
+**A series' later entries in `/anidb`.** TheTVDB and TheMovieDb TV data describe the whole series, so for the title,
+genres, cast, crew, studio, rating and date they're only used on the AniDB entry that starts the series (a TheMovieDb movie
 is always its own entry). Each site decides by its own placement: when TheTVDB has one series and TheMovieDb a show
 per part (*X* and *X Part 2*), part 2 is a later entry for TheTVDB's data but the first one for TheMovieDb's, and the
 reverse. A series that no entry starts in season 1 (or absolute order) without an offset starts with its lowest
@@ -277,5 +278,5 @@ When a source fails (TheTVDB: its login too), an expired cached copy answers ins
 |---|---|---|
 | `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](SETUP.md#-logs)) |
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` (or 100000 and up) = keep forever |
-| `TZ` | UTC | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
+| `TZ` | UTC (image) · system time zone (binary) | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
 | `MATCH_REPORTS` | `false` | `true`: write a [match report](SETUP.md#-match-reports) per show to `reports/` in the data folder |
