@@ -188,12 +188,12 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .fields .cv{display:block;overflow:hidden}
 .fields .v{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .fields .v.sub{-webkit-line-clamp:2;color:var(--muted);font-size:13px}
-.fields .v.full{display:block}
 .fields .sum{display:block;font-weight:600}
 .fields td.skip .v{color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:13px}
-.fields .morebtn{display:block;padding:2px 0 0;font-size:12.5px;text-align:left}
-.goto{display:inline-block;margin-top:4px;font:600 12.5px var(--tech);font-stretch:90%;color:var(--ink);text-decoration:underline;text-decoration-color:var(--edge);text-underline-offset:3px}
-.goto:hover{text-decoration-color:currentColor}
+/* The value Plex got is itself the way to its copy. */
+.fields a.goto{color:inherit;text-decoration:underline;text-decoration-color:var(--edge);text-underline-offset:3px}
+.fields a.goto:hover{text-decoration-color:currentColor}
+.fields a.goto:hover .v.sub{color:var(--ink)}
 /* Where an "Open in" link lands: one brief mark so the eye finds it. */
 @keyframes hit{from{box-shadow:inset 0 0 0 2px var(--ink)}to{box-shadow:inset 0 0 0 2px transparent}}
 .hit{animation:hit 1.6s ease-out}
@@ -665,7 +665,6 @@ function renderMapping(b) {
 // The long ones get a summary: a count first, then the first names.
 const FIELD_ITEM = {Title: "title", Summary: "summary", Genres: "Genre", Cast: "Role", Studio: "studio", Crew: "Director",
   "Content rating": "contentRating", "First aired": "originallyAvailableAt", Posters: "Image", Backgrounds: "Image", Logos: "Image"};
-const LONG = 160;
 function fieldValue(fname, v) {
   v = String(v ?? "");
   const more = (names, n) => names.length ? esc(names[0]) + (n > 1 ? ` and ${n - 1} more` : "") : "";
@@ -684,15 +683,14 @@ function fieldValue(fname, v) {
   if (fname === "Genres" && v.includes(", ")) {
     return `<span class="sum">${plural(v.split(", ").length, "genre")}</span><span class="v sub">${esc(v)}</span>`;
   }
-  if (v.length > LONG) return `<span class="v long">${esc(v)}</span><button class="morebtn" data-unclamp aria-expanded="false">Show all</button>`;
   return `<span class="v">${esc(v)}</span>`;
 }
 // Where Plex's copy of a field is: a key of the show item, or a level of the Art section.
 function fieldGoto(b, fname) {
   const k = FIELD_ITEM[fname];
-  if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k, text: "Sent to Plex", label: "Open this field in Sent to Plex"};
+  if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k, label: "Open in Sent to Plex"};
   const m = /^(Specials|Season \d+) /.exec(fname);
-  if (m) return {to: "art:" + m[1], text: "Art", label: `Open ${m[1]} in Art`};
+  if (m) return {to: "art:" + m[1], label: `Open ${m[1]} in Art`};
   return null;
 }
 function renderFields(b) {
@@ -712,7 +710,7 @@ function renderFields(b) {
       const lb = `<span class="lb th" data-s="${esc(sk(c))}">${esc(name(c))}</span>`;
       const rk = `<span class="rk" title="${esc(name(c))} is number ${rank} in this field's order">${rank}</span>`;
       const v = off[c];
-      if (used.includes(c)) return `<td class="used" data-s="${esc(sk(c))}">${lb}${rk}<span class="cv">${fieldValue(f.name, v)}${go ? `<a class="goto" href="#s-output" data-goto="${esc(go.to)}" title="${esc(go.label)}" aria-label="${esc(go.label)}">${esc(go.text)}</a>` : ""}</span></td>`;
+      if (used.includes(c)) return `<td class="used" data-s="${esc(sk(c))}">${lb}${rk}${go ? `<a class="cv goto" href="#s-output" data-goto="${esc(go.to)}" title="${esc(go.label)}">${fieldValue(f.name, v)}</a>` : `<span class="cv">${fieldValue(f.name, v)}</span>`}</td>`;
       if (!asked.includes(c)) return `<td class="skip">${lb}${rk}<span class="cv"><span class="v">not asked</span></span></td>`;
       if (!v) return `<td class="nil">${lb}${rk}<span class="cv"><span class="v">no value</span></span></td>`;
       return `<td class="offer">${lb}${rk}<span class="cv">${fieldValue(f.name, v)}</span></td>`;
@@ -1316,8 +1314,6 @@ document.addEventListener("click", e => {
   if (ixcap) { IX.cap[ixcap.dataset.ixcap] = Infinity; ixDraw(); return; }
   const f = t.closest(".seg button[data-f]");
   if (f) { f.parentNode.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === f)); EP.only = f.dataset.f === "issue"; EP.shut.clear(); renderEpList(); return; }
-  const unc = t.closest("[data-unclamp]");
-  if (unc) { const v = unc.previousElementSibling, on = !v.classList.contains("full"); v.classList.toggle("full", on); unc.setAttribute("aria-expanded", on); unc.textContent = on ? "Show less" : "Show all"; return; }
   const pr = t.closest(".rec-r.pr");
   if (pr && !t.closest("a, [data-rest]") && (t.closest(".row-t") || !pr.classList.contains("open"))) { toggleItemRow(pr, e.detail === 0); return; }
   const all = t.closest("[data-allseasons]");

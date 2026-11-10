@@ -142,7 +142,6 @@ const count = (text, re) => (text.match(re) || []).length;
   check(/19 people/.test(fv("Cast", "19: Ann &lt;b&gt; as X, Bo as Y, …")) && /Ann &amp;lt;b&amp;gt; and 18 more/.test(fv("Cast", "19: Ann &lt;b&gt; as X, Bo as Y, …")), "fields: the cast is a count and the first name, escaped");
   check(fv("Crew", "Directors: D One. Writers: W One, W Two").includes("1 director, 2 writers"), "fields: the crew is counted by role");
   check(fv("Genres", "A, B, C").includes("3 genres"), "fields: the genres are counted");
-  check(/data-unclamp/.test(fv("Summary", "x".repeat(400))) && !/data-unclamp/.test(fv("Summary", "short")), "fields: only a long value can be shown whole");
   const ftab = page.run("renderFields(DATA.show.builds[0])");
   const cells = [...ftab.matchAll(/<td class="(used|offer|skip|nil)"[^]*?<\/td>/g)];
   check(cells.some(c => c[1] === "used" && /data-goto="item:/.test(c[0])) && cells.every(c => c[1] === "used" || !/data-goto=/.test(c[0])), "fields: only the value Plex got links to its copy");
