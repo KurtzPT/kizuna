@@ -145,6 +145,7 @@ const count = (text, re) => (text.match(re) || []).length;
   const ftab = page.run("renderFields(DATA.show.builds[0])");
   const cells = [...ftab.matchAll(/<td class="(used|offer|skip|nil)"[^]*?<\/td>/g)];
   check(cells.some(c => c[1] === "used" && /data-goto="item:/.test(c[0])) && cells.every(c => c[1] === "used" || !/data-goto=/.test(c[0])), "fields: only the value Plex got links to its copy");
+  check(/data-goto="item:Image\/(poster|background|logo)"/.test(ftab) && /data-goto="art:(Specials|Season \d+)\/(poster|background|logo)"/.test(ftab), "fields: an image field leads to its own kind, not the top of the list");
   checkLinks("fields", ftab);
   checkEscaped("fields", ftab);
   // A build recorded before itemSrc: no threads, no failure.

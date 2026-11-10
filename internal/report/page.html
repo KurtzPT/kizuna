@@ -685,12 +685,14 @@ function fieldValue(fname, v) {
   }
   return `<span class="v">${esc(v)}</span>`;
 }
-// Where Plex's copy of a field is: a key of the show item, or a level of the Art section.
+// Where Plex's copy of a field is: a key of the show item (for images, the
+// group of that kind inside it), or a level of the Art section.
+const FIELD_GROUP = {Posters: "poster", Backgrounds: "background", Logos: "logo"};
 function fieldGoto(b, fname) {
   const k = FIELD_ITEM[fname];
-  if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k, label: "Open in Sent to Plex"};
-  const m = /^(Specials|Season \d+) /.exec(fname);
-  if (m) return {to: "art:" + m[1], label: `Open ${m[1]} in Art`};
+  if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k + (FIELD_GROUP[fname] ? "/" + FIELD_GROUP[fname] : ""), label: "Open in Sent to Plex"};
+  const m = /^(Specials|Season \d+) (posters|backgrounds|logos)$/.exec(fname);
+  if (m) return {to: "art:" + m[1] + "/" + FIELD_GROUP[m[2][0].toUpperCase() + m[2].slice(1)], label: `Open ${m[1]} in Art`};
   return null;
 }
 function renderFields(b) {
@@ -726,19 +728,27 @@ function renderFields(b) {
 }
 // goToField takes the reader to a field's copy in Sent to Plex (opening its row) or in Art (opening the level).
 function goToField(to) {
-  let el = null;
+  // land: what the view starts at; mark: what is outlined briefly and focused.
+  let land = null, mark = null;
   if (to.startsWith("item:")) {
-    const k = to.slice(5), find = () => document.querySelector(`#s-output .rec-r[data-k="${CSS.escape(k)}"]`);
-    el = find();
-    if (el && el.classList.contains("pr") && !el.classList.contains("open")) { toggleItemRow(el, false); el = find(); }
+    const [k, g] = to.slice(5).split("/"), find = () => document.querySelector(`#s-output .rec-r[data-k="${CSS.escape(k)}"]`);
+    let row = find();
+    if (row && row.classList.contains("pr") && !row.classList.contains("open")) { toggleItemRow(row, false); row = find(); }
+    land = mark = (row && g && row.querySelector(`.sent-g[data-g="${CSS.escape(g)}"]`)) || row;
   } else if (to.startsWith("art:")) {
-    const n = ART.findIndex(l => l.label === to.slice(4)), fold = n < 0 ? null : document.querySelector(`.fold[data-art="${n}"]`);
-    if (fold) { const h = fold.querySelector(".fold-h"); if (h.getAttribute("aria-expanded") !== "true") h.click(); el = document.querySelector(`.fold[data-art="${n}"]`); }
+    const [lv, g] = to.slice(4).split("/"), n = ART.findIndex(l => l.label === lv);
+    if (n >= 0) {
+      const h = document.querySelector(`.fold[data-art="${n}"] .fold-h`);
+      if (h && h.getAttribute("aria-expanded") !== "true") h.click();
+      const fold = document.querySelector(`.fold[data-art="${n}"]`), shots = fold && g && fold.querySelector(`ol.shots.${CSS.escape(g)}`);
+      land = shots ? shots.previousElementSibling || shots : fold;
+      mark = shots || fold;
+    }
   }
-  if (!el) return false;
-  el.scrollIntoView({block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
-  el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit");
-  el.setAttribute("tabindex", "-1"); el.focus({preventScroll: true});
+  if (!land) return false;
+  land.scrollIntoView({block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+  mark.classList.remove("hit"); void mark.offsetWidth; mark.classList.add("hit");
+  mark.setAttribute("tabindex", "-1"); mark.focus({preventScroll: true});
   return true;
 }
 
@@ -894,7 +904,7 @@ function sentImages(v, b) {
   return [...groups].map(([t, list]) => {
     const kind = PLEX_KIND[t] || "poster", k = KINDS[PLEX_KIND[t]] || ["image", "images"];
     const alts = new Set(list.map(([x]) => x.alt || "")), same = alts.size === 1 ? [...alts][0] : null;
-    return `<div class="sent-g"><h4 class="shots-h in">${esc(k[1][0].toUpperCase() + k[1].slice(1))}<code>${esc(t)}</code><span>${list.length}</span></h4>${same ? `<p class="alt">Alt text on each: “${esc(same)}”</p>` : ""}
+    return `<div class="sent-g" data-g="${esc(PLEX_KIND[t] || t)}"><h4 class="shots-h in">${esc(k[1][0].toUpperCase() + k[1].slice(1))}<code>${esc(t)}</code><span>${list.length}</span></h4>${same ? `<p class="alt">Alt text on each: “${esc(same)}”</p>` : ""}
       <ol class="shots in ${kind}">${list.map(([x, i]) => {
         const s = src ? (Object.hasOwn(src, "Image." + i) && src["Image." + i]) || null : undefined;
         const mark = x.url && x.url === item.thumb ? "thumb" : x.url && x.url === item.art ? "art" : "";
