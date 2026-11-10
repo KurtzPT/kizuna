@@ -244,7 +244,7 @@ jobs:
               else
                 changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
                 echo "changed files:"
-                sed 's/^/  /' <<< "$changed"
+                while IFS= read -r f; do echo "  $f"; done <<< "$changed"
                 # an empty diff (an empty commit) publishes rather than guess
                 if [ -z "$changed" ] ||
                    grep -Fxq .github/workflows/docker.yml <<< "$changed" ||
@@ -269,6 +269,9 @@ jobs:
       packages: write     # push the image to GHCR
       id-token: write     # attestation: sign with the workflow's identity (Sigstore)
       attestations: write # attestation: store it on GitHub
-    uses: ./.github/workflows/docker.yml
+    # ./ and not the newer $/ form zizmor asks for: actionlint 1.7.12 doesn't know
+    # it. A reusable workflow is read from this commit either way, never from
+    # the workspace.
+    uses: ./.github/workflows/docker.yml # zizmor: ignore[self-repository]
     with:
       publish: true
