@@ -96,6 +96,10 @@ func Open(dir, version string) (*Store, error) {
 	}
 	known := map[string]bool{"index": true}
 	for _, r := range rows {
+		if r.Schema != schemaVersion { // its page's data says the same below
+			s.indexDirty = true
+			continue
+		}
 		known[r.Key] = true
 		s.openRow(r, false)
 	}
@@ -106,14 +110,21 @@ func Open(dir, version string) (*Store, error) {
 	if err != nil {
 		slog.Warn("reports: can't list the saved pages", "err", err)
 	}
+	ignored := 0
 	for _, f := range files {
 		key, ok := strings.CutSuffix(f.Name(), ".json")
 		if !ok || known[key] || f.IsDir() {
 			continue
 		}
-		if r, ok := s.rowFromData(key); ok {
+		r, ok, old := s.rowFromData(key)
+		if ok {
 			s.openRow(r, true)
+		} else if old {
+			ignored++
 		}
+	}
+	if ignored > 0 {
+		slog.Info("reports: pages saved by another version are not listed; each starts over when it is next written", "pages", ignored)
 	}
 	return s, nil
 }
@@ -137,28 +148,54 @@ func (s *Store) openRow(r IndexRow, added bool) {
 	}
 }
 
-// rowFromData rebuilds the index row of a page from its saved data; false
-// if the data is unreadable or not a page.
-func (s *Store) rowFromData(key string) (IndexRow, bool) {
+// rowFromData rebuilds the index row of a page from its saved data; ok
+// false if the data is unreadable, not a page, or (old) of another schema
+// version.
+func (s *Store) rowFromData(key string) (row IndexRow, ok, old bool) {
 	data, err := os.ReadFile(s.dataPath(key))
 	if err != nil {
 		slog.Warn("reports: can't read a page's saved data", "page", key, "err", err)
-		return IndexRow{}, false
+		return IndexRow{}, false, false
 	}
 	if strings.HasPrefix(key, "unmatched-") {
 		var doc UnmatchedDoc
-		if json.Unmarshal(data, &doc) != nil || doc.Match.Title == "" {
-			return IndexRow{}, false
+		if old, err := decode(data, &doc); old || err != nil || doc.Match.Title == "" {
+			return IndexRow{}, false, old
 		}
 		doc.Key = key
-		return unmatchedRow(doc), true
+		return unmatchedRow(doc), true, false
 	}
 	var doc ShowDoc
-	if json.Unmarshal(data, &doc) != nil {
-		return IndexRow{}, false
+	if old, err := decode(data, &doc); old || err != nil {
+		return IndexRow{}, false, old
 	}
 	doc.Key = key
-	return showRow(doc), true
+	return showRow(doc), true, false
+}
+
+// saved is a page's saved data: current says whether this version saved
+// it, clear empties it.
+type saved interface {
+	current() bool
+	clear()
+}
+
+func (d *ShowDoc) current() bool      { return d.Schema == schemaVersion }
+func (d *ShowDoc) clear()             { *d = ShowDoc{} }
+func (d *UnmatchedDoc) current() bool { return d.Schema == schemaVersion }
+func (d *UnmatchedDoc) clear()        { *d = UnmatchedDoc{} }
+
+// decode reads a page's saved data into doc. old: another version saved
+// it, which is no error, whatever else is in it (pages from before
+// schemaVersion 2 hold values of another type). Data that isn't JSON at all
+// is an error, not old.
+func decode(data []byte, doc saved) (old bool, err error) {
+	err = json.Unmarshal(data, doc)
+	var syntax *json.SyntaxError
+	if !doc.current() && !errors.As(err, &syntax) {
+		return true, nil
+	}
+	return false, err
 }
 
 // Run writes pending updates every flushEvery until ctx ends, then
@@ -423,7 +460,7 @@ func (s *Store) writeShow(key string, p *pending) error {
 	if err := s.readData(key, &doc); err != nil {
 		return err
 	}
-	doc.Key = key
+	doc.Schema, doc.Key = schemaVersion, key
 	for _, r := range p.builds {
 		b, head := r.snapshot(func() { s.AddBuild(key, r) })
 		if i := slices.IndexFunc(doc.Builds, func(x Build) bool { return x.ID == b.ID }); i >= 0 {
@@ -475,7 +512,7 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 	if err := s.readData(key, &doc); err != nil {
 		return err
 	}
-	doc.Key = key
+	doc.Schema, doc.Key = schemaVersion, key
 	if p.unmatched != nil {
 		doc.Match = *p.unmatched
 		doc.Last = time.Now()
@@ -499,7 +536,7 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 
 // showRow is a show page's index row.
 func showRow(doc ShowDoc) IndexRow {
-	row := IndexRow{Key: doc.Key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
+	row := IndexRow{Schema: doc.Schema, Key: doc.Key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
 	for _, b := range doc.Builds {
 		if !slices.Contains(row.Roots, b.Root) {
 			row.Roots = append(row.Roots, b.Root)
@@ -525,7 +562,7 @@ func showRow(doc ShowDoc) IndexRow {
 
 // unmatchedRow is an unmatched title's index row.
 func unmatchedRow(doc UnmatchedDoc) IndexRow {
-	row := IndexRow{Key: doc.Key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
+	row := IndexRow{Schema: doc.Schema, Key: doc.Key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
 		Requests: len(doc.Requests), MinScore: doc.Match.MinScore, Modes: []string{doc.Match.Mode}}
 	if len(doc.Match.Candidates) > 0 {
 		c := doc.Match.Candidates[0]
@@ -553,19 +590,20 @@ func newestRequests(old, added []Request) []Request {
 	return out
 }
 
-// sameRequest: the same request, answered the same way ("memory, 6s" and
-// "memory, 9s" are both from memory).
+// sameRequest: the same request, answered the same way (from memory 6 s
+// and 9 s old are both from memory).
 func sameRequest(a, b Request) bool {
-	kind := func(answer string) string { k, _, _ := strings.Cut(answer, ","); return k }
-	return a.Method == b.Method && a.URL == b.URL && a.Status == b.Status && a.Build == b.Build && kind(a.Answer) == kind(b.Answer)
+	return a.Method == b.Method && a.URL == b.URL && a.Status == b.Status && a.Build == b.Build && a.Answer.Kind == b.Answer.Kind
 }
 
 func (s *Store) pagePath(key string) string { return filepath.Join(s.dir, key+".html") }
 func (s *Store) dataPath(key string) string { return filepath.Join(s.dir, "data", key+".json") }
 
-// readData loads a page's saved data; a missing file is an empty page. A
-// broken one starts over rather than stopping the page for good.
-func (s *Store) readData(key string, v any) error {
+// readData loads a page's saved data into doc, which is empty; a missing
+// file leaves it so, and so does data another version saved (see decode):
+// the page starts over. A broken one starts over too, rather than stopping
+// the page for good.
+func (s *Store) readData(key string, doc saved) error {
 	data, err := os.ReadFile(s.dataPath(key))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -573,8 +611,12 @@ func (s *Store) readData(key string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(data, v); err != nil {
+	old, err := decode(data, doc)
+	if err != nil {
 		slog.Warn("reports: saved data unreadable; starting the page over", "page", key, "err", err)
+	}
+	if old {
+		doc.clear()
 	}
 	return nil
 }

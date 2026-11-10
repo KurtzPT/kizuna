@@ -12,6 +12,7 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -22,6 +23,12 @@ const (
 	maxBuilds   = 5
 	maxRequests = 50
 )
+
+// schemaVersion is the shape of a page's saved data (data/<key>.json). A
+// saved page with another one (pages written before 2 have none) counts as
+// absent: it isn't listed, and the next write starts the page over. Raise
+// it when a change makes old data wrong for the page's script.
+const schemaVersion = 2
 
 // page is what one HTML file renders: Kind names the page and the field
 // its data goes in (show, unmatched or index), Data is that data as JSON.
@@ -35,7 +42,8 @@ type page struct {
 // ShowDoc is one show's report: every build of it (by AniDB id, so /anidb
 // and /tvdb builds of the same anime share it), newest first.
 type ShowDoc struct {
-	Key string `json:"key"` // file name without .html: anidb-1, or tvdb-2 without an AniDB entry
+	Schema int    `json:"schema"`
+	Key    string `json:"key"` // file name without .html: anidb-1, or tvdb-2 without an AniDB entry
 	ShowHead
 	Builds   []Build   `json:"builds"`
 	Requests []Request `json:"requests"`
@@ -89,17 +97,71 @@ type Match struct {
 	File       string      `json:"file,omitempty"`
 	GUID       string      `json:"guid,omitempty"`
 	Manual     bool        `json:"manual,omitempty"`
-	How        string      `json:"how"` // what decided: "tag [anidb-1]", "guid …", "title search", or why nothing matched
+	How        string      `json:"how"` // By in words, shown as it is: "tag [anidb-1]", "guid …", "title search", or why nothing matched
+	By         MatchBy     `json:"by"`
 	MinScore   int         `json:"min"`
 	Root       string      `json:"root,omitempty"` // the show picked; "" = no match
 	Score      int         `json:"score,omitempty"`
 	Candidates []Candidate `json:"candidates,omitempty"`
-	// TagRule: an id tag rule said no match (two different tags, or a tag
-	// whose provider is off), so the title search never ran.
-	TagRule bool `json:"tagRule,omitempty"`
 	// Query is the title without its id tags, when it has any: what the
 	// title search looks for, and what a new tag goes after.
 	Query string `json:"query,omitempty"`
+}
+
+// MatchBy is what decided a match, as facts.
+type MatchBy struct {
+	ID      MatchID      `json:"id,omitempty"`      // "" = no id decided
+	Text    string       `json:"text,omitempty"`    // the tag, the GUID, or every tag
+	Off     string       `json:"off,omitempty"`     // MatchTagOff: the mode the tag needs
+	Need    string       `json:"need,omitempty"`    // MatchTagOff: the setting that turns it on
+	ByName  *ByName      `json:"byName,omitempty"`  // picked by name inside a TheTVDB id
+	Search  SearchResult `json:"search,omitempty"`  // "" = the title search didn't run
+	Best    int          `json:"best,omitempty"`    // the best title result's score
+	Missing string       `json:"missing,omitempty"` // the show has no such "season 3" / "episode S01E02"
+}
+
+// MatchID is what an id tag or GUID said.
+type MatchID string
+
+const (
+	MatchTag      MatchID = "tag"  // an id tag named the show
+	MatchGUID     MatchID = "guid" // the GUID Plex already had named the show
+	MatchManyTags MatchID = "tags" // more than one id tag: no match
+	MatchTagOff   MatchID = "off"  // an /auto id tag whose mode is off: no match
+)
+
+// SearchResult is what the title search said.
+type SearchResult string
+
+const (
+	SearchFound SearchResult = "found" // at least one candidate
+	SearchNone  SearchResult = "none"  // no similar title
+	SearchLow   SearchResult = "low"   // the best result is below MIN_SCORE
+)
+
+// TagRule: an id tag rule said no match (two different tags, or a tag
+// whose provider is off) and the title search never ran (in a Fix Match
+// list it still does).
+func (by MatchBy) TagRule() bool {
+	return (by.ID == MatchManyTags || by.ID == MatchTagOff) && by.Search == ""
+}
+
+// TitleSearch: the title search alone found the show Plex got: no id, and
+// the show had the season or episode asked for.
+func (by MatchBy) TitleSearch() bool {
+	return by.ID == "" && by.Search == SearchFound && by.Missing == ""
+}
+
+// ByName is an AniDB entry picked by name inside a TheTVDB id, and the id
+// tags that name it exactly.
+type ByName struct {
+	AID  int    `json:"aid"`
+	Sure string `json:"sure"`
+}
+
+// Note says which entry was picked by name and which tag makes it sure.
+func (n ByName) Note() string {
+	return fmt.Sprintf("AniDB %d, may be wrong; use %s to be sure", n.AID, n.Sure)
 }
 
 // Candidate is one title search result.
@@ -208,8 +270,8 @@ type Request struct {
 	Mode   string    `json:"mode"`
 	Method string    `json:"method"`
 	URL    string    `json:"url"`
-	Build  string    `json:"build,omitempty"`  // build that answered
-	Answer string    `json:"answer,omitempty"` // new build, joined build, memory 6s, …
+	Build  string    `json:"build,omitempty"` // build that answered
+	Answer Answer    `json:"answer,omitzero"`
 	Note   string    `json:"note,omitempty"`
 	Status int       `json:"status"`
 	Bytes  int       `json:"bytes"`
@@ -218,8 +280,30 @@ type Request struct {
 	Match  *Match    `json:"-"`               // the match it answered, for ShowDoc.LastMatch
 }
 
+// Answer is how a request was answered. The page words it ("memory, 6s").
+type Answer struct {
+	Kind  AnswerKind `json:"kind"`
+	Age   int64      `json:"age,omitempty"`   // seconds: how old the memory copy or the failure is
+	After int64      `json:"after,omitempty"` // seconds: a failed build is tried again after this
+}
+
+// AnswerKind is what answered a request.
+type AnswerKind string
+
+const (
+	AnswerNewBuild    AnswerKind = "new"         // the request started a build
+	AnswerJoined      AnswerKind = "joined"      // it waited for a build already running
+	AnswerMemory      AnswerKind = "memory"      // the show in memory, built Age ago
+	AnswerFailed      AnswerKind = "failed"      // a build that failed Age ago; built again After that
+	AnswerTimedOut    AnswerKind = "timeout"     // the request gave up before its build ended
+	AnswerUnavailable AnswerKind = "unavailable" // the build it waited for failed
+	AnswerNoMatch     AnswerKind = "nomatch"
+	AnswerFixMatch    AnswerKind = "list" // a Fix Match list
+)
+
 // UnmatchedDoc is a title Plex asked about that matched nothing.
 type UnmatchedDoc struct {
+	Schema   int       `json:"schema"`
 	Key      string    `json:"key"`
 	Match    Match     `json:"match"` // the newest no-match answer
 	Last     time.Time `json:"last"`  // last asked; the page goes after unmatchedMaxAge without a request
@@ -228,6 +312,7 @@ type UnmatchedDoc struct {
 
 // IndexRow is one line of index.html.
 type IndexRow struct {
+	Schema   int       `json:"schema"` // its page's (schemaVersion)
 	Key      string    `json:"key"`
 	Kind     string    `json:"kind"` // show | unmatched
 	Title    string    `json:"title"`

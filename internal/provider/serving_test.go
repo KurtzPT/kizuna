@@ -131,7 +131,8 @@ func TestJoinedMatchInReport(t *testing.T) {
 		t.Fatalf("starter: %v, want it to give up", err)
 	}
 	for _, score := range []int{90, 50} {
-		m := &report.Match{Mode: "anidb", Type: "show", Title: "Kizuna Test", How: "title search", Root: "anidb-100", Score: score}
+		m := &report.Match{Mode: "anidb", Type: "show", Title: "Kizuna Test", How: "title search",
+			By: report.MatchBy{Search: report.SearchFound, Best: score}, Root: "anidb-100", Score: score}
 		if _, err := p.show(report.WithMatch(gone, m), "anidb-100"); !timedOut(err) {
 			t.Fatalf("joiner: %v, want it to give up", err)
 		}
@@ -176,7 +177,7 @@ func TestUnmatchedPageKeptUntilShow(t *testing.T) {
 	}
 	var doc report.ShowDoc
 	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
-	if doc.LastMatch != nil || len(doc.Requests) != 1 || doc.Requests[0].Answer != "not available" {
+	if doc.LastMatch != nil || len(doc.Requests) != 1 || doc.Requests[0].Answer != (report.Answer{Kind: report.AnswerUnavailable}) {
 		t.Errorf("last match %+v, requests %+v: want no match kept, the request not available", doc.LastMatch, doc.Requests)
 	}
 	p.buildFn = nil
@@ -212,7 +213,7 @@ func TestMissingSeasonIsNoMatch(t *testing.T) {
 	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
 	n := 0 // alike requests are counted on one
 	for _, rq := range doc.Requests {
-		if rq.Answer != "no match" {
+		if rq.Answer != (report.Answer{Kind: report.AnswerNoMatch}) {
 			n = -100
 		}
 		n += max(rq.Count, 1)
@@ -220,7 +221,8 @@ func TestMissingSeasonIsNoMatch(t *testing.T) {
 	if n != 2 {
 		t.Errorf("requests %+v, want both answered no match", doc.Requests)
 	}
-	if m := doc.LastMatch; m == nil || m.Root != "" || !strings.HasSuffix(m.How, "; anidb-100 has no episode S01E99") {
+	if m := doc.LastMatch; m == nil || m.Root != "" || m.How != "title search; anidb-100 has no episode S01E99" ||
+		m.By != (report.MatchBy{Search: report.SearchFound, Best: 100, Missing: "episode S01E99"}) || m.By.TitleSearch() {
 		t.Errorf("last match %+v, want no match: the show has no S01E99", m)
 	}
 	serve("POST", "/anidb/library/metadata/matches", `{"type":3,"parentTitle":"Kizuna Test","index":1}`)
@@ -228,8 +230,9 @@ func TestMissingSeasonIsNoMatch(t *testing.T) {
 	if _, err := os.Stat(page); !os.IsNotExist(err) {
 		t.Errorf("after a match with its season: %v, want the unmatched page gone", err)
 	}
+	doc = report.ShowDoc{} // a second read into it would keep what the new data leaves out
 	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
-	if m := doc.LastMatch; m == nil || m.Root != "anidb-100" || m.How != "title search" {
+	if m := doc.LastMatch; m == nil || m.Root != "anidb-100" || m.How != "title search" || !m.By.TitleSearch() || m.By.Missing != "" {
 		t.Errorf("last match %+v, want Plex got anidb-100 by title search", m)
 	}
 }

@@ -205,6 +205,15 @@ const kv = rows => `<dl class="kv">${rows.map(([k,v]) => `<dt>${esc(k)}</dt><dd>
 const bytes = n => n >= 1024*1024 ? (n/1048576).toFixed(1)+" MB" : n >= 1024 ? (n/1024).toFixed(1)+" KB" : n+" B";
 const siteLink = (site, v) => SITE_URL[site] ? `<a href="${esc(SITE_URL[site](encodeURIComponent(v)))}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>` : esc(v);
 const se = (s, e) => `S${pad(s)}E${pad(e)}`;
+// Whole seconds as Go prints a duration: 6s, 1m30s, 2m0s, 1h0m5s.
+const dur = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return (h ? h+"h" : "") + (h || m ? m+"m" : "") + (s%60) + "s"; };
+// How a request was answered (report.Answer), in words.
+const ANSWER = {new:"new build", joined:"joined a build", timeout:"timed out", unavailable:"not available", nomatch:"no match", list:"Fix Match list"};
+function answerText(a) {
+  if (a.kind === "memory") return `memory, ${dur(a.age || 0)}`;
+  if (a.kind === "failed") return `failed ${dur(a.age || 0)} ago, rebuilt after ${dur(a.after || 0)}`;
+  return ANSWER[a.kind] || a.kind || "";
+}
 const app = document.getElementById("app");
 
 function header(crumb, right) {
@@ -244,11 +253,13 @@ function renderTrace(b) {
 // failed: m started a build that failed, so Plex never got m.root (the
 // handlers answer 503, or "no match" for a show that doesn't exist).
 function decisionText(m, failed) {
-  const how = m.how || "";
-  if (!m.root) return `No match: ${esc(how)}.`;
+  const by = m.by || {};
+  if (!m.root) return `No match: ${esc(m.how || "")}.`;
+  // The tag or GUID, and after it the entry picked by name inside a TheTVDB id.
+  const id = (by.text || "") + (by.byName ? `, by name: AniDB ${by.byName.aid}, may be wrong; use ${by.byName.sure} to be sure` : "");
   let t;
-  if (how.startsWith("tag ")) t = `The id tag <code>${esc(how.slice(4))}</code> in the folder or file name decided.`;
-  else if (how.startsWith("guid ")) t = `The GUID Plex already had decided: <code>${esc(how.slice(5))}</code>.`;
+  if (by.id === "tag") t = `The id tag <code>${esc(id)}</code> in the folder or file name decided.`;
+  else if (by.id === "guid") t = `The GUID Plex already had decided: <code>${esc(id)}</code>.`;
   else t = `Title search decided${m.score ? ` with score ${m.score}` : ""}.`;
   if (failed) return t + ` The match picked <code>${esc(m.root)}</code>, but the build failed, so Plex got no answer for it: a 503, so Plex keeps what it has and asks again (or "no match" if the show doesn't exist; the Plex requests below say which).`;
   return t + ` Plex got the show <code>${esc(m.root)}</code>.`;
@@ -257,10 +268,10 @@ function decisionText(m, failed) {
 function renderCandidates(m) {
   const cs = m.candidates || [];
   if (!cs.length) return "";
-  const min = m.min || 0;
+  const min = m.min || 0, by = m.by || {};
   return `<table><thead><tr><th>Title search result</th><th>Score <span class="dim">(min ${min})</span></th></tr></thead><tbody>${cs.map((c,i) => {
     const ok = c.score >= min;
-    const picked = m.root && i === 0 && ok && m.how === "title search";
+    const picked = m.root && i === 0 && ok && !by.id && by.search === "found";
     return `<tr><td class="prose">${siteLink("anidb", c.aid)} ${esc(c.title)}</td>
       <td><div class="score" style="--c:var(${ok?"--anidb":"--bad"})"><div class="meter"><b style="width:${Math.min(c.score,100)}%"></b><s style="left:${min}%"></s></div>${c.score}${picked ? ' <span class="state ok">picked</span>' : ok ? "" : ' <span class="state bad">too low</span>'}</div></td></tr>`;
   }).join("")}</tbody></table>`;
@@ -358,7 +369,8 @@ function renderRequests(show, cur) {
   return `<div class="panel" style="overflow-x:auto"><table><thead><tr><th>Time</th><th>Provider</th><th>Request</th><th>Answered by</th><th class="num">Status</th><th class="num">Size</th><th class="num">Took</th></tr></thead><tbody>
     ${rq.map(r => {
       const b = show.builds.find(x => x.id === r.build);
-      const ans = `<span class="pill ${r.answer === "new build" ? "built" : r.status >= 400 || r.answer === "not available" ? "bad" : ""}">${esc(r.answer || "")}</span>`;
+      const kind = (r.answer || {}).kind;
+      const ans = `<span class="pill ${kind === "new" ? "built" : r.status >= 400 || kind === "unavailable" ? "bad" : ""}">${esc(r.answer ? answerText(r.answer) : "")}</span>`;
       const link = b ? ` <a href="#" data-b="${esc(b.id)}" class="dim">build ${esc(clock(b.start))}</a>` : r.build && !ids.has(r.build) ? ' <span class="dim">older build</span>' : "";
       return `<tr${r.build && r.build === cur ? ' style="background:var(--sunk)"' : ""}><td class="nowrap">${esc(when(r.time))}</td><td>/${esc(r.mode)}</td><td style="word-break:break-all">${esc(r.method)} ${esc(r.url)}${times(r)}${r.note ? `<br><span class="dim">${esc(r.note)}</span>` : ""}</td><td>${r.answer ? ans : ""}${link}</td><td class="num">${r.status}</td><td class="num">${bytes(r.bytes)}</td><td class="num">${ms(r.tookMs)}</td></tr>`;
     }).join("")}</tbody></table></div>`;
@@ -408,19 +420,22 @@ function renderUnmatched() {
   document.title = `No match: ${m.title} · Kizuna report`;
   // The example tag goes after the title without its tags: a second tag is no match too.
   const example = `${m.query || m.title} ${best ? `[anidb-${best.aid}]` : "[anidb-12345]"}`;
-  const twoTags = m.tagRule && (m.how || "").startsWith("id tags ");
-  const why = m.tagRule ? `An id tag rule decided there is no match, so Kizuna didn't search by title: ${esc(m.how)}.`
+  // An id tag rule said no match (more than one tag, or a tag whose provider
+  // is off) and the title search never ran.
+  const by = m.by || {}, ruled = (by.id === "tags" || by.id === "off") && !by.search;
+  const twoTags = ruled && by.id === "tags";
+  const why = ruled ? `An id tag rule decided there is no match, so Kizuna didn't search by title: ${esc(m.how)}.`
     : best ? `The closest AniDB title scored ${best.score}, below the minimum of ${m.min}, so Kizuna answered with no match.`
     : `Kizuna found no similar title (${esc(m.how)}).`;
   const fixA = twoTags ? `<b>Keep one id tag</b><p>The folder or file name has more than one id tag, and Kizuna doesn't guess which one is meant. Keep the right one and remove the others, for example <code>${esc(example)}</code>.</p>`
-    : m.tagRule ? `<b>Turn on the provider the tag needs</b><p>The reason above says what to set. Set it, restart Kizuna and refresh the show in Plex.</p>`
+    : ruled ? `<b>Turn on the provider the tag needs</b><p>The reason above says what to set. Set it, restart Kizuna and refresh the show in Plex.</p>`
     : `<b>Add an id tag to the folder name</b><p>Find the show on AniDB and add its id to the folder, for example <code>${esc(example)}</code>. A tag always wins over title search. <code>[tvdb-…]</code>, <code>[tmdb-…]</code> and <code>[imdb-…]</code> work too.</p>`;
   app.innerHTML = header(`<a href="index.html">Kizuna reports</a> / <b>${esc(U.key)}</b>`, generated()) + `
   <header class="fail"><h1>No match for “${esc(m.title)}”${m.year ? ` (${m.year})` : ""}</h1>
     <p class="sub">Plex asked the <code>/${esc(m.mode)}</code> provider for this ${esc(m.type)}. ${why}</p></header>
   <div class="cols"><nav class="toc" aria-label="Sections"><a href="#f-cands">Candidates<span class="n">${(m.candidates || []).length}</span></a><a href="#f-fix">How to fix</a><a href="#f-req">Request</a><a href="#f-seen">Plex requests<span class="n">${U.requests.length}</span></a></nav>
   <main>
-    <section id="f-cands"><h2>Candidates</h2><p class="lede">The best titles the search found. The dashed line is MIN_SCORE.</p><div class="panel">${renderCandidates(m) || `<div class="empty">${m.tagRule ? "The title search didn't run: the id tag rule decided." : "The title search found nothing similar."}</div>`}</div></section>
+    <section id="f-cands"><h2>Candidates</h2><p class="lede">The best titles the search found. The dashed line is MIN_SCORE.</p><div class="panel">${renderCandidates(m) || `<div class="empty">${ruled ? "The title search didn't run: the id tag rule decided." : "The title search found nothing similar."}</div>`}</div></section>
     <section id="f-fix"><h2>How to fix</h2><p class="lede">Pick one.</p>
       <div class="panel"><ol class="steps">
         <li><span class="k">a</span><div>${fixA}</div></li>

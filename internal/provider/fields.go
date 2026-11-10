@@ -3,9 +3,9 @@ package provider
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -300,13 +300,13 @@ func (ss *showSources) fill(s *Show) {
 	title, src := pick(cfg.TitleSources, ss.title)
 	s.Title = firstOf(title, s.Title)
 	note("title", src)
-	ss.recordField("Title", cfg.TitleSources, src, false, ss.title)
+	ss.recordField("Title", cfg.TitleSources, src, ss.title)
 	summary, src := pick(cfg.SummarySources, ss.summary)
 	s.Summary = firstOf(summary, s.Summary)
 	note("summary", src)
-	ss.recordField("Summary", cfg.SummarySources, src, false, ss.summary)
+	ss.recordField("Summary", cfg.SummarySources, src, ss.summary)
 	detail := func(name string, order []string, src string, describe func(sources.Details) string) {
-		ss.recordField(name, order, src, false, func(src string) string { return describe(ss.details(src)) })
+		ss.recordField(name, order, src, func(src string) string { return describe(ss.details(src)) })
 	}
 
 	d, src := ss.pickDetails(cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 })
@@ -344,10 +344,10 @@ func (ss *showSources) fill(s *Show) {
 
 	art, by := ss.pickArt(ss.show, "", debug || ss.rec != nil)
 	s.Art = art
-	note("posters", by[posterArt])
-	note("backgrounds", by[backgroundArt])
-	note("logos", by[logoArt])
 	if debug {
+		note("posters", countsText(by[posterArt]))
+		note("backgrounds", countsText(by[backgroundArt]))
+		note("logos", countsText(by[logoArt]))
 		slog.Debug("show fields: source used", used...)
 	}
 	why := ""
@@ -528,10 +528,11 @@ func pick(order []string, get func(src string) string) (string, string) {
 // images joins image URLs in source order (all=true) or returns the first
 // source that has any (all=false). get gives a source's images in two parts
 // (a season's and its series', artParts), both used. Duplicates are
-// dropped. With count, the second value counts images per source, e.g.
-// "tmdb:12,tvdb:5".
-func images(order []string, all, count bool, get func(src string) (a, b []string)) ([]string, string) {
-	var out, counts []string
+// dropped. With count, the second value counts the images each source
+// gave, in order.
+func images(order []string, all, count bool, get func(src string) (a, b []string)) ([]string, []sourceCount) {
+	var out []string
+	var counts []sourceCount
 	seen := map[string]bool{}
 	for _, src := range order {
 		n := 0
@@ -546,13 +547,33 @@ func images(order []string, all, count bool, get func(src string) (a, b []string
 			}
 		}
 		if n > 0 && count {
-			counts = append(counts, fmt.Sprintf("%s:%d", src, n))
+			counts = append(counts, sourceCount{src, n})
 		}
 		if !all && len(out) > 0 {
 			break
 		}
 	}
-	return out, strings.Join(counts, ",")
+	return out, counts
+}
+
+// sourceCount is how many images a source gave.
+type sourceCount struct {
+	src string
+	n   int
+}
+
+// countsText is the debug line's form of the counts: "tmdb:12,tvdb:5".
+func countsText(counts []sourceCount) string {
+	var b strings.Builder
+	for i, c := range counts {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(c.src)
+		b.WriteByte(':')
+		b.WriteString(strconv.Itoa(c.n))
+	}
+	return b.String()
 }
 
 // lazy computes f once, on first use; safe for concurrent callers. Without

@@ -186,9 +186,45 @@ func (r *Recorder) Mode() string {
 	return r.b.Mode
 }
 
+// Facts is what the build recorded so far that its checks are derived
+// from, as a copy.
+type Facts struct {
+	Fields []Field
+	Match  *Match // the match request that started the build; nil = none did
+	Cause  bool   // a recorded check already says why the build is incomplete
+}
+
+// Facts returns what was recorded so far. Call it at the end of the build,
+// before Finish.
+func (r *Recorder) Facts() Facts {
+	if r == nil {
+		return Facts{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f := Facts{Fields: slices.Clone(r.b.Fields), Cause: slices.ContainsFunc(r.b.Checks, func(c Check) bool { return c.Cause })}
+	if r.b.Match != nil {
+		m := *r.b.Match
+		f.Match = &m
+	}
+	return f
+}
+
+// Result is what a finished build adds to its report. A failed build has
+// only Head and Mapping.
+type Result struct {
+	Head     ShowHead
+	Mapping  []MapRow
+	Complete bool
+	Seasons  []Season
+	Episodes []Episode
+	EpsTotal int
+	Output   [][2]string
+	Checks   []Check // go after the ones recorded while the build ran
+}
+
 // Finish ends the build: took is how long it ran, err its failure.
-// set fills in the rest (episodes, mapping, output…) under the lock.
-func (r *Recorder) Finish(took time.Duration, err error, head ShowHead, set func(b *Build)) {
+func (r *Recorder) Finish(took time.Duration, err error, res Result) {
 	if r == nil {
 		return
 	}
@@ -198,10 +234,10 @@ func (r *Recorder) Finish(took time.Duration, err error, head ShowHead, set func
 	if err != nil {
 		r.b.Error = err.Error()
 	}
-	r.head = head
-	if set != nil {
-		set(&r.b)
-	}
+	r.head = res.Head
+	r.b.Mapping, r.b.Complete, r.b.Seasons = res.Mapping, res.Complete, res.Seasons
+	r.b.Episodes, r.b.EpsTotal, r.b.Output = res.Episodes, res.EpsTotal, res.Output
+	r.b.Checks = append(r.b.Checks, res.Checks...)
 	r.finished = time.Now()
 }
 

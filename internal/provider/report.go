@@ -115,7 +115,7 @@ func sourceOfKey(key string) string {
 // recordMatch turns a match request and its outcome into the report form.
 func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision) *report.Match {
 	m := &report.Match{Time: time.Now(), Mode: mode.Path, Type: matchType(r.Type), Title: d.title, Year: r.Year, File: r.Filename, GUID: r.GUID,
-		Manual: r.Manual == 1, How: d.how(), MinScore: p.cfg.MinScore, TagRule: d.tagRuleStopped()}
+		Manual: r.Manual == 1, How: d.how(), By: matchBy(d), MinScore: p.cfg.MinScore}
 	for _, f := range d.found {
 		m.Candidates = append(m.Candidates, report.Candidate{AID: f.aid, Title: f.title, Score: f.score})
 	}
@@ -126,6 +126,34 @@ func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision) *report.Ma
 		m.Query = q
 	}
 	return m
+}
+
+// matchBy is what decided, as the report's facts: what decision.how says
+// in words.
+func matchBy(d decision) report.MatchBy {
+	by := report.MatchBy{Text: d.id.text, Best: d.search.best}
+	switch d.id.kind {
+	case idTag:
+		by.ID = report.MatchTag
+	case idGUID:
+		by.ID = report.MatchGUID
+	case idManyTags:
+		by.ID = report.MatchManyTags
+	case idModeOff:
+		by.ID, by.Off, by.Need = report.MatchTagOff, d.id.path, d.id.need
+	}
+	if d.id.aid > 0 {
+		by.ByName = &report.ByName{AID: d.id.aid, Sure: d.id.sure}
+	}
+	switch d.search.kind {
+	case searchFound:
+		by.Search = report.SearchFound
+	case searchNothing:
+		by.Search = report.SearchNone
+	case searchBelowMin:
+		by.Search = report.SearchLow
+	}
+	return by
 }
 
 // --- end of a build ----------------------------------------------------------
@@ -139,29 +167,26 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 		return
 	}
 	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the output
-	head := report.ShowHead{}
 	aids := p.aidsOf(root)
+	res := report.Result{Mapping: p.mappingRows(aids)}
 	if s != nil {
-		head.Title, head.Orig = s.Title, s.OriginalTitle
+		res.Head.Title, res.Head.Orig = s.Title, s.OriginalTitle
 	} else if len(aids) > 0 {
-		head.Title = p.mainTitle(aids[0])
+		res.Head.Title = p.mainTitle(aids[0])
 	}
-	head.IDs = p.idsOf(root, aids)
-	rec.Finish(took, err, head, func(b *report.Build) {
-		b.Mapping = p.mappingRows(aids)
-		if s == nil {
-			return
-		}
-		b.Complete = s.Complete
+	res.Head.IDs = p.idsOf(root, aids)
+	if s != nil {
+		res.Complete = s.Complete
 		for _, n := range s.Seasons() {
-			b.Seasons = append(b.Seasons, report.Season{Name: seasonTitle(n), Count: len(s.Episodes[n])})
-			b.EpsTotal += len(s.Episodes[n])
+			res.Seasons = append(res.Seasons, report.Season{Name: seasonTitle(n), Count: len(s.Episodes[n])})
+			res.EpsTotal += len(s.Episodes[n])
 		}
 		var with [][]string
-		b.Episodes, with = episodeRows(s)
-		b.Output = outputRows(p.showItem(mode, s, false))
-		b.Checks = append(b.Checks, buildChecks(s, b, with)...)
-	})
+		res.Episodes, with = episodeRows(s)
+		res.Output = outputRows(p.showItem(mode, s, false))
+		res.Checks = buildChecks(s, rec.Facts(), with)
+	}
+	rec.Finish(took, err, res)
 }
 
 // aidsOf returns the AniDB entries a show is built from: the one of an
@@ -302,9 +327,10 @@ var episodeProblems = []struct {
 	}, report.LevelInfo, " no air date", "."},
 }
 
-// buildChecks: what in a finished build is worth a look. b.Checks holds the
-// ones recorded while it ran; with is episodeRows' episodes per problem.
-func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
+// buildChecks: what in a finished build is worth a look, after the checks
+// recorded while it ran. facts is what the build recorded; with is
+// episodeRows' episodes per problem.
+func buildChecks(s *Show, facts report.Facts, with [][]string) []report.Check {
 	var out []report.Check
 	if s.Placeholders {
 		bare := "every episode is a bare \"Episode N\""
@@ -323,21 +349,21 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Placeholder episodes", Cause: true,
 			Text: text, Section: report.SectionEpisodes})
 	}
-	cause := func(c report.Check) bool { return c.Cause }
-	if !s.Complete && !slices.ContainsFunc(out, cause) && !slices.ContainsFunc(b.Checks, cause) { // else a check already says why
+	if !s.Complete && !s.Placeholders && !facts.Cause { // else a check already says why
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "Built with something missing",
 			Text: "A list came back partial, episode crew was still loading, or the build ran out of time. Plex got what was there; Kizuna keeps this build 2 minutes and then builds the show again.", Section: report.SectionTrace})
 	}
-	if m := b.Match; m != nil && m.How == "title search" && m.Score < 100 {
+	if m := facts.Match; m != nil && m.By.TitleSearch() && m.Score < 100 {
 		out = append(out, report.Check{Level: report.LevelInfo, Title: fmt.Sprintf("Matched by title search with score %d", m.Score),
 			Text: "Not an exact title. If it is the wrong show, add an id tag such as [anidb-N] to the folder name.", Section: report.SectionMatch})
 	}
-	if m := b.Match; m != nil {
-		if _, note, ok := strings.Cut(m.How, ", by name: "); ok { // see specialByName
-			out = append(out, report.Check{Level: report.LevelWarn, Title: "Matched by name inside a TheTVDB id",
-				Text:    "The TheTVDB id names a whole series; the title or file name picked one of its movies or specials: " + note + ".",
-				Section: report.SectionMatch})
-		}
+	// See specialByName. The note is all of the reason after the tag or
+	// GUID: a title search's part follows only in a Fix Match list, which is
+	// in no report.
+	if m := facts.Match; m != nil && m.By.ByName != nil {
+		out = append(out, report.Check{Level: report.LevelWarn, Title: "Matched by name inside a TheTVDB id",
+			Text:    "The TheTVDB id names a whole series; the title or file name picked one of its movies or specials: " + m.By.ByName.Note() + ".",
+			Section: report.SectionMatch})
 	}
 	for j, codes := range with {
 		if pr := episodeProblems[j]; len(codes) > 0 {
@@ -349,7 +375,7 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 		out = append(out, report.Check{Level: report.LevelWarn, Title: "HTML entity in the show's title or summary",
 			Text: "Plex shows it literally.", Section: report.SectionFields})
 	}
-	for _, f := range b.Fields {
+	for _, f := range facts.Fields {
 		if len(f.Used) == 0 && len(f.Order) > 0 && (f.Name == "Title" || f.Name == "Summary" || f.Name == "Posters") {
 			out = append(out, report.Check{Level: report.LevelWarn, Title: "No source had a " + strings.ToLower(strings.TrimSuffix(f.Name, "s")),
 				Text: "Asked: " + strings.Join(f.Asked, ", ") + ".", Section: report.SectionFields})
@@ -429,25 +455,39 @@ func outputRows(it Item) [][2]string {
 // --- show fields -------------------------------------------------------------
 
 // recordField notes one field: the sources asked (in order up to the one
-// used, or all of them when none had a value or every source's images are
-// joined), what each offered, and which were used. used is the source, or
-// images()'s "tvdb:14,tmdb:9"; it is only split here, so nothing is
-// allocated with the reports off. value only reads what the field's pick
-// already fetched.
-func (ss *showSources) recordField(name string, order []string, used string, all bool, value func(src string) string) {
+// used, or all of them when none had a value), what each offered, and the
+// one used ("" = none). value only reads what the field's pick already
+// fetched. It is called with the reports off too: used is a plain string,
+// so the call allocates nothing then.
+func (ss *showSources) recordField(name string, order []string, used string, value func(src string) string) {
 	if ss.rec == nil {
 		return
 	}
+	var list []string
+	if used != "" {
+		list = []string{used}
+	}
+	ss.record(name, order, list, false, value)
+}
+
+// recordArt is recordField for images: used is images()'s count per source,
+// and with all every source was asked (their images are joined).
+func (ss *showSources) recordArt(name string, order []string, used []sourceCount, all bool, value func(src string) string) {
+	if ss.rec == nil {
+		return
+	}
+	var list []string
+	for _, c := range used {
+		list = append(list, c.src)
+	}
+	ss.record(name, order, list, all, value)
+}
+
+func (ss *showSources) record(name string, order, used []string, all bool, value func(src string) string) {
 	if order == nil {
 		order = []string{} // X_SOURCES=none: an empty list in the page's data, not null
 	}
-	f := report.Field{Name: name, Order: order, Offered: map[string]string{}}
-	if used != "" {
-		for _, c := range strings.Split(used, ",") {
-			src, _, _ := strings.Cut(c, ":")
-			f.Used = append(f.Used, src)
-		}
-	}
+	f := report.Field{Name: name, Order: order, Offered: map[string]string{}, Used: used}
 	for _, src := range order {
 		f.Asked = append(f.Asked, src)
 		f.Offered[src] = value(src)

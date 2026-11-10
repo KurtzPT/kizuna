@@ -80,7 +80,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 			}
 		}
 		if rq != nil {
-			rq.Answer, rq.Note = "no match", how
+			rq.Answer, rq.Note = report.Answer{Kind: report.AnswerNoMatch}, how
 		}
 		return nil, nil
 	}
@@ -91,7 +91,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	}
 	if list { // Plex "Fix Match" list: cheap items, no API calls
 		if rq != nil {
-			rq.Answer, rq.Note = "Fix Match list", fmt.Sprintf("%d candidates, best %s (score %d)", len(cands), cands[0].root, cands[0].score)
+			rq.Answer, rq.Note = report.Answer{Kind: report.AnswerFixMatch}, fmt.Sprintf("%d candidates, best %s (score %d)", len(cands), cands[0].root, cands[0].score)
 		}
 		var out []Item
 		for _, c := range cands {
@@ -126,9 +126,10 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	}
 	if it == nil { // the show has no such season or episode
 		if rq != nil {
-			rq.Answer = "no match"
+			rq.Answer = report.Answer{Kind: report.AnswerNoMatch}
 			if m != nil { // the latest match says so, not that Plex got the show
-				m.How += "; " + root + " has no " + missingPart(r)
+				m.By.Missing = missingPart(r)
+				m.How += "; " + root + " has no " + m.By.Missing
 				m.Root, m.Score = "", 0
 				rq.Match = m
 			}

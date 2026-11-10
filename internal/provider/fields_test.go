@@ -29,11 +29,18 @@ func TestImagesAllAndFirst(t *testing.T) {
 	series := map[string][]string{"tvdb": {"d", "a"}}
 	get := func(src string) ([]string, []string) { return art[src], series[src] }
 	order := []string{"tmdb", "tvdb", "anidb"}
-	if got, counts := images(order, true, true, get); !slices.Equal(got, []string{"a", "b", "d", "c"}) || counts != "tvdb:3,anidb:1" {
-		t.Errorf("all: %v %q", got, counts)
+	got, counts := images(order, true, true, get)
+	if !slices.Equal(got, []string{"a", "b", "d", "c"}) || !slices.Equal(counts, []sourceCount{{"tvdb", 3}, {"anidb", 1}}) {
+		t.Errorf("all: %v %v", got, counts)
 	}
-	if got, counts := images(order, false, false, get); !slices.Equal(got, []string{"a", "b", "d"}) || counts != "" {
-		t.Errorf("first: %v %q", got, counts)
+	if text := countsText(counts); text != "tvdb:3,anidb:1" { // the debug line's form
+		t.Errorf("all: counts as text %q", text)
+	}
+	if got, counts := images(order, false, false, get); !slices.Equal(got, []string{"a", "b", "d"}) || counts != nil || countsText(counts) != "" {
+		t.Errorf("first: %v %v", got, counts)
+	}
+	if got, counts := images(order, false, true, get); !slices.Equal(got, []string{"a", "b", "d"}) || !slices.Equal(counts, []sourceCount{{"tvdb", 3}}) {
+		t.Errorf("first, counted: %v %v", got, counts)
 	}
 }
 

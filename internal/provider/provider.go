@@ -212,7 +212,7 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 				slog.Debug("show from memory", "root", root, "age", age, "ttl", ttl)
 			}
 			if rq := report.RequestFrom(ctx); rq != nil {
-				rq.Build, rq.Answer = c.show.build, "memory, "+age.String()
+				rq.Build, rq.Answer = c.show.build, report.Answer{Kind: report.AnswerMemory, Age: int64(age / time.Second)}
 			}
 			return c.show, nil
 		}
@@ -224,7 +224,7 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 			slog.Debug("show build failed lately", "root", root, "age", age, "err", f.err)
 		}
 		if rq := report.RequestFrom(ctx); rq != nil {
-			rq.Build, rq.Answer = f.build, "failed "+age.String()+" ago, rebuilt after "+failTTL.String()
+			rq.Build, rq.Answer = f.build, report.Answer{Kind: report.AnswerFailed, Age: int64(age / time.Second), After: int64(failTTL / time.Second)}
 		}
 		return nil, f.err
 	}
@@ -252,9 +252,9 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	}
 	rq := report.RequestFrom(ctx) // nil with the reports off
 	if rq != nil {
-		rq.Answer = "new build"
+		rq.Answer = report.Answer{Kind: report.AnswerNewBuild}
 		if running {
-			rq.Answer = "joined a build"
+			rq.Answer.Kind = report.AnswerJoined
 		}
 	}
 	select {
@@ -264,7 +264,7 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 		case <-b.done: // over as the request gave up: it has the answer
 		default:
 			if rq != nil {
-				rq.Answer = "timed out"
+				rq.Answer.Kind = report.AnswerTimedOut
 			}
 			return nil, ctx.Err() // the build goes on (see writeUnavailable)
 		}
@@ -274,7 +274,7 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	case b.show != nil:
 		rq.Build = b.show.build
 	default:
-		rq.Build, rq.Answer = b.rec.ID(), "not available"
+		rq.Build, rq.Answer = b.rec.ID(), report.Answer{Kind: report.AnswerUnavailable}
 	}
 	return b.show, b.err
 }

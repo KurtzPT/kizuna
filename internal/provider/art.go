@@ -290,8 +290,8 @@ func (ss *showSources) seasonsFailed() []string {
 // from its source order. season names a Plex season's fields in the match
 // report ("Season 3 posters"); "" = the show's (only the show is noted
 // with the reports off). count: also say which
-// sources gave them ("tvdb:3,tmdb:9"), for the debug line or the report.
-func (ss *showSources) pickArt(t artTarget, season string, count bool) (a sources.Art, used [len(artKinds)]string) {
+// sources gave them and how many, for the debug line or the report.
+func (ss *showSources) pickArt(t artTarget, season string, count bool) (a sources.Art, used [len(artKinds)][]sourceCount) {
 	all := ss.p.cfg.ArtAllSources
 	for _, k := range artKinds {
 		order := k.order(ss)
@@ -310,7 +310,7 @@ func (ss *showSources) pickArt(t artTarget, season string, count bool) (a source
 			if season != "" {
 				name = season + " " + strings.ToLower(name)
 			}
-			ss.recordField(name, order, counts, all && counts != "", func(src string) string { return ss.describeArt(src, k, t) })
+			ss.recordArt(name, order, counts, all && len(counts) > 0, func(src string) string { return ss.describeArt(src, k, t) })
 		}
 	}
 	return a, used
