@@ -264,7 +264,7 @@ titles, made from the same words in the file name:
 | `Show - OP01.mkv` | `OP01` | **Opening 1** |
 | `Show - OP01a.mkv` · `Show - OP 1 a.mkv` | `OP01a` · `OP 1 a` | **Opening 1a** |
 | `Show - OP02.mkv` | `OP02` | **Opening 2** |
-| `Show - OP1v2.mkv` | `OP1` | **Opening 1 v2** |
+| `Show - OP1v2.mkv` | `OP1` | **Opening 1** |
 | `Show - NCED2.mkv` · `Show - Clean Ending 2.mkv` | `NCED2` · `Clean Ending 2` | **Ending 2** |
 | `Show - NCOP.mkv` | `NCOP` | **Opening** |
 | `Show - OPED.mkv` | `OPED` | **Opening & Ending** |
