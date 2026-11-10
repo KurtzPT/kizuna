@@ -113,16 +113,16 @@ func sourceOfKey(key string) string {
 }
 
 // recordMatch turns a match request and its outcome into the report form.
-func (p *Provider) recordMatch(mode Mode, r MatchRequest, title, how string, cands []candidate, seen []report.Candidate) *report.Match {
-	m := &report.Match{Time: time.Now(), Mode: mode.Path, Type: matchType(r.Type), Title: title, Year: r.Year, File: r.Filename, GUID: r.GUID,
-		Manual: r.Manual == 1, How: how, MinScore: p.cfg.MinScore, Candidates: seen}
-	if len(cands) > 0 {
-		m.Root, m.Score = cands[0].root, cands[0].score
+func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision) *report.Match {
+	m := &report.Match{Time: time.Now(), Mode: mode.Path, Type: matchType(r.Type), Title: d.title, Year: r.Year, File: r.Filename, GUID: r.GUID,
+		Manual: r.Manual == 1, How: d.how(), MinScore: p.cfg.MinScore, TagRule: d.tagRuleStopped()}
+	for _, f := range d.found {
+		m.Candidates = append(m.Candidates, report.Candidate{AID: f.aid, Title: f.title, Score: f.score})
 	}
-	// The tag rules' reasons (idCandidate's stop) start "id tags " or
-	// "tag "; a reason that names the title search means it ran.
-	m.TagRule = len(cands) == 0 && (strings.HasPrefix(how, "id tags ") || strings.HasPrefix(how, "tag ")) && !strings.Contains(how, "title search")
-	if q := strings.TrimSpace(tagRe.ReplaceAllString(title, "")); q != title {
+	if len(d.cands) > 0 {
+		m.Root, m.Score = d.cands[0].root, d.cands[0].score
+	}
+	if q := strings.TrimSpace(tagRe.ReplaceAllString(d.title, "")); q != d.title {
 		m.Query = q
 	}
 	return m

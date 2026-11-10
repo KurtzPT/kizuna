@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	"kizuna/internal/anidb"
-	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
-	"kizuna/internal/sources"
 )
 
 // A show or season match with includeChildren=1 carries its seasons or
@@ -65,10 +63,8 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 	l.SetForTest(entries)
 	titles := &anidb.Titles{}
 	titles.SetForTest(names)
-	dir := t.TempDir()
-	f := fetch.New(dir)
-	p := &Provider{lists: l, titles: titles}
-	tvdbOn := &Provider{lists: l, titles: titles, tvdb: sources.NewTVDB(f, "key", "", "")}
+	p := matcher{lists: l, titles: titles}
+	tvdbOn := matcher{lists: l, titles: titles, tvdbOn: true}
 	guid := "tv.plex.agents.custom.kizuna.anidb://show/anidb-69"
 	roots := func(cs []candidate) []string {
 		var out []string
@@ -79,7 +75,7 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 	}
 	cases := []struct {
 		name  string
-		p     *Provider
+		m     matcher
 		mode  Mode
 		r     MatchRequest
 		want  []string
@@ -103,18 +99,19 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 			nil, 0, 0, "tag [anidb-69]: /anidb is off"},
 		{"two tags, manual", p, Modes["anidb"], MatchRequest{Title: "Correct Title [anidb-69] [anidb-5]", Manual: 1},
 			[]string{"anidb-70"}, 0, 0, "id tags [anidb-69] [anidb-5]: only one is allowed; title search"},
-		{"two tags, manual season", p, Modes["anidb"], MatchRequest{Type: 3, Title: "Correct Title [anidb-69] [anidb-5]", Manual: 1},
+		{"two tags, manual season", p, Modes["anidb"], MatchRequest{Type: 3, ParentTitle: "Correct Title [anidb-69] [anidb-5]", Manual: 1},
 			nil, 0, 0, "id tags [anidb-69] [anidb-5]: only one is allowed"},
-		{"tag mode off, manual episode", tvdbOn, Modes["auto"], MatchRequest{Type: 4, Title: "Correct Title [anidb-69]", Manual: 1},
+		{"tag mode off, manual episode", tvdbOn, Modes["auto"], MatchRequest{Type: 4, GrandparentTitle: "Correct Title [anidb-69]", Manual: 1},
 			nil, 0, 0, "tag [anidb-69]: /anidb is off"},
 		// a manual season or episode match whose tag or GUID matches skips the title search
-		{"tag, manual season", p, Modes["anidb"], MatchRequest{Type: 3, Title: "Correct Title", Filename: "/a/One Piece [anidb-69]/01.mkv", Manual: 1},
+		{"tag, manual season", p, Modes["anidb"], MatchRequest{Type: 3, ParentTitle: "Correct Title", Filename: "/a/One Piece [anidb-69]/01.mkv", Manual: 1},
 			[]string{"anidb-69"}, 0, 0, "tag [anidb-69]"},
-		{"guid, manual episode", p, Modes["anidb"], MatchRequest{Type: 4, Title: "Correct Title", GUID: guid, Manual: 1},
+		{"guid, manual episode", p, Modes["anidb"], MatchRequest{Type: 4, GrandparentTitle: "Correct Title", GUID: guid, Manual: 1},
 			[]string{"anidb-69"}, 0, 0, "guid " + guid},
 	}
 	for _, c := range cases {
-		got, how := c.p.searchCandidates(c.mode, c.r.Title, c.r, nil)
+		d := c.m.decide(c.mode, c.r, false)
+		got, how := d.cands, d.how()
 		rs := roots(got)
 		if c.first > 0 {
 			if len(rs) != c.size || !reflect.DeepEqual(rs[:c.first], c.want) {

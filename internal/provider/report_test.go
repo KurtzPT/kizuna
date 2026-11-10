@@ -120,22 +120,31 @@ func TestAutoTagModeOffReport(t *testing.T) {
 // ran the title search is not.
 func TestRecordMatchTagRule(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	const title = "Show [anidb-1] [tvdb-2]"
+	tags := idOutcome{kind: idManyTags, text: "[anidb-1] [tvdb-2]"}
+	off := idOutcome{kind: idModeOff, text: "[tvdb-500]", path: "tvdb", need: "TVDB_API_KEY or TVDB_LEGACY_API_KEY"}
+	nothing := searchOutcome{kind: searchNothing}
 	for _, c := range []struct {
+		d    decision
 		how  string
 		want bool
 	}{
-		{"id tags [anidb-1] [tvdb-2]: only one is allowed", true},
-		{"tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY", true},
-		{"tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY; title search: no similar title", false},
-		{"title search: no similar title", false},
+		{decision{title: title, id: tags}, "id tags [anidb-1] [tvdb-2]: only one is allowed", true},
+		{decision{title: title, id: off}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY", true},
+		{decision{title: title, id: off, search: nothing}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY; title search: no similar title", false},
+		{decision{title: title, search: nothing}, "title search: no similar title", false},
 	} {
-		m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, "Show [anidb-1] [tvdb-2]", c.how, nil, nil)
+		m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, c.d)
+		if m.How != c.how {
+			t.Errorf("how %q, want %q", m.How, c.how)
+		}
 		if m.TagRule != c.want || m.Query != "Show" {
 			t.Errorf("%s: tag rule %v query %q, want %v and %q", c.how, m.TagRule, m.Query, c.want, "Show")
 		}
 	}
-	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, "Show [anidb-1]", "tag [anidb-1]", []candidate{{"anidb-1", 100}}, nil); m.TagRule {
-		t.Error("a match by tag is no tag rule no-match")
+	byTag := decision{title: "Show [anidb-1]", id: idOutcome{kind: idTag, text: "[anidb-1]"}, cands: []candidate{{"anidb-1", 100}}}
+	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, byTag); m.TagRule || m.How != "tag [anidb-1]" || m.Root != "anidb-1" || m.Score != 100 {
+		t.Errorf("a match by tag: %+v, want no tag rule no-match", m)
 	}
 }
 

@@ -70,7 +70,7 @@ func TestMatchByOtherIDs(t *testing.T) {
 	})
 	titles := &anidb.Titles{}
 	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
-	p := &Provider{lists: l, titles: titles}
+	m := matcher{lists: l, titles: titles}
 	anidbMode, tvdbMode := Modes["anidb"], Modes["tvdb"]
 	cases := []struct {
 		title, guid string
@@ -86,7 +86,7 @@ func TestMatchByOtherIDs(t *testing.T) {
 		{"One Piece", "imdb://tt0388629", tvdbMode, "tvdb-81797"},
 	}
 	for _, c := range cases {
-		got, _ := p.searchCandidates(c.mode, c.title, MatchRequest{GUID: c.guid}, nil)
+		got := m.decide(c.mode, MatchRequest{Title: c.title, GUID: c.guid}, false).cands
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v, want %s", c.title, c.guid, got, c.want)
 		}
@@ -112,7 +112,7 @@ func TestMatchTMDBMovieOrTV(t *testing.T) {
 		200: {{Type: "main", Lang: "x-jat", Text: "Some Movie"}},
 		300: {{Type: "main", Lang: "x-jat", Text: "Other Movie"}},
 	})
-	p := &Provider{lists: l, titles: titles}
+	m := matcher{lists: l, titles: titles}
 	cases := []struct{ title, guid, want string }{
 		{"Some Movie [tmdb-77]", "", "anidb-200"},
 		{"Some Movie", "tmdb://77", "anidb-200"},
@@ -123,7 +123,8 @@ func TestMatchTMDBMovieOrTV(t *testing.T) {
 		{"Anything", "com.plexapp.agents.themoviedb://88?lang=en", "anidb-300"},
 	}
 	for _, c := range cases {
-		got, how := p.searchCandidates(Modes["anidb"], c.title, MatchRequest{GUID: c.guid}, nil)
+		d := m.decide(Modes["anidb"], MatchRequest{Title: c.title, GUID: c.guid}, false)
+		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
 		}
@@ -169,8 +170,6 @@ func TestAutoModePerFolder(t *testing.T) {
 		500: {AID: 500, MAL: 500}, // a movie: no TVDB series
 	})
 	auto := Modes["auto"]
-	dir := t.TempDir()
-	f := fetch.New(dir)
 	titles := &anidb.Titles{}
 	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
 	cases := []struct {
@@ -188,9 +187,8 @@ func TestAutoModePerFolder(t *testing.T) {
 		{"tvdb", "One Piece", "tv.plex.agents.custom.kizuna.anidb://show/anidb-100", "anidb-100"},
 	}
 	for _, c := range cases {
-		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
-		p.cfg.AutoDefault = c.def
-		got, _ := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
+		m := matcher{lists: l, titles: titles, anidbOn: true, tvdbOn: true, autoDefault: c.def}
+		got := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false).cands
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("default %s, %q %q: got %v, want %s", c.def, c.title, c.guid, got, c.want)
 		}
@@ -208,14 +206,9 @@ func TestAutoModePerFolder(t *testing.T) {
 		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},   // no TVDB series: stays AniDB
 	}
 	for _, c := range only {
-		p := &Provider{lists: l, titles: titles}
-		if c.on == "anidb" {
-			p.anidb = sources.NewAniDB(f, dir, "kizunatest", "1")
-		} else {
-			p.tvdb = sources.NewTVDB(f, "key", "", "")
-		}
-		p.cfg.AutoDefault = c.def
-		got, how := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
+		m := matcher{lists: l, titles: titles, anidbOn: c.on == "anidb", tvdbOn: c.on == "tvdb", autoDefault: c.def}
+		d := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false)
+		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("only %s on, default %s, %q %q: got %v (%s), want %s", c.on, c.def, c.title, c.guid, got, how, c.want)
 		}
@@ -247,7 +240,8 @@ func TestAutoTagNeedsItsMode(t *testing.T) {
 		var logs strings.Builder
 		restore := captureLogs(&logs)
 		for range 3 { // the same tag again: no new warning
-			got, how := c.p.searchCandidates(Modes["auto"], c.title, MatchRequest{GUID: guid, Filename: c.file}, nil)
+			d := c.p.decide(Modes["auto"], MatchRequest{Title: c.title, GUID: guid, Filename: c.file}, false)
+			got, how := d.cands, d.how()
 			if len(got) != 0 || !strings.HasPrefix(how, c.how) {
 				t.Errorf("%q %q: got %v (%s), want no match (%s…)", c.title, c.file, got, how, c.how)
 			}
@@ -271,7 +265,8 @@ func TestAutoTagNeedsItsMode(t *testing.T) {
 		{tvdbOn, "One Piece", guid, "tvdb-81797"},
 		{tvdbOn, "One Piece", "", "tvdb-81797"},
 	} {
-		got, how := c.p.searchCandidates(Modes["auto"], c.title, MatchRequest{GUID: c.guid}, nil)
+		d := c.p.decide(Modes["auto"], MatchRequest{Title: c.title, GUID: c.guid}, false)
+		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
 		}
@@ -307,7 +302,8 @@ func TestOneIDTag(t *testing.T) {
 		var logs strings.Builder
 		restore := captureLogs(&logs)
 		for range 3 { // the same title again: no new warning
-			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: guid, Filename: c.file}, nil)
+			d := p.decide(Modes[c.mode], MatchRequest{Title: c.title, GUID: guid, Filename: c.file}, false)
+			got, how := d.cands, d.how()
 			if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0].root != c.want)) || !strings.HasPrefix(how, c.how) {
 				t.Errorf("/%s %q %q: got %v (%s), want %q (%s…)", c.mode, c.title, c.file, got, how, c.want, c.how)
 			}
@@ -564,16 +560,14 @@ func onePiece() (*mapping.Lists, *anidb.Titles) {
 // still becomes the series in /tvdb.
 func TestSpecialOnlyIsItsOwnShow(t *testing.T) {
 	l, titles := onePiece()
-	p := &Provider{lists: l, titles: titles}
+	m := matcher{lists: l, titles: titles}
 	tvdbMode := Modes["tvdb"]
-	if got := p.rootFor(tvdbMode, "anidb", 16983); got != "anidb-16983" {
+	if got := m.rootFor(tvdbMode, "anidb", 16983); got != "anidb-16983" {
 		t.Errorf("/tvdb rootFor 16983: %s, want anidb-16983", got)
 	}
-	if got := p.rootFor(tvdbMode, "anidb", 100); got != "tvdb-81797" {
+	if got := m.rootFor(tvdbMode, "anidb", 100); got != "tvdb-81797" {
 		t.Errorf("/tvdb rootFor 100: %s, want tvdb-81797", got)
 	}
-	dir := t.TempDir()
-	f := fetch.New(dir)
 	cases := []struct {
 		mode, def, title, guid, want string
 	}{
@@ -593,9 +587,9 @@ func TestSpecialOnlyIsItsOwnShow(t *testing.T) {
 		{"auto", "anidb", "One Piece Film Red [anidb-16983]", "", "anidb-16983"},
 	}
 	for _, c := range cases {
-		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
-		p.cfg.AutoDefault, p.cfg.MinScore = c.def, 80
-		got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid}, nil)
+		m := matcher{lists: l, titles: titles, anidbOn: true, tvdbOn: true, autoDefault: c.def, minScore: 80}
+		d := m.decide(Modes[c.mode], MatchRequest{Title: c.title, GUID: c.guid}, false)
+		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("/%s %q %q: got %v (%s), want %s", c.mode, c.title, c.guid, got, how, c.want)
 		}
@@ -638,7 +632,8 @@ func TestTVDBTagNameSearch(t *testing.T) {
 		var logs strings.Builder
 		restore := captureLogs(&logs)
 		for range 3 { // the same title again: no new warning
-			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid, Filename: c.file}, nil)
+			d := p.decide(Modes[c.mode], MatchRequest{Title: c.title, GUID: c.guid, Filename: c.file}, false)
+			got, how := d.cands, d.how()
 			if len(got) != 1 || got[0].root != c.want || !strings.HasPrefix(how, c.how) {
 				t.Errorf("/%s %q %q %q: got %v (%s), want %s (%s…)", c.mode, c.title, c.file, c.guid, got, how, c.want, c.how)
 			}
@@ -676,8 +671,7 @@ func TestTVDBTagNameSearchTies(t *testing.T) {
 	})
 	dir := t.TempDir()
 	f := fetch.New(dir)
-	p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
-	p.cfg.MinScore = 80
+	m := matcher{lists: l, titles: titles, minScore: 80, tvdbOn: true, peek: sources.NewAniDB(f, dir, "", "1")} // nothing cached
 	cases := []struct {
 		title string
 		year  int
@@ -692,7 +686,8 @@ func TestTVDBTagNameSearchTies(t *testing.T) {
 		{"Something Else [tvdb-900]", 0, "tvdb-900"},          //
 	}
 	for _, c := range cases {
-		got, how := p.searchCandidates(Modes["tvdb"], c.title, MatchRequest{Year: c.year}, nil)
+		d := m.decide(Modes["tvdb"], MatchRequest{Title: c.title, Year: c.year}, false)
+		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q year %d: got %v (%s), want %s", c.title, c.year, got, how, c.want)
 		}
