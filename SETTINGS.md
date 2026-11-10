@@ -292,5 +292,7 @@ are made: [SETUP](SETUP.md#-openings-and-endings).
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network |
 | `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner. It gives full access to the server: keep the settings file private. Kizuna sends it only to `PLEX_URL` and never logs it |
 
+A title changes about 15 seconds after Plex refreshes its show's metadata, never before a refresh ([why](SETUP.md#readable-titles)).
+
 With only one of the two set, or a `PLEX_URL` that isn't a web address, Kizuna logs a warning at start and leaves the
 titles alone.
