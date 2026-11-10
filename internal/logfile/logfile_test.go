@@ -1,6 +1,7 @@
 package logfile
 
 import (
+	"errors"
 	"log/slog"
 	"math"
 	"os"
@@ -175,6 +176,72 @@ func TestOldFileOnStartIsDated(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(cur); string(b) != "today\n" {
 		t.Errorf("current file %q", b)
+	}
+}
+
+// A dated file that is already there (it should not be) gets yesterday's
+// lines after its own, and kizuna.log starts empty.
+func TestOldFileIsAppendedToAnExistingDatedFile(t *testing.T) {
+	dir := t.TempDir()
+	cur, dated := filepath.Join(dir, "kizuna.log"), filepath.Join(dir, "kizuna-2026-11-06.log")
+	_ = os.WriteFile(dated, []byte("earlier\n"), 0o644)
+	_ = os.WriteFile(cur, []byte("yesterday\n"), 0o644)
+	yesterday := time.Date(2026, 11, 6, 12, 0, 0, 0, time.Local)
+	_ = os.Chtimes(cur, yesterday, yesterday)
+	l, err := open(dir, "kizuna", 0, func() time.Time { return yesterday.Add(24 * time.Hour) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = l.Write([]byte("today\n"))
+	l.Close()
+	if b, _ := os.ReadFile(dated); string(b) != "earlier\nyesterday\n" {
+		t.Errorf("dated file %q", b)
+	}
+	if b, _ := os.ReadFile(cur); string(b) != "today\n" {
+		t.Errorf("current file %q", b)
+	}
+}
+
+// failingFile is a file whose write or close fails.
+type failingFile struct {
+	wrote              strings.Builder // not embedded: io.Copy would use its WriteString and skip Write
+	writeErr, closeErr error
+	closed             bool
+}
+
+func (f *failingFile) Write(p []byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return f.wrote.Write(p)
+}
+
+func (f *failingFile) Close() error {
+	f.closed = true
+	return f.closeErr
+}
+
+// A close that fails may have lost the last lines: it is an error like a
+// failed copy, so the caller keeps kizuna.log. The file is closed either way.
+func TestAppendAllReportsAFailedClose(t *testing.T) {
+	writeErr, closeErr := errors.New("disk full"), errors.New("close failed")
+	for _, c := range []struct {
+		name string
+		f    failingFile
+		want error
+	}{
+		{"all written", failingFile{}, nil},
+		{"close fails", failingFile{closeErr: closeErr}, closeErr},
+		{"copy fails", failingFile{writeErr: writeErr}, writeErr},
+		{"both fail", failingFile{writeErr: writeErr, closeErr: closeErr}, writeErr},
+	} {
+		err := appendAll(&c.f, strings.NewReader("yesterday\n"))
+		if err != c.want || !c.f.closed {
+			t.Errorf("%s: err %v, closed %v, want %v and closed", c.name, err, c.f.closed, c.want)
+		}
+		if c.f.writeErr == nil && c.f.wrote.String() != "yesterday\n" {
+			t.Errorf("%s: wrote %q", c.name, c.f.wrote.String())
+		}
 	}
 }
 

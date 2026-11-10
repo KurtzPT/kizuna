@@ -199,11 +199,10 @@ func (l *File) archive(day string) error {
 		src.Close()
 		return err
 	}
-	_, err = io.Copy(dst, src)
+	err = appendAll(dst, src)
 	src.Close()
-	dst.Close()
 	if err != nil {
-		return err
+		return err // kizuna.log is kept: not all of it is in the dated file
 	}
 	if err := os.Remove(l.current()); err != nil {
 		// The lines are in the dated file now: emptying kizuna.log is as
@@ -211,6 +210,16 @@ func (l *File) archive(day string) error {
 		return os.Truncate(l.current(), 0)
 	}
 	return nil
+}
+
+// appendAll copies src to dst and closes dst. A failed close counts like a
+// failed copy: the last lines may not have been written.
+func appendAll(dst io.WriteCloser, src io.Reader) error {
+	_, err := io.Copy(dst, src)
+	if cerr := dst.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // foreverDays and more keep every log: AddDate would overflow and wrap.
