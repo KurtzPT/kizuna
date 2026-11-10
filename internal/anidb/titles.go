@@ -5,6 +5,7 @@ package anidb
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/xml"
@@ -13,7 +14,6 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,7 +56,7 @@ func newIndex(byAID map[int][]Title) index {
 	ids := map[string]int{}
 	for _, aid := range slices.Sorted(maps.Keys(byAID)) {
 		for _, ti := range byAID[aid] {
-			n := Normalize(ti.Text)
+			n := normalize(ti.Text)
 			if n == "" {
 				continue
 			}
@@ -82,8 +82,8 @@ func newIndex(byAID map[int][]Title) index {
 		}
 	}
 	x.all, x.words = all.String(), words.String()
-	x.starts = append(x.starts, len(x.all)+1)
-	x.wstart = append(x.wstart, len(x.words)+1)
+	x.starts = append(x.starts, len(x.all)) // each title ends with its NUL: norm cuts it off
+	x.wstart = append(x.wstart, len(x.words))
 	return x
 }
 
@@ -100,7 +100,8 @@ func (x index) containing(words []string) []int {
 			if i < 0 {
 				break
 			}
-			id := sort.SearchInts(x.wstart, off+i+1) - 1 // the word holding the hit
+			id, _ := slices.BinarySearch(x.wstart, off+i+1)
+			id-- // the word holding the hit
 			for _, k := range x.posts[id] {
 				out = append(out, int(k))
 			}
@@ -211,13 +212,13 @@ func (t *Titles) Of(aid int) []Title {
 // ("Hunter x Hunter (2011)"), so an entry whose title is the query plus that
 // year scores 100 and a plain exact match of another entry drops to 99.
 func (t *Titles) Search(query string, year, limit int) []Match {
-	q := Normalize(query)
+	q := normalize(query)
 	if q == "" {
 		return nil
 	}
 	var words []string
 	for _, w := range strings.Fields(q) {
-		if len([]rune(w)) > 3 {
+		if utf8.RuneCountInString(w) > 3 {
 			words = append(words, w)
 		}
 	}
@@ -252,7 +253,7 @@ func (t *Titles) Search(query string, year, limit int) []Match {
 				continue
 			}
 			for _, ti := range t.byAID[aid] {
-				if strings.Contains(ti.Text, y) && Normalize(strings.ReplaceAll(ti.Text, y, "")) == q {
+				if strings.Contains(ti.Text, y) && normalize(strings.ReplaceAll(ti.Text, y, "")) == q {
 					withYear[aid] = true
 				}
 			}
@@ -279,11 +280,10 @@ func (t *Titles) Search(query string, year, limit int) []Match {
 			out = append(out, Match{aid, s})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
-		}
-		return out[i].AID < out[j].AID // older entry first on ties (the original series)
+	slices.SortFunc(out, func(a, b Match) int {
+		// AIDs are unique, so no two matches tie: the order is fully defined.
+		return cmp.Or(cmp.Compare(b.Score, a.Score),
+			cmp.Compare(a.AID, b.AID)) // older entry first on equal scores (the original series)
 	})
 	if len(out) > limit {
 		out = out[:limit]
@@ -296,7 +296,7 @@ func (t *Titles) Search(query string, year, limit int) []Match {
 // 97), but without the index or the year: for comparing a few known entries.
 // 0 when either side is empty.
 func Score(query string, titles []Title) int {
-	q := Normalize(query)
+	q := normalize(query)
 	if q == "" {
 		return 0
 	}
@@ -304,7 +304,7 @@ func Score(query string, titles []Title) int {
 	qr := []rune(q)
 	best := 0
 	for _, ti := range titles {
-		norm := Normalize(ti.Text)
+		norm := normalize(ti.Text)
 		switch {
 		case norm == "":
 		case strings.EqualFold(ti.Text, strings.TrimSpace(query)):

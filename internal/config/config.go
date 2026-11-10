@@ -1,6 +1,6 @@
 // Package config reads all settings from environment variables, which may
 // come from a settings file (see LoadEnvFile). Every setting has a sensible
-// default except the AniDB client name.
+// default except the sources' keys and the AniDB client name.
 package config
 
 import (
@@ -214,16 +214,28 @@ func (c Config) LogModes() {
 		auto = "only shows with AniDB rules (" + noTVDB + ")"
 	}
 	slog.Info("modes", "anidb", state("anidb"), "tvdb", state("tvdb"), "auto", auto)
-	if empty := c.emptyFields(); len(empty) > 0 {
+	set, defaults, keys := c.emptyFields()
+	if len(set) > 0 {
 		slog.Warn("no usable source in these lists, so their fields stay empty; add a key, or set them to none",
-			"settings", empty)
+			"settings", set)
+	}
+	// Lists left at their default are no mistake (the defaults name sources
+	// that need a key, such as backgrounds from TheTVDB): no warning at every
+	// start, just which key would fill them.
+	if len(defaults) > 0 {
+		slog.Info("these fields stay empty: their default sources need a key", "settings", defaults, "keys", keys)
 	}
 }
 
+// sourceKeys: the setting that makes each source usable (see Usable).
+var sourceKeys = map[string]string{"anidb": "ANIDB_CLIENT", "tvdb": "TVDB_API_KEY", "tmdb": "TMDB_API_KEY", "mal": "MAL_CLIENT_ID"}
+
 // emptyFields: the source lists that name sources, none of them usable
-// ("none" turns a list off on purpose and isn't reported).
-func (c Config) emptyFields() []string {
-	var out []string
+// ("none" turns a list off on purpose and isn't reported). set are the ones
+// set in the environment or the settings file, defaults the ones left at
+// their default, and keys the settings that would make the defaults' sources
+// usable.
+func (c Config) emptyFields() (set, defaults, keys []string) {
 	for _, f := range []struct {
 		name string
 		list []string
@@ -234,15 +246,30 @@ func (c Config) emptyFields() []string {
 		{"GENRE_SOURCES", c.GenreSources}, {"CAST_SOURCES", c.CastSources}, {"STUDIO_SOURCES", c.StudioSources},
 		{"CREW_SOURCES", c.CrewSources}, {"RATING_SOURCES", c.RatingSources}, {"DATE_SOURCES", c.DateSources},
 	} {
-		if len(f.list) > 0 && len(c.UsableOf(f.list)) == 0 {
-			out = append(out, f.name)
+		if len(f.list) == 0 || len(c.UsableOf(f.list)) > 0 {
+			continue
+		}
+		if isSet(f.name) {
+			set = append(set, f.name)
+			continue
+		}
+		defaults = append(defaults, f.name)
+		for _, s := range f.list {
+			if k := sourceKeys[s]; k != "" && !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
 		}
 	}
-	return out
+	return set, defaults, keys
 }
 
-// DefaultPort is Kizuna's port unless PORT or LISTEN says otherwise.
-const DefaultPort = 32600
+// isSet reports whether a setting has a value of its own (env gives it
+// its default when it's unset or blank). The settings file is in the
+// environment by now (LoadEnvFile).
+func isSet(name string) bool { return strings.TrimSpace(os.Getenv(name)) != "" }
+
+// defaultPort is Kizuna's port unless PORT or LISTEN says otherwise.
+const defaultPort = 32600
 
 // listenAddr: LISTEN (a full address such as "127.0.0.1:32600") wins; else
 // PORT on every network interface.
@@ -254,8 +281,8 @@ func listenAddr() string {
 	return ":" + strconv.Itoa(port())
 }
 
-// port reads PORT (1-65535); anything else warns and uses DefaultPort.
-func port() int { return num("PORT", DefaultPort, 1, 65535) }
+// port reads PORT (1-65535); anything else warns and uses defaultPort.
+func port() int { return num("PORT", defaultPort, 1, 65535) }
 
 // DataDir is the folder for cache, state and logs (DATA_DIR). Separate from
 // Load so logging can start before the settings are read.

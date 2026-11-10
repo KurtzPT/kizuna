@@ -10,17 +10,19 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
-// EnvFileName is the settings file Kizuna looks for in the data folder.
-const EnvFileName = "kizuna.env"
+// envFileName is the settings file Kizuna looks for in the data folder.
+const envFileName = "kizuna.env"
 
-// EnvFileVar names a settings file to use instead of <DATA_DIR>/kizuna.env.
+// envFileVar names a settings file to use instead of <DATA_DIR>/kizuna.env.
 // It only works in the environment, not inside the file.
-const EnvFileVar = "KIZUNA_CONFIG"
+const envFileVar = "KIZUNA_CONFIG"
 
 // EnvFile is what LoadEnvFile did, for the startup log. It never holds
 // values: the file has API keys.
@@ -42,16 +44,19 @@ type EnvFile struct {
 // Call it before anything reads a setting. DATA_DIR set in the file still
 // moves the cache and logs, but not where this file is looked for.
 func LoadEnvFile() (EnvFile, error) {
-	path, explicit := env(EnvFileVar, ""), true
+	path, explicit := env(envFileVar, ""), true
 	if path == "" {
-		path, explicit = filepath.Join(DataDir(), EnvFileName), false
+		path, explicit = filepath.Join(DataDir(), envFileName), false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !explicit && errors.Is(err, fs.ErrNotExist) {
 			return EnvFile{NotFound: path}, nil
 		}
-		return EnvFile{}, fmt.Errorf("can't read the settings file (%s): %w", EnvFileVar, err)
+		if explicit {
+			return EnvFile{}, fmt.Errorf("can't read the settings file (%s): %w", envFileVar, err)
+		}
+		return EnvFile{}, fmt.Errorf("can't read the settings file: %w", err)
 	}
 	f := EnvFile{Path: path}
 	settings, problems := parseEnvFile(data)
@@ -76,9 +81,9 @@ func LoadEnvFile() (EnvFile, error) {
 	return f, nil
 }
 
-// Log reports the file at startup: which file (or that there is none), the settings the environment
-// overrode, skipped lines and names Kizuna doesn't know (typos). Call it
-// after Load, which marks the names Kizuna reads.
+// Log reports the file at startup: which file (or that there is none), the
+// settings the environment overrode, skipped lines and names Kizuna doesn't
+// know (typos). Call it after Load, which marks the names Kizuna reads.
 func (f EnvFile) Log() {
 	if f.NotFound != "" {
 		slog.Info("no settings file; using environment variables and defaults", "path", f.NotFound)
@@ -101,8 +106,32 @@ func (f EnvFile) Log() {
 	}
 }
 
-// externalVars are read by the Go runtime, not through env.
+// externalVars are read outside Load: TZ by SetTimeZone (and the Go runtime).
 var externalVars = []string{"TZ"}
+
+// SetTimeZone makes TZ (e.g. "Europe/London") the local time zone, on every
+// OS: Go reads TZ itself only on Linux and macOS, while on Windows the zone
+// always comes from the system, so TZ there would do nothing. Call it after
+// LoadEnvFile (TZ may be in the file) and before the log file is opened (its
+// days follow local time). An unknown zone is an error to log, and time.Local
+// is left alone: the system's zone on Windows, UTC on Linux and macOS (the Go
+// runtime's fallback). Zone names need the zone database: main embeds it
+// (time/tzdata), as Windows and the distroless image have none.
+func SetTimeZone() error {
+	tz := strings.TrimSpace(os.Getenv("TZ"))
+	if tz == "" {
+		return nil
+	}
+	if runtime.GOOS != "windows" && (strings.HasPrefix(tz, ":") || strings.HasPrefix(tz, "/")) {
+		return nil // a file path or the ":name" form: the Go runtime reads those itself
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return fmt.Errorf("unknown time zone in TZ (want a name such as Europe/London): %w", err)
+	}
+	time.Local = loc
+	return nil
+}
 
 // read holds every setting name env was asked for, so Log can tell typos
 // from real settings.
@@ -153,8 +182,8 @@ func parseEnvFile(data []byte) (out []envSetting, problems []string) {
 		case !envKey.MatchString(key):
 			problems = append(problems, fmt.Sprintf("line %d: %q is not a setting name", n, key))
 			continue
-		case key == EnvFileVar:
-			problems = append(problems, fmt.Sprintf("line %d: %s only works in the environment", n, EnvFileVar))
+		case key == envFileVar:
+			problems = append(problems, fmt.Sprintf("line %d: %s only works in the environment", n, envFileVar))
 			continue
 		}
 		value, err := envValue(raw)

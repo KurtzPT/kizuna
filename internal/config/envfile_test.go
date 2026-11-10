@@ -4,9 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+	_ "time/tzdata" // zone names without the machine's zone database, as in main
 )
 
 // unset clears names for this test and restores them afterwards, so values
@@ -25,11 +28,11 @@ func unset(t *testing.T, names ...string) {
 func writeEnvFile(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, EnvFileName)
+	path := filepath.Join(dir, envFileName)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	unset(t, EnvFileVar)
+	unset(t, envFileVar)
 	t.Setenv("DATA_DIR", dir)
 	return path
 }
@@ -110,18 +113,18 @@ func TestEarlySettingsFromFile(t *testing.T) {
 }
 
 func TestMissingEnvFile(t *testing.T) {
-	unset(t, EnvFileVar)
+	unset(t, envFileVar)
 	t.Setenv("DATA_DIR", t.TempDir())
 	f, err := LoadEnvFile()
-	if err != nil || f.Path != "" || f.NotFound != filepath.Join(os.Getenv("DATA_DIR"), EnvFileName) {
+	if err != nil || f.Path != "" || f.NotFound != filepath.Join(os.Getenv("DATA_DIR"), envFileName) {
 		t.Errorf("no default file: %+v, %v; want NotFound and no error", f, err)
 	}
-	if log := warnings(t, f.Log); !strings.Contains(log, "no settings file") || !strings.Contains(log, EnvFileName) {
+	if log := warnings(t, f.Log); !strings.Contains(log, "no settings file") || !strings.Contains(log, envFileName) {
 		t.Errorf("no default file: log %q, want a line naming the file", log)
 	}
-	t.Setenv(EnvFileVar, filepath.Join(t.TempDir(), "missing.env"))
-	if _, err := LoadEnvFile(); err == nil || !strings.Contains(err.Error(), EnvFileVar) {
-		t.Errorf("missing %s file: %v, want an error naming it", EnvFileVar, err)
+	t.Setenv(envFileVar, filepath.Join(t.TempDir(), "missing.env"))
+	if _, err := LoadEnvFile(); err == nil || !strings.Contains(err.Error(), envFileVar) {
+		t.Errorf("missing %s file: %v, want an error naming it", envFileVar, err)
 	}
 }
 
@@ -132,7 +135,7 @@ func TestExplicitEnvFile(t *testing.T) {
 	if err := os.WriteFile(other, []byte("MIN_SCORE=20\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(EnvFileVar, other)
+	t.Setenv(envFileVar, other)
 	unset(t, "MIN_SCORE")
 	f, err := LoadEnvFile()
 	if err != nil || f.Path != other || Load().MinScore != 20 {
@@ -256,5 +259,48 @@ func TestEnvSampleMatchesSettings(t *testing.T) {
 		if !slices.Contains(settings, n) {
 			t.Errorf("%s is in .env.sample but never read", n)
 		}
+	}
+}
+
+// keepLocal restores time.Local after the test.
+func keepLocal(t *testing.T) {
+	saved := time.Local
+	t.Cleanup(func() { time.Local = saved })
+}
+
+// TZ sets the local zone on every OS (Go itself ignores it on Windows),
+// also from the settings file. An unknown zone is an error and changes
+// nothing; so does an empty TZ.
+func TestSetTimeZone(t *testing.T) {
+	keepLocal(t)
+	writeEnvFile(t, "TZ=Asia/Tokyo\n")
+	unset(t, "TZ")
+	if _, err := LoadEnvFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTimeZone(); err != nil {
+		t.Fatal(err)
+	}
+	noon := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	if got := noon.In(time.Local); time.Local.String() != "Asia/Tokyo" || got.Hour() != 21 {
+		t.Errorf("TZ=Asia/Tokyo: local zone %s, 12:00 UTC is %s", time.Local, got)
+	}
+
+	before := time.Local
+	for _, tz := range []string{"Mars/Olympus_Mons", "   "} {
+		t.Setenv("TZ", tz)
+		err := SetTimeZone()
+		if (err != nil) != (tz != "   ") || time.Local != before {
+			t.Errorf("TZ=%q: %v, local zone %s; want it unchanged (an error only for the unknown zone)", tz, err, time.Local)
+		}
+		if err != nil && !strings.Contains(err.Error(), "TZ") {
+			t.Errorf("unclear error: %v", err)
+		}
+	}
+
+	// A path: Go reads it itself on Linux and macOS; Windows can't use it.
+	t.Setenv("TZ", "/etc/localtime")
+	if err := SetTimeZone(); (err != nil) != (runtime.GOOS == "windows") || time.Local != before {
+		t.Errorf("TZ=/etc/localtime on %s: %v, local zone %s", runtime.GOOS, err, time.Local)
 	}
 }

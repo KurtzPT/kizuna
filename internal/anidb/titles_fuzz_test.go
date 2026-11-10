@@ -13,16 +13,16 @@ func FuzzNormalize(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		n := Normalize(s)
-		if again := Normalize(n); again != n {
-			t.Errorf("Normalize(%q) = %q, but Normalize(%q) = %q", s, n, n, again)
+		n := normalize(s)
+		if again := normalize(n); again != n {
+			t.Errorf("normalize(%q) = %q, but normalize(%q) = %q", s, n, n, again)
 		}
 		if n != strings.TrimSpace(n) || strings.Contains(n, "  ") {
-			t.Errorf("Normalize(%q) = %q: stray spaces", s, n)
+			t.Errorf("normalize(%q) = %q: stray spaces", s, n)
 		}
 		for _, r := range n {
 			if r != ' ' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-				t.Errorf("Normalize(%q) = %q: keeps %q", s, n, r)
+				t.Errorf("normalize(%q) = %q: keeps %q", s, n, r)
 			}
 		}
 	})
@@ -63,12 +63,12 @@ func FuzzSearch(f *testing.F) {
 				t.Errorf("not best first: %+v", got)
 			}
 		}
-		q := Normalize(query)
+		q := normalize(query)
 		if q == "" || limit < 3 {
 			return
 		}
-		for aid, title := range map[int]string{1: a, 2: b} {
-			if Normalize(title) != q {
+		for aid, title := range map[int]string{1: a, 2: b, 3: b + " " + a} {
+			if normalize(title) != q {
 				continue
 			}
 			found := false

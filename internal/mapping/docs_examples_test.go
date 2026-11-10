@@ -2,9 +2,9 @@ package mapping
 
 import "testing"
 
-// TestSetupDocExamples checks every anime-list-custom.xml example in MAPPING.md
+// TestMappingDocExamples checks every anime-list-custom.xml example in MAPPING.md
 // against the parser. Keep both in sync.
-func TestSetupDocExamples(t *testing.T) {
+func TestMappingDocExamples(t *testing.T) {
 	list, err := parseAnimeLists([]byte(`<anime-list>
 <anime anidbid="1" tvdbid="56789" defaulttvdbseason="1" episodeoffset="0" />
 <anime anidbid="2" tvdbid="56789" defaulttvdbseason="3" episodeoffset="0" />
@@ -55,5 +55,4 @@ func TestSetupDocExamples(t *testing.T) {
 	if e := list[9]; e.TVDB.ID != 0 || !e.noTVDB || e.TMDBMovie != 98765 || e.IMDB != "tt1234567" {
 		t.Errorf("movie: %+v", e)
 	}
-	t.Logf("example 5 stores %d exception episodes", len(list[5].TVDB.Episodes))
 }

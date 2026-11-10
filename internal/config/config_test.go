@@ -134,6 +134,7 @@ func TestBadValuesWarnAndUseDefault(t *testing.T) {
 		{"MATCH_REPORTS", "on", func(c Config) any { return c.MatchReports }, false, true},
 		{"PORT", "70000", func(c Config) any { return c.Listen }, ":32600", true},
 	}
+	t.Setenv("LISTEN", "") // one set on this machine would win over PORT
 	for _, c := range cases {
 		t.Setenv(c.name, c.value)
 		var got any
@@ -179,21 +180,61 @@ func TestModes(t *testing.T) {
 	}
 }
 
+// sourceSettings are the source lists emptyFields checks.
+var sourceSettings = []string{"TITLE_SOURCES", "SUMMARY_SOURCES", "POSTER_SOURCES", "BACKGROUND_SOURCES", "LOGO_SOURCES",
+	"EPISODE_FILL_SOURCES", "EPISODE_TITLES", "GENRE_SOURCES", "CAST_SOURCES", "STUDIO_SOURCES", "CREW_SOURCES",
+	"RATING_SOURCES", "DATE_SOURCES"}
+
 // Lists keep their order; sources without a key are skipped, ANN always
-// counts. A list with nothing usable left is reported; "none" isn't.
+// counts. A list with nothing usable left is reported, apart by whether it
+// was set or left at its default; "none" isn't.
 func TestUsableSources(t *testing.T) {
+	unset(t, sourceSettings...)
+	t.Setenv("CAST_SOURCES", "anidb,tvdb")
 	c := Config{TMDBKey: "x", PosterSources: []string{"tvdb", "ann", "tmdb", "anidb"},
-		BackgroundSources: []string{"tvdb"}, LogoSources: nil, CastSources: []string{"anidb", "tvdb"}}
+		BackgroundSources: []string{"tvdb"}, LogoSources: nil, CastSources: []string{"anidb", "tvdb"},
+		EpisodeFillSources: []string{"tvdb", "mal"}}
 	if got := c.UsableOf(c.PosterSources); !slices.Equal(got, []string{"ann", "tmdb"}) {
 		t.Errorf("posters: %v", got)
 	}
-	if got := c.emptyFields(); !slices.Equal(got, []string{"BACKGROUND_SOURCES", "CAST_SOURCES"}) {
-		t.Errorf("empty fields: %v", got)
+	set, defaults, keys := c.emptyFields()
+	if !slices.Equal(set, []string{"CAST_SOURCES"}) || !slices.Equal(defaults, []string{"BACKGROUND_SOURCES", "EPISODE_FILL_SOURCES"}) ||
+		!slices.Equal(keys, []string{"TVDB_API_KEY", "MAL_CLIENT_ID"}) {
+		t.Errorf("empty fields: set %v, defaults %v, keys %v", set, defaults, keys)
 	}
 	log := warnings(t, func() { Config{AniDBClient: "x"}.LogModes() })
 	for _, want := range []string{"anidb=ready", `tvdb="off: no TVDB_API_KEY`, "only shows with AniDB rules"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("no %q in %q", want, log)
 		}
+	}
+}
+
+// With only ANIDB_CLIENT (a setup CheckModes allows) and every list at its
+// default, the lists whose defaults need TheTVDB or TheMovieDb are no
+// warning, just one info line naming the keys that would fill them. A list
+// the user set to sources without a key is a warning.
+func TestLogModesDefaultListsNoWarning(t *testing.T) {
+	unset(t, sourceSettings...)
+	unset(t, "TVDB_API_KEY", "TVDB_LEGACY_API_KEY", "TMDB_API_KEY", "MAL_CLIENT_ID")
+	t.Setenv("ANIDB_CLIENT", "x")
+	c := Load()
+	log := warnings(t, c.LogModes)
+	if strings.Contains(log, "level=WARN") {
+		t.Errorf("warning for lists left at their default: %q", log)
+	}
+	want := `level=INFO msg="these fields stay empty: their default sources need a key" ` +
+		`settings="[BACKGROUND_SOURCES LOGO_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY]"`
+	if strings.Count(log, "these fields stay empty") != 1 || !strings.Contains(log, want) {
+		t.Errorf("no %q (once) in %q", want, log)
+	}
+
+	t.Setenv("LOGO_SOURCES", "tmdb")
+	log = warnings(t, Load().LogModes)
+	if !strings.Contains(log, `level=WARN msg="no usable source in these lists`) || !strings.Contains(log, "settings=[LOGO_SOURCES]") {
+		t.Errorf("LOGO_SOURCES set without a TMDB key: no warning naming it in %q", log)
+	}
+	if !strings.Contains(log, `settings="[BACKGROUND_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY]"`) {
+		t.Errorf("the defaults' info line: %q", log)
 	}
 }

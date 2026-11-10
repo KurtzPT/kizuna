@@ -28,8 +28,8 @@ func TestNormalize(t *testing.T) {
 		"Love Live! School Idol":    "love live school idol",
 	}
 	for in, want := range cases {
-		if got := Normalize(in); got != want {
-			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		if got := normalize(in); got != want {
+			t.Errorf("normalize(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -126,5 +126,16 @@ func TestScore(t *testing.T) {
 	}
 	if s := Score("One Piece Film Gold", titles); s < 70 || s > 97 {
 		t.Errorf("a near title: %d, want an edit similarity", s)
+	}
+}
+
+// The last title of the index is cut like every other: a query equal to it
+// after normalizing is the same title (98), not merely a similar one.
+func TestSearchLastTitleNormalized(t *testing.T) {
+	var ts Titles
+	ts.SetForTest(map[int][]Title{1: {{"main", "x-jat", "Re:Zero"}}})
+	got := ts.Search("re zero", 0, 5)
+	if len(got) != 1 || got[0].AID != 1 || got[0].Score != 98 {
+		t.Fatalf("got %+v, want aid 1 with score 98", got)
 	}
 }

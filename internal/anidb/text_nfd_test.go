@@ -132,8 +132,8 @@ func TestNormalizeNFCAndNFD(t *testing.T) {
 	for _, c := range nfd {
 		for _, around := range [][2]string{{"", ""}, {"ab", "cd"}} {
 			nfc, dec := around[0]+c.nfc+around[1], around[0]+c.nfd+around[1]
-			if a, b := Normalize(nfc), Normalize(dec); a != b {
-				t.Errorf("%U: Normalize(%q) = %q, but NFD %q gives %q", []rune(c.nfc)[0], nfc, a, dec, b)
+			if a, b := normalize(nfc), normalize(dec); a != b {
+				t.Errorf("%U: normalize(%q) = %q, but NFD %q gives %q", []rune(c.nfc)[0], nfc, a, dec, b)
 			}
 		}
 	}
@@ -144,8 +144,8 @@ func TestNormalizeNFCAndNFD(t *testing.T) {
 		if tail := i % countT; tail > 0 {
 			jamo += string(hangulT + tail)
 		}
-		if a, b := Normalize(string(s)), Normalize(jamo); a != b {
-			t.Errorf("%U: Normalize = %q, but its jamo %q give %q", s, a, jamo, b)
+		if a, b := normalize(string(s)), normalize(jamo); a != b {
+			t.Errorf("%U: normalize = %q, but its jamo %q give %q", s, a, jamo, b)
 		}
 	}
 }
@@ -157,11 +157,11 @@ func TestNormalizeKeepsKanaVoicing(t *testing.T) {
 		{"がっこうぐらし", "がっこうぐらし"}, {"がっこうぐらし", "がっこうぐらし"},
 		{"あ゙", "あ"}, // no voiced あ: the mark goes, as in NFC
 	} {
-		if got := Normalize(c.in); got != c.want {
-			t.Errorf("Normalize(%q) = %q, want %q", c.in, got, c.want)
+		if got := normalize(c.in); got != c.want {
+			t.Errorf("normalize(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
-	if Normalize("か") == Normalize("が") {
+	if normalize("か") == normalize("が") {
 		t.Error("か and が normalize the same")
 	}
 }

@@ -79,9 +79,9 @@ type Placement struct {
 	Ranges []EpisodeRange
 }
 
-// On returns the entry's placement on a site: "tvdb" or "tmdb" (TheMovieDb's
+// on returns the entry's placement on a site: "tvdb" or "tmdb" (TheMovieDb's
 // TV show). Zero for any other site.
-func (e Entry) On(site string) Placement {
+func (e Entry) on(site string) Placement {
 	switch site {
 	case "tvdb":
 		return e.TVDB
@@ -133,9 +133,9 @@ func (p Placement) HasException(anidbSeason, ep int) bool {
 	return listed
 }
 
-// Starts reports whether the placement starts its series: season 1 (or
+// starts reports whether the placement starts its series: season 1 (or
 // absolute) with no offset.
-func (p Placement) Starts() bool {
+func (p Placement) starts() bool {
 	return p.Mapped && (p.Season == 1 || p.Season == -1) && p.Offset == 0
 }
 

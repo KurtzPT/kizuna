@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -228,6 +229,54 @@ func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
 	}
 	if l.ByAID(1).TVDB.ID != 300 || l.ByAID(3).TVDB.ID != 400 || l.ByAID(5).TVDB.ID != 500 || !l.Ready() {
 		t.Errorf("changes not applied: 1 %+v, 3 %+v, 5 %+v", l.ByAID(1), l.ByAID(3), l.ByAID(5))
+	}
+}
+
+// Missing names the lists no mapping has had yet: all of them before the
+// first load (custom entries alone don't count), the one that failed on a
+// first start while the other loaded, none once both have. A list that fails
+// after it loaded once isn't missing: the mapping kept still has it.
+func TestMissingUntilEveryListLoaded(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	order := []string{"animelists", "fribb", "unknown"}
+	l := &Lists{}
+	if got := l.Missing(order); !slices.Equal(got, []string{"animelists", "fribb"}) {
+		t.Errorf("before any load: missing %v, want both lists", got)
+	}
+	custom := `<anime-list><anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`
+	if err := os.WriteFile(filepath.Join(dir, "anime-list-custom.xml"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.SetTransport(lists{}) // both 404
+	_ = l.Load(context.Background(), f, dir, order)
+	if got := l.Missing(order); l.Ready() || !slices.Equal(got, []string{"animelists", "fribb"}) {
+		t.Errorf("custom entries alone: ready %v, missing %v, want both lists", l.Ready(), got)
+	}
+
+	f.SetTransport(lists{animeListsURL: goodAnimeLists}) // fribb: 404
+	_ = l.Load(context.Background(), f, dir, order)
+	if got := l.Missing(order); !l.Ready() || !slices.Equal(got, []string{"fribb"}) {
+		t.Errorf("fribb failed on the first start: ready %v, missing %v, want fribb", l.Ready(), got)
+	}
+
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	if err := l.Load(context.Background(), f, dir, order); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.Missing(order); len(got) > 0 {
+		t.Errorf("both loaded: missing %v", got)
+	}
+
+	cached := filepath.Join(dir, "cache", "mapping", "fribb-anime-list-mini.json")
+	if err := os.WriteFile(cached, []byte("[broken"), 0o644); err != nil { // fresh: no download
+		t.Fatal(err)
+	}
+	if err := l.Load(context.Background(), f, dir, order); err == nil {
+		t.Error("broken fribb: want an error to log")
+	}
+	if got := l.Missing(order); len(got) > 0 || l.ByAID(2).MAL != 7 {
+		t.Errorf("fribb failed after it loaded: missing %v, entry 2 %+v; want the mapping kept", got, l.ByAID(2))
 	}
 }
 

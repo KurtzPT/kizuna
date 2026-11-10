@@ -1,6 +1,11 @@
 package mapping
 
-import "testing"
+import (
+	"bytes"
+	"log/slog"
+	"strings"
+	"testing"
+)
 
 func TestStartsSeries(t *testing.T) {
 	l := &Lists{}
@@ -419,6 +424,39 @@ func TestAnimeListsMappingForms(t *testing.T) {
 	}
 }
 
+// An AniDB episode paired in two <mapping>s gets the first pair, as inside
+// one mapping; pairs still win over a range, also an earlier mapping's.
+func TestPairsAcrossMappingsFirstWins(t *testing.T) {
+	list, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="1" tvdbid="100" defaulttvdbseason="1" tmdbtv="200" tmdbseason="1">
+  <mapping-list>
+    <mapping anidbseason="1" tvdbseason="1" start="1" end="10" offset="2"/>
+    <mapping anidbseason="1" tvdbseason="0" tmdbseason="0">;3-1;5-2;</mapping>
+    <mapping anidbseason="1" tvdbseason="2" tmdbseason="2">;3-7;4-8;</mapping>
+  </mapping-list>
+</anime>
+</anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := list[1]
+	for _, x := range []struct {
+		site     string
+		p        Placement
+		ep, s, n int
+	}{
+		{"tvdb", e.TVDB, 3, 0, 1}, // first pair, not the second mapping's 3-7
+		{"tvdb", e.TVDB, 4, 2, 8}, // the later mapping's pair wins over the earlier range
+		{"tvdb", e.TVDB, 6, 1, 8}, // the range
+		{"tmdb", e.TMDB, 3, 0, 1},
+		{"tmdb", e.TMDB, 4, 2, 8},
+	} {
+		if s, n, ok := x.p.Episode(1, x.ep); !ok || s != x.s || n != x.n {
+			t.Errorf("%s AniDB %d: got S%d E%d ok=%v, want S%d E%d", x.site, x.ep, s, n, ok, x.s, x.n)
+		}
+	}
+}
+
 // AIDFor picks a TMDB show's first entry by its TMDB placement, and the
 // lowest-id fallback skips special-only entries.
 func TestAIDForFirstEntry(t *testing.T) {
@@ -555,5 +593,66 @@ func TestSpecialOnly(t *testing.T) {
 	fribb := Entry{AID: 9, TVDB: Placement{ID: 81797, Season: 0, Mapped: true}}
 	if !fribb.SpecialOnly() {
 		t.Error("a season 0 entry without exceptions: want special-only")
+	}
+}
+
+// An AniDB episode paired in two <mapping>s: an episode beats "none" in
+// either order (Excel Saga's special 1 is ";1-0;" among the specials and
+// ";1-26;" in season 1) without a warning; two different episodes keep the
+// first and warn once per file, naming the entry.
+func TestPairInTwoMappings(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	list, err := parseAnimeLists([]byte(`<anime-list>
+<anime anidbid="25" tvdbid="72462" defaulttvdbseason="1">
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="0">;1-0;2-0;</mapping>
+    <mapping anidbseason="0" tvdbseason="1">;1-26;</mapping>
+  </mapping-list>
+</anime>
+<anime anidbid="26" tvdbid="72463" defaulttvdbseason="1">
+  <mapping-list>
+    <mapping anidbseason="0" tvdbseason="1">;1-26;</mapping>
+    <mapping anidbseason="0" tvdbseason="0">;1-0;2-0;</mapping>
+    <mapping anidbseason="0" tvdbseason="1">;1-26;</mapping>
+  </mapping-list>
+</anime>
+</anime-list>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, aid := range []int{25, 26} {
+		if s, n, ok := list[aid].TVDB.Episode(0, 1); !ok || s != 1 || n != 26 {
+			t.Errorf("aid %d special 1: got S%d E%d ok=%v, want S1 E26", aid, s, n, ok)
+		}
+		if _, _, ok := list[aid].TVDB.Episode(0, 2); ok {
+			t.Errorf("aid %d special 2: paired, want none", aid)
+		}
+	}
+	if buf.Len() != 0 {
+		t.Errorf("an episode and \"none\", or the same pair twice, warned:\n%s", buf.String())
+	}
+
+	list, err = parseAnimeListsFile([]byte(`<anime-list>
+<anime anidbid="7" tvdbid="100" defaulttvdbseason="1" tmdbtv="200" tmdbseason="1">
+  <mapping-list>
+    <mapping anidbseason="1" tvdbseason="0" tmdbseason="0">;3-1;</mapping>
+    <mapping anidbseason="1" tvdbseason="2" tmdbseason="0">;3-7;</mapping>
+  </mapping-list>
+</anime>
+</anime-list>`), "anime-list-custom.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, n, ok := list[7].TVDB.Episode(1, 3); !ok || s != 0 || n != 1 {
+		t.Errorf("conflict: got S%d E%d ok=%v, want the first pair, S0 E1", s, n, ok)
+	}
+	log := buf.String()
+	if strings.Count(log, "level=WARN") != 1 || !strings.Contains(log, "file=anime-list-custom.xml") || !strings.Contains(log, "episodes=2") ||
+		!strings.Contains(log, "anidb-7 S1E3: TVDB S0E1 and S2E7") || !strings.Contains(log, "anidb-7 S1E3: TMDB S0E1 and S0E7") {
+		t.Errorf("want one warning naming the file and both conflicts, got:\n%s", log)
 	}
 }

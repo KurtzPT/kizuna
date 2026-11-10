@@ -16,6 +16,8 @@ func FuzzParseAnimeLists(f *testing.F) {
 </anime></anime-list>`))
 	f.Add([]byte(`<anime-list><anime anidbid="1" tvdbid="unknown" defaulttvdbseason="a"><mapping-list><mapping anidbseason="1" tvdbseason="a" offset="3"/></mapping-list></anime></anime-list>`))
 	f.Add([]byte(`<anime-list><anime anidbid="2" tvdbid="movie" tmdbid="12,13"/></anime-list>`))
+	// A range ending at the largest int: counting through it must end.
+	f.Add([]byte(`<anime-list><anime anidbid="3" tvdbid="5"><mapping-list><mapping anidbseason="1" tvdbseason="1" start="9223372036854775807" end="9223372036854775807"/></mapping-list></anime></anime-list>`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		list, err := parseAnimeLists(data)
 		if err != nil {

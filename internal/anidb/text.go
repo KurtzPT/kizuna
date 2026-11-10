@@ -86,10 +86,10 @@ var (
 	reBrackets = regexp.MustCompile(`\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}`)
 	// accents folds a letter with accents into the letter without them, for
 	// every precomposed letter of Latin-1 Supplement, Latin Extended-A and -B,
-	// Latin Extended Additional, Greek and Cyrillic (lowercase: Normalize
+	// Latin Extended Additional, Greek and Cyrillic (lowercase: normalize
 	// lowercases first). Their decomposed form (NFD: the letter, then
 	// combining accents, as macOS writes file names) loses the accents in
-	// Normalize, so both forms end up the same. A few letters without a
+	// normalize, so both forms end up the same. A few letters without a
 	// decomposition fold too (ø, ß, ł, đ, ħ, ı), as do apostrophes.
 	accents = strings.NewReplacer(
 		"ß", "ss", "à", "a", "á", "a", "â", "a", "ã", "a", "ä", "a", "å", "a", "ç", "c", "è", "e", "é", "e",
@@ -125,11 +125,11 @@ var (
 		"'", "", "’", "", "`", "")
 )
 
-// Normalize makes titles comparable: lowercase, no bracketed parts, no
+// normalize makes titles comparable: lowercase, no bracketed parts, no
 // accents or punctuation, single spaces. "Shingeki no Kyojin (2013)" ->
 // "shingeki no kyojin". A title written precomposed (NFC, as AniDB does)
 // and decomposed (NFD) comes out the same.
-func Normalize(s string) string {
+func normalize(s string) string {
 	s = accents.Replace(strings.ToLower(compose(s, voiceLead, voice)))
 	s = reBrackets.ReplaceAllString(s, " ")
 	var b strings.Builder

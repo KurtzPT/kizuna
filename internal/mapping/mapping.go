@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -124,6 +123,10 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	if customErr == nil {
 		fmt.Fprintf(h, "custom:%d:", len(custom))
 		h.Write(custom)
+	} else if !errors.Is(customErr, fs.ErrNotExist) {
+		// Unreadable is a change too: it is reported below, not passed
+		// over as "unchanged" next to lists that stayed the same.
+		fmt.Fprintf(h, "custom-unreadable:%v", customErr)
 	}
 	var sum [32]byte
 	h.Sum(sum[:0])
@@ -171,7 +174,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 	switch {
 	case customErr == nil:
 		var err error
-		if extra, err = parseAnimeLists(custom); err != nil {
+		if extra, err = parseAnimeListsFile(custom, "anime-list-custom.xml"); err != nil {
 			extra = l.get().custom
 			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", len(extra), err))
 		}
@@ -286,11 +289,11 @@ func (l *Lists) set(s *snapshot) {
 	}
 	for _, ids := range s.byNum {
 		for _, aids := range ids {
-			sort.Ints(aids)
+			slices.Sort(aids)
 		}
 	}
 	for _, aids := range s.byIMDB {
-		sort.Ints(aids)
+		slices.Sort(aids)
 	}
 	l.cur.Store(s)
 }
@@ -300,6 +303,23 @@ func (l *Lists) set(s *snapshot) {
 func (l *Lists) Ready() bool {
 	s := l.cur.Load()
 	return s != nil && !s.customOnly
+}
+
+// Missing returns the lists of order that no loaded mapping has had yet (all
+// of them before the first load): one that failed at the first start with
+// nothing cached, while another loaded. Ready is true then, but the mapping
+// lacks that list's ids and episode exceptions, so it is worth retrying soon.
+// A list that loaded once stays in the mapping even when a later download
+// fails (see Load), so it isn't missing then.
+func (l *Lists) Missing(order []string) []string {
+	from := l.get().from
+	var out []string
+	for _, src := range order {
+		if _, known := listSources[src]; known && !slices.Contains(from, src) {
+			out = append(out, src)
+		}
+	}
+	return out
 }
 
 // SetForTest replaces the mapping (for tests in other packages).
@@ -346,7 +366,7 @@ func (s *snapshot) aids(source, id string) []int {
 }
 
 func (s *snapshot) startsShow(site string, aid int) bool {
-	id := s.byAID[aid].On(site).ID
+	id := s.byAID[aid].on(site).ID
 	return id > 0 && s.firstAID(site, id) == aid
 }
 
@@ -357,7 +377,7 @@ func (s *snapshot) startsShow(site string, aid int) bool {
 func (s *snapshot) firstAID(site string, id int) int {
 	aids := s.byNum[site][id]
 	for _, aid := range aids {
-		if s.byAID[aid].On(site).Starts() {
+		if s.byAID[aid].on(site).starts() {
 			return aid
 		}
 	}
@@ -369,7 +389,7 @@ func (s *snapshot) firstAID(site string, id int) int {
 // one (0 if none).
 func (s *snapshot) lowestRegular(aids []int, site string) int {
 	for _, aid := range aids {
-		if e := s.byAID[aid]; !e.SpecialOnly() && !e.On(site).specialsOnly() {
+		if e := s.byAID[aid]; !e.SpecialOnly() && !e.on(site).specialsOnly() {
 			return aid
 		}
 	}
