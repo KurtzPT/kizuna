@@ -179,11 +179,25 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 
 /* Fields */
 .fields{table-layout:fixed;min-width:900px}
-.fields th:first-child{width:150px}.fields th:last-child{width:170px}
-.fields td{font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.fields th:first-child{width:130px}.fields th:last-child{width:140px}
+.fields th,.fields td{padding-left:10px;padding-right:10px}
+.fields td{font-size:13.5px;line-height:1.45;overflow-wrap:anywhere}
 .fields td.f{font:600 14.5px var(--tech);font-stretch:90%}
-.fields td.f small{display:block;font:400 12.5px var(--prose);color:var(--muted);margin-top:2px}
+/* A cell: its rank in the field's order, then the value. */
+.fields .rk{float:left;width:14px;margin-right:6px;font:500 11.5px/1.7 var(--tech);font-variant-numeric:tabular-nums;color:var(--muted);opacity:.7;text-align:right}
+.fields .cv{display:block;overflow:hidden}
 .fields .v{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.fields .v.sub{-webkit-line-clamp:2;color:var(--muted);font-size:13px}
+.fields .v.full{display:block}
+.fields .sum{display:block;font-weight:600}
+.fields td.skip .v{color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:13px}
+.fields .morebtn{display:block;padding:2px 0 0;font-size:12.5px;text-align:left}
+.goto{display:inline-block;margin-top:4px;font:600 12.5px var(--tech);font-stretch:90%;color:var(--ink);text-decoration:underline;text-decoration-color:var(--edge);text-underline-offset:3px}
+.goto:hover{text-decoration-color:currentColor}
+/* Where an "Open in" link lands: one brief mark so the eye finds it. */
+@keyframes hit{from{box-shadow:inset 0 0 0 2px var(--ink)}to{box-shadow:inset 0 0 0 2px transparent}}
+.hit{animation:hit 1.6s ease-out}
+.hit:focus{outline:none}
 .fields td.used,.fields th.srcc{box-shadow:inset 4px 0 0 var(--c)}
 .fields td.used{color:var(--ink)}
 .fields td.offer,.fields td.skip,.fields td.nil{color:var(--muted)}
@@ -440,7 +454,7 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
   .fields td{display:grid!important;grid-template-columns:78px minmax(0,1fr);align-items:baseline;gap:0 12px;padding-left:16px}
   .fields td.f{display:block!important;padding-bottom:4px}
   .fields td.used{box-shadow:none}
-  .fields td .lb{display:inline-flex}
+  .fields td .lb{display:inline-flex}.fields .rk{display:none}
   .fields td.used .lb{color:var(--ink)}
   .fields td.offer .lb::before,.fields td.skip .lb::before,.fields td.nil .lb::before{background:none;box-shadow:inset 0 0 0 1px var(--edge)}
   .fields td.why{display:block!important;color:var(--muted)}
@@ -647,6 +661,40 @@ function renderMapping(b) {
     ${rows.map(r => `<tr><td class="id" data-l="AniDB">${siteLink("anidb", r.aid)}</td><td data-l="Name">${esc(r.name)}</td><td class="id" data-l="TVDB">${r.tvdb ? siteLink("tvdb", r.tvdb) : none}</td><td class="num" data-l="TVDB season">${esc(r.tvdbSeason || "")}</td><td class="num" data-l="Offset">${r.tvdbOffset ? esc(r.tvdbOffset) : zero}</td><td class="id" data-l="TMDB">${r.tmdb ? siteLink(r.tmdbSeason === "movie" ? "tmdbmovie" : "tmdb", r.tmdb) : none}</td><td class="num" data-l="TMDB season">${esc(r.tmdbSeason || "")}</td><td class="num" data-l="Per-episode">${r.exceptions ? esc(r.exceptions) : zero}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
+// A field's value as the sources gave it is one line of text, made by Kizuna.
+// The long ones get a summary: a count first, then the first names.
+const FIELD_ITEM = {Title: "title", Summary: "summary", Genres: "Genre", Cast: "Role", Studio: "studio", Crew: "Director",
+  "Content rating": "contentRating", "First aired": "originallyAvailableAt", Posters: "Image", Backgrounds: "Image", Logos: "Image"};
+const LONG = 160;
+function fieldValue(fname, v) {
+  v = String(v ?? "");
+  const more = (names, n) => names.length ? esc(names[0]) + (n > 1 ? ` and ${n - 1} more` : "") : "";
+  let m;
+  if (fname === "Cast" && (m = /^(\d+): ([\s\S]*)$/.exec(v))) {
+    const n = +m[1], names = m[2].split(", ").map(x => x.split(" as ")[0]).filter(x => x && x !== "…");
+    return `<span class="sum">${plural(n, "person", "people")}</span><span class="v sub">${more(names, n)}</span>`;
+  }
+  if (fname === "Crew" && /^[A-Z][a-z]+s?: /.test(v)) {
+    const parts = v.split(/\.\s+(?=[A-Z][a-z]+s?: )/).map(p => /^([A-Z][a-z]+?)s?: (.*?)\.?$/.exec(p)).filter(Boolean);
+    if (parts.length) {
+      const counts = parts.map(([, role, names]) => plural(names.split(", ").length, role.toLowerCase()));
+      return `<span class="sum">${esc(counts.join(", "))}</span><span class="v sub">${esc(parts.map(p => p[2]).join(", "))}</span>`;
+    }
+  }
+  if (fname === "Genres" && v.includes(", ")) {
+    return `<span class="sum">${plural(v.split(", ").length, "genre")}</span><span class="v sub">${esc(v)}</span>`;
+  }
+  if (v.length > LONG) return `<span class="v long">${esc(v)}</span><button class="morebtn" data-unclamp aria-expanded="false">Show all</button>`;
+  return `<span class="v">${esc(v)}</span>`;
+}
+// Where Plex's copy of a field is: a key of the show item, or a level of the Art section.
+function fieldGoto(b, fname) {
+  const k = FIELD_ITEM[fname];
+  if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k, text: "Sent to Plex", label: "Open this field in Sent to Plex"};
+  const m = /^(Specials|Season \d+) /.exec(fname);
+  if (m) return {to: "art:" + m[1], text: "Art", label: `Open ${m[1]} in Art`};
+  return null;
+}
 function renderFields(b) {
   const fields = b.fields || [];
   if (!fields.length) return `<div class="panel"><div class="empty">${b.error ? "The build failed before any field was filled." : "No fields were recorded for this build."}</div></div>`;
@@ -657,24 +705,43 @@ function renderFields(b) {
   const extra = f => /^(Specials|Season \d+) /.test(f.name);
   const nExtra = fields.filter(extra).length;
   const rows = fields.map(f => {
-    const used = f.used || [], asked = f.asked || [], off = f.offered || {};
+    const used = f.used || [], asked = f.asked || [], off = f.offered || {}, go = fieldGoto(b, f.name);
     const cells = cols.map(c => {
-      const lb = `<span class="lb th" data-s="${esc(sk(c))}">${esc(name(c))}</span>`;
       if (!f.order.includes(c)) return `<td class="off"></td>`;
+      const rank = f.order.indexOf(c) + 1;
+      const lb = `<span class="lb th" data-s="${esc(sk(c))}">${esc(name(c))}</span>`;
+      const rk = `<span class="rk" title="${esc(name(c))} is number ${rank} in this field's order">${rank}</span>`;
       const v = off[c];
-      if (used.includes(c)) return `<td class="used" data-s="${esc(sk(c))}">${lb}<span class="v" title="${esc(v)}">${esc(v)}</span></td>`;
-      if (!asked.includes(c)) return `<td class="skip">${lb}<span class="v">not asked</span></td>`;
-      if (!v) return `<td class="nil">${lb}<span class="v">no value</span></td>`;
-      return `<td class="offer">${lb}<span class="v" title="${esc(v)}">${esc(v)}</span></td>`;
+      if (used.includes(c)) return `<td class="used" data-s="${esc(sk(c))}">${lb}${rk}<span class="cv">${fieldValue(f.name, v)}${go ? `<a class="goto" href="#s-output" data-goto="${esc(go.to)}" title="${esc(go.label)}" aria-label="${esc(go.label)}">${esc(go.text)}</a>` : ""}</span></td>`;
+      if (!asked.includes(c)) return `<td class="skip">${lb}${rk}<span class="cv"><span class="v">not asked</span></span></td>`;
+      if (!v) return `<td class="nil">${lb}${rk}<span class="cv"><span class="v">no value</span></span></td>`;
+      return `<td class="offer">${lb}${rk}<span class="cv">${fieldValue(f.name, v)}</span></td>`;
     }).join("");
     let why = "No source had a value";
     if (used.length > 1) why = "Every listed source's images (ART_ALL_SOURCES)";
     else if (used.length && used[0] === f.order[0]) why = "First in the order";
     else if (used.length) why = `${f.order.slice(0, f.order.indexOf(used[0])).map(name).join(", ")} had none`;
-    return `<tr class="${extra(f) ? "extra" : ""}"><td class="f">${esc(f.name)}<small>${esc(f.order.map(name).join(", "))}</small></td>${cells}<td class="why dim">${esc(why)}</td></tr>`;
+    return `<tr class="${extra(f) ? "extra" : ""}"><td class="f">${esc(f.name)}</td>${cells}<td class="why dim">${esc(why)}</td></tr>`;
   }).join("");
   return `<div class="panel"><div class="scroll" tabindex="0" role="region" aria-label="What each source offered"><table class="tbl fields stack" id="fields"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
     ${nExtra ? `<button class="morebtn" data-toggle="fields" aria-expanded="false" data-more="Show the ${plural(nExtra, "season art field")}" data-less="Hide the season art fields">Show the ${plural(nExtra, "season art field")}</button>` : ""}</div>`;
+}
+// goToField takes the reader to a field's copy in Sent to Plex (opening its row) or in Art (opening the level).
+function goToField(to) {
+  let el = null;
+  if (to.startsWith("item:")) {
+    const k = to.slice(5), find = () => document.querySelector(`#s-output .rec-r[data-k="${CSS.escape(k)}"]`);
+    el = find();
+    if (el && el.classList.contains("pr") && !el.classList.contains("open")) { toggleItemRow(el, false); el = find(); }
+  } else if (to.startsWith("art:")) {
+    const n = ART.findIndex(l => l.label === to.slice(4)), fold = n < 0 ? null : document.querySelector(`.fold[data-art="${n}"]`);
+    if (fold) { const h = fold.querySelector(".fold-h"); if (h.getAttribute("aria-expanded") !== "true") h.click(); el = document.querySelector(`.fold[data-art="${n}"]`); }
+  }
+  if (!el) return false;
+  el.scrollIntoView({block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+  el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit");
+  el.setAttribute("tabindex", "-1"); el.focus({preventScroll: true});
+  return true;
 }
 
 /* Episodes. The list is made from EP on every search or filter; a row's
@@ -888,7 +955,7 @@ function itemRows(b) {
     if (k === "duration" && typeof v === "number") return {k, s: false, v: `${esc(v)} ms (${Math.round(v/60000)} min)`};
     return {k, s: srcOf(k), v: v === "" ? '<span class="dim">empty</span>' : `<span class="${isUrl(v) || /^(key|guid|ratingKey)$/.test(k) ? "mono" : ""}">${one(k, v)}</span>`};
   });
-  return new Map(rows.map((r, i) => [r.key ?? i, `<div class="rec-r ${r.wide ? "wide" : ""}${r.pr ? ` pr${ITEM_OPEN.has(r.key) ? " open" : ""}" data-row="${esc(r.key)}` : ""}">${r.pr
+  return new Map(rows.map((r, i) => [r.key ?? i, `<div class="rec-r ${r.wide ? "wide" : ""}${r.pr ? ` pr${ITEM_OPEN.has(r.key) ? " open" : ""}" data-row="${esc(r.key)}` : ""}" data-k="${esc(r.key ?? String(r.k).replace(/ \(\d+\)$/, ""))}">${r.pr
     ? `<button class="rec-k mono row-t" aria-expanded="${ITEM_OPEN.has(r.key)}">${esc(r.k)}</button>` : `<span class="rec-k mono">${esc(r.k)}</span>`}${r.wide ? "" : r.s ? th(r.s) : "<span></span>"}<div class="rec-v">${r.v}</div></div>`]));
 }
 // thumb and art: the picture loads only while the pointer (or focus) is on the link.
@@ -1232,6 +1299,8 @@ document.addEventListener("click", e => {
     if (tab) { tab.focus({preventScroll: !b.classList.contains("linkbtn")}); if (b.classList.contains("linkbtn")) tab.scrollIntoView({block: "start"}); }
     return;
   }
+  const go = t.closest("[data-goto]");
+  if (go) { e.preventDefault(); if (!goToField(go.dataset.goto)) goTo(go.getAttribute("href").slice(1)); return; }
   const sec = t.closest('a[href^="#"]');
   if (sec && DATA.kind === "show") { e.preventDefault(); goTo(sec.getAttribute("href").slice(1)); return; }
   if (t.closest("#copy")) { copyReport(t.closest("#copy")); return; }
@@ -1247,6 +1316,8 @@ document.addEventListener("click", e => {
   if (ixcap) { IX.cap[ixcap.dataset.ixcap] = Infinity; ixDraw(); return; }
   const f = t.closest(".seg button[data-f]");
   if (f) { f.parentNode.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === f)); EP.only = f.dataset.f === "issue"; EP.shut.clear(); renderEpList(); return; }
+  const unc = t.closest("[data-unclamp]");
+  if (unc) { const v = unc.previousElementSibling, on = !v.classList.contains("full"); v.classList.toggle("full", on); unc.setAttribute("aria-expanded", on); unc.textContent = on ? "Show less" : "Show all"; return; }
   const pr = t.closest(".rec-r.pr");
   if (pr && !t.closest("a, [data-rest]") && (t.closest(".row-t") || !pr.classList.contains("open"))) { toggleItemRow(pr, e.detail === 0); return; }
   const all = t.closest("[data-allseasons]");

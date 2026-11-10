@@ -137,6 +137,17 @@ const count = (text, re) => (text.match(re) || []).length;
   check(pics.length > 0 && pics.every(i => /\ssrc="https:\/\//.test(i) && /loading="lazy"/.test(i) && /referrerpolicy="no-referrer"/.test(i)), "show item, pictures shown: an image is not https, lazy and without a referrer");
   checkLinks("show item, pictures shown", shown);
   checkEscaped("show item, pictures shown", shown);
+  // What each source offered: long values summed up, Plex's copy one click away.
+  const fv = (f, v) => page.run(`fieldValue(${JSON.stringify(f)}, ${JSON.stringify(v)})`);
+  check(/19 people/.test(fv("Cast", "19: Ann &lt;b&gt; as X, Bo as Y, …")) && /Ann &amp;lt;b&amp;gt; and 18 more/.test(fv("Cast", "19: Ann &lt;b&gt; as X, Bo as Y, …")), "fields: the cast is a count and the first name, escaped");
+  check(fv("Crew", "Directors: D One. Writers: W One, W Two").includes("1 director, 2 writers"), "fields: the crew is counted by role");
+  check(fv("Genres", "A, B, C").includes("3 genres"), "fields: the genres are counted");
+  check(/data-unclamp/.test(fv("Summary", "x".repeat(400))) && !/data-unclamp/.test(fv("Summary", "short")), "fields: only a long value can be shown whole");
+  const ftab = page.run("renderFields(DATA.show.builds[0])");
+  const cells = [...ftab.matchAll(/<td class="(used|offer|skip|nil)"[^]*?<\/td>/g)];
+  check(cells.some(c => c[1] === "used" && /data-goto="item:/.test(c[0])) && cells.every(c => c[1] === "used" || !/data-goto=/.test(c[0])), "fields: only the value Plex got links to its copy");
+  checkLinks("fields", ftab);
+  checkEscaped("fields", ftab);
   // A build recorded before itemSrc: no threads, no failure.
   const bare = withRows("{...DATA.show.builds[0], itemSrc: undefined}");
   check(!/class="th/.test(bare) && bare.includes("coverPoster"), "show item without itemSrc: it still renders, without threads");
