@@ -62,22 +62,13 @@ type candidate struct {
 // (then items is empty): only a show that doesn't exist (noShow) is "no
 // match"; any other failure answers 503.
 func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items []Item, err error) {
-	title := r.Title
-	switch r.Type {
-	case 3:
-		title = r.ParentTitle
-	case 4:
-		title = r.GrandparentTitle
-	}
-	var noted *[]report.Candidate                            // the title search results, for the match report
-	if p.reports != nil && !(r.Manual == 1 && r.Type <= 2) { // a Fix Match list is in no report
-		noted = new([]report.Candidate)
-	}
-	cands, how := p.searchCandidates(mode, title, r, noted)
+	list := r.fixMatchList()
+	d := p.decide(mode, r, p.reports != nil && !list) // a Fix Match list is in no report
+	title, cands, how := d.title, d.cands, d.how()
 	attrs := []any{"mode", mode.Path, "type", matchType(r.Type), "title", title, "year", r.Year, "file", r.Filename, "guid", r.GUID, "manual", r.Manual == 1}
 	var m *report.Match
-	if noted != nil {
-		m = p.recordMatch(mode, r, title, how, cands, *noted)
+	if p.reports != nil && !list {
+		m = p.recordMatch(mode, r, d)
 	}
 	rq := report.RequestFrom(ctx) // nil with the reports off
 	if len(cands) == 0 {
@@ -98,7 +89,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		rq.Key = p.reportKey(cands[0].root)
 		rq.Note = fmt.Sprintf("%s match: %s, score %d → %s", matchType(r.Type), how, cands[0].score, cands[0].root)
 	}
-	if r.Manual == 1 && r.Type <= 2 { // Plex "Fix Match" list: cheap items, no API calls
+	if list { // Plex "Fix Match" list: cheap items, no API calls
 		if rq != nil {
 			rq.Answer, rq.Note = "Fix Match list", fmt.Sprintf("%d candidates, best %s (score %d)", len(cands), cands[0].root, cands[0].score)
 		}
@@ -154,153 +145,6 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	return []Item{*it}, nil
 }
 
-// searchCandidates: an id tag in the show title or the file path (which
-// includes the show folder) wins, then the GUID Plex already has, then title
-// search. Only one id tag is allowed: with two different ones the show gets
-// no match. In /auto, an AniDB or TVDB tag whose mode is off is no match.
-// A manual show match (Fix Match) lists the id match, if any, first and then
-// the title search results: a tag that gives no match there still leaves the
-// typed title's results. A manual season or episode match isn't a list: an
-// id match is the answer, and a tag that gives no match stays no match.
-// title is the show's title in r (Match picks it by r.Type); how says which
-// of them decided. The first title search results
-// are added to noted (when not nil) for the match report.
-func (p *Provider) searchCandidates(mode Mode, title string, r MatchRequest, noted *[]report.Candidate) ([]candidate, string) {
-	query := tagRe.ReplaceAllString(title, "")
-	c, how, stop := p.idCandidate(mode, title, query, r)
-	if r.Manual != 1 || r.Type > 2 {
-		if c != nil || stop {
-			return listOf(c), how
-		}
-		return p.titleCandidates(mode, query, r.Year, r.Manual == 1, nil, noted)
-	}
-	out, thow := p.titleCandidates(mode, query, r.Year, true, c, noted)
-	if c == nil && !stop {
-		return out, thow
-	}
-	return out, how + "; " + thow
-}
-
-func listOf(c *candidate) []candidate {
-	if c == nil {
-		return nil
-	}
-	return []candidate{*c}
-}
-
-// idCandidate is the show an id tag or Plex's GUID names. stop: a tag rule
-// says the show gets no match (two tags, or a strict tag whose mode is off);
-// how then says why.
-func (p *Provider) idCandidate(mode Mode, title, query string, r MatchRequest) (c *candidate, how string, stop bool) {
-	year, guid := r.Year, r.GUID
-	debug := debugOn(context.Background())
-	switch tags := idTags(title, r.Filename); {
-	case len(tags) > 1: // which one the user meant is a guess: no tag, GUID or title search
-		names := make([]string, len(tags))
-		for i, m := range tags {
-			names[i] = m[0]
-		}
-		list := strings.Join(names, " ")
-		if p.tagsLogged.due(title) {
-			slog.Warn("match: more than one id tag; only one is allowed, the show gets no match", "title", title, "tags", list)
-		}
-		return nil, "id tags " + list + ": only one is allowed", true
-	case len(tags) == 1:
-		m := tags[0]
-		rules, need := p.tagRules(mode, m[1])
-		if need != "" { // the tag is the user's choice: no other mode, GUID or title search
-			if p.tagOffLogged.due(rules.Path) {
-				slog.Warn("match: id tag needs /"+rules.Path+", which is off", "tag", m[0], "set", need)
-			}
-			return nil, fmt.Sprintf("tag %s: /%s is off, set %s", m[0], rules.Path, need), true
-		}
-		if strings.EqualFold(m[1], "tvdb") {
-			if c, note, ok := p.specialRoot(m[0], m[2], title, query, r.Filename, year); ok {
-				return &c, "tag " + m[0] + ", " + note, false
-			}
-		}
-		if root := p.rootForID(rules, m[1], m[2], query, year); root != "" {
-			return &candidate{root, 100}, "tag " + m[0], false
-		}
-		if debug {
-			slog.Debug("match: id tag not in the mapping", "tag", m[0])
-		}
-	}
-	for _, re := range []*regexp.Regexp{guidRe, otherGUIDRe} {
-		if m := re.FindStringSubmatch(guid); m != nil {
-			// Another agent's TheTVDB GUID names the series like a tag; Kizuna's
-			// own (and HAMA's) GUID is an earlier match or a Fix Match: kept.
-			if re == otherGUIDRe && (strings.EqualFold(m[1], "thetvdb") || strings.EqualFold(m[1], "tvdb")) {
-				if c, note, ok := p.specialRoot(guid, m[2], title, query, r.Filename, year); ok {
-					return &c, "guid " + guid + ", " + note, false
-				}
-			}
-			if root := p.rootForID(p.rules(mode, m[1]), m[1], m[2], query, year); root != "" {
-				return &candidate{root, 100}, "guid " + guid, false
-			}
-			if debug {
-				slog.Debug("match: GUID id not in the mapping", "guid", guid)
-			}
-		}
-	}
-	return nil, "", false
-}
-
-// titleCandidates is the AniDB title search: the best match, or for a
-// manual match up to 10 results (MIN_SCORE not applied) after first, the
-// id match (nil if none).
-func (p *Provider) titleCandidates(mode Mode, query string, year int, manual bool, first *candidate, noted *[]report.Candidate) ([]candidate, string) {
-	debug := debugOn(context.Background())
-	limit := 1
-	if manual {
-		limit = 10
-	}
-	var out []candidate
-	seen := map[string]bool{}
-	if first != nil {
-		out = append(out, *first)
-		seen[first.root] = true
-	}
-	titleRules := p.rules(mode, "")
-	results := p.titles.Search(query, year, 20)
-	if debug || noted != nil {
-		// The best five, whichever of them the match below takes or turns
-		// down: the log and the report show what the search found.
-		for i, m := range results[:min(5, len(results))] {
-			t := p.mainTitle(m.AID)
-			if debug {
-				slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score, "title", t)
-			}
-			if noted != nil {
-				*noted = append(*noted, report.Candidate{AID: m.AID, Title: t, Score: m.Score})
-			}
-		}
-	}
-	for _, m := range results {
-		if len(out) >= limit {
-			break
-		}
-		if !manual && m.Score < p.cfg.MinScore {
-			if debug {
-				slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
-			}
-			break
-		}
-		root := p.rootFor(titleRules, "anidb", m.AID) // never "" for an AniDB id
-		if !seen[root] {
-			seen[root] = true
-			out = append(out, candidate{root, m.Score})
-		}
-	}
-	if len(results) == 0 {
-		return out, "title search: no similar title"
-	}
-	if len(out) == 0 {
-		return nil, fmt.Sprintf("title search: best score %d below MIN_SCORE %d", results[0].Score, p.cfg.MinScore)
-	}
-	return out, "title search"
-}
-
 // idTags returns the different id tags in texts (tagRe submatches), in
 // order. A tag written again, as the show folder's tag in the file path or
 // in the file name, is the same tag: same site and id, whatever the
@@ -326,8 +170,10 @@ func idTags(texts ...string) [][]string {
 var mainLang = []string{"main"}
 
 // mainTitle is an AniDB entry's main title.
-func (p *Provider) mainTitle(aid int) string {
-	return anidb.PickTitle(p.titles.Of(aid), mainLang, false)
+func (p *Provider) mainTitle(aid int) string { return mainTitle(p.titles, aid) }
+
+func mainTitle(titles *anidb.Titles, aid int) string {
+	return anidb.PickTitle(titles.Of(aid), mainLang, false)
 }
 
 // rules returns the mode whose rules a GUID or the title search follows.
@@ -335,7 +181,7 @@ func (p *Provider) mainTitle(aid int) string {
 // /anidb rules and a TVDB id the /tvdb rules; other ids and title search use
 // AUTO_DEFAULT. A mode that is off (no AniDB client, no TVDB key) gives way
 // to the other one, which rootFor turns the id into.
-func (p *Provider) rules(mode Mode, source string) Mode {
+func (m matcher) rules(mode Mode, source string) Mode {
 	if !mode.Auto {
 		return mode
 	}
@@ -345,11 +191,11 @@ func (p *Provider) rules(mode Mode, source string) Mode {
 	case "tvdb", "thetvdb":
 		want, other = other, want
 	default:
-		if p.cfg.AutoDefault == "tvdb" {
+		if m.autoDefault == "tvdb" {
 			want, other = other, want
 		}
 	}
-	if p.modeOff(want) != "" && p.modeOff(other) == "" {
+	if m.modeOff(want) != "" && m.modeOff(other) == "" {
 		return other
 	}
 	return want
@@ -359,7 +205,7 @@ func (p *Provider) rules(mode Mode, source string) Mode {
 // always brings its own site's rules, without giving way: when that mode is
 // off, need names what to set and the show gets no match. Other tags follow
 // rules.
-func (p *Provider) tagRules(mode Mode, source string) (rules Mode, need string) {
+func (m matcher) tagRules(mode Mode, source string) (rules Mode, need string) {
 	if !mode.Auto {
 		return mode, ""
 	}
@@ -369,9 +215,9 @@ func (p *Provider) tagRules(mode Mode, source string) (rules Mode, need string) 
 	case "tvdb":
 		rules, need = Modes["tvdb"], "TVDB_API_KEY or TVDB_LEGACY_API_KEY"
 	default:
-		return p.rules(mode, source), ""
+		return m.rules(mode, source), ""
 	}
-	if p.modeOff(rules) == "" {
+	if m.modeOff(rules) == "" {
 		need = ""
 	}
 	return rules, need
@@ -402,7 +248,7 @@ func matchType(t int) string {
 // and TVDB ids are used directly; the others (TMDB, IMDb, MAL, AniList,
 // Kitsu, ANN) are mapped to their AniDB entry first (see aidFor; title and
 // year only settle a TMDB id). "" if unknown.
-func (p *Provider) rootForID(mode Mode, source, id, title string, year int) string {
+func (m matcher) rootForID(mode Mode, source, id, title string, year int) string {
 	source, id = strings.ToLower(source), strings.ToLower(id) // [imdb-TT1] is tt1
 	if to, ok := idAliases[source]; ok {
 		source = to
@@ -416,10 +262,10 @@ func (p *Provider) rootForID(mode Mode, source, id, title string, year int) stri
 		if err != nil || n <= 0 {
 			return ""
 		}
-		return p.rootFor(mode, source, n)
+		return m.rootFor(mode, source, n)
 	case source == "imdb" || (err == nil && n > 0):
-		if aid := p.aidFor(source, id, title, year); aid > 0 {
-			root := p.rootFor(mode, "anidb", aid)
+		if aid := m.aidFor(source, id, title, year); aid > 0 {
+			root := m.rootFor(mode, "anidb", aid)
 			if debugOn(context.Background()) {
 				slog.Debug("match: id mapped", "source", source, "id", id, "aid", aid, "show", root)
 			}
@@ -437,22 +283,22 @@ func (p *Provider) rootForID(mode Mode, source, id, title string, year int) stri
 // Plex TV library) unless only a movie has it. When both have it, the
 // title search picks the one whose entry it finds first; when it finds
 // neither, the TV show wins.
-func (p *Provider) aidFor(source, id, title string, year int) int {
+func (m matcher) aidFor(source, id, title string, year int) int {
 	if source != "tmdb" {
-		return p.lists.AIDFor(source, id)
+		return m.lists.AIDFor(source, id)
 	}
-	tv, movie := p.lists.AIDFor("tmdb", id), p.lists.AIDFor("tmdbmovie", id)
+	tv, movie := m.lists.AIDFor("tmdb", id), m.lists.AIDFor("tmdbmovie", id)
 	if tv == 0 || movie == 0 || tv == movie {
 		return cmp.Or(tv, movie)
 	}
 	n, _ := strconv.Atoi(id)
-	for _, m := range p.titles.Search(title, year, 20) {
-		switch e := p.lists.ByAID(m.AID); {
+	for _, res := range m.titles.Search(title, year, 20) {
+		switch e := m.lists.ByAID(res.AID); {
 		case e.TMDB.ID == n:
 			return tv
 		case e.TMDBMovie == n:
-			slog.Debug("match: TMDB id is a TV show and a movie; the title search found the movie", "id", id, "aid", m.AID)
-			return m.AID
+			slog.Debug("match: TMDB id is a TV show and a movie; the title search found the movie", "id", id, "aid", res.AID)
+			return res.AID
 		}
 	}
 	return tv
@@ -464,10 +310,10 @@ func (p *Provider) aidFor(source, id, title string, year int) int {
 //	tvdb mode:  TVDB ids as-is; an AniDB id becomes its TVDB series, or stays
 //	            an AniDB show when it has none (movies, many OVAs) or lives
 //	            only in the series' specials (mapping.Entry.SpecialOnly).
-func (p *Provider) rootFor(mode Mode, source string, id int) string {
+func (m matcher) rootFor(mode Mode, source string, id int) string {
 	switch {
 	case source == "anidb" && mode.TVDB:
-		if e := p.lists.ByAID(id); e.TVDB.ID > 0 && !e.SpecialOnly() {
+		if e := m.lists.ByAID(id); e.TVDB.ID > 0 && !e.SpecialOnly() {
 			return fmt.Sprintf("tvdb-%d", e.TVDB.ID)
 		}
 		return fmt.Sprintf("anidb-%d", id)
@@ -476,7 +322,7 @@ func (p *Provider) rootFor(mode Mode, source string, id int) string {
 	case mode.TVDB:
 		return fmt.Sprintf("tvdb-%d", id)
 	default:
-		if aid := p.lists.FirstAID(id); aid > 0 {
+		if aid := m.lists.FirstAID(id); aid > 0 {
 			return fmt.Sprintf("anidb-%d", aid)
 		}
 	}

@@ -2,7 +2,6 @@ package provider
 
 import (
 	"fmt"
-	"log/slog"
 	"path"
 	"regexp"
 	"strconv"
@@ -24,7 +23,7 @@ const specialMargin = 10
 // byName is a special-only entry picked by name inside a TheTVDB id.
 type byName struct {
 	aid, score int
-	note       string // for the match line and report: how, and how to be sure
+	sure       string // the id tags that name it exactly (sureTags)
 }
 
 // specialByName looks for the special-only entry (mapping.Entry.SpecialOnly)
@@ -34,22 +33,22 @@ type byName struct {
 // than that are told apart by Plex's year against the entry's; still tied,
 // or anything weaker, and the series stays (ok false). Only for a series with more than one AniDB
 // entry, and from the title dump alone: no AniDB calls.
-func (p *Provider) specialByName(tvdbID int, query, file string, year int) (b byName, ok bool) {
-	aids := p.lists.AIDsForTVDB(tvdbID)
+func (m matcher) specialByName(tvdbID int, query, file string, year int) (b byName, ok bool) {
+	aids := m.lists.AIDsForTVDB(tvdbID)
 	if len(aids) < 2 { // nothing to choose from
 		return byName{}, false
 	}
 	names := []string{query, fileName(file)}
-	first := p.lists.FirstAID(tvdbID)
+	first := m.lists.FirstAID(tvdbID)
 	scores := map[int]int{} // the special-only entries' scores
 	top := 0
 	for _, aid := range aids {
-		if aid != first && p.lists.ByAID(aid).SpecialOnly() {
-			scores[aid] = p.nameScore(aid, names)
+		if aid != first && m.lists.ByAID(aid).SpecialOnly() {
+			scores[aid] = m.nameScore(aid, names)
 			top = max(top, scores[aid])
 		}
 	}
-	if top < p.cfg.MinScore || top < p.nameScore(first, names)+specialMargin {
+	if top < m.minScore || top < m.nameScore(first, names)+specialMargin {
 		return byName{}, false
 	}
 	var best []int // the entries within the margin of the top: told apart by the year
@@ -59,17 +58,17 @@ func (p *Provider) specialByName(tvdbID int, query, file string, year int) (b by
 		}
 	}
 	if len(best) > 1 {
-		best = p.ofYear(best, nameYear(year, names))
+		best = m.ofYear(best, nameYear(year, names))
 	}
 	if len(best) != 1 {
 		return byName{}, false
 	}
-	return byName{aid: best[0], score: scores[best[0]], note: p.byNameNote(best[0])}, true
+	return byName{aid: best[0], score: scores[best[0]], sure: sureTags(m.lists.ByAID(best[0]))}, true
 }
 
 // nameScore is an entry's best score against any of names.
-func (p *Provider) nameScore(aid int, names []string) int {
-	titles := p.titles.Of(aid)
+func (m matcher) nameScore(aid int, names []string) int {
+	titles := m.titles.Of(aid)
 	best := 0
 	for _, n := range names {
 		best = max(best, anidb.Score(n, titles))
@@ -104,35 +103,32 @@ func nameYear(year int, names []string) int {
 // ofYear keeps the entries of the year (all for year 0).
 // An entry's year is its AniDB start date when the details are cached,
 // else a "(2012)" in one of its titles.
-func (p *Provider) ofYear(aids []int, year int) []int {
+func (m matcher) ofYear(aids []int, year int) []int {
 	if year <= 0 {
 		return aids
 	}
 	want := strconv.Itoa(year)
 	var out []int
 	for _, aid := range aids {
-		if p.entryYear(aid) == want {
+		if m.entryYear(aid) == want {
 			out = append(out, aid)
 		}
 	}
 	return out
 }
 
-func (p *Provider) entryYear(aid int) string {
-	if a, _ := p.anidb.Peek(aid); a != nil && len(a.StartDate) >= 4 {
-		return a.StartDate[:4]
+func (m matcher) entryYear(aid int) string {
+	if m.peek != nil {
+		if a, _ := m.peek.Peek(aid); a != nil && len(a.StartDate) >= 4 {
+			return a.StartDate[:4]
+		}
 	}
-	for _, t := range p.titles.Of(aid) {
-		if m := titleYearRe.FindString(t.Text); m != "" {
-			return m[1:5]
+	for _, t := range m.titles.Of(aid) {
+		if y := titleYearRe.FindString(t.Text); y != "" {
+			return y[1:5]
 		}
 	}
 	return ""
-}
-
-// byNameNote says how the entry was picked and which tag makes it sure.
-func (p *Provider) byNameNote(aid int) string {
-	return fmt.Sprintf("by name: AniDB %d, may be wrong; use %s to be sure", aid, sureTags(p.lists.ByAID(aid)))
 }
 
 // sureTags are the id tags that name an entry exactly: its AniDB id, and
@@ -145,21 +141,12 @@ func sureTags(e mapping.Entry) string {
 	return tags
 }
 
-// specialRoot is specialByName for a match: the entry's show, with a warning
-// (once per title every 10 minutes) that it may be wrong. src is the tag or
-// GUID that named the series.
-func (p *Provider) specialRoot(src, id, title, query, file string, year int) (candidate, string, bool) {
+// specialRoot is specialByName for the id a tag or GUID gives (ok false
+// when it is no TheTVDB id).
+func (m matcher) specialRoot(id, query, file string, year int) (byName, bool) {
 	tvdbID, err := strconv.Atoi(id)
 	if err != nil || tvdbID <= 0 {
-		return candidate{}, "", false
+		return byName{}, false
 	}
-	b, ok := p.specialByName(tvdbID, query, file, year)
-	if !ok {
-		return candidate{}, "", false
-	}
-	if p.nameLogged.due(title) {
-		slog.Warn("match: matched to an AniDB entry by name inside a TheTVDB id; may be wrong", "title", title, "id", src,
-			"aid", b.aid, "score", b.score, "to_be_sure", "use "+sureTags(p.lists.ByAID(b.aid)))
-	}
-	return candidate{fmt.Sprintf("anidb-%d", b.aid), b.score}, b.note, true
+	return m.specialByName(tvdbID, query, file, year)
 }

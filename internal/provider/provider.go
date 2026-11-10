@@ -67,9 +67,9 @@ var Modes = map[string]Mode{
 type Provider struct {
 	cfg          config.Config
 	offLogged    everyTenMinutes // requests for a mode that is off (server.go)
-	tagOffLogged everyTenMinutes // /auto id tags for a mode that is off (match.go)
-	tagsLogged   everyTenMinutes // titles with more than one id tag (match.go)
-	nameLogged   everyTenMinutes // titles matched by name inside a TheTVDB id (match_specials.go)
+	tagOffLogged everyTenMinutes // /auto id tags for a mode that is off (Provider.warn)
+	tagsLogged   everyTenMinutes // titles with more than one id tag (Provider.warn)
+	nameLogged   everyTenMinutes // titles matched by name inside a TheTVDB id (Provider.warn)
 	titles       *anidb.Titles
 	anidb        *sources.AniDB
 	lists        *mapping.Lists
