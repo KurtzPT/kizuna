@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
@@ -90,7 +91,9 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 	if code := health(cfg); code != 0 {
 		t.Errorf("health check: exit %d, want 0", code)
 	}
-	resp, err := http.Get("http://" + ln.Addr().String() + "/anidb/library/metadata/anidb-1")
+	direct := &http.Client{Transport: &http.Transport{Proxy: nil}} // never through the machine's HTTP_PROXY
+	defer direct.CloseIdleConnections()
+	resp, err := direct.Get("http://" + ln.Addr().String() + "/anidb/library/metadata/anidb-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,16 +108,47 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 func TestKeepFreshStopping(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := false
-	keepFresh(ctx, cancel, func() (bool, bool) { return true, true }, func() { done = true })
+	keepFresh(ctx, cancel, func() (bool, []string) { return true, nil }, func() { done = true })
 	if done {
 		t.Error("load cancelled by stopping, but firstDone ran")
 	}
 
 	ctx, cancel = context.WithCancel(context.Background())
 	loads := 0
-	keepFresh(ctx, func() { loads++ }, func() (bool, bool) { return true, true }, func() { done = true; cancel() })
+	keepFresh(ctx, func() { loads++ }, func() (bool, []string) { return true, nil }, func() { done = true; cancel() })
 	if !done || loads != 1 {
 		t.Errorf("firstDone %v after %d loads, want it after 1", done, loads)
+	}
+}
+
+// keepFresh retries in 5 minutes while the titles or a mapping list have
+// never loaded (one list alone makes the mapping Ready, but lacks the other's
+// ids), and waits a day once everything has.
+func TestKeepFreshRetriesMissingList(t *testing.T) {
+	old := after
+	t.Cleanup(func() { after = old })
+	for _, c := range []struct {
+		titles  bool
+		missing []string
+		want    time.Duration
+	}{
+		{true, nil, 24 * time.Hour},
+		{true, []string{"animelists"}, 5 * time.Minute},
+		{true, []string{"animelists", "fribb"}, 5 * time.Minute},
+		{false, nil, 5 * time.Minute},
+	} {
+		ctx, cancel := context.WithCancel(context.Background())
+		var waits []time.Duration
+		after = func(d time.Duration) <-chan time.Time {
+			waits = append(waits, d)
+			cancel() // stop after the first wait is chosen
+			return nil
+		}
+		keepFresh(ctx, func() {}, func() (bool, []string) { return c.titles, c.missing }, func() {})
+		cancel()
+		if len(waits) != 1 || waits[0] != c.want {
+			t.Errorf("titles %v, missing %v: waits %v, want [%v]", c.titles, c.missing, waits, c.want)
+		}
 	}
 }
 
@@ -149,4 +183,41 @@ func ownAddress(t *testing.T) netip.Addr {
 	}
 	t.Skip("no non-loopback IPv4 address")
 	return netip.Addr{}
+}
+
+// Stopping waits for the show builds that outlived their requests, after
+// the server's requests and within the same drain time, so their match
+// reports are queued before serve's last flush; builds still running when
+// that time is up are logged and left.
+func TestDrainWaitsForBuilds(t *testing.T) {
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(old)
+
+	waiting, release := make(chan context.Context), make(chan bool)
+	drained := make(chan struct{})
+	go func() {
+		drain(&http.Server{}, func(ctx context.Context) bool { waiting <- ctx; return <-release }, drainTimeout)
+		close(drained)
+	}()
+	ctx := <-waiting // the server had no requests to wait for
+	if d, ok := ctx.Deadline(); !ok || time.Until(d) > drainTimeout {
+		t.Errorf("builds waited for until %v (deadline %v), want within the drain", d, ok)
+	}
+	select {
+	case <-drained:
+		t.Fatal("the drain ended before the builds")
+	default:
+	}
+	release <- true
+	<-drained
+	if strings.Contains(logs.String(), "build still running") {
+		t.Errorf("builds ended in time, logs:\n%s\nwant no warning", logs.String())
+	}
+
+	drain(&http.Server{}, func(context.Context) bool { return false }, drainTimeout) // out of time
+	if !strings.Contains(logs.String(), "level=WARN msg=\"stopping with a show build still running") {
+		t.Errorf("builds still running after the drain, logs:\n%s\nwant a warning", logs.String())
+	}
 }

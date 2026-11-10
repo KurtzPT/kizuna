@@ -50,7 +50,9 @@ func TestMatchByOtherIDs(t *testing.T) {
 			TMDB: mapping.Placement{ID: 37854}, IMDB: "tt0388629", MAL: 21, AniList: 21},
 		100: {AID: 100, TVDB: mapping.Placement{ID: 81797, Season: 2, Mapped: true}, MAL: 99},
 	})
-	p := &Provider{lists: l}
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
+	p := &Provider{lists: l, titles: titles}
 	anidbMode, tvdbMode := Modes["anidb"], Modes["tvdb"]
 	cases := []struct {
 		title, guid string
@@ -151,6 +153,8 @@ func TestAutoModePerFolder(t *testing.T) {
 	auto := Modes["auto"]
 	dir := t.TempDir()
 	f := fetch.New(dir)
+	titles := &anidb.Titles{}
+	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
 	cases := []struct {
 		def, title, guid, want string
 	}{
@@ -166,7 +170,7 @@ func TestAutoModePerFolder(t *testing.T) {
 		{"tvdb", "One Piece", "tv.plex.agents.custom.kizuna.anidb://show/anidb-100", "anidb-100"},
 	}
 	for _, c := range cases {
-		p := &Provider{lists: l, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
+		p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "kizunatest", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
 		p.cfg.AutoDefault = c.def
 		got, _ := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
 		if len(got) != 1 || got[0].root != c.want {
@@ -175,21 +179,15 @@ func TestAutoModePerFolder(t *testing.T) {
 	}
 
 	// With only one mode on, every show but one tagged for the other site
-	// gets its rules: the other site's id is converted through the mapping.
-	// That tag finds nothing (see TestAutoTagNeedsItsMode).
-	titles := &anidb.Titles{}
-	titles.SetForTest(map[int][]anidb.Title{69: {{Type: "main", Lang: "x-jat", Text: "One Piece"}}})
+	// gets its rules, whatever AUTO_DEFAULT says: the other site's id is
+	// converted through the mapping. TestAutoTagNeedsItsMode has the tags,
+	// GUIDs and title search with one mode off.
 	only := []struct {
 		on, def, title, guid, want string
 	}{
-		{"anidb", "anidb", "One Piece [tvdb-81797]", "", ""},                                                // TVDB tag: no match
-		{"anidb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "anidb-69"},  // TVDB GUID
-		{"anidb", "tvdb", "One Piece [mal-21]", "", "anidb-69"},                                             // AUTO_DEFAULT=tvdb
-		{"anidb", "tvdb", "One Piece", "", "anidb-69"},                                                      // title search
-		{"tvdb", "anidb", "One Piece [anidb-100]", "", ""},                                                  // AniDB tag: no match
-		{"tvdb", "anidb", "One Piece", "tv.plex.agents.custom.kizuna.anidb://show/anidb-100", "tvdb-81797"}, // AniDB GUID
-		{"tvdb", "anidb", "One Piece", "", "tvdb-81797"},                                                    // title search
-		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},                                               // no TVDB series: stays AniDB
+		{"anidb", "tvdb", "One Piece [mal-21]", "", "anidb-69"}, // AUTO_DEFAULT=tvdb
+		{"anidb", "tvdb", "One Piece", "", "anidb-69"},          // title search, AUTO_DEFAULT=tvdb
+		{"tvdb", "anidb", "Movie [mal-500]", "", "anidb-500"},   // no TVDB series: stays AniDB
 	}
 	for _, c := range only {
 		p := &Provider{lists: l, titles: titles}
@@ -200,9 +198,6 @@ func TestAutoModePerFolder(t *testing.T) {
 		}
 		p.cfg.AutoDefault = c.def
 		got, how := p.searchCandidates(auto, c.title, MatchRequest{GUID: c.guid}, nil)
-		if c.want == "" && len(got) == 0 {
-			continue
-		}
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("only %s on, default %s, %q %q: got %v (%s), want %s", c.on, c.def, c.title, c.guid, got, how, c.want)
 		}
@@ -605,28 +600,27 @@ func TestTVDBTagNameSearch(t *testing.T) {
 	}
 	cases := []struct {
 		mode, title, file, guid string
-		year                    int
 		want, how               string // how: the start of the match note
 	}{
-		{"tvdb", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983",
+		{"tvdb", "One Piece Film Red [tvdb-81797]", "", "", "anidb-16983",
 			"tag [tvdb-81797], by name: AniDB 16983, may be wrong; use [anidb-16983] or [tmdb-900667] to be sure"},
-		{"tvdb", "Movie [tvdb-81797]", "/anime/Movie [tvdb-81797]/[Group] One Piece Film Red (BD 1080p) [ABCD1234].mkv", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
-		{"anidb", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
-		{"auto", "One Piece Film Red [tvdb-81797]", "", "", 0, "anidb-16983", "tag [tvdb-81797], by name"},
-		{"tvdb", "One Piece Film Red", "", "com.plexapp.agents.thetvdb://81797?lang=en", 0, "anidb-16983", "guid com.plexapp.agents.thetvdb://81797?lang=en, by name"},
-		{"tvdb", "One Piece Film Red", "", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", 0, "tvdb-81797", "guid "}, // Kizuna's own: kept
-		{"tvdb", "One Piece [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                                     // the series' own title
-		{"tvdb", "One Piece Movie [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                               // too weak
-		{"tvdb", "One Piece Film Re [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},                             // Red and Z too close
-		{"tvdb", "Something Else [tvdb-81797]", "", "", 0, "tvdb-81797", "tag [tvdb-81797]"},
-		{"anidb", "One Piece [tvdb-81797]", "", "", 0, "anidb-69", "tag [tvdb-81797]"},
+		{"tvdb", "Movie [tvdb-81797]", "/anime/Movie [tvdb-81797]/[Group] One Piece Film Red (BD 1080p) [ABCD1234].mkv", "", "anidb-16983", "tag [tvdb-81797], by name"},
+		{"anidb", "One Piece Film Red [tvdb-81797]", "", "", "anidb-16983", "tag [tvdb-81797], by name"},
+		{"auto", "One Piece Film Red [tvdb-81797]", "", "", "anidb-16983", "tag [tvdb-81797], by name"},
+		{"tvdb", "One Piece Film Red", "", "com.plexapp.agents.thetvdb://81797?lang=en", "anidb-16983", "guid com.plexapp.agents.thetvdb://81797?lang=en, by name"},
+		{"tvdb", "One Piece Film Red", "", "tv.plex.agents.custom.kizuna.tvdb://show/tvdb-81797", "tvdb-81797", "guid "}, // Kizuna's own: kept
+		{"tvdb", "One Piece [tvdb-81797]", "", "", "tvdb-81797", "tag [tvdb-81797]"},                                     // the series' own title
+		{"tvdb", "One Piece Movie [tvdb-81797]", "", "", "tvdb-81797", "tag [tvdb-81797]"},                               // too weak
+		{"tvdb", "One Piece Film Re [tvdb-81797]", "", "", "tvdb-81797", "tag [tvdb-81797]"},                             // Red and Z too close
+		{"tvdb", "Something Else [tvdb-81797]", "", "", "tvdb-81797", "tag [tvdb-81797]"},
+		{"anidb", "One Piece [tvdb-81797]", "", "", "anidb-69", "tag [tvdb-81797]"},
 	}
 	for _, c := range cases {
 		p := newP()
 		var logs strings.Builder
 		restore := captureLogs(&logs)
 		for range 3 { // the same title again: no new warning
-			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid, Filename: c.file, Year: c.year}, nil)
+			got, how := p.searchCandidates(Modes[c.mode], c.title, MatchRequest{GUID: c.guid, Filename: c.file}, nil)
 			if len(got) != 1 || got[0].root != c.want || !strings.HasPrefix(how, c.how) {
 				t.Errorf("/%s %q %q %q: got %v (%s), want %s (%s…)", c.mode, c.title, c.file, c.guid, got, how, c.want, c.how)
 			}
@@ -662,7 +656,9 @@ func TestTVDBTagNameSearchTies(t *testing.T) {
 		4: {{Type: "main", Lang: "x-jat", Text: "Kizuna Gekijouban (2020)"}},
 		9: {{Type: "main", Lang: "x-jat", Text: "Lonely OVA"}},
 	})
-	p := &Provider{lists: l, titles: titles, tvdb: sources.NewTVDB(fetch.New(t.TempDir()), "key", "", "")}
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	p := &Provider{lists: l, titles: titles, anidb: sources.NewAniDB(f, dir, "", "1"), tvdb: sources.NewTVDB(f, "key", "", "")}
 	p.cfg.MinScore = 80
 	cases := []struct {
 		title string

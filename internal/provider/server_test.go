@@ -18,6 +18,16 @@ import (
 	"kizuna/internal/sources"
 )
 
+// plexRequest sends one request through p's routes, from loopback and to
+// the container's name, as Plex does.
+func plexRequest(ctx context.Context, p *Provider, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
+	req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
 func TestChildrenArePaged(t *testing.T) {
 	dir := t.TempDir()
 	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
@@ -42,10 +52,7 @@ func TestChildrenArePaged(t *testing.T) {
 		{"/anidb/library/metadata/anidb-1/children", 2, 2, 0},
 	}
 	for _, c := range cases {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", c.path, nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
+		rec := plexRequest(context.Background(), p, "GET", c.path, "")
 		var got Container
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("%s: %d %s", c.path, rec.Code, rec.Body)
@@ -70,15 +77,21 @@ func TestPanickingBuildIsReleased(t *testing.T) {
 	p := New(config.Config{}, nil, nil, nil, nil, nil, nil, nil) // no sources: building panics
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the panic's error line and stack
+	defer restore()
 	for range 2 {
 		if _, err := p.show(ctx, "anidb-1"); err == nil || ctx.Err() != nil {
 			t.Fatalf("got err %v (ctx %v), want the build's error", err, ctx.Err())
 		}
 	}
+	if !strings.Contains(logs.String(), `level=ERROR msg="show build panicked"`) {
+		t.Errorf("logs:\n%s\nwant the panic logged", logs.String())
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.builds) != 0 || len(p.shows) != 0 {
-		t.Errorf("left behind: builds %d shows %d", len(p.builds), len(p.shows))
+	if len(p.builds) != 0 || len(p.shows) != 0 || p.running != 0 {
+		t.Errorf("left behind: builds %d shows %d running %d", len(p.builds), len(p.shows), p.running)
 	}
 }
 
@@ -89,10 +102,7 @@ func TestHealthNeedsMapping(t *testing.T) {
 	p := New(config.Config{}, titles, nil, lists, nil, nil, nil, nil)
 	check := func(wantCode int, wantStatus string, wantMissing ...string) {
 		t.Helper()
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/health", nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
+		rec := plexRequest(context.Background(), p, "GET", "/health", "")
 		var got healthAnswer
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("%d %s", rec.Code, rec.Body)
@@ -121,11 +131,7 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	done := p.Loading()
 	get := func(ctx context.Context, path string) *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequestWithContext(ctx, "GET", path, nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
-		return rec
+		return plexRequest(ctx, p, "GET", path, "")
 	}
 	if rec := get(context.Background(), "/health"); rec.Code != 503 || !strings.Contains(rec.Body.String(), `"starting"`) {
 		t.Errorf("health while loading: %d %s, want 503 starting", rec.Code, rec.Body)
@@ -165,11 +171,7 @@ func TestStopDuringFirstLoad(t *testing.T) {
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	done := p.Loading()
 	get := func() *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/anidb/library/metadata/anidb-1", nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
-		return rec
+		return plexRequest(context.Background(), p, "GET", "/anidb/library/metadata/anidb-1", "")
 	}
 	answered := make(chan *httptest.ResponseRecorder, 1)
 	go func() { answered <- get() }() // waiting for the load, or not there yet: the same answer
@@ -198,16 +200,18 @@ func TestModeOff(t *testing.T) {
 		sources.NewTVDB(fetch.New(dir), "", "", ""), nil, nil, nil)
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	get := func(path string) *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", path, nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
-		return rec
+		return plexRequest(context.Background(), p, "GET", path, "")
 	}
+	var logs strings.Builder
+	restore := captureLogs(&logs)
 	for range 3 {
 		if rec := get("/tvdb/library/metadata/tvdb-500"); rec.Code != 503 || !strings.Contains(rec.Body.String(), "TVDB_API_KEY") {
 			t.Errorf("/tvdb without a TVDB key: %d %s, want 503 naming TVDB_API_KEY", rec.Code, rec.Body)
 		}
+	}
+	restore()
+	if n := strings.Count(logs.String(), `level=WARN msg="a request for a mode that is off`); n != 1 {
+		t.Errorf("%d warnings, logs:\n%s\nwant one", n, logs.String())
 	}
 	if p.offLogged.due("tvdb") {
 		t.Error("/tvdb off: want it logged by the first request and not due again for 10 minutes")
@@ -273,14 +277,10 @@ func TestTimedOutShowAnswers503(t *testing.T) {
 			return &Show{Root: "anidb-100", Title: "Kizuna Test", Complete: true, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1}}}}, nil
 		}
 		serve := func(ctx context.Context) *httptest.ResponseRecorder {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequestWithContext(ctx, c.method, c.path, strings.NewReader(c.body))
-			req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-			p.Handler().ServeHTTP(rec, req)
-			return rec
+			return plexRequest(ctx, p, c.method, c.path, c.body)
 		}
-		if rec := serve(ctx); rec.Code != 503 || !strings.Contains(rec.Body.String(), "in time") {
-			t.Errorf("%s while the build runs: %d %s, want 503", c.path, rec.Code, rec.Body)
+		if rec := serve(ctx); rec.Code != 503 || !strings.Contains(rec.Body.String(), "it is still being built") {
+			t.Errorf("%s while the build runs: %d %s, want 503, still being built", c.path, rec.Code, rec.Body)
 		}
 		p.mu.Lock()
 		b := p.builds["anidb-100"]
@@ -296,9 +296,10 @@ func TestTimedOutShowAnswers503(t *testing.T) {
 	}
 }
 
-// A build that runs out of its own time without a show fails with a
-// context error (the handlers answer 503); a show that doesn't exist is a
-// 404.
+// A build that runs out of its own time without a show fails with
+// errBuildTimeout: its waiters get a 503 saying the sources didn't answer,
+// not that it is still being built (it is over). A show that doesn't exist
+// is a 404.
 func TestBuildOutOfTime(t *testing.T) {
 	dir := t.TempDir()
 	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
@@ -306,18 +307,24 @@ func TestBuildOutOfTime(t *testing.T) {
 		<-ctx.Done()
 		return nil, fmt.Errorf("anidb %s unknown", root)
 	}
-	b := &build{done: make(chan struct{})}
-	p.builds["anidb-1"] = b
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the failed builds' warnings
+	defer restore()
+	p.mu.Lock()
+	b := p.newBuild("anidb-1")
+	p.mu.Unlock()
 	p.runBuild(context.Background(), time.Millisecond, "anidb-1", b)
-	if !timedOut(b.err) {
-		t.Errorf("build out of time: err %v, want a context error", b.err)
+	if !errors.Is(b.err, errBuildTimeout) || timedOut(b.err) {
+		t.Errorf("build out of time: err %v, want errBuildTimeout, not a request's timeout", b.err)
+	}
+	rec := httptest.NewRecorder()
+	writeUnavailable(rec, b.err)
+	if body := rec.Body.String(); rec.Code != 503 || !strings.Contains(body, "the show's sources didn't answer in time, try again") ||
+		strings.Contains(body, "still being built") {
+		t.Errorf("build out of time: %d %s, want 503, sources didn't answer", rec.Code, body)
 	}
 	p.buildFn = func(context.Context, string) (*Show, error) { return nil, noShowError{errors.New("anidb 2 unknown")} }
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/anidb/library/metadata/anidb-2", nil)
-	req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-	p.Handler().ServeHTTP(rec, req)
-	if rec.Code != 404 {
+	if rec := plexRequest(context.Background(), p, "GET", "/anidb/library/metadata/anidb-2", ""); rec.Code != 404 {
 		t.Errorf("failed build: %d %s, want 404", rec.Code, rec.Body)
 	}
 }
@@ -368,10 +375,7 @@ func TestFailedBuildAnswers(t *testing.T) {
 		}
 		var logs strings.Builder
 		restore := captureLogs(&logs) // the failed builds' warnings
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(c.method, c.path, strings.NewReader(match))
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
+		rec := plexRequest(context.Background(), p, c.method, c.path, match)
 		restore()
 		if rec.Code != c.code || !strings.Contains(rec.Body.String(), c.why) {
 			t.Errorf("%s: %d %s, want %d %q", c.name, rec.Code, rec.Body, c.code, c.why)
@@ -420,9 +424,8 @@ func TestFailedBuildRemembered(t *testing.T) {
 	clear(p.failed)
 	p.mu.Unlock()
 	for range 2 {
-		b := &build{done: make(chan struct{})}
 		p.mu.Lock()
-		p.builds["tvdb-6"] = b
+		b := p.newBuild("tvdb-6")
 		p.mu.Unlock()
 		p.runBuild(context.Background(), time.Millisecond, "tvdb-6", b)
 	}

@@ -85,7 +85,7 @@ func errText(err error) string {
 	if fetch.IsNotFound(err) {
 		return "not found"
 	}
-	return fetch.Redact(err.Error())
+	return err.Error() // URLs in it were redacted where the error was made
 }
 
 // keySources: a cache folder or host name (version digits cut off: tvdb3,
@@ -118,6 +118,12 @@ func (p *Provider) recordMatch(mode Mode, r MatchRequest, title, how string, can
 		Manual: r.Manual == 1, How: how, MinScore: p.cfg.MinScore, Candidates: seen}
 	if len(cands) > 0 {
 		m.Root, m.Score = cands[0].root, cands[0].score
+	}
+	// The tag rules' reasons (idCandidate's stop) start "id tags " or
+	// "tag "; a reason that names the title search means it ran.
+	m.TagRule = len(cands) == 0 && (strings.HasPrefix(how, "id tags ") || strings.HasPrefix(how, "tag ")) && !strings.Contains(how, "title search")
+	if q := strings.TrimSpace(tagRe.ReplaceAllString(title, "")); q != title {
+		m.Query = q
 	}
 	return m
 }
@@ -281,7 +287,7 @@ var episodeProblems = []struct {
 			return "only a placeholder title"
 		}
 		return ""
-	}, report.LevelWarn, " no real title", ". No source in EPISODE_TITLES has a title for them."},
+	}, report.LevelWarn, " no real title", `. No source in EPISODE_TITLES has a title for them, or only a placeholder like "Episode 5".`},
 	{func(ep *Ep) string {
 		if htmlEntity.MatchString(ep.Title) || htmlEntity.MatchString(ep.Summary) {
 			return "HTML entity in the text (shown literally by Plex)"
@@ -344,7 +350,7 @@ func buildChecks(s *Show, b *report.Build, with [][]string) []report.Check {
 			Text: "Plex shows it literally.", Section: report.SectionFields})
 	}
 	for _, f := range b.Fields {
-		if len(f.Used) == 0 && (f.Name == "Title" || f.Name == "Summary" || f.Name == "Posters") {
+		if len(f.Used) == 0 && len(f.Order) > 0 && (f.Name == "Title" || f.Name == "Summary" || f.Name == "Posters") {
 			out = append(out, report.Check{Level: report.LevelWarn, Title: "No source had a " + strings.ToLower(strings.TrimSuffix(f.Name, "s")),
 				Text: "Asked: " + strings.Join(f.Asked, ", ") + ".", Section: report.SectionFields})
 		}
@@ -391,7 +397,12 @@ func outputRows(it Item) [][2]string {
 	add("Genre", tags(it.Genre))
 	add("Director", tags(it.Director))
 	add("Writer", tags(it.Writer))
-	add("Role", firstThree(len(it.Role), func(i int) string { return it.Role[i].Tag + " as " + it.Role[i].Role }))
+	add("Role", firstThree(len(it.Role), func(i int) string {
+		if it.Role[i].Role == "" {
+			return it.Role[i].Tag
+		}
+		return it.Role[i].Tag + " as " + it.Role[i].Role
+	}))
 	var guids []string
 	for _, g := range it.Guid {
 		guids = append(guids, g.ID)
@@ -426,6 +437,9 @@ func outputRows(it Item) [][2]string {
 func (ss *showSources) recordField(name string, order []string, used string, all bool, value func(src string) string) {
 	if ss.rec == nil {
 		return
+	}
+	if order == nil {
+		order = []string{} // X_SOURCES=none: an empty list in the page's data, not null
 	}
 	f := report.Field{Name: name, Order: order, Offered: map[string]string{}}
 	if used != "" {

@@ -61,7 +61,7 @@ func (r episodeRecord) crew() Crew {
 // EpisodeCrew returns the directors and writers of TheTVDB v4 episodes, by
 // episode id. v4 has them only in one record per episode: cached records are
 // used (stale ones refreshed in the background), missing ones are fetched for
-// up to crewBudget and the rest in the background, one at a time.
+// up to crewBudget and the rest in the background (queueCrew).
 // pending: some are still on their way, so the caller should rebuild soon.
 // With the legacy key it returns nothing: v3 episode lists carry the crew.
 func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, pending bool) {
@@ -174,10 +174,13 @@ func (t *TVDB) crewFail(id int, err error) {
 	slog.Debug("tvdb: episode record not available", "episode", id, "retry_in", crewRetry, "err", err)
 }
 
-// queueCrew fetches episode records in the background, one at a time, so
-// they never hold up a show build for long. A record that failed isn't
-// asked again before its time (a stale cached copy keeps answering), and
-// failures past their time are forgotten here.
+// queueCrew fetches episode records in the background, so they never hold
+// up a show build for long: each call's records one after the other, in a
+// goroutine of its own (several builds' batches run side by side). As
+// background requests they wait behind every request a build waits for, on
+// TheTVDB's host throttle. A record already queued isn't queued again; one
+// that failed isn't asked again before its time (a stale cached copy keeps
+// answering), and failures past their time are forgotten here.
 func (t *TVDB) queueCrew(ids []int) {
 	t.crewMu.Lock()
 	now := time.Now()

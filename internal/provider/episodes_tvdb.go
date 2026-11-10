@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"sync"
 
-	"kizuna/internal/anidb"
 	"kizuna/internal/mapping"
 	"kizuna/internal/report"
 	"kizuna/internal/sources"
@@ -74,11 +73,11 @@ type tvdbBuild struct {
 	first          *sources.AniDBAnime // its details (nil = not available)
 	eps            []sources.Episode   // TheTVDB's episode list, absolute numbers filled in
 	// tmdbEps: TheMovieDb's episode list, for the titles and the crew;
-	// fetched by start (empty when the show isn't there).
+	// fetched by startTMDB (empty when the show isn't there).
 	tmdbEps episodeIndex
-	// start fetches TheMovieDb's episode list (into tmdbEps and tmdbOK, done
-	// with tmdbWG) and TheTVDB's crew records (into crew and crewPending,
-	// done with crewWG).
+	// startTMDB fetches TheMovieDb's episode list (into tmdbEps and tmdbOK,
+	// done with tmdbWG), and start TheTVDB's crew records (into crew and
+	// crewPending, done with crewWG).
 	tmdbWG, crewWG sync.WaitGroup
 	tmdbOK         bool
 	crew           map[int]sources.Crew
@@ -95,9 +94,21 @@ func (b *tvdbBuild) tmdbOn(p *Provider) bool {
 	return p.tmdb.Enabled() && b.tmdbID > 0
 }
 
-// start starts what the build needs whatever AniDB answers: TheMovieDb's
-// episode list (loadTMDB) and TheTVDB's crew records for the episode list's
-// episodes (tvdbEpisodeCrew). Both are always used: wait waits for them.
+// startTMDB looks up TheMovieDb's show (tmdbShow: tmdbShowOf's) and
+// fetches its episode list (loadTMDB), as soon as the build starts: it
+// needs only the show's id, not TheTVDB's list, and both can take a while
+// on a long show. It writes only tmdbEps and tmdbOK, read after tmdbWG.
+func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() (int, error)) {
+	b.tmdbWG.Go(func() {
+		if id, _ := tmdbShow(); id > 0 && p.tmdb.Enabled() { // tmdbOn, once the build has set tmdbID from the same lookup
+			b.tmdbEps, b.tmdbOK = p.seriesEpisodes(ctx, "tmdb", id)
+		}
+	})
+}
+
+// start starts what the build needs whatever AniDB answers, once TheTVDB's
+// list is in: TheTVDB's crew records for its episodes (tvdbEpisodeCrew).
+// They are always used: wait waits for them.
 func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 	ids := make([]int, 0, len(b.eps))
 	for _, e := range b.eps {
@@ -106,24 +117,21 @@ func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 		}
 	}
 	b.crewWG.Go(func() { b.crew, b.crewPending = p.tvdb.EpisodeCrew(ctx, ids) })
-	if b.tmdbOn(p) {
-		b.tmdbWG.Go(func() { b.tmdbEps, b.tmdbOK = p.seriesEpisodes(ctx, "tmdb", b.tmdbID) })
-	}
 }
 
-// wait waits for what start started.
+// wait waits for what startTMDB and start started.
 func (b *tvdbBuild) wait() {
 	b.tmdbWG.Wait()
 	b.crewWG.Wait()
 }
 
-// loadTMDB waits for TheMovieDb's episode list in b.tmdbEps (start fetches
-// it). Returns false when it failed or came back partial.
+// loadTMDB waits for TheMovieDb's episode list in b.tmdbEps (startTMDB
+// fetches it). Returns false when it failed or came back partial.
 func (b *tvdbBuild) loadTMDB(p *Provider) bool {
+	b.tmdbWG.Wait() // also when the show isn't there: tmdbEps is read after this
 	if !b.tmdbOn(p) {
 		return true
 	}
-	b.tmdbWG.Wait()
 	return b.tmdbOK
 }
 
@@ -157,10 +165,10 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 				}
 			}
 		}
-		e := p.lists.ByAID(aid)
 		if a == nil {
 			continue
 		}
+		e := p.lists.ByAID(aid)
 		es, otherOK := p.spotsOf(e), b.onTMDBShow(e)
 		for _, ae := range a.Episodes {
 			sp, ok := es.at("tvdb", ae.Season, ae.ListIndex())
@@ -168,8 +176,8 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 				continue
 			}
 			if _, taken := pr.titles[sp]; !taken { // first entry wins
-				pr.titles[sp] = anidbTitles{anidb.FindTitle(ae.Titles, p.cfg.EpisodeLangs, false), anidb.PickTitle(ae.Titles, p.cfg.EpisodeLangs, false),
-					aid, ae.EpNo}
+				title, anyTitle := p.anidbEpisodeTitle(ae.Titles)
+				pr.titles[sp] = anidbTitles{title, anyTitle, aid, ae.EpNo}
 			}
 			if _, taken := pr.other[sp]; taken {
 				continue

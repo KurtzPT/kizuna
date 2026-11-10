@@ -15,19 +15,19 @@ import (
 
 // MatchRequest is the body Plex POSTs to .../matches.
 type MatchRequest struct {
-	Type             int    `json:"type"` // 2 show, 3 season, 4 episode
-	Title            string `json:"title"`
-	ParentTitle      string `json:"parentTitle"`
-	GrandparentTitle string `json:"grandparentTitle"`
-	Year             int    `json:"year"`
-	GUID             string `json:"guid"`
-	Index            *int   `json:"index"`
-	ParentIndex      *int   `json:"parentIndex"`
-	Filename         string `json:"filename"`
-	Manual           int    `json:"manual"`
+	Type             int // 2 show, 3 season, 4 episode
+	Title            string
+	ParentTitle      string
+	GrandparentTitle string
+	Year             int
+	GUID             string
+	Index            *int
+	ParentIndex      *int
+	Filename         string
+	Manual           int
 	// IncludeChildren 1: a show or season answer carries its seasons or
 	// episodes inline, as .../children lists them.
-	IncludeChildren int `json:"includeChildren"`
+	IncludeChildren int
 }
 
 var (
@@ -69,8 +69,8 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	case 4:
 		title = r.GrandparentTitle
 	}
-	var noted *[]report.Candidate // the title search results, for the match report
-	if p.reports != nil {
+	var noted *[]report.Candidate                            // the title search results, for the match report
+	if p.reports != nil && !(r.Manual == 1 && r.Type <= 2) { // a Fix Match list is in no report
 		noted = new([]report.Candidate)
 	}
 	cands, how := p.searchCandidates(mode, title, r, noted)
@@ -110,13 +110,12 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	}
 	root := cands[0].root
 	if m != nil {
-		if rq != nil {
-			rq.Match = m
-		}
-		ctx = report.WithMatch(ctx, m)
+		ctx = report.WithMatch(ctx, m) // the build's report copies it as it is now
 	}
 	s, err := p.show(ctx, root)
 	if err != nil {
+		// No rq.Match: the report's latest match would say Plex got the show.
+		// The request itself says it wasn't available.
 		slog.Debug("match: show not available", "root", root, "err", err)
 		return nil, err
 	}
@@ -137,8 +136,16 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	if it == nil { // the show has no such season or episode
 		if rq != nil {
 			rq.Answer = "no match"
+			if m != nil { // the latest match says so, not that Plex got the show
+				m.How += "; " + root + " has no " + missingPart(r)
+				m.Root, m.Score = "", 0
+				rq.Match = m
+			}
 		}
 		return nil, nil
+	}
+	if rq != nil {
+		rq.Match = m
 	}
 	// Only after the Fix Match list (it skips MIN_SCORE, so it finds
 	// candidates for titles that still don't match) and once there is an
@@ -256,11 +263,10 @@ func (p *Provider) titleCandidates(mode Mode, query string, year int, manual boo
 	}
 	titleRules := p.rules(mode, "")
 	results := p.titles.Search(query, year, 20)
-	for i, m := range results {
-		if len(out) >= limit {
-			break
-		}
-		if i < 5 && (debug || noted != nil) { // the title only for these
+	if debug || noted != nil {
+		// The best five, whichever of them the match below takes or turns
+		// down: the log and the report show what the search found.
+		for i, m := range results[:min(5, len(results))] {
 			t := p.mainTitle(m.AID)
 			if debug {
 				slog.Debug("match: title search result", "query", query, "year", year, "rank", i+1, "aid", m.AID, "score", m.Score, "title", t)
@@ -269,14 +275,19 @@ func (p *Provider) titleCandidates(mode Mode, query string, year int, manual boo
 				*noted = append(*noted, report.Candidate{AID: m.AID, Title: t, Score: m.Score})
 			}
 		}
+	}
+	for _, m := range results {
+		if len(out) >= limit {
+			break
+		}
 		if !manual && m.Score < p.cfg.MinScore {
 			if debug {
 				slog.Debug("match: below MIN_SCORE", "aid", m.AID, "score", m.Score, "min", p.cfg.MinScore)
 			}
 			break
 		}
-		root := p.rootFor(titleRules, "anidb", m.AID)
-		if root != "" && !seen[root] {
+		root := p.rootFor(titleRules, "anidb", m.AID) // never "" for an AniDB id
+		if !seen[root] {
 			seen[root] = true
 			out = append(out, candidate{root, m.Score})
 		}
@@ -366,6 +377,15 @@ func (p *Provider) tagRules(mode Mode, source string) (rules Mode, need string) 
 	return rules, need
 }
 
+// missingPart names the season or episode a season or episode match asked
+// for, for a show that lacks it.
+func missingPart(r MatchRequest) string {
+	if r.Type == 4 {
+		return fmt.Sprintf("episode S%02dE%02d", deref(r.ParentIndex, 1), deref(r.Index, 0))
+	}
+	return fmt.Sprintf("season %d", deref(r.Index, 1))
+}
+
 func matchType(t int) string {
 	switch t {
 	case 2:
@@ -383,7 +403,7 @@ func matchType(t int) string {
 // Kitsu, ANN) are mapped to their AniDB entry first (see aidFor; title and
 // year only settle a TMDB id). "" if unknown.
 func (p *Provider) rootForID(mode Mode, source, id, title string, year int) string {
-	source, id = strings.ToLower(source), strings.TrimSpace(id)
+	source, id = strings.ToLower(source), strings.ToLower(id) // [imdb-TT1] is tt1
 	if to, ok := idAliases[source]; ok {
 		source = to
 	}

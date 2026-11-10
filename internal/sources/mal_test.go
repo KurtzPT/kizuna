@@ -9,7 +9,7 @@ import (
 	"kizuna/internal/fetch"
 )
 
-const malURL = "api.myanimelist.net/v2/anime/%d?fields=synopsis,main_picture,mean,genres,studios,start_date,rating"
+const malURL = "api.myanimelist.net/v2/anime/%d?fields=synopsis,main_picture,genres,studios,start_date,rating"
 
 // MAL's anime details (API v2, documented shape): the rewrite credit is
 // cut from the synopsis, the rating mapped to the US label, the large

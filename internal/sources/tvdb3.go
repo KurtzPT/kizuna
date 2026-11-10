@@ -36,12 +36,13 @@ func (t *TVDB) series3(ctx context.Context, id int) (series3, error) {
 	var r struct {
 		Data series3 `json:"data"`
 	}
-	err := t.get(ctx, true, fmt.Sprintf("/series/%d", id), fmt.Sprintf("%d/series.json", id), 7*24*time.Hour, &r)
+	err := t.get(ctx, true, fmt.Sprintf("/series/%d", id), fmt.Sprintf("%d/series.json", id), seriesFilesTTL, &r)
 	return r.Data, err
 }
 
 func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 	type ep struct {
+		ID        int      `json:"id"`
 		Season    *int     `json:"airedSeason"`
 		Number    *int     `json:"airedEpisodeNumber"`
 		Absolute  *int     `json:"absoluteNumber"`
@@ -63,7 +64,7 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 			} `json:"links"`
 		}
 		path := fmt.Sprintf("/series/%d/episodes?page=%d", id, page)
-		if err := t.get(ctx, true, path, fmt.Sprintf("%d/episodes-%d.json", id, page), 2*24*time.Hour, &r); err != nil {
+		if err := t.get(ctx, true, path, episodesKey(id, page), episodesTTL, &r); err != nil {
 			return false, err
 		}
 		for _, e := range r.Data {
@@ -74,7 +75,7 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 			if e.Absolute != nil {
 				abs = *e.Absolute
 			}
-			out = append(out, Episode{Season: *e.Season, Number: *e.Number, Absolute: abs, Title: e.Name,
+			out = append(out, Episode{ID: e.ID, Season: *e.Season, Number: *e.Number, Absolute: abs, Title: e.Name,
 				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: minutes,
 				Directors: people(e.Directors), Writers: people(e.Writers)})
 		}
@@ -106,7 +107,7 @@ func (t *TVDB) details3(ctx context.Context, id int) (Details, error) {
 			Sort  int    `json:"sortOrder"`
 		} `json:"data"`
 	}
-	if err = t.get(ctx, true, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), 7*24*time.Hour, &r); fetch.IsNotFound(err) {
+	if err = t.get(ctx, true, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), seriesTTL, &r); fetch.IsNotFound(err) {
 		err = nil // no actors
 	}
 	sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Sort < r.Data[j].Sort })
@@ -130,7 +131,7 @@ func (t *TVDB) art3(ctx context.Context, id int) (Art, error) {
 			out = append(out, artURL(main))
 		}
 		path := fmt.Sprintf("/series/%d/images/query?keyType=%s", id, keyType)
-		found, e := t.images3(ctx, path, fmt.Sprintf("%d/%s.json", id, keyType))
+		found, e := t.images3(ctx, path, fmt.Sprintf("%d/%s.json", id, keyType), seriesFilesTTL)
 		if e != nil {
 			err = e
 		}
@@ -150,13 +151,13 @@ func (t *TVDB) art3(ctx context.Context, id int) (Art, error) {
 // backgrounds.
 func (t *TVDB) seasonArt3(ctx context.Context, id, season int) (Art, error) {
 	path := fmt.Sprintf("/series/%d/images/query?keyType=season&subKey=%d", id, season)
-	posters, err := t.images3(ctx, path, fmt.Sprintf("%d/season-%d.json", id, season))
+	posters, err := t.images3(ctx, path, fmt.Sprintf("%d/season-%d.json", id, season), seasonTTL)
 	return Art{Posters: posters}, err
 }
 
-// images3 reads one v3 image query, best rated first. A 404 means no images
-// of the kind: none, and no error.
-func (t *TVDB) images3(ctx context.Context, path, key string) ([]string, error) {
+// images3 reads one v3 image query, cached for ttl, best rated first. A 404
+// means no images of the kind: none, and no error.
+func (t *TVDB) images3(ctx context.Context, path, key string, ttl time.Duration) ([]string, error) {
 	var r struct {
 		Data []struct {
 			File    string `json:"fileName"`
@@ -165,7 +166,7 @@ func (t *TVDB) images3(ctx context.Context, path, key string) ([]string, error) 
 			} `json:"ratingsInfo"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, true, path, key, 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, true, path, key, ttl, &r); err != nil {
 		if fetch.IsNotFound(err) {
 			return nil, nil
 		}

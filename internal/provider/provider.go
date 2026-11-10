@@ -44,17 +44,11 @@ type Mode struct {
 }
 
 // Identifier is the Plex provider id and GUID scheme of the mode.
-func (m Mode) Identifier() string {
-	if m.id != "" {
-		return m.id
-	}
-	return identifier(m.Path)
-}
+func (m Mode) Identifier() string { return m.id }
 
-func identifier(path string) string { return "tv.plex.agents.custom." + config.Name + "." + path }
-
+// withID sets a mode's Identifier. Every Mode is one of Modes, made by it.
 func withID(m Mode) Mode {
-	m.id = identifier(m.Path)
+	m.id = "tv.plex.agents.custom." + config.Name + "." + m.Path
 	return m
 }
 
@@ -91,6 +85,8 @@ type Provider struct {
 	failed   map[string]failedBuild // root -> last build's failure, for failTTL
 	builds   map[string]*build      // root -> build in progress (dedupes Plex's request bursts)
 	prunedAt time.Time              // last sweep of expired shows
+	running  int                    // builds not over yet, their report queued or not (see WaitBuilds)
+	ended    chan struct{}          // a build ended (buffer of 1, for WaitBuilds)
 
 	buildFn func(ctx context.Context, root string) (*Show, error) // nil = buildShow; tests swap it
 }
@@ -100,7 +96,7 @@ type cachedShow struct {
 	at   time.Time
 }
 
-// failedBuild is a build that failed for another reason than time: one
+// failedBuild is a build that failed for another reason than its time: one
 // Plex refresh asks for a show several times, and each would download (and
 // warn) again.
 type failedBuild struct {
@@ -129,13 +125,14 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 		slog.Warn("ignoring a bad access entry", "entry", b,
 			"allowed", "ALLOW_FROM: private, any, 192.168.1.10, 192.168.1.0/24 · ALLOWED_HOSTS: kizuna.example.com, .example.com, any")
 	}
-	if access.AnyClient {
-		slog.Warn("ALLOW_FROM=any: every address may use Kizuna; keep its port off the internet")
+	for _, e := range access.everyone() {
+		slog.Warn("ALLOW_FROM=" + e + ": every address may use Kizuna; keep its port off the internet")
 	}
 	loaded := make(chan struct{})
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
-		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{}}
+		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
+		ended: make(chan struct{}, 1)}
 }
 
 // Loading marks the lists as still loading for the first time: /health
@@ -164,6 +161,27 @@ func (p *Provider) Stop() {
 	})
 }
 
+// WaitBuilds waits until no show build is running, or until ctx is done
+// (then false). A build outlives requests that give up on it, and queues
+// its match report when it ends: the shutdown waits for it, within its
+// drain, before the reports' last flush. A build started meanwhile (by a
+// request still being drained) is waited for too.
+func (p *Provider) WaitBuilds(ctx context.Context) bool {
+	for {
+		p.mu.Lock()
+		n := p.running
+		p.mu.Unlock()
+		if n == 0 {
+			return true
+		}
+		select {
+		case <-p.ended: // maybe an earlier build's: counted again above
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 // showTTL: how long a built model is served from memory (shorter when
 // something was missing, see Show.Complete, so it is retried soon).
 func showTTL(s *Show) time.Duration {
@@ -174,9 +192,10 @@ func showTTL(s *Show) time.Duration {
 }
 
 // show returns the model for a root rating key, built at most once at a time
-// and cached in memory per showTTL. There is no size limit: expired models
-// are swept out every few minutes, so memory follows what Plex asked for in
-// the last hour.
+// and cached in memory per showTTL. There is no size limit: only a build
+// adds a model, and the end of a build sweeps out the expired ones
+// (pruneShows, at most every 5 minutes), so memory holds what Plex asked
+// for in about the hour before the latest build.
 func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	p.mu.Lock()
 	if c, ok := p.shows[root]; ok {
@@ -195,7 +214,9 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	if f, ok := p.failed[root]; ok && time.Since(f.at) < failTTL {
 		p.mu.Unlock()
 		age := time.Since(f.at).Round(time.Second)
-		slog.Debug("show build failed lately", "root", root, "age", age, "err", f.err)
+		if debugOn(ctx) {
+			slog.Debug("show build failed lately", "root", root, "age", age, "err", f.err)
+		}
 		if rq := report.RequestFrom(ctx); rq != nil {
 			rq.Build, rq.Answer = f.build, "failed "+age.String()+" ago, rebuilt after "+failTTL.String()
 		}
@@ -203,11 +224,10 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	}
 	b, running := p.builds[root]
 	if !running {
-		b = &build{done: make(chan struct{})}
+		b = p.newBuild(root)
 		if p.reports != nil {
 			b.rec = report.NewRecorder(root, buildMode(ctx, root))
 		}
-		p.builds[root] = b
 	}
 	if b.rec != nil && !b.matched {
 		// The match request that started the build, or the first to join
@@ -233,21 +253,40 @@ func (p *Provider) show(ctx context.Context, root string) (*Show, error) {
 	}
 	select {
 	case <-b.done:
-		switch {
-		case rq == nil:
-		case b.show != nil:
-			rq.Build = b.show.build
-		default:
-			rq.Answer = "not available"
-		}
-		return b.show, b.err
 	case <-ctx.Done():
-		if rq != nil {
-			rq.Answer = "timed out"
+		select {
+		case <-b.done: // over as the request gave up: it has the answer
+		default:
+			if rq != nil {
+				rq.Answer = "timed out"
+			}
+			return nil, ctx.Err() // the build goes on (see writeUnavailable)
 		}
-		return nil, ctx.Err()
 	}
+	switch {
+	case rq == nil:
+	case b.show != nil:
+		rq.Build = b.show.build
+	default:
+		rq.Build, rq.Answer = b.rec.ID(), "not available"
+	}
+	return b.show, b.err
 }
+
+// newBuild registers a build of root, counted until runBuild ends it;
+// caller holds p.mu.
+func (p *Provider) newBuild(root string) *build {
+	b := &build{done: make(chan struct{})}
+	p.builds[root] = b
+	p.running++
+	return b
+}
+
+// errBuildTimeout: the build ran out of its own time (buildTime) before its
+// sources answered. Unlike a request that gives up while the build goes on,
+// nothing is being built any more; it isn't kept as a failure, so the next
+// request builds again.
+var errBuildTimeout = errors.New("the show's sources didn't answer in time")
 
 // buildMargin: a build stops this long before the request that started it
 // gives up, so that request still answers with what came back.
@@ -287,7 +326,7 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		switch {
 		case b.err == nil:
 			p.shows[root] = cachedShow{b.show, time.Now()}
-		case !timedOut(b.err): // out of time: the next request tries again
+		case !errors.Is(b.err, errBuildTimeout): // out of time: the next request tries again
 			p.failed[root] = failedBuild{b.err, rec.ID(), time.Now()}
 		}
 		p.pruneShows()
@@ -301,6 +340,15 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 			})
 		}
 		close(b.done)
+		// Counted down only now, its report queued: WaitBuilds returns
+		// before the shutdown's last flush.
+		p.mu.Lock()
+		p.running--
+		p.mu.Unlock()
+		select {
+		case p.ended <- struct{}{}:
+		default: // a wake-up is already waiting
+		}
 	}()
 	if p.buildFn != nil {
 		b.show, b.err = p.buildFn(ctx, root)
@@ -308,7 +356,7 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		b.show, b.err = p.buildShow(ctx, root)
 	}
 	if b.err != nil && ctx.Err() != nil {
-		b.err = fmt.Errorf("%w: %v", ctx.Err(), b.err) // out of time: the handlers answer 503
+		b.err = fmt.Errorf("%w: %v", errBuildTimeout, b.err) // the handlers answer 503
 	}
 	if b.show != nil {
 		b.show.build = rec.ID()
@@ -392,11 +440,12 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		if s, err = p.buildAniDB(ctx, id); errors.Is(err, errUnknownAID) && p.titles.Ready() {
 			err = noShowError{err}
 		}
-	case p.modeOff(Modes["tvdb"]) != "":
-		// A tvdb-N key asked through /anidb or /auto, with TheTVDB not set
-		// up: like /tvdb itself (withMode), a 503 with the reason.
-		return nil, fmt.Errorf("%s needs TheTVDB, which is off: %s", root, p.modeOff(Modes["tvdb"]))
 	default:
+		if off := p.modeOff(Modes["tvdb"]); off != "" {
+			// A tvdb-N key asked through /anidb or /auto, with TheTVDB not set
+			// up: like /tvdb itself (withMode), a 503 with the reason.
+			return nil, fmt.Errorf("%s needs TheTVDB, which is off: %s", root, off)
+		}
 		// TheTVDB answered without episodes: the show doesn't exist. Any
 		// other failure is TheTVDB not answering now.
 		if s, err = p.buildTVDB(ctx, id); errors.Is(err, errNoEpisodes) {

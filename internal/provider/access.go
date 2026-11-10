@@ -78,7 +78,7 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 		switch {
 		case v == "any" || v == "all" || v == "*":
 			a.AnyHost = true
-		case v == "" || strings.ContainsAny(v, "/: "):
+		case v == "" || strings.ContainsAny(v, "/: *"): // a * past the front would be a literal that never matches
 			if v != "" {
 				bad = append(bad, "ALLOWED_HOSTS="+e)
 			}
@@ -87,6 +87,22 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 		}
 	}
 	return a, bad
+}
+
+// everyone returns the ALLOW_FROM entries that let every address use
+// Kizuna, for New's warning: any, and a /0 network (0.0.0.0/0, ::/0), which
+// is the same written as a network.
+func (a Access) everyone() []string {
+	var out []string
+	if a.AnyClient {
+		out = append(out, "any")
+	}
+	for _, n := range a.Nets {
+		if n.Bits() == 0 {
+			out = append(out, n.String())
+		}
+	}
+	return out
 }
 
 // unmapPrefix masks an ALLOW_FROM network and turns an IPv4-mapped one

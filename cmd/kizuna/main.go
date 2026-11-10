@@ -1,6 +1,6 @@
 // Command kizuna runs the Plex metadata provider.
 //
-//	kizuna         run the provider (settings: env vars, see SETTINGS.md)
+//	kizuna         run the provider (settings: env vars and the settings file, see SETTINGS.md)
 //	kizuna health  exit 0 when the running provider is ready (else 1, saying why on stderr)
 package main
 
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	_ "time/tzdata" // TZ works in the distroless image (no zoneinfo there): log days follow it
+	_ "time/tzdata" // TZ works in the distroless image and on Windows (no zoneinfo there): log days follow it
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
@@ -38,6 +38,8 @@ func main() {
 	// The settings file goes into the environment first, so every setting
 	// below can come from it. Its problems are logged once logging is set.
 	envFile, envErr := config.LoadEnvFile()
+	// TZ (maybe from the file) before the log file opens: its days follow it.
+	tzErr := config.SetTimeZone()
 
 	// Two levels: info (what happened) and debug (everything needed to see why).
 	level, bad := slog.LevelInfo, ""
@@ -87,6 +89,9 @@ func main() {
 	if bad != "" {
 		slog.Warn("unknown LOG_LEVEL; using info", "LOG_LEVEL", bad, "allowed", "info,debug")
 	}
+	if tzErr != nil {
+		slog.Warn("ignoring TZ; log times use the default time zone", "err", tzErr)
+	}
 
 	cfg := config.Load()
 	if !healthCheck {
@@ -126,7 +131,7 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources))
 	}
 	keepLoaded = func(firstDone func()) {
-		keepFresh(ctx, load, func() (bool, bool) { return titles.Ready(), lists.Ready() }, firstDone)
+		keepFresh(ctx, load, func() (bool, []string) { return titles.Ready(), lists.Missing(cfg.MappingSources) }, firstDone)
 	}
 	return p, tvdb, keepLoaded
 }
@@ -139,12 +144,15 @@ func loadErr(ctx context.Context, list string, err error) {
 	}
 }
 
-// keepFresh loads both lists now and then daily. Until both have loaded once
-// (first start without a network: no cached copy to fall back on, so
-// nothing matches) they are retried every 5 minutes instead. firstDone runs
-// after the first load, unless Kizuna started stopping during it: a load
-// cut short isn't "ready". Returns when ctx ends.
-func keepFresh(ctx context.Context, load func(), ready func() (titles, mapping bool), firstDone func()) {
+// keepFresh loads the title list and the mapping lists now and then daily.
+// Until each of them has loaded once (first start without a network: no
+// cached copy to fall back on) they are retried every 5 minutes instead:
+// without titles nothing matches, and a mapping list that never loaded leaves
+// its ids and episode exceptions out, even when the other one loaded. ready
+// says whether the titles loaded and which mapping lists never did.
+// firstDone runs after the first load, unless Kizuna started stopping during
+// it: a load cut short isn't "ready". Returns when ctx ends.
+func keepFresh(ctx context.Context, load func(), ready func() (titles bool, missingLists []string), firstDone func()) {
 	load()
 	if ctx.Err() != nil {
 		return
@@ -152,25 +160,29 @@ func keepFresh(ctx context.Context, load func(), ready func() (titles, mapping b
 	firstDone()
 	for {
 		wait := 24 * time.Hour
-		if titles, mapping := ready(); !titles || !mapping {
+		if titles, missing := ready(); !titles || len(missing) > 0 {
 			wait = 5 * time.Minute
 			slog.Warn("a list is missing (download failed, nothing cached yet); retrying", "in", wait,
-				"titles", titles, "mapping", mapping)
+				"titles", titles, "mapping_missing", missing)
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-after(wait):
 			load()
 		}
 	}
 }
 
-// drainTimeout is how long stopping waits for the requests still running.
-// A Plex request gets one budget of provider's requestTimeout (25 s), the
-// wait for the first list load included; 30 s covers it with a margin
-// (compose.yml sets stop_grace_period to 35s to match). Without requests
-// running, stopping is immediate.
+// after is time.After; tests replace it to see keepFresh's wait.
+var after = time.After
+
+// drainTimeout is how long stopping waits for the requests still running,
+// and the show builds they started (see drain). A Plex request gets one
+// budget of provider's requestTimeout (25 s), the wait for the first list
+// load included; 30 s covers it with a margin (compose.yml sets
+// stop_grace_period to 35s to match). Without requests or builds running,
+// stopping is immediate.
 const drainTimeout = 30 * time.Second
 
 func serve(cfg config.Config) error {
@@ -209,19 +221,31 @@ func serve(cfg config.Config) error {
 		<-ctx.Done()
 		p.Stop()
 		stop() // a second Ctrl+C (or SIGTERM) during the drain stops at once
-		slog.Info("stopping: waiting for running requests", "at_most", drainTimeout)
-		shutdown, cancel := context.WithTimeout(context.Background(), drainTimeout)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
+		drain(srv, p.WaitBuilds, drainTimeout)
 		close(closed)
 	}()
 	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		return err
 	}
-	// Serve returns as soon as Shutdown starts: wait for the requests still
-	// running, so they finish and the reports' last Flush includes them.
+	// Serve returns as soon as Shutdown starts: wait for the requests and
+	// builds still running, so they finish and the reports' last Flush
+	// includes them.
 	<-closed
 	return nil
+}
+
+// drain stops the server within timeout in all: it waits for the requests
+// still running, then for the show builds that outlived theirs (Plex gave
+// up on them). A build queues its match report only when it ends, and
+// serve's last report flush comes after the drain.
+func drain(srv *http.Server, waitBuilds func(context.Context) bool, timeout time.Duration) {
+	slog.Info("stopping: waiting for running requests", "at_most", timeout)
+	shutdown, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_ = srv.Shutdown(shutdown)
+	if !waitBuilds(shutdown) {
+		slog.Warn("stopping with a show build still running; it is lost, and so is its match report", "waited", timeout)
+	}
 }
 
 // logReady logs the settings in effect once the first list load is over.

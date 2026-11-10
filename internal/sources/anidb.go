@@ -19,9 +19,14 @@ import (
 // anidbAPI is a variable so tests can point it at a fake server.
 var anidbAPI = "http://api.anidb.net:9001/httpapi?request=anime&client=%s&clientver=%s&protover=1&aid=%d"
 
-// ErrAniDBUnavailable: AniDB can't be asked right now (banned, daily limit, no
-// client configured). Callers fall back to the title dump.
-var ErrAniDBUnavailable = errors.New("anidb api unavailable")
+// errAniDBUnavailable: AniDB may not be asked now (a ban, a backoff, the
+// daily limit, a rejected or missing client, the anime asked lately), or a
+// queued call was stopped before it went out. Anime answers with a stale
+// copy instead when it has one; this error is for when it has none.
+var errAniDBUnavailable = errors.New("anidb api unavailable")
+
+// errAniDBNotSetUp: Anime on a nil *AniDB.
+var errAniDBNotSetUp = fmt.Errorf("%w: not set up", errAniDBUnavailable)
 
 // AniDBAnime is the parsed AniDB entry, reduced to what the provider uses.
 type AniDBAnime struct {
@@ -88,6 +93,7 @@ type AniDB struct {
 	f         *fetch.Client
 	client    string
 	clientVer string
+	clientID  string // anidbClientID of client and clientVer
 	statePath string
 
 	mu    sync.Mutex
@@ -141,7 +147,7 @@ type anidbMemo struct {
 }
 
 func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
-	c := &AniDB{f: f, client: client, clientVer: clientVer,
+	c := &AniDB{f: f, client: client, clientVer: clientVer, clientID: anidbClientID(client, clientVer),
 		statePath: filepath.Join(dataDir, "anidb-state.json"), memo: map[int]anidbMemo{}, queued: map[int]bool{}, calling: map[int]*anidbCall{},
 		failWhy: map[int]string{}, told: map[int]time.Time{}}
 	c.load()
@@ -165,18 +171,26 @@ func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
 	return c
 }
 
-func (c *AniDB) Enabled() bool { return c != nil && c.client != "" } // nil = not set up
+// Enabled: a client is set. Every exported method takes a nil *AniDB (not
+// set up): Anime fails, Peek finds nothing, Prefetch does nothing.
+func (c *AniDB) Enabled() bool { return c != nil && c.client != "" }
 
 // Anime returns the entry from memory, disk cache, or the API (in that order).
 // Waits at most until ctx is done; an unfinished download keeps going in the
 // background and is served from the cache on Plex's next refresh.
 func (c *AniDB) Anime(ctx context.Context, aid int) (*AniDBAnime, error) {
+	if c == nil {
+		return nil, errAniDBNotSetUp
+	}
 	return c.anime(ctx, aid, false)
 }
 
 // Peek returns an entry from memory or the disk cache, of any age, without
 // any network access, and whether it is still fresh. nil = never fetched.
 func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
+	if c == nil {
+		return nil, false
+	}
 	a, fresh, _, _ = c.local(aid)
 	return a, fresh
 }
@@ -219,7 +233,7 @@ func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Durati
 // cache for the next show build. A few workers fetch the waiting entries in
 // order, so a big series doesn't start a goroutine for each.
 func (c *AniDB) Prefetch(aid int) {
-	if c.client == "" {
+	if !c.Enabled() {
 		return
 	}
 	c.mu.Lock()
@@ -314,11 +328,11 @@ func (c *AniDB) ask(ctx context.Context, aid int, background bool, stale *AniDBA
 		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", stale != nil)
 		if stale != nil {
 			if fetch.Observing(ctx) { // the error is only built for a match report
-				fetch.Observe(ctx, key, fetch.KindStale, start, fmt.Errorf("%w: %s", ErrAniDBUnavailable, why))
+				fetch.Observe(ctx, key, fetch.KindStale, start, fmt.Errorf("%w: %s", errAniDBUnavailable, why))
 			}
 			return stale, nil // stale beats nothing
 		}
-		err := fmt.Errorf("%w: %s", ErrAniDBUnavailable, why)
+		err := fmt.Errorf("%w: %s", errAniDBUnavailable, why)
 		fetch.Observe(ctx, key, fetch.KindFail, start, err)
 		return nil, err
 	}

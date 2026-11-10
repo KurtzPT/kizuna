@@ -191,9 +191,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	} else {
 		averageRuntime(s, a)
 		for _, e := range a.Episodes {
+			title, anyTitle := p.anidbEpisodeTitle(e.Titles)
 			ep := Ep{Season: e.Season, Index: e.Index, Summary: e.Summary, Date: e.AirDate, Minutes: e.Minutes,
-				anyTitle: anidb.PickTitle(e.Titles, p.cfg.EpisodeLangs, false), listIndex: e.ListIndex()}
-			ep.setTitle("anidb", anidb.FindTitle(e.Titles, p.cfg.EpisodeLangs, false))
+				anyTitle: anyTitle, listIndex: e.ListIndex()}
+			ep.setTitle("anidb", title)
 			s.Episodes[e.Season] = append(s.Episodes[e.Season], ep)
 		}
 		if len(s.Episodes[1]) == 0 {
@@ -373,16 +374,16 @@ func listRuntime(eps []sources.Episode) int {
 // Show texts come from AniDB (first entry of the series) when known. The
 // episode list always comes from TheTVDB: the mapping places AniDB entries
 // on TheTVDB's seasons, and TheMovieDb often splits them differently.
+// buildShow calls it only with TheTVDB set up.
 func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
-	if !p.tvdb.Enabled() {
-		return nil, fmt.Errorf("tvdb %d: TVDB rules need TheTVDB: set TVDB_API_KEY or TVDB_LEGACY_API_KEY", tvdbID)
-	}
 	s := &Show{Root: fmt.Sprintf("tvdb-%d", tvdbID), Episodes: map[int][]Ep{}, Complete: true,
 		Guids: []string{fmt.Sprintf("tvdb://%d", tvdbID)}}
 	aid := p.lists.FirstAID(tvdbID)
 	entry := p.lists.ByAID(aid)
 	tmdbShow := p.tmdbShowOf(ctx, tvdbID, entry)
-	go tmdbShow() // looked up while the episode list downloads
+	b := newTVDBBuild(tvdbID, 0, aid, nil, nil)
+	b.startTMDB(ctx, p, tmdbShow) // while TheTVDB's episode list downloads
+	defer b.wait()                // a failed build too: nothing it started outlives it
 
 	var wg sync.WaitGroup
 	defer wg.Wait() // a failed build too: AniDB's answer is cached for the next
@@ -421,13 +422,12 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	sources.FillAbsolute(eps)
-	b := newTVDBBuild(tvdbID, tmdbID, aid, nil, eps)
+	b.tmdbID, b.eps = tmdbID, eps
 	episodesFromList(s, b)
 	// What doesn't depend on AniDB's answer starts before it is in, as that
-	// can take seconds (its fair-use gap): TheMovieDb's episode list,
-	// TheTVDB's crew records, and TheTVDB's and TheMovieDb's art.
+	// can take seconds (its fair-use gap): TheTVDB's crew records, and
+	// TheTVDB's and TheMovieDb's art (TheMovieDb's episode list is on its way).
 	b.start(ctx, p)
-	defer b.wait()
 	ss := p.newSources(ctx, aid, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
 	ss.warmEarly()
@@ -467,7 +467,7 @@ func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Ent
 
 // episodesFromList adds the episode list's episodes to s, at their season
 // and absolute number (specials at their number), with the list's title
-// and crew (episodeCrew completes it).
+// and crew (tvdbEpisodeCrew completes it, with applyCrew).
 func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
@@ -512,7 +512,9 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 // finishTVDB fills what no source gave: a title, and the first regular
 // episode's air date as the show's.
 func finishTVDB(s *Show, b *tvdbBuild) {
-	s.Title = firstOf(s.Title, fmt.Sprintf("TVDB %d", b.tvdbID))
+	if strings.TrimSpace(s.Title) == "" {
+		s.Title = fmt.Sprintf("TVDB %d", b.tvdbID)
+	}
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
 	}

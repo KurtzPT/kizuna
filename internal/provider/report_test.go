@@ -83,8 +83,8 @@ func TestMatchReport(t *testing.T) {
 
 	var un report.UnmatchedDoc
 	readJSON(t, filepath.Join(dir, "data", report.UnmatchedKey("Nothing Like This At All")+".json"), &un)
-	if un.Match.Root != "" || un.Match.Mode != "anidb" || len(un.Requests) != 1 {
-		t.Errorf("unmatched %+v", un)
+	if un.Match.Root != "" || un.Match.Mode != "anidb" || len(un.Requests) != 1 || un.Match.TagRule || un.Match.Query != "" {
+		t.Errorf("unmatched %+v: want a title search no-match, the title without tags", un)
 	}
 	for _, page := range []string{"index", "anidb-100", un.Key} {
 		if _, err := os.Stat(filepath.Join(dir, page+".html")); err != nil {
@@ -108,6 +108,57 @@ func TestAutoTagModeOffReport(t *testing.T) {
 	if un.Match.Root != "" || un.Match.How != want || len(un.Requests) != 1 ||
 		un.Requests[0].Answer != "no match" || un.Requests[0].Note != want {
 		t.Errorf("unmatched %+v, want no match: %s", un, want)
+	}
+	// The page says a tag rule decided, not the title search, and its
+	// example tag goes after the title without the tag already there.
+	if !un.Match.TagRule || un.Match.Query != "Kizuna Test" {
+		t.Errorf("match %+v: want a tag rule, query %q", un.Match, "Kizuna Test")
+	}
+}
+
+// Two different id tags are a tag rule no-match too; a Fix Match that also
+// ran the title search is not.
+func TestRecordMatchTagRule(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	for _, c := range []struct {
+		how  string
+		want bool
+	}{
+		{"id tags [anidb-1] [tvdb-2]: only one is allowed", true},
+		{"tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY", true},
+		{"tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY; title search: no similar title", false},
+		{"title search: no similar title", false},
+	} {
+		m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, "Show [anidb-1] [tvdb-2]", c.how, nil, nil)
+		if m.TagRule != c.want || m.Query != "Show" {
+			t.Errorf("%s: tag rule %v query %q, want %v and %q", c.how, m.TagRule, m.Query, c.want, "Show")
+		}
+	}
+	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, "Show [anidb-1]", "tag [anidb-1]", []candidate{{"anidb-1", 100}}, nil); m.TagRule {
+		t.Error("a match by tag is no tag rule no-match")
+	}
+}
+
+// A field with no sources (X_SOURCES=none) has an empty order in the
+// page's data, not null: the page's script maps over it.
+func TestRecordFieldEmptyOrder(t *testing.T) {
+	dir := t.TempDir()
+	store, err := report.Open(dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := report.NewRecorder("anidb-1", "anidb")
+	ss := &showSources{rec: rec}
+	ss.recordField("Studio", nil, "", false, func(string) string { return "" })
+	rec.Finish(time.Second, nil, report.ShowHead{Title: "Show"}, nil)
+	store.AddBuild("anidb-1", rec)
+	store.Flush()
+	data, err := os.ReadFile(filepath.Join(dir, "data", "anidb-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"order":[]`) || strings.Contains(string(data), `"order":null`) {
+		t.Errorf("page data %s: want the field's order []", data)
 	}
 }
 

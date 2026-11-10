@@ -69,20 +69,20 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 		}
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-		debug := slog.Default().Enabled(r.Context(), slog.LevelDebug)
-		var url string // only for the debug log and the match report
+		debug := debugOn(r.Context())
+		var uri string // only for the debug log and the match report
 		if debug || p.reports != nil {
-			url = fetch.Redact(r.URL.RequestURI())
+			uri = fetch.Redact(r.URL.RequestURI())
 		}
 		var rq *report.Request // filled in by the handler, for the match report
 		if p.reports != nil {
-			rq = &report.Request{Time: start, Mode: mode.Path, Method: r.Method, URL: url}
+			rq = &report.Request{Time: start, Mode: mode.Path, Method: r.Method, URL: uri}
 			r = r.WithContext(report.WithRequest(r.Context(), rq))
 		}
 		h(rec, r, mode)
 		took := time.Since(start)
 		if debug {
-			slog.Debug("plex request", "method", r.Method, "url", url, "status", rec.status,
+			slog.Debug("plex request", "method", r.Method, "url", uri, "status", rec.status,
 				"bytes", rec.bytes, "took", took.Round(time.Millisecond))
 		}
 		if rq != nil {
@@ -225,7 +225,8 @@ func (p *Provider) match(w http.ResponseWriter, r *http.Request, mode Mode) {
 	writeJSON(w, http.StatusOK, container(mode, items, 0, len(items)))
 }
 
-// timedOut: the show wasn't ready before the request's time ran out.
+// timedOut: the request's own time ran out before the show was ready; its
+// build goes on. (A build out of its own time is errBuildTimeout.)
 func timedOut(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
@@ -233,11 +234,18 @@ func timedOut(err error) bool {
 // writeUnavailable answers a show that couldn't be built, but may exist,
 // with a 503, like a request that outwaited the first list load: Plex keeps
 // what it has (no "no match", no lost item) and asks again. A show that
-// wasn't ready in time is still being built and is cached; for any other
-// failure the answer names the reason (a source down, a key not set).
+// wasn't ready in the request's time is still being built and is cached; a
+// build out of its own time is over, and the next request builds again; for
+// any other failure the answer names the reason (a source down, a key not
+// set).
 func writeUnavailable(w http.ResponseWriter, err error) {
-	why := "the show wasn't ready in time; it is still being built, try again"
-	if !timedOut(err) {
+	var why string
+	switch {
+	case errors.Is(err, errBuildTimeout):
+		why = "the show's sources didn't answer in time, try again"
+	case timedOut(err):
+		why = "the show wasn't ready in time; it is still being built, try again"
+	default:
 		why = "the show can't be built now, try again later: " + err.Error()
 	}
 	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": why})
@@ -369,7 +377,7 @@ func readMatch(r *http.Request) (MatchRequest, error) {
 	if err != nil {
 		return MatchRequest{}, err
 	}
-	if slog.Default().Enabled(r.Context(), slog.LevelDebug) { // the body string only for the log
+	if debugOn(r.Context()) { // the body string only for the log
 		slog.Debug("plex match body", "body", string(raw[:min(len(raw), 4096)]))
 	}
 	fields := map[string]string{}

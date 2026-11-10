@@ -204,7 +204,7 @@ func TestTVDBSeasonOverview(t *testing.T) {
 	if got, err := tv.SeasonOverview(ctx, 99, 2); got != "" || !fetch.IsNotFound(err) {
 		t.Errorf("unknown series: %q %v, want its 404", got, err)
 	}
-	if _, err := tv.Details(ctx, 267440); err != nil {
+	if _, _, err := tv.DetailsAndSeasons(ctx, 267440); err != nil {
 		t.Fatal(err)
 	}
 	if c := n.count(v4 + "/series/267440/extended"); c != 1 {
@@ -276,14 +276,14 @@ func TestTVDBSeriesRecordOnce(t *testing.T) {
 	if err := os.Chtimes(file, at, at); err != nil { // other bytes, same time: the decoded record stands
 		t.Fatal(err)
 	}
-	if d, err := tv.Details(ctx, 267440); err != nil || d.Date != "2013-04-07" {
+	if d, _, err := tv.DetailsAndSeasons(ctx, 267440); err != nil || d.Date != "2013-04-07" {
 		t.Errorf("Details after SeasonOverview: %q %v, want the record already decoded", d.Date, err)
 	}
 	now := time.Now()
 	if err := os.Chtimes(file, now, now); err != nil { // written since
 		t.Fatal(err)
 	}
-	if d, err := tv.Details(ctx, 267440); err != nil || d.Date != "2099-01-01" {
+	if d, _, err := tv.DetailsAndSeasons(ctx, 267440); err != nil || d.Date != "2099-01-01" {
 		t.Errorf("Details after the file changed: %q %v, want it read again", d.Date, err)
 	}
 
@@ -292,7 +292,7 @@ func TestTVDBSeriesRecordOnce(t *testing.T) {
 	m.kept = now.Add(-seriesMemoFor)
 	tv.series[267440] = m
 	tv.seriesMu.Unlock()
-	if _, err := tv.Details(ctx, 1); err != nil {
+	if _, _, err := tv.DetailsAndSeasons(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	tv.seriesMu.Lock()

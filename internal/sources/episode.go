@@ -25,7 +25,7 @@ type Episode struct {
 	Aired    string // YYYY-MM-DD
 	Thumb    string // full URL
 	Minutes  int
-	ID       int // TheTVDB v4 episode id, for EpisodeCrew (0 from other lists)
+	ID       int // TheTVDB episode id (0 from other sources' lists); EpisodeCrew takes v4's
 	// Directors and writers: TheTVDB v3 and TheMovieDb lists carry them; a
 	// TheTVDB v4 list doesn't (see EpisodeCrew).
 	Directors, Writers []string

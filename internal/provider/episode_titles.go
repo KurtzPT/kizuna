@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"kizuna/internal/anidb"
 )
 
 // genericTitle: placeholder titles that don't count as a title, so the next
@@ -41,8 +43,9 @@ func (p *Provider) pickEpisodeTitles(s *Show) {
 
 // episodeTitle: the first real title in source order; else AniDB's title in
 // any language (when anidb is listed); else a placeholder title from a
-// listed source; else AniDB's title even when anidb isn't listed, since no
-// listed source has any (openings and endings are only on AniDB); else ""
+// listed source; else, in /anidb, AniDB's title even when anidb isn't
+// listed, since no listed source has any (openings and endings are only on
+// AniDB; /tvdb looks up AniDB's titles only when anidb is listed); else ""
 // (shown as "Episode N"). EPISODE_TITLES=none always gives "".
 func episodeTitle(ep *Ep, order []string) (title, src string) {
 	for _, src := range order {
@@ -58,10 +61,20 @@ func episodeTitle(ep *Ep, order []string) (title, src string) {
 			return t, src
 		}
 	}
-	if len(order) > 0 && ep.anyTitle != "" { // no listed source has any title (openings, endings…: only AniDB lists them)
+	if len(order) > 0 && ep.anyTitle != "" { // no listed source has any title (openings, endings…: only AniDB lists them); /anidb only
 		return ep.anyTitle, "anidb"
 	}
 	return "", ""
+}
+
+// anidbEpisodeTitle: an AniDB episode's title in EPISODE_LANGS ("" = none)
+// and in any language (Ep.anyTitle). PickTitle tries FindTitle first, so
+// FindTitle's answer, when there is one, is both: it is looked up once.
+func (p *Provider) anidbEpisodeTitle(titles []anidb.Title) (title, anyTitle string) {
+	if title = anidb.FindTitle(titles, p.cfg.EpisodeLangs, false); title != "" {
+		return title, title
+	}
+	return "", anidb.PickTitle(titles, p.cfg.EpisodeLangs, false)
 }
 
 // setPair notes where the episode is on another source, for the match report.

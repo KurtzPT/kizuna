@@ -31,7 +31,6 @@ func NewANN(f *fetch.Client) *ANN {
 
 // ANNAnime is the part of an ANN entry we use.
 type ANNAnime struct {
-	ID      int
 	Title   string // main title
 	Summary string
 	Poster  string // full-size picture
@@ -58,10 +57,10 @@ func (n *ANN) Anime(ctx context.Context, id int) (ANNAnime, error) {
 	if err != nil {
 		return ANNAnime{}, err
 	}
-	return parseANN(data, id)
+	return parseANN(data)
 }
 
-func parseANN(data []byte, id int) (ANNAnime, error) {
+func parseANN(data []byte) (ANNAnime, error) {
 	var doc struct {
 		Anime []struct {
 			Info []struct {
@@ -92,7 +91,7 @@ func parseANN(data []byte, id int) (ANNAnime, error) {
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return ANNAnime{}, err
 	}
-	a := ANNAnime{ID: id}
+	var a ANNAnime
 	if len(doc.Anime) == 0 { // <warning>no result for anime=N</warning>
 		return a, nil
 	}

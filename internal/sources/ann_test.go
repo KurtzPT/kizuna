@@ -21,7 +21,7 @@ const annSample = `<ann><anime id="13" name="Cowboy Bebop" type="TV">
 </anime></ann>`
 
 func TestParseANN(t *testing.T) {
-	a, err := parseANN([]byte(annSample), 13)
+	a, err := parseANN([]byte(annSample))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestParseANN(t *testing.T) {
 	case len(d.Cast) != 1 || d.Cast[0].Name != "Koichi Yamadera" || d.Cast[0].Role != "Spike Spiegel":
 		t.Errorf("cast %v", d.Cast)
 	}
-	if empty, err := parseANN([]byte(`<ann><warning>no result for anime=9</warning></ann>`), 9); err != nil || empty.Title != "" {
+	if empty, err := parseANN([]byte(`<ann><warning>no result for anime=9</warning></ann>`)); err != nil || empty.Title != "" {
 		t.Errorf("no-result answer: %+v %v", empty, err)
 	}
 }

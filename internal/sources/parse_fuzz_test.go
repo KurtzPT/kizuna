@@ -47,16 +47,13 @@ func FuzzParseAniDB(f *testing.F) {
 
 // FuzzParseANN: any ANN encyclopedia answer parses without a panic.
 func FuzzParseANN(f *testing.F) {
-	f.Add([]byte(annSample), 13)
-	f.Add([]byte(`<ann><warning>no result for anime=9</warning></ann>`), 9)
-	f.Add([]byte(`<ann><anime><info type="Picture"><img src="/thumbnails/x/encyc/A1.jpg" width="-1" height="5"/></info></anime></ann>`), 1)
-	f.Fuzz(func(t *testing.T, data []byte, id int) {
-		a, err := parseANN(data, id)
+	f.Add([]byte(annSample))
+	f.Add([]byte(`<ann><warning>no result for anime=9</warning></ann>`))
+	f.Add([]byte(`<ann><anime><info type="Picture"><img src="/thumbnails/x/encyc/A1.jpg" width="-1" height="5"/></info></anime></ann>`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		a, err := parseANN(data)
 		if err != nil {
 			return
-		}
-		if a.ID != id {
-			t.Errorf("ID = %d, want %d", a.ID, id)
 		}
 		for _, list := range [][]string{a.Details.Directors, a.Details.Writers} {
 			seen := map[string]bool{}

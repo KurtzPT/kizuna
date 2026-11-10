@@ -36,7 +36,7 @@ type byName struct {
 // entry, and from the title dump alone: no AniDB calls.
 func (p *Provider) specialByName(tvdbID int, query, file string, year int) (b byName, ok bool) {
 	aids := p.lists.AIDsForTVDB(tvdbID)
-	if len(aids) < 2 || p.titles == nil { // nothing to choose from, or no title list to compare with
+	if len(aids) < 2 { // nothing to choose from
 		return byName{}, false
 	}
 	names := []string{query, fileName(file)}
@@ -119,10 +119,8 @@ func (p *Provider) ofYear(aids []int, year int) []int {
 }
 
 func (p *Provider) entryYear(aid int) string {
-	if p.anidb != nil {
-		if a, _ := p.anidb.Peek(aid); a != nil && len(a.StartDate) >= 4 {
-			return a.StartDate[:4]
-		}
+	if a, _ := p.anidb.Peek(aid); a != nil && len(a.StartDate) >= 4 {
+		return a.StartDate[:4]
 	}
 	for _, t := range p.titles.Of(aid) {
 		if m := titleYearRe.FindString(t.Text); m != "" {

@@ -108,7 +108,7 @@ func TestTVDBLegacyKey(t *testing.T) {
 		t.Errorf("overview %q %q %v", name, ov, err)
 	}
 
-	d, err := tv.Details(ctx, 9)
+	d, _, err := tv.DetailsAndSeasons(ctx, 9)
 	switch {
 	case err != nil:
 		t.Errorf("details: %v", err)
@@ -155,7 +155,6 @@ func TestTVDBLegacyKey(t *testing.T) {
 // v4 episode crew: records past the time budget are fetched in the
 // background (pending), and the next call has them from the cache.
 func TestTVDBEpisodeCrewBackground(t *testing.T) {
-	const v4 = "api4.thetvdb.com/v4"
 	tv, n := newTVDBTest(t, map[string]string{
 		v4 + "/login": `{"data":{"token":"t4"}}`,
 		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D2","peopleType":"Director","sort":2},

@@ -25,13 +25,13 @@ func TestTMDBRejectedKeyRemembered(t *testing.T) {
 	f.SetTransport(n)
 	tm := NewTMDB(f, "key")
 	ctx := context.Background()
-	if _, err := tm.TV(ctx, 5); !fetch.IsNotFound(err) { // not in the answers: 404
+	if _, err := tm.tv(ctx, 5); !fetch.IsNotFound(err) { // not in the answers: 404
 		t.Fatalf("tv 5: %v, want its 404", err)
 	}
-	if _, err := tm.TV(ctx, 1); !unauthorized(err) {
+	if _, err := tm.tv(ctx, 1); !unauthorized(err) {
 		t.Fatalf("tv 1: %v, want the 401", err)
 	}
-	if _, err := tm.TV(ctx, 2); !unauthorized(err) {
+	if _, err := tm.tv(ctx, 2); !unauthorized(err) {
 		t.Fatalf("tv 2: %v, want the remembered 401", err)
 	}
 	p := filepath.Join(dir, "tmdb", "tv-3.json")
@@ -42,7 +42,7 @@ func TestTMDBRejectedKeyRemembered(t *testing.T) {
 	if err := os.Chtimes(p, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if s, err := tm.TV(ctx, 3); err != nil || s.Name != "Stale" {
+	if s, err := tm.tv(ctx, 3); err != nil || s.Name != "Stale" {
 		t.Fatalf("tv 3: %q %v, want the stale copy", s.Name, err)
 	}
 	for id, want := range map[int]int{1: 1, 2: 0, 3: 0} {
@@ -54,27 +54,51 @@ func TestTMDBRejectedKeyRemembered(t *testing.T) {
 	tm.keys.mu.Lock()
 	tm.keys.until = time.Now() // the pause is over
 	tm.keys.mu.Unlock()
-	if _, err := tm.TV(ctx, 2); !unauthorized(err) || n.count("api.themoviedb.org/3/tv/2"+q) != 1 {
+	if _, err := tm.tv(ctx, 2); !unauthorized(err) || n.count("api.themoviedb.org/3/tv/2"+q) != 1 {
 		t.Errorf("after the pause: %v, %d requests, want the 401 asked again", err, n.count("api.themoviedb.org/3/tv/2"+q))
 	}
 }
 
-// MAL's rejected client id is remembered the same way.
+// MAL's rejected client id is remembered the same way. MyAnimeList answers
+// a wrong client id with 400 and this body (seen live), not 401/403.
 func TestMALRejectedClientRemembered(t *testing.T) {
+	const bad = `400 {"message":"Invalid client id","error":"bad_request"}`
 	f := fetch.New(t.TempDir())
 	n := &tvdbNet{answers: map[string]string{
-		fmt.Sprintf(malURL, 1): `403 {"error":"forbidden"}`,
-		fmt.Sprintf(malURL, 2): `403 {"error":"forbidden"}`,
+		fmt.Sprintf(malURL, 1): bad,
+		fmt.Sprintf(malURL, 2): bad,
 	}}
 	f.SetTransport(n)
 	m := NewMAL(f, "client")
 	ctx := context.Background()
 	for id := 1; id <= 2; id++ {
 		if _, err := m.Anime(ctx, id); err == nil {
-			t.Errorf("anime %d: no error, want the 403", id)
+			t.Errorf("anime %d: no error, want the 400", id)
 		}
 	}
 	if c := n.count(fmt.Sprintf(malURL, 2)); c != 0 {
 		t.Errorf("anime 2 asked %d times, want 0 (the client id was rejected)", c)
+	}
+}
+
+// Another 400 from MyAnimeList says nothing about the client id: the next
+// call still asks.
+func TestMALOtherBadRequestNotRemembered(t *testing.T) {
+	const other = `400 {"message":"invalid q","error":"bad_request"}`
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		fmt.Sprintf(malURL, 1): other,
+		fmt.Sprintf(malURL, 2): other,
+	}}
+	f.SetTransport(n)
+	m := NewMAL(f, "client")
+	ctx := context.Background()
+	for id := 1; id <= 2; id++ {
+		if _, err := m.Anime(ctx, id); err == nil {
+			t.Errorf("anime %d: no error, want the 400", id)
+		}
+	}
+	if c := n.count(fmt.Sprintf(malURL, 2)); c != 1 {
+		t.Errorf("anime 2 asked %d times, want 1 (not a rejected client id)", c)
 	}
 }

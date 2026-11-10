@@ -1,8 +1,8 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,10 +19,7 @@ func TestMatchIncludeChildren(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
 	serve := func(method, path, body string) Container {
 		t.Helper()
-		req := httptest.NewRequest(method, path, strings.NewReader(body))
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		rec := httptest.NewRecorder()
-		p.Handler().ServeHTTP(rec, req)
+		rec := plexRequest(context.Background(), p, method, path, body)
 		var c Container
 		if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || rec.Code != 200 {
 			t.Fatalf("%s %s: HTTP %d %s (%v)", method, path, rec.Code, rec.Body, err)

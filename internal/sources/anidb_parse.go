@@ -154,10 +154,9 @@ func parseAniDB(data []byte) (*AniDBAnime, error) {
 		}
 		return order[i].n < order[j].n
 	})
-	endingStart := 1 << 30 // first "C" number that is an ending (its title starts with "Ending")
+	endingStart := 1 << 30 // first "C" number that is an ending (its English title starts with "Ending")
 	for _, r := range order {
-		e := x.Episodes[r.i]
-		if r.typ == 3 && r.n < endingStart && len(e.Titles) > 0 && strings.HasPrefix(e.Titles[0].Text, "Ending") {
+		if r.typ == 3 && r.n < endingStart && strings.HasPrefix(creditTitle(x.Episodes[r.i].Titles), "Ending") {
 			endingStart = r.n
 		}
 	}
@@ -194,6 +193,21 @@ func parseAniDB(data []byte) (*AniDBAnime, error) {
 		return a.Episodes[i].Index < a.Episodes[j].Index
 	})
 	return a, nil
+}
+
+// creditTitle: the title that says whether a credit is an opening or an
+// ending ("Opening 1", "Ending 1"): the English one, whatever the order of
+// the titles; else the first.
+func creditTitle(titles []anidb.Title) string {
+	for _, t := range titles {
+		if t.Lang == "en" {
+			return t.Text
+		}
+	}
+	if len(titles) > 0 {
+		return titles[0].Text
+	}
+	return ""
 }
 
 // Details converts AniDB's show fields to the common shape.

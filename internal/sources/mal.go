@@ -2,7 +2,9 @@ package sources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -22,7 +24,23 @@ type MAL struct {
 
 func NewMAL(f *fetch.Client, clientID string) *MAL {
 	f.Throttle("api.myanimelist.net", 500*time.Millisecond)
-	return &MAL{f: f, clientID: clientID, keys: newKeyCheck("MyAnimeList", "MAL_CLIENT_ID")}
+	keys := newKeyCheck("MyAnimeList", "MAL_CLIENT_ID")
+	keys.rejects = malBadClient
+	return &MAL{f: f, clientID: clientID, keys: keys}
+}
+
+// malBadClient: MyAnimeList answers a wrong client id with HTTP 400
+// {"message":"Invalid client id","error":"bad_request"}, not 401/403. Other
+// 400s (a bad request of ours) say nothing about the client id.
+func malBadClient(se *fetch.StatusError) bool {
+	if se.Code != http.StatusBadRequest {
+		return false
+	}
+	var r struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	return json.Unmarshal(se.Body, &r) == nil && r.Error == "bad_request" && strings.EqualFold(r.Message, "invalid client id")
 }
 
 func (m *MAL) Enabled() bool { return m != nil && m.clientID != "" } // nil = not set up
@@ -57,7 +75,7 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 		Rating string `json:"rating"`
 	}
 	err := m.keys.getJSON(ctx, m.f, fetch.Request{
-		URL:     fmt.Sprintf("%s/anime/%d?fields=synopsis,main_picture,mean,genres,studios,start_date,rating", malAPI, id),
+		URL:     fmt.Sprintf("%s/anime/%d?fields=synopsis,main_picture,genres,studios,start_date,rating", malAPI, id),
 		Key:     fmt.Sprintf("mal/v2-%d-full.json", id),
 		TTL:     30 * 24 * time.Hour,
 		Headers: map[string]string{"X-MAL-CLIENT-ID": m.clientID},

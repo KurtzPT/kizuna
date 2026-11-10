@@ -52,29 +52,37 @@ func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	return r.TV[0].ID, err
 }
 
-// Show is the part of a TMDB TV show we use.
-type Show struct {
-	Name     string   `json:"name"`
-	Overview string   `json:"overview"`
-	Seasons  []Season `json:"seasons"`
+// tmdbShow is the part of a TMDB TV show we use.
+type tmdbShow struct {
+	Name     string       `json:"name"`
+	Overview string       `json:"overview"`
+	Seasons  []tmdbSeason `json:"seasons"`
 }
 
-// Season is one season a TMDB TV show lists.
-type Season struct {
+// tmdbSeason is one season a TMDB TV show lists.
+type tmdbSeason struct {
 	Number int `json:"season_number"`
 }
 
-func (t *TMDB) TV(ctx context.Context, id int) (Show, error) {
-	var s Show
+// tv reads a show's name, overview and season list. Details asks TMDB the
+// same endpoint (with credits and ratings appended), but the two stay
+// apart, unlike a movie's: the season list must stay as fresh as the
+// season files it leads to (2 days), while the details answer is big
+// (aggregate_credits lists the cast and crew of every season) and kept a week. One file
+// would mean that big answer every 2 days, also for the episode lists
+// (EpisodesAndPosters), which need only the seasons.
+func (t *TMDB) tv(ctx context.Context, id int) (tmdbShow, error) {
+	var s tmdbShow
 	err := t.get(ctx, fmt.Sprintf("/tv/%d", id), "&language=en-US", fmt.Sprintf("tmdb/tv-%d.json", id), 2*24*time.Hour, &s)
 	return s, err
 }
 
 // Text returns the English title and overview of a TV show or a movie. A
-// movie's come from its Details request and file: one request for both.
+// movie's come from its Details request and file: one request for both. A
+// show's come from its season list (tv), which the season lookups read anyway.
 func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview string, err error) {
 	if !movie {
-		s, err := t.TV(ctx, id)
+		s, err := t.tv(ctx, id)
 		return s.Name, s.Overview, err
 	}
 	var m struct {
@@ -214,16 +222,11 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error)
 	return d, nil
 }
 
-// Episodes returns all episodes of a TMDB show (seasons fetched in parallel).
-func (t *TMDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
-	eps, _, err := t.EpisodesAndPosters(ctx, id)
-	return eps, err
-}
-
-// EpisodesAndPosters is Episodes, plus the posters of each season that has
-// any (SeasonArt's), read from the same files.
+// EpisodesAndPosters returns all episodes of a TMDB show (seasons fetched in
+// parallel), and the posters of each season that has any (SeasonArt's),
+// read from the same files.
 func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[int][]string, error) {
-	show, err := t.TV(ctx, id)
+	show, err := t.tv(ctx, id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -297,7 +300,7 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 	return out, posters, nil
 }
 
-// season reads one season file of a TV show, which Episodes, SeasonOverview
+// season reads one season file of a TV show, which EpisodesAndPosters, SeasonOverview
 // and SeasonArt share: the season's images come appended to it (TMDB's
 // append_to_response), so its posters cost no request of their own.
 func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
@@ -338,11 +341,11 @@ func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
 // isn't asked for: TMDB would answer 404, which isn't cached. The show's
 // file is cached, and usually read already.
 func (t *TMDB) listsSeason(ctx context.Context, id, season int) (bool, error) {
-	show, err := t.TV(ctx, id)
+	show, err := t.tv(ctx, id)
 	if err != nil {
 		return false, err
 	}
-	return slices.ContainsFunc(show.Seasons, func(s Season) bool { return s.Number == season }), nil
+	return slices.ContainsFunc(show.Seasons, func(s tmdbSeason) bool { return s.Number == season }), nil
 }
 
 // seasonImages is the images part of a season file.

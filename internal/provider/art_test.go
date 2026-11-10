@@ -55,6 +55,9 @@ func seasonArt(path string, q map[string][]string) (int, string) {
 		return 200, `{"episodes":[],"images":{"posters":[{"file_path":"/tmdb-s2-poster"}]}}`
 	case "api.themoviedb.org/3/tv/77/season/3":
 		return 200, `{"episodes":[],"images":{"posters":[]}}`
+	case "api.themoviedb.org/3/movie/77/images": // 77 as a movie id (artOf's movie)
+		return 200, `{"posters":[{"file_path":"/tmdb-movie-poster"}],"backdrops":[{"file_path":"/tmdb-movie-background"}],
+			"logos":[{"file_path":"/tmdb-movie-logo"}]}`
 	}
 	return testSeries(path, q)
 }
@@ -69,7 +72,8 @@ func names(urls []string) string {
 }
 
 // artOf builds an /anidb show's art (show and Plex seasons 1 and 0) for an
-// entry on TVDB 500 and TMDB 77, with set changing the settings.
+// entry on TVDB 500 and TMDB 77 (with movie, TheMovieDb's movie 77), with
+// set changing the settings.
 func artOf(t *testing.T, entry mapping.Entry, series, movie bool, set func(*config.Config)) (*Show, *fakeNet) {
 	t.Helper()
 	net := &fakeNet{answer: seasonArt}
@@ -252,6 +256,64 @@ func TestSeasonArtFetchedOnce(t *testing.T) {
 	}
 	if c := net.count("api4.thetvdb.com/v4/series/500/extended"); c != 1 {
 		t.Errorf("series record asked %d times, want 1 (the season ids)", c)
+	}
+}
+
+// Art warming starts with each kind's first source that can fetch: with
+// TheTVDB first in every order but no TheTVDB key, or no TheTVDB id for the
+// entry, TheMovieDb's series and season art is fetched in the parallel phase
+// (warm), not one after another by pickArt and fillSeasons afterwards.
+func TestArtWarmSkipsSourcesThatCantFetch(t *testing.T) {
+	for name, c := range map[string]struct {
+		entry mapping.Entry
+		noKey bool
+	}{
+		"no TheTVDB id":  {mapping.Entry{TMDB: onTMDB(2)}, false},
+		"no TheTVDB key": {mapping.Entry{TVDB: onTVDB(3), TMDB: onTMDB(2)}, true},
+	} {
+		net := &fakeNet{answer: seasonArt}
+		p := newTestProvider(t, net)
+		if c.noKey {
+			p.tvdb = sources.NewTVDB(fetch.New(t.TempDir()), "", "", "") // not configured: never asked
+		}
+		p.cfg.TitleSources, p.cfg.SummarySources = nil, nil // only the art is asked for
+		p.cfg.PosterSources = []string{"tvdb", "tmdb", "anidb"}
+		p.cfg.BackgroundSources, p.cfg.LogoSources = []string{"tvdb", "tmdb"}, []string{"tvdb", "tmdb"}
+		ss := p.newSources(context.Background(), 100, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, firstEntry{})
+		ss.setAniDB(context.Background(), nil, c.entry)
+		s := &Show{Episodes: map[int][]Ep{1: nil, 0: nil}}
+		ss.anidbTargets(c.entry, plexSeasons(s))
+		ss.warm()
+		for _, path := range []string{"api.themoviedb.org/3/tv/77/images", "api.themoviedb.org/3/tv/77/season/2"} {
+			if n := net.count(path); n != 1 {
+				t.Errorf("%s: %s fetched %d times by warm, want 1", name, path, n)
+			}
+		}
+	}
+}
+
+// A TheMovieDb movie has no seasons there: the show, its Season 1 and its
+// Specials all get the movie's art from TheMovieDb, and no TV show's art or
+// season is asked for. TheTVDB's specials season still gives its own.
+func TestMovieArt(t *testing.T) {
+	s, net := artOf(t, mapping.Entry{TVDB: onTVDB(0), TMDB: onTMDB(2)}, false, true, func(c *config.Config) {
+		c.PosterSources, c.BackgroundSources, c.LogoSources = []string{"tmdb", "tvdb"}, []string{"tmdb", "tvdb"}, []string{"tmdb", "tvdb"}
+	})
+	for name, a := range map[string]sources.Art{"show": s.Art, "Season 1": s.SeasonArt[1], "Specials": s.SeasonArt[0]} {
+		if names(a.Posters) != "tmdb-movie-poster" || names(a.Backgrounds) != "tmdb-movie-background" || names(a.Logos) != "tmdb-movie-logo" {
+			t.Errorf("%s: posters %q backgrounds %q logos %q, want the movie's", name, names(a.Posters), names(a.Backgrounds), names(a.Logos))
+		}
+	}
+	for _, path := range []string{"api.themoviedb.org/3/tv/77/images", "api.themoviedb.org/3/tv/77/season/2", "api.themoviedb.org/3/tv/77/season/0"} {
+		if n := net.count(path); n != 0 {
+			t.Errorf("%s asked %d times, want none (a movie)", path, n)
+		}
+	}
+	s, _ = artOf(t, mapping.Entry{TVDB: onTVDB(0), TMDB: onTMDB(2)}, false, true, func(c *config.Config) {
+		c.PosterSources = []string{"tvdb", "tmdb"}
+	})
+	if got := names(s.SeasonArt[0].Posters); got != "tvdb-s0-poster" {
+		t.Errorf("Specials, TheTVDB first: posters %q, want TheTVDB's season 0", got)
 	}
 }
 

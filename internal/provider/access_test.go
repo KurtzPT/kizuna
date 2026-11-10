@@ -5,7 +5,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
+
+	"kizuna/internal/config"
 )
 
 func TestClientAllowed(t *testing.T) {
@@ -93,10 +97,51 @@ func TestHostAllowed(t *testing.T) {
 	}
 }
 
+// ALLOW_FROM=any, or a network of every address written as 0.0.0.0/0 or
+// ::/0, is warned about at startup: either opens Kizuna to the internet.
+func TestEveryoneWarned(t *testing.T) {
+	for _, c := range []struct {
+		allowFrom []string
+		want      []string
+	}{
+		{[]string{"any"}, []string{"any"}},
+		{[]string{"0.0.0.0/0"}, []string{"0.0.0.0/0"}},
+		{[]string{"private", "::/0"}, []string{"::/0"}},
+		{[]string{"::ffff:0.0.0.0/96"}, []string{"0.0.0.0/0"}}, // the IPv4-mapped form of every IPv4 address
+		{[]string{"private", "0.0.0.0/1"}, nil},
+		{nil, nil},
+	} {
+		a, _ := ParseAccess(c.allowFrom, nil)
+		if got := a.everyone(); !slices.Equal(got, c.want) {
+			t.Errorf("ALLOW_FROM %v: %v, want %v", c.allowFrom, got, c.want)
+		}
+	}
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	New(config.Config{AllowFrom: []string{"192.168.1.0/24", "0.0.0.0/0"}}, nil, nil, nil, nil, nil, nil, nil)
+	restore()
+	if !strings.Contains(logs.String(), `level=WARN msg="ALLOW_FROM=0.0.0.0/0: every address may use Kizuna`) {
+		t.Errorf("logs:\n%s\nwant the warning for 0.0.0.0/0", logs.String())
+	}
+}
+
+// An ALLOWED_HOSTS entry with a * anywhere but the front would never match:
+// it is reported as bad, like any other.
+func TestBadHostWildcard(t *testing.T) {
+	a, bad := ParseAccess(nil, []string{"foo*.example.com", "**.example.com", "*.example.com", "kizuna.*"})
+	want := []string{"ALLOWED_HOSTS=foo*.example.com", "ALLOWED_HOSTS=**.example.com", "ALLOWED_HOSTS=kizuna.*"}
+	if !slices.Equal(bad, want) || !slices.Equal(a.Hosts, []string{".example.com"}) {
+		t.Errorf("bad %v hosts %v, want bad %v and only .example.com kept", bad, a.Hosts, want)
+	}
+}
+
 func TestGuardRefuses(t *testing.T) {
 	access, _ := ParseAccess([]string{"private"}, nil)
 	p := &Provider{access: access}
 	h := p.guard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the refusals' warnings
+	defer restore()
 	for _, c := range []struct {
 		remote, host string
 		want         int
@@ -116,6 +161,10 @@ func TestGuardRefuses(t *testing.T) {
 			t.Error("nosniff header missing")
 		}
 	}
+	if !strings.Contains(logs.String(), "refused a request from an address outside ALLOW_FROM") ||
+		!strings.Contains(logs.String(), "refused a request for an unknown host name") {
+		t.Errorf("logs:\n%s\nwant both refusals logged", logs.String())
+	}
 }
 
 // With LISTEN=<ip> the health check connects from the machine's own address,
@@ -126,6 +175,9 @@ func TestHealthFromOwnAddress(t *testing.T) {
 	p := &Provider{access: access}
 	h := p.guard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	own := &net.TCPAddr{IP: net.ParseIP("192.168.1.5"), Port: 32600}
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the refusals' warnings
+	defer restore()
 	for _, c := range []struct {
 		path, remote string
 		local        net.Addr

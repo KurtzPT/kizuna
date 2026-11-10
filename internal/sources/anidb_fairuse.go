@@ -82,7 +82,7 @@ func (c *AniDB) paused(now time.Time) string {
 	if now.Before(c.state.BannedUntil) {
 		return "banned until " + c.state.BannedUntil.Format(time.RFC3339)
 	}
-	if until := c.state.ClientRejectedAt.Add(anidbClientPause); c.state.ClientRejected == c.clientID() && now.Before(until) {
+	if until := c.state.ClientRejectedAt.Add(anidbClientPause); c.state.ClientRejected == c.clientID && now.Before(until) {
 		return "AniDB rejected ANIDB_CLIENT / ANIDB_CLIENTVER; paused until " + until.Format(time.RFC3339) + " or until they change"
 	}
 	if now.Before(c.state.RetryAt) {
@@ -140,8 +140,8 @@ func (c *AniDB) admit(aid int, background bool, now time.Time) string {
 // nor the anime.
 type anidbNotSent struct{ why string }
 
-func (e *anidbNotSent) Error() string { return ErrAniDBUnavailable.Error() + ": " + e.why }
-func (e *anidbNotSent) Unwrap() error { return ErrAniDBUnavailable }
+func (e *anidbNotSent) Error() string { return errAniDBUnavailable.Error() + ": " + e.why }
+func (e *anidbNotSent) Unwrap() error { return errAniDBUnavailable }
 
 // sending runs when a call's turn in the 4 s queue comes, right before it
 // goes out (fetch's Before). The answer just ahead of it may have brought a
@@ -270,10 +270,11 @@ type anidbEntryError struct {
 
 func (e *anidbEntryError) Error() string { return "anidb: " + e.msg }
 
-// clientID stands for this ANIDB_CLIENT and ANIDB_CLIENTVER in the state
+// anidbClientID stands for an ANIDB_CLIENT and ANIDB_CLIENTVER in the state
 // file (a hash: the client name is kept out of it, as out of the logs).
-func (c *AniDB) clientID() string {
-	sum := sha256.Sum256([]byte(c.client + "\x00" + c.clientVer))
+// NewAniDB computes it once: paused looks at it before every call.
+func anidbClientID(client, clientVer string) string {
+	sum := sha256.Sum256([]byte(client + "\x00" + clientVer))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -320,11 +321,11 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 				"registered at anidb.net, protocol HTTP), then restart. AniDB API paused for 24 h or until they change (cache only)",
 				"err", err)
 		}
-		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID(), now
+		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID, now
 	case errors.As(err, &entry):
 		c.state.Failed[aid] = now
 		if entry.answered {
-			c.state.Failures = 0 // AniDB answered: an outage before it is over
+			c.state.Failures, c.state.RetryAt = 0, time.Time{} // AniDB answered: an outage before it is over
 		}
 		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid,
 			"retry_anime_at", now.Add(anidbRetry).Format(time.RFC3339), "err", err)

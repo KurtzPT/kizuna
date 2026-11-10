@@ -41,7 +41,7 @@ func TestTMDBSeasonOverview(t *testing.T) {
 	if got, err := tm.SeasonOverview(ctx, 78, 1); got != "" || !fetch.IsNotFound(err) {
 		t.Errorf("unknown show: %q %v, want its 404", got, err)
 	}
-	if eps, err := tm.Episodes(ctx, 77); err != nil || len(eps) != 2 {
+	if eps, _, err := tm.EpisodesAndPosters(ctx, 77); err != nil || len(eps) != 2 {
 		t.Fatalf("episodes %+v %v", eps, err)
 	}
 	for _, s := range []string{"1", "2"} {

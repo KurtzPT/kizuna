@@ -70,6 +70,27 @@ func TestParseAniDBNumbering(t *testing.T) {
 	}
 }
 
+// Endings are told apart by the English title, not by the first one: here
+// each credit lists its Japanese title first.
+func TestParseAniDBEndingByEnglishTitle(t *testing.T) {
+	const x = `<anime id="1"><episodes>
+    <episode><epno type="3">C1</epno><title xml:lang="ja">オープニング</title><title xml:lang="en">Opening</title></episode>
+    <episode><epno type="3">C2</epno><title xml:lang="ja">エンディング</title><title xml:lang="en">Ending 1</title></episode>
+    <episode><epno type="3">C3</epno><title xml:lang="ja">エンディング 2</title><title xml:lang="en">Ending 2</title></episode>
+  </episodes></anime>`
+	a, err := parseAniDB([]byte(x))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int
+	for _, e := range a.Episodes {
+		got = append(got, e.Index)
+	}
+	if want := []int{101, 151, 152}; !slices.Equal(got, want) {
+		t.Errorf("indexes %v, want %v", got, want)
+	}
+}
+
 // fakeAniDB answers every request with the next scripted (status, body).
 // Every test that uses it asks one anime at a time.
 func fakeAniDB(t *testing.T, answers ...[2]string) (*AniDB, *atomic.Int32) {
@@ -124,7 +145,7 @@ func TestAniDBBackoff(t *testing.T) {
 	c, calls := fakeAniDB(t, [2]string{"500", "oops"}, [2]string{"200", anidbSample})
 	ctx := context.Background()
 	_, _ = c.Anime(ctx, 1)
-	if _, err := c.Anime(ctx, 2); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+	if _, err := c.Anime(ctx, 2); !errors.Is(err, errAniDBUnavailable) || calls.Load() != 1 {
 		t.Fatalf("backoff must stop all calls: calls=%d err=%v", calls.Load(), err)
 	}
 	if w := time.Until(c.state.RetryAt); w < 25*time.Second || w > 30*time.Second {
@@ -299,8 +320,11 @@ func (a admissions) Handle(_ context.Context, r slog.Record) error {
 
 // A slow state write (an fsync on a spun-down disk, here c.mu held) delays
 // the call let through first; the one queued behind it still reaches AniDB
-// at least the gap after it, not together with it. Only a lower bound is
-// checked, at the server.
+// at least the gap after it went out, not together with it. The first call
+// goes out (ticket.sent) only after the write ends, so the second, let
+// through at least gap after that, reaches the server at least gap after
+// the moment noted just before the write ends. Both times are read from
+// this process's monotonic clock, one causally after the other: no margin.
 func TestAniDBGapCountsFromSend(t *testing.T) {
 	var mu sync.Mutex
 	var at []time.Time
@@ -327,13 +351,14 @@ func TestAniDBGapCountsFromSend(t *testing.T) {
 	c.mu.Lock() // the slow write
 	c.f.ThrottleFrom(u.Host, gap, time.Now())
 	time.Sleep(4 * gap)
+	written := time.Now() // before the first call can go out
 	c.mu.Unlock()
 	wg.Wait()
 	if len(at) != 2 {
 		t.Fatalf("%d requests, want 2", len(at))
 	}
-	if d := at[1].Sub(at[0]); d < gap {
-		t.Errorf("requests reached AniDB %v apart, want at least %v", d, gap)
+	if d := at[1].Sub(written); d < gap {
+		t.Errorf("second request reached AniDB %v after the slow write ended, want at least %v", d, gap)
 	}
 }
 
@@ -376,7 +401,7 @@ func TestAniDBQueuedCallsStopAfterBan(t *testing.T) {
 		err = <-secondErr
 		slog.SetDefault(old)
 
-		if !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+		if !errors.Is(err, errAniDBUnavailable) || calls.Load() != 1 {
 			t.Fatalf("after %v: second call err %v, %d requests, want it not sent", first, err, calls.Load())
 		}
 		c.mu.Lock()
@@ -521,7 +546,7 @@ func TestAniDBBlockedAnimeIsLoggedOnce(t *testing.T) {
 		t.Fatalf("failure warning lacks retry_anime_at:\n%s", s)
 	}
 	for range 3 { // rebuilds of the same show
-		if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) {
+		if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) {
 			t.Fatalf("blocked anime: err %v", err)
 		}
 	}
@@ -651,7 +676,7 @@ func TestAniDBFailedCacheWriteNotAskedAgain(t *testing.T) {
 	c.memoMu.Lock()
 	clear(c.memo) // an hour later
 	c.memoMu.Unlock()
-	if _, err := c.Anime(ctx, 69); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+	if _, err := c.Anime(ctx, 69); !errors.Is(err, errAniDBUnavailable) || calls.Load() != 1 {
 		t.Fatalf("after the memo expired: %v, %d requests; want unavailable and 1", err, calls.Load())
 	}
 	if ok, _ := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(69, false); ok {
@@ -843,7 +868,7 @@ func TestAniDBOutageBlocksNoAnime(t *testing.T) {
 	if _, blocked := c.BlockedUntil(1); blocked || c.state.Failures != 1 {
 		t.Fatalf("after a 500: blocked %v, %d failures; want false, 1", blocked, c.state.Failures)
 	}
-	if _, err := c.Anime(ctx, 1); !errors.Is(err, ErrAniDBUnavailable) || calls.Load() != 1 {
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) || calls.Load() != 1 {
 		t.Fatalf("during the backoff: calls=%d err=%v; want 1, unavailable", calls.Load(), err)
 	}
 	c.mu.Lock()

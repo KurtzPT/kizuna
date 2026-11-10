@@ -112,11 +112,10 @@ func (ss *showSources) anidbTargets(entry mapping.Entry, seasons []int) {
 	ss.show = t
 }
 
-// tvdbTargets sets a /tvdb show's targets: the show is the series, each
-// Plex season the same TheTVDB season. TheMovieDb's seasons split
-// differently: pairTMDB adds them once the episodes are paired.
+// tvdbTargets sets a /tvdb show's targets: the show is the series (as
+// newSources set it), each Plex season the same TheTVDB season. TheMovieDb's
+// seasons split differently: pairTMDB adds them once the episodes are paired.
 func (ss *showSources) tvdbTargets(seasons []int) {
-	ss.show = seriesTarget
 	ss.seasons = make([]plexSeason, len(seasons))
 	ss.seasonArts = make([]*seasonFetch, 0, len(seasons)) // TheTVDB's; TheMovieDb's come with its episode list
 	for i, n := range seasons {
@@ -324,6 +323,13 @@ func (ss *showSources) fillSeasons(s *Show) {
 	}
 	s.SeasonArt = make(map[int]sources.Art, len(ss.seasons))
 	for _, ps := range ss.seasons {
+		// Season 1 of an /anidb entry that starts neither series is of the
+		// show's target: its art is the show's. With a match report it is
+		// picked again, to note its fields.
+		if ps.t == ss.show && ss.rec == nil {
+			s.SeasonArt[ps.n] = s.Art
+			continue
+		}
 		name := ""
 		if ss.rec != nil {
 			name = seasonTitle(ps.n)
@@ -333,13 +339,22 @@ func (ss *showSources) fillSeasons(s *Show) {
 }
 
 // warmArt adds jobs that fetch, in parallel, the art each target will ask
-// for first: each kind's first source (every listed one in "all" mode), of
-// the sources take takes. One job per distinct target and source.
-func (ss *showSources) warmArt(jobs []func(), take func(src string) bool) []func() {
+// for first: each kind's first source that is asked (artAsked; every listed
+// one in "all" mode), of the sources take takes. One job per distinct target
+// and source. settled: setAniDB has run (see artAsked).
+func (ss *showSources) warmArt(jobs []func(), take func(src string) bool, settled bool) []func() {
 	all := ss.p.cfg.ArtAllSources
 	asks := func(k artKind, src string) bool { // the kind's order asks src first (or at all)
 		order := k.order(ss)
-		return all && slices.Contains(order, src) || len(order) > 0 && order[0] == src
+		if all {
+			return slices.Contains(order, src)
+		}
+		for _, o := range order {
+			if ss.artAsked(o, k, settled) {
+				return o == src
+			}
+		}
+		return false
 	}
 	add := func(t artTarget) {
 		for _, src := range [...]string{"tvdb", "tmdb", "anidb", "mal", "ann"} {
@@ -365,6 +380,28 @@ func (ss *showSources) warmArt(jobs []func(), take func(src string) bool) []func
 		}
 	}
 	return jobs
+}
+
+// artAsked: pickArt stops at src for images of kind k (all mode aside): it
+// can fetch them (TheTVDB, TheMovieDb, MAL, ANN: a key and an id), or has
+// them at hand (AniDB's picture, a poster). A source that can't fetch and has
+// none is passed over, as images passes over its empty answer. Before
+// setAniDB (settled false) AniDB's, MAL's and ANN's aren't known yet: they
+// count as asked, so nothing after them is fetched early for nothing.
+func (ss *showSources) artAsked(src string, k artKind, settled bool) bool {
+	switch src {
+	case "tvdb":
+		return ss.tvdbArt.fetches()
+	case "tmdb":
+		return ss.tmdbArt.fetches()
+	case "anidb": // not ss.art: its one-poster list allocates
+		return !settled || k == posterArt && ss.a != nil && ss.a.Picture != ""
+	case "mal":
+		return !settled || ss.mal.fetches()
+	case "ann":
+		return !settled || ss.ann.fetches()
+	}
+	return false
 }
 
 // plexSeasons: the seasons Plex gets for a show (seasonItem): those with

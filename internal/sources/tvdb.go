@@ -51,7 +51,7 @@ type TVDB struct {
 	noEnglish       map[int]time.Time
 	noEnglishSeries map[int]time.Time
 
-	// series: extended series records decoded lately (Details and
+	// series: extended series records decoded lately (DetailsAndSeasons and
 	// SeasonOverview both read one in the same build), by series id.
 	seriesMu sync.Mutex
 	series   map[int]seriesMemo
@@ -71,7 +71,8 @@ const seriesMemoFor = time.Minute
 // seriesTTL: how long the extended series record is cached.
 const seriesTTL = 7 * 24 * time.Hour
 
-// tvdbSeries: what Details and seasonID read of the extended series record.
+// tvdbSeries: what DetailsAndSeasons and seasonID read of the extended
+// series record.
 type tvdbSeries struct {
 	FirstAired string `json:"firstAired"`
 	Genres     []struct {
@@ -118,12 +119,10 @@ const seriesFilesTTL = 7 * 24 * time.Hour
 // artwork are kept.
 const seasonTTL = 7 * 24 * time.Hour
 
-// tvdbLoginPause: how long a failed login is remembered. A rejected key
-// won't fix itself; a network error may be gone in a moment.
-const (
-	tvdbBadKeyPause = 10 * time.Minute
-	tvdbLoginPause  = 30 * time.Second
-)
+// tvdbLoginPause: how long a failed login is remembered when the key wasn't
+// rejected: a network error may be gone in a moment. A rejected key is
+// remembered rejectedKeyPause, as for the other sources.
+const tvdbLoginPause = 30 * time.Second
 
 // NewTVDB uses the v4 key when there is one, else the legacy v3 key. With
 // both, the legacy key takes over (with a warning) once TheTVDB rejects the
@@ -342,9 +341,9 @@ func (t *TVDB) loginDone(ctx context.Context, legacy bool, token string, err err
 	if legacy {
 		hint = "check TVDB_LEGACY_API_KEY"
 	}
-	t.token, t.loginErr, t.loginRetry = "", err, time.Now().Add(tvdbBadKeyPause)
+	t.token, t.loginErr, t.loginRetry = "", err, time.Now().Add(rejectedKeyPause)
 	slog.Error("TVDB rejected the API key: "+hint+"; TVDB is skipped until the next try",
-		"legacy", legacy, "retry_in", tvdbBadKeyPause, "err", err)
+		"legacy", legacy, "retry_in", rejectedKeyPause, "err", err)
 	return false
 }
 
@@ -541,7 +540,7 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 
 // SeasonOverview returns the English overview of a season in aired
 // ("official") order: the season's id is in the extended series record
-// (shared with Details), its text in the season's translation. Season 0
+// (shared with DetailsAndSeasons), its text in the season's translation. Season 0
 // (specials) or less (absolute order) has none. A season TheTVDB doesn't
 // list or has no English text for gives "" and no error. The legacy v3 API
 // has no season records, so it gives "" too.
@@ -635,16 +634,11 @@ func noLanguage(err error) bool {
 	return errors.As(err, &se) && se.Code == http.StatusBadRequest && !errors.Is(err, errTVDBLogin)
 }
 
-// Details returns genres, people, studio, content rating and first air date
-// from the extended series record.
-func (t *TVDB) Details(ctx context.Context, id int) (Details, error) {
-	d, _, err := t.DetailsAndSeasons(ctx, id)
-	return d, err
-}
-
-// DetailsAndSeasons is Details, plus the ids of the series' aired-order
-// ("official") seasons by number (SeasonArt's), from the same record. The
-// legacy v3 API has no season ids (nil): its season art goes by number.
+// DetailsAndSeasons returns genres, people, studio, content rating and first
+// air date from the extended series record, and the ids of the series'
+// aired-order ("official") seasons by number (SeasonArt's), from the same
+// record. The legacy v3 API has no season ids (nil): its season art goes by
+// number.
 func (t *TVDB) DetailsAndSeasons(ctx context.Context, id int) (Details, map[int]int, error) {
 	if t.useLegacy(ctx, seriesKey(id), seriesTTL) {
 		d, err := t.details3(ctx, id)

@@ -39,17 +39,25 @@ func (l episodeLists) start(wg *sync.WaitGroup) {
 // AniDB answers, which can take seconds (its fair-use gap): AniDB may be
 // asked, and the lists will likely be paired with its episodes (any entry
 // but a movie known by its TMDB movie id alone; a special-only one is
-// paired too, as TheTVDB's special). With AniDB's answer fresh in the cache,
-// its type decides: a movie isn't paired.
+// paired too, as TheTVDB's special). With AniDB's answer at hand (fresh in
+// the cache, or the cached copy while AniDB can't be asked), its type
+// decides: a movie isn't paired. With no answer to come (the anime's 24 h
+// block, a backoff, the daily limit, a ban...: Anime fails at once), the
+// show is built without details, and only a special-only one is paired
+// (finishSpecial).
 func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 	if !p.anidb.Enabled() {
 		return false // the answer is at hand: no details
 	}
-	if _, blocked := p.anidb.BlockedUntil(aid); blocked {
-		return false
-	}
-	if a, fresh := p.anidb.Peek(aid); a != nil && fresh {
+	a, fresh := p.anidb.Peek(aid)
+	if a != nil && fresh {
 		return !a.IsMovie() || entry.SpecialOnly()
+	}
+	if !p.anidb.Askable(aid) {
+		if a != nil { // Anime gives this copy
+			return !a.IsMovie() || entry.SpecialOnly()
+		}
+		return entry.SpecialOnly()
 	}
 	return entry.SpecialOnly() || entry.TMDB.ID > 0 || entry.TMDBMovie == 0
 }

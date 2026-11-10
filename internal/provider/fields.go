@@ -162,6 +162,9 @@ func (ss *showSources) failed() []string {
 	return append(out, ss.seasonsFailed()...)
 }
 
+// title: TVDB and TMDB TV names are the series' ("One Piece" for Film Red),
+// so each is skipped unless this show starts the series on that site; a
+// TMDB movie is its own entry. Sites have no per-season name to stand in.
 func (ss *showSources) title(src string) string {
 	switch src {
 	case "anidb":
@@ -169,9 +172,13 @@ func (ss *showSources) title(src string) string {
 			return ss.p.showTitle(titles)
 		}
 	case "tvdb":
-		return ss.tvdbText.get().title
+		if ss.first.tvdb {
+			return ss.tvdbText.get().title
+		}
 	case "tmdb":
-		return ss.tmdbText.get().title
+		if ss.first.tmdb {
+			return ss.tmdbText.get().title
+		}
 	case "ann":
 		return ss.ann.get().Title
 	}
@@ -375,8 +382,9 @@ func (ss *showSources) finish(s *Show) bool {
 // details, TheTVDB's details for a later entry...), which fill passes over
 // too (later fallbacks are fetched only when reached); and the artwork used,
 // the Plex seasons' too (every listed source in "all" mode, otherwise each
-// image type's first choice). Each source is warmed once. The lazy values
-// make fill's and fillSeasons' own calls free afterwards.
+// image type's first source that can fetch: warmArt). Each source is warmed
+// once. The lazy values make fill's and fillSeasons' own calls free
+// afterwards.
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
 	var jobs []func()
@@ -420,7 +428,7 @@ func (ss *showSources) warm() {
 	} {
 		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
-	jobs = ss.warmArt(jobs, ss.notEarly)
+	jobs = ss.warmArt(jobs, ss.notEarly, true)
 	var wg sync.WaitGroup
 	for _, job := range jobs {
 		wg.Go(job)
@@ -434,7 +442,7 @@ func (ss *showSources) warm() {
 // (setAniDB). Set the targets first; warm waits for it.
 func (ss *showSources) warmEarly() {
 	ss.early = true
-	for _, job := range ss.warmArt(nil, earlySource) {
+	for _, job := range ss.warmArt(nil, earlySource, false) {
 		ss.earlyWG.Go(job)
 	}
 }
@@ -456,9 +464,13 @@ type warmer interface {
 func (ss *showSources) titleLazy(src string) warmer {
 	switch src {
 	case "tvdb":
-		return &ss.tvdbText
+		if ss.first.tvdb {
+			return &ss.tvdbText
+		}
 	case "tmdb":
-		return &ss.tmdbText
+		if ss.first.tmdb {
+			return &ss.tmdbText
+		}
 	case "ann":
 		return &ss.ann
 	}

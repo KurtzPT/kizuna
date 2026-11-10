@@ -107,11 +107,7 @@ func TestMetadataNotFound(t *testing.T) {
 		"/anidb/library/metadata/foo-1",                       //
 	}
 	for _, path := range cases {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", path, nil)
-		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
-		p.Handler().ServeHTTP(rec, req)
-		if rec.Code != 404 {
+		if rec := plexRequest(context.Background(), p, "GET", path, ""); rec.Code != 404 {
 			t.Errorf("%s: HTTP %d %s, want 404", path, rec.Code, rec.Body)
 		}
 	}
@@ -158,7 +154,8 @@ func TestJoinedMatchInReport(t *testing.T) {
 }
 
 // An unmatched title's report page stays until a match for it gets its
-// show: a build that fails leaves the title without a match in Plex.
+// show: a build that fails leaves the title without a match in Plex, and
+// the show's page doesn't say Plex got the show.
 func TestUnmatchedPageKeptUntilShow(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
 	store, dir, serve := reportsOn(t, p)
@@ -169,10 +166,18 @@ func TestUnmatchedPageKeptUntilShow(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("anidb 100 unknown") }
-	serve("POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`)
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the failed build's warning
+	code := serve("POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`)
+	restore()
 	store.Flush()
-	if _, err := os.Stat(page); err != nil {
-		t.Errorf("after a failed build: %v, want the unmatched page kept", err)
+	if _, err := os.Stat(page); err != nil || code != 503 {
+		t.Errorf("after a failed build: HTTP %d, %v, want 503 and the unmatched page kept", code, err)
+	}
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if doc.LastMatch != nil || len(doc.Requests) != 1 || doc.Requests[0].Answer != "not available" {
+		t.Errorf("last match %+v, requests %+v: want no match kept, the request not available", doc.LastMatch, doc.Requests)
 	}
 	p.buildFn = nil
 	p.mu.Lock()
@@ -215,10 +220,55 @@ func TestMissingSeasonIsNoMatch(t *testing.T) {
 	if n != 2 {
 		t.Errorf("requests %+v, want both answered no match", doc.Requests)
 	}
+	if m := doc.LastMatch; m == nil || m.Root != "" || !strings.HasSuffix(m.How, "; anidb-100 has no episode S01E99") {
+		t.Errorf("last match %+v, want no match: the show has no S01E99", m)
+	}
 	serve("POST", "/anidb/library/metadata/matches", `{"type":3,"parentTitle":"Kizuna Test","index":1}`)
 	store.Flush()
 	if _, err := os.Stat(page); !os.IsNotExist(err) {
 		t.Errorf("after a match with its season: %v, want the unmatched page gone", err)
+	}
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if m := doc.LastMatch; m == nil || m.Root != "anidb-100" || m.How != "title search" {
+		t.Errorf("last match %+v, want Plex got anidb-100 by title search", m)
+	}
+}
+
+// The shutdown waits for a build whose requests all gave up (WaitBuilds):
+// it ends, with its match report queued for the last flush, before the
+// wait does; a wait that runs out of time first says so.
+func TestWaitBuilds(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, _ := reportsOn(t, p)
+	if !p.WaitBuilds(context.Background()) {
+		t.Fatal("no build running: want the wait over at once")
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
+		close(started)
+		<-release
+		return p.buildShow(ctx, root)
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.show(gone, "anidb-100"); !timedOut(err) {
+		t.Fatalf("requester: %v, want it to give up", err)
+	}
+	<-started
+	if p.WaitBuilds(gone) {
+		t.Error("out of time with the build running: want false")
+	}
+	waited := make(chan bool, 1)
+	go func() { waited <- p.WaitBuilds(context.Background()) }()
+	close(release)
+	if !<-waited {
+		t.Fatal("want the wait over once the build is")
+	}
+	store.Flush() // what serve's last flush writes
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if len(doc.Builds) != 1 || doc.Builds[0].Error != "" {
+		t.Errorf("builds %+v: want the build's report", doc.Builds)
 	}
 }
 

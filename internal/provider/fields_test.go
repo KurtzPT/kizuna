@@ -131,7 +131,7 @@ func TestAniDBDetailsBuiltOnce(t *testing.T) {
 func TestANNFallback(t *testing.T) {
 	cfg := config.Config{TitleSources: []string{"ann"}, SummarySources: []string{"anidb", "ann"},
 		GenreSources: []string{"anidb", "ann"}, StudioSources: []string{"anidb"}}
-	ann := sources.ANNAnime{ID: 13, Title: "Cowboy Bebop", Summary: "Bounty hunters.",
+	ann := sources.ANNAnime{Title: "Cowboy Bebop", Summary: "Bounty hunters.",
 		Details: sources.Details{Genres: []string{"Drama"}}}
 	ss := &showSources{p: &Provider{cfg: cfg}}
 	ss.ann.f = func() (sources.ANNAnime, error) { return ann, nil }
@@ -250,6 +250,60 @@ func TestFirstEntryPerSite(t *testing.T) {
 			if s.Summary != want {
 				t.Errorf("%s, %s: summary %q, want %q", c.name, src, s.Summary, want)
 			}
+		}
+	}
+}
+
+// In /anidb, TheTVDB's and TheMovieDb's TV names are the series': an entry
+// that doesn't start the series on a site (a sequel season, a special-only
+// movie like One Piece Film Red) never takes that site's name, and its
+// series' text isn't fetched for it. A TheMovieDb movie is its own entry:
+// its title is used.
+func TestLaterEntryTitle(t *testing.T) {
+	tvdb := func(season int) mapping.Placement { return mapping.Placement{ID: 500, Season: season, Mapped: true} }
+	tmdb := func(season int) mapping.Placement { return mapping.Placement{ID: 77, Season: season, Mapped: true} }
+	first := mapping.Entry{AID: 99, TVDB: tvdb(1), TMDB: tmdb(1)}
+	for _, c := range []struct {
+		name  string
+		entry mapping.Entry
+		want  string
+	}{
+		{"first entry", mapping.Entry{AID: 100, TVDB: tvdb(1), TMDB: tmdb(1)}, "TVDB Name"}, // entry 99 is on other series then
+		{"later on TheTVDB, first on TheMovieDb", mapping.Entry{AID: 100, TVDB: tvdb(3), TMDB: mapping.Placement{ID: 78, Season: 1, Mapped: true}},
+			"TMDB Name"},
+		{"sequel season", mapping.Entry{AID: 100, TVDB: tvdb(3), TMDB: tmdb(2)}, "Kizuna Test"},
+		{"special-only OVA", mapping.Entry{AID: 100, TVDB: tvdb(0), TMDB: tmdb(0)}, "Kizuna Test"},
+		{"special-only movie", mapping.Entry{AID: 100, TVDB: tvdb(0), TMDBMovie: 900}, "Film Name"},
+	} {
+		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			switch path {
+			case "api4.thetvdb.com/v4/series/500/translations/eng":
+				return 200, `{"data":{"name":"TVDB Name","overview":"TVDB series."}}`
+			case "api.themoviedb.org/3/tv/77", "api.themoviedb.org/3/tv/78":
+				return 200, `{"name":"TMDB Name","overview":"TMDB series.","seasons":[{"season_number":1}]}`
+			case "api.themoviedb.org/3/movie/900":
+				return 200, `{"title":"Film Name","overview":"The film."}`
+			}
+			return seasonTexts(path, q)
+		}}
+		p := newTestProvider(t, net)
+		p.anidb = anidbWithState(t, net, "", anidbState{}) // AniDB not configured: its title is the title dump's
+		lists := map[int]mapping.Entry{99: first, 100: c.entry}
+		if c.want == "TVDB Name" {
+			lists[99] = mapping.Entry{AID: 99, TVDB: mapping.Placement{ID: 400, Season: 1, Mapped: true}}
+		}
+		p.lists.SetForTest(lists)
+		p.cfg.TitleSources = []string{"tvdb", "tmdb", "anidb"}
+		p.cfg.SummarySources = []string{"anidb"} // only the title may ask for the series' text
+		s, err := p.buildShow(context.Background(), "anidb-100")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Title != c.want {
+			t.Errorf("%s: title %q, want %q", c.name, s.Title, c.want)
+		}
+		if c.want != "TVDB Name" && net.count("api4.thetvdb.com/v4/series/500/translations/eng") > 0 {
+			t.Errorf("%s: fetched TheTVDB's series text for a later entry", c.name)
 		}
 	}
 }
