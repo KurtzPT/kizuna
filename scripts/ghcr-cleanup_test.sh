@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Behaviour tests for ghcr-cleanup.sh: which versions a dry run keeps and
-# deletes, on a made-up package (no GitHub API, no registry).
+# Behaviour tests for ghcr-cleanup.sh: which versions a run keeps and deletes,
+# on a made-up package (no GitHub API, no registry: gh and curl are faked).
 #
 #   bash scripts/ghcr-cleanup_test.sh       (JQ=gojq to use gojq)
 
@@ -29,9 +29,10 @@ version() {
 # list ENTRIES: the version() entries as a JSON array
 list() { printf '[%s]' "${1%,}"; }
 
+# NOW is 2026-11-09T00:00:00Z, as a number: date -d is GNU-only
 run() {
 	OWNER=Someone PACKAGE=kizuna KEEP_COUNT=2 KEEP_DAYS=30 MIN_AGE_HOURS=24 \
-		NOW=$(date -u -d 2026-11-09T00:00:00Z +%s) \
+		NOW=1794182400 \
 		VERSIONS_JSON="$1" MANIFESTS_JSON="$2" bash "$SCRIPT" 2>&1
 }
 
@@ -95,7 +96,10 @@ check "package default" "$out" "no versions found for someone/kizuna: nothing to
 # The real registry path, with curl and gh faked by exported functions:
 # curl answers from FAKE_MANIFESTS, needs the token, and fails for the token
 # when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken) or for the
-# manifest FAKE_FAIL names; gh only prints.
+# manifest FAKE_FAIL names; gh prints and logs each call to GH_LOG (the
+# script sends its output to /dev/null).
+GH_LOG=$(mktemp "${TMPDIR:-/tmp}/ghcr-cleanup-test.XXXXXX") || exit 1
+trap 'rm -f -- "$GH_LOG"' EXIT
 curl() {
 	local url=${!#}
 	case $url in
@@ -111,9 +115,12 @@ curl() {
 	*) return 22 ;;
 	esac
 }
-gh() { echo "gh $*"; }
+gh() {
+	echo "gh $*"
+	echo "gh $*" >>"$GH_LOG"
+}
 export -f curl gh
-export FAKE_MANIFESTS=$manifests
+export FAKE_MANIFESTS=$manifests GH_LOG
 
 out=$(run "$versions" '')
 check "registry: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "6 8 7 12 "
@@ -129,6 +136,14 @@ for fail in token notoken sha256:dev sha256:devatt; do
 	esac
 	check "registry fails ($fail): says why" "$(tail -n 1 <<< "$out")" "$want"
 done
+check "registry fails: gh never called" "$(cat "$GH_LOG")" ""
+
+# DELETE=true: exactly the planned versions reach gh, tagged first
+out=$(DELETE=true run "$versions" '')
+check "delete: exit" "$?" 0
+check "delete: gh calls" "$(cat "$GH_LOG")" \
+	"$(printf 'gh api -X DELETE /users/Someone/packages/container/kizuna/versions/%s\n' 6 8 7 12)"
+check "delete: reported" "$(sed -nE 's/^deleted ([0-9]+)$/\1/p' <<< "$out" | tr '\n' ' ')" "6 8 7 12 "
 
 echo "$CHECKS checks, $FAILS failed"
 ((FAILS == 0))

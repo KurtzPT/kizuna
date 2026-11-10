@@ -43,8 +43,12 @@
 # default $KIZUNA_URL or http://localhost:32600) which season holds each
 # absolute episode, through the same match and metadata calls Plex uses. It
 # needs curl and jq. Without Kizuna, auto mode plans only [anidb-N] folders.
-# Requires bash 4+ (macOS: brew install bash).
+# Requires bash 4.4+ (macOS: brew install bash).
 
+if ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 404)); then
+	echo "error: this script needs bash 4.4 or newer; this is bash $BASH_VERSION (macOS: brew install bash)" >&2
+	exit 1
+fi
 set -euo pipefail
 shopt -s nullglob
 
@@ -220,10 +224,18 @@ is_video() {
 	[[ $1 == *.* && $VIDEO_EXT == *" ${ext,,} "* ]]
 }
 
+# MAX_DEPTH: how far below a show folder its videos and .plexmatch files are
+# looked for. A real show is at most a few levels deep (Season 01/Disc 1/...).
+# It bounds a symlink loop where find doesn't catch one: GNU and BSD find
+# report a loop and skip it, but busybox find may follow it until the path
+# is too long, planning the same files again under every longer path.
+MAX_DEPTH=6
+
 # list_videos prints the videos under a show folder, sorted, skipping hidden
-# and "extras" folders.
+# and "extras" folders. Symlinked folders and files are followed, as Plex does
+# (find -L reports a symlink loop and skips it; MAX_DEPTH bounds one it doesn't).
 list_videos() {
-	find "$1" -mindepth 1 \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -print |
+	find -L "$1" -mindepth 1 -maxdepth "$MAX_DEPTH" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -print |
 		while IFS= read -r f; do if is_video "$f"; then printf '%s\n' "$f"; fi; done | LC_ALL=C sort
 }
 
@@ -236,9 +248,10 @@ HAS_PATTERN=0                         # a pattern: hint anywhere in the show
 declare -A USER_EP=()                 # show-relative file -> episode from an ep: hint already there
 declare -A DIR_SEASON=()              # show-relative folder -> season from its own season: hint
 
-# read_plexmatches reads every .plexmatch in the show folder $1 and below.
-# Hints in subfolders only count for their own folder, like in Plex. Every
-# ep: line counts as the user's, also those an earlier run wrote.
+# read_plexmatches reads every .plexmatch in the show folder $1 and below,
+# in the folders list_videos looks in. Hints in subfolders only count for
+# their own folder, like in Plex. Every ep: line counts as the user's, also
+# those an earlier run wrote.
 read_plexmatches() {
 	local dir=$1 pm reldir line name value file
 	SHOW_TITLE=$(basename "$dir") SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
@@ -266,13 +279,14 @@ read_plexmatches() {
 				if [[ $value =~ ^([A-Za-z0-9-]+):(.*)$ ]]; then
 					file=$(trim "${BASH_REMATCH[2]}")
 					file=${file//\\//}
+					if [[ -z $file ]]; then continue; fi # "ep: 5:" names no file
 					if [[ -n $reldir ]]; then file="$reldir/$file"; fi
 					USER_EP[$file]=${BASH_REMATCH[1]}
 				fi
 				;;
 			esac
 		done <"$pm"
-	done < <(find "$dir" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -name "$PLEXMATCH" -print)
+	done < <(find -L "$dir" -mindepth 1 -maxdepth "$MAX_DEPTH" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -name "$PLEXMATCH" -print)
 }
 
 # --- HAMA .id files ------------------------------------------------------------
@@ -373,7 +387,7 @@ norm_ep() {
 # $1 = one of its videos, $2 = 1 for a manual (title list only) match.
 match_body() {
 	local rel
-	rel="$(basename "$LIBRARY")/${1#"$LIBRARY"/}" # path the way Plex sends it
+	rel="$(basename -- "$LIBRARY")/${1#"$LIBRARY"/}" # path the way Plex sends it
 	# a HAMA .id file's tag goes into the title, as if the folder were already renamed
 	jq -n --arg t "$SHOW_TITLE${ID_FILE_TAG:+ $ID_FILE_TAG}" --arg f "$rel" --argjson y "$SHOW_YEAR" --argjson m "$2" \
 		'{type: 2, title: $t, filename: $f} + (if $y > 0 then {year: $y} else {} end)
@@ -384,10 +398,10 @@ declare -A SEASON_OF # absolute episode -> season, for the current show
 declare -A ABS_OF    # "season N" -> absolute number of the season's Nth episode, for the current show
 SHOW_KEY=""          # its Kizuna rating key
 
-# load_seasons asks Kizuna for the show in $1 (folder) and sets SHOW_KEY,
-# SEASON_OF and ABS_OF. $2 is one video in it. Fails when Kizuna has no match.
+# load_seasons asks Kizuna for the show of video $1 and sets SHOW_KEY,
+# SEASON_OF and ABS_OF. Fails when Kizuna has no match.
 load_seasons() {
-	local video=$2 key lines abs season
+	local video=$1 key lines abs season
 	local -A nth=()
 	SEASON_OF=() ABS_OF=() SHOW_KEY=""
 	key=$(curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$video" 0)" \
@@ -547,7 +561,7 @@ hint() {
 	fi
 	shopt -u nocasematch
 	if [[ -n $have ]]; then
-		rd=$(dirname "$1")
+		rd=$(dirname -- "$1")
 		if [[ $rd == . ]]; then rd=""; fi
 		ds=$(dir_season "$rd")
 		if [[ $(norm_ep "$have" "${ds:-1}") != "$(norm_ep "$2" "${ds:-1}")" ]]; then
@@ -617,7 +631,7 @@ plan_show() {
 		fi
 	fi
 	for v in "${videos[@]}"; do
-		rel=${v#"$dir"/} stem=$(basename "${v%.*}") rd=$(dirname "$rel")
+		rel=${v#"$dir"/} stem=$(basename -- "${v%.*}") rd=$(dirname -- "$rel")
 		if [[ $rd == . ]]; then rd=""; fi
 		ds=""
 		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); fi # a subfolder's season, if it has one
@@ -666,15 +680,18 @@ plan_show() {
 			warn "$v: Plex's scanner may make it an opening/ending extra: its name contains \"$pe\". If it's missing from the show after the scan, rename it without that"
 		fi
 		abs=$(absolute_number "$stem")
-		if ((abs == 0 && ${#videos[@]} == 1)); then # a movie: one file, no number
+		shopt -s nocasematch
+		if ((abs == 0 && ${#videos[@]} == 1)) && [[ ! $stem =~ $SXE ]]; then # a movie: one file, no number
+			shopt -u nocasematch
 			hint "$rel" "S01E01"
 			continue
 		fi
+		shopt -u nocasematch
 		# plain HAMA tvdb: S02E01 is the 1st episode of TVDB season 2 -> its absolute number
 		if [[ $rules == tvdb ]] && ((relative)) && se=$(season_episode "$stem" "$ds") && [[ -n $se ]]; then
 			read -r rs re <<<"$se"
 			if ((!loaded)); then
-				load_seasons "$dir" "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
+				load_seasons "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
 				loaded=1
 			fi
 			if [[ ${SEASON_OF[$re]:-} == "$rs" ]]; then
@@ -703,7 +720,7 @@ plan_show() {
 			continue
 		fi
 		if ((!loaded)); then
-			load_seasons "$dir" "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
+			load_seasons "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
 			loaded=1
 		fi
 		season=${SEASON_OF[$abs]:-0}
@@ -724,10 +741,18 @@ CHANGED=()           # show folders whose .plexmatch gets new hints
 declare -A NEW_HINTS # show folder -> the ep: lines to add
 HINTS=0
 
-# finish_show prints the hints planned for the show's .plexmatch.
+# finish_show prints the hints planned for the show's .plexmatch. A .plexmatch
+# that is a symlink is never written: the write moves a new file over it,
+# which would replace the link with a plain file. Its hints are only listed.
 finish_show() {
 	local dir=$1 pm=$1/$PLEXMATCH new="" i
 	((${#PLAN_REL[@]} > 0)) || return 0
+	if [[ -L $pm ]]; then
+		echo "$pm: a symlink, not written: add these hints by hand"
+		for i in "${!PLAN_REL[@]}"; do printf '  + ep: %s: %s\n' "${PLAN_VAL[i]}" "${PLAN_REL[i]}"; done
+		warn "$pm is a symlink, so the script doesn't write it (that would replace the link with a plain file): add the hints listed for it above by hand"
+		return 0
+	fi
 	for i in "${!PLAN_REL[@]}"; do new+="ep: ${PLAN_VAL[i]}: ${PLAN_REL[i]}"$'\n'; done
 	HINTS=$((HINTS + ${#PLAN_REL[@]}))
 	CHANGED+=("$dir")
@@ -764,7 +789,7 @@ add_hints() {
 
 main() {
 	MODE=anidb URL=${KIZUNA_URL:-http://localhost:32600}
-	local do_apply=0 d i w
+	local do_apply=0 d w
 	while getopts 'm:u:ah' opt; do
 		case $opt in
 		m) MODE=$OPTARG ;;
@@ -777,6 +802,7 @@ main() {
 	(($# == 1)) || usage
 	[[ -d $1 ]] || die "$1 is not a folder"
 	LIBRARY=${1%/}
+	if [[ $LIBRARY == -* ]]; then LIBRARY=./$LIBRARY; fi # not an option to find or basename
 	[[ $MODE == anidb || $MODE == tvdb || $MODE == auto ]] || die "unknown mode $MODE (anidb, tvdb or auto)"
 
 	KIZUNA=0
@@ -796,8 +822,7 @@ main() {
 	fi
 
 	for d in "$LIBRARY"/*/; do
-		d=${d%/}
-		if [[ $(basename "$d") == .* ]]; then continue; fi
+		d=${d%/} # no hidden folders: the glob skips them
 		plan_show "$d"
 		if ((!SHOW_SKIPPED)); then finish_show "$d"; fi
 	done
