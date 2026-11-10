@@ -264,15 +264,15 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .rec-v .sent-g,.rec-v .cast{white-space:normal}
 .sent-g+.sent-g{border-top:1px solid var(--rule);margin-top:4px}
 .shots-h.in{padding:10px 0 0;display:flex;align-items:baseline;gap:10px}
+.sent-g:first-child .shots-h.in{padding-top:2px}
 .shots-h.in code{font:12.5px var(--mono);color:var(--muted)}
 .shots-h.in span{margin-left:auto;font:500 13px var(--tech);font-variant-numeric:tabular-nums}
 .rec-v p.alt{margin:2px 0 0;color:var(--muted);font-size:13.5px}
 .shots.in{padding:10px 0 14px}
 .shot .alt{display:block;margin-top:2px;font-size:12.5px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
-.mini{display:block;margin:8px 0 2px;width:64px;background:var(--tile)}
-.mini.background{width:160px}
-.mini a{display:block}
-.mini img{display:block;width:100%;height:auto}
+.peek{position:fixed;z-index:20;width:160px;aspect-ratio:2/3;background:var(--tile);border:1px solid var(--edge);border-radius:3px;overflow:hidden;box-shadow:0 6px 24px rgb(0 0 0/.35);pointer-events:none}
+.peek.background{width:320px;aspect-ratio:16/9}
+.peek img{display:block;width:100%;height:100%;object-fit:cover}
 .cast{list-style:none;margin:2px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px 18px}
 .cast[hidden]{display:none}
 .cast+.cast{margin-top:12px}
@@ -280,7 +280,6 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .person{display:grid;grid-template-columns:42px minmax(0,1fr);gap:0 12px;align-items:center}
 .ph{display:block;width:42px;aspect-ratio:2/3;background:var(--tile);overflow:hidden;border-radius:2px}
 .ph img{display:block;width:100%;height:100%;object-fit:cover}
-.defer{display:block;width:100%;height:100%}
 
 .ph.none{background:none;border:1px dashed var(--edge)}
 .who{display:grid;grid-template-columns:2.2em minmax(0,1fr);align-items:baseline;min-width:0;line-height:1.35}
@@ -337,7 +336,14 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .times{font:600 12.5px var(--tech);color:var(--muted);margin-left:6px;white-space:nowrap}
 .linkbtn{cursor:pointer;background:none;border:0;padding:0;text-decoration:underline;text-decoration-color:var(--edge);text-underline-offset:2px;color:var(--muted);font-size:13px}
 .linkbtn:hover{text-decoration-color:currentColor}
-.pics-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:12px 16px;border-bottom:1px solid var(--rule);color:var(--muted);font-size:13.5px}
+/* A show item row with pictures: closed, the whole row opens it; open, its key closes it. */
+.rec-r.pr:not(.open){cursor:pointer}
+.rec-r.pr:not(.open):hover{background:var(--sunk)}
+.row-t{cursor:pointer;justify-self:start;background:none;border:0;padding:0;text-align:left;font-family:var(--mono)}
+.rec-r.pr.open{align-items:start}
+.row-t:hover{color:var(--ink)}
+.row-t::after{content:"";display:inline-block;margin-left:10px;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(-45deg);transition:transform .12s}
+.row-t[aria-expanded="true"]::after{transform:translateY(-4px) rotate(45deg)}
 
 /* How to fix: the steps in the order worth trying. */
 .steps{margin:0;padding:0;list-style:none;counter-reset:step}
@@ -366,10 +372,10 @@ dialog textarea{display:block;width:100%;height:300px;margin:10px 0;font:12.5px/
 dialog .row{display:flex;gap:10px;justify-content:flex-end}
 
 @media (prefers-reduced-motion:no-preference){
-  .ep-x.fresh,.fold-b.fresh{animation:open .14s ease-out}
+  .ep-x.fresh,.fold-b.fresh,.rec-r.fresh>.rec-v{animation:open .14s ease-out}
   @keyframes open{from{opacity:0;transform:translateY(-3px)}}
 }
-@media (prefers-reduced-motion:reduce){.fold-h::before,.ep-h::before{transition:none}}
+@media (prefers-reduced-motion:reduce){.fold-h::before,.ep-h::before,.row-t::after{transition:none}}
 
 @media (max-width:900px){
   html{scroll-padding-top:64px}
@@ -789,19 +795,13 @@ function renderArt(b, newest) {
 const FOLD_AT = 5, CAST_AT = 12;
 const PLEX_KIND = {coverPoster: "poster", background: "background", clearLogo: "logo"};
 // A picture that opens the whole file; a value that is not a web address is shown, never loaded.
-// Nothing loads with the page: until "Show the pictures", a link holds an empty frame.
-let PICS = false;
-const img = (u, alt) => PICS ? `<img src="${esc(u)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer">` : `<span class="defer" data-src="${esc(u)}" data-alt="${esc(alt)}"></span>`;
+// Nothing loads with the page: a row with pictures starts closed and loads them when opened.
+const img = (u, alt) => `<img src="${esc(u)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer">`;
 const pic = (u, kind, alt) => isUrl(u)
   ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}">${img(thumbUrl(u, kind), alt)}</a>`
   : `<span class="noimg">Not a web address, so not loaded: ${esc(u ?? "")}</span>`;
 let ITEM_B = null;
-function showPics(root) {
-  PICS = true;
-  const at = root.querySelector(".item-at"), bar = root.querySelector(".pics-bar");
-  if (at && ITEM_B) at.innerHTML = renderItem(ITEM_B);
-  if (bar) bar.remove();
-}
+const ITEM_OPEN = new Set();
 // The item's Image list, grouped by Plex's type in the order sent. The number
 // is the image's place in the list; the colour, its recorded source.
 function sentImages(v, b) {
@@ -828,12 +828,16 @@ function sentCast(v) {
   const more = v.slice(CAST_AT);
   return `<ol class="cast">${v.slice(0, CAST_AT).map(card).join("")}</ol>${more.length ? `<ol class="cast" hidden>${more.map(card).join("")}</ol><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${CAST_AT}">Show all ${v.length}</button>` : ""}`;
 }
-const pictureCount = item => !item || typeof item !== "object" ? 0
-  : (Array.isArray(item.Image) ? item.Image.filter(x => x && isUrl(x.url)).length : 0) + (Array.isArray(item.Role) ? item.Role.filter(x => x && isUrl(x.thumb)).length : 0) + ["thumb", "art"].filter(k => isUrl(item[k])).length;
 function renderItem(b) {
   ITEM_B = b;
   const item = b.item;
   if (!item || typeof item !== "object") return '<div class="empty">Nothing: the build failed, so Plex got no show item.</div>';
+  return `<div class="rec item">${[...itemRows(b).values()].join("")}</div>`;
+}
+// Each key of the show item as one row, by key. A row with pictures is a
+// button while closed, with a short summary instead of the pictures.
+function itemRows(b) {
+  const item = b.item;
   const src = b.itemSrc || {}, srcOf = k => Object.hasOwn(src, k) && src[k] || false;
   const one = (k, x) => {
     if (x === null || typeof x !== "object") return typeof x === "string" ? link(x) : esc(x);
@@ -842,8 +846,17 @@ function renderItem(b) {
     return `<span class="mono brk">${esc(JSON.stringify(x))}</span>`;
   };
   const rows = Object.entries(item).map(([k, v]) => {
-    if (Array.isArray(v) && v.length && k === "Image") return {k: `${k} (${v.length})`, s: false, v: sentImages(v, b), wide: true};
-    if (Array.isArray(v) && v.length && k === "Role") return {k: `${k} (${v.length})`, s: srcOf(k), v: sentCast(v)};
+    const open = ITEM_OPEN.has(k);
+    if (Array.isArray(v) && v.length && k === "Image") {
+      if (open) return {key: k, k: `${k} (${v.length})`, s: false, v: sentImages(v, b), wide: true, pr: true};
+      const n = new Map(); for (const x of v) { const t = PLEX_KIND[x && x.type] || "other"; n.set(t, (n.get(t) || 0) + 1); }
+      return {key: k, k: `${k} (${v.length})`, s: false, v: `<span class="dim">${esc([...n].map(([t, c]) => KINDS[t] ? plural(c, ...KINDS[t]) : plural(c, "other image", "other images")).join(", "))}</span>`, pr: true};
+    }
+    if (Array.isArray(v) && v.length && k === "Role") {
+      if (open) return {key: k, k: `${k} (${v.length})`, s: srcOf(k), v: sentCast(v), pr: true};
+      const names = v.slice(0, 3).map(x => x && typeof x === "object" ? x.tag : x).filter(Boolean);
+      return {key: k, k: `${k} (${v.length})`, s: srcOf(k), v: `<span class="dim">${esc(names.join(", "))}${v.length > names.length ? ` and ${v.length - names.length} more` : ""}</span>`, pr: true};
+    }
     if (Array.isArray(v)) {
       const perItem = k === "Image" && !!b.itemSrc;
       const li = (x, i) => `<div class="li">${perItem ? th(srcOf(k + "." + i) || null, srcOf(k + "." + i) ? undefined : "") : ""}<span>${one(k, x)}</span></div>`;
@@ -852,11 +865,36 @@ function renderItem(b) {
         : `<div class="list ${perItem ? "" : "nosrc"}">${v.slice(0, FOLD_AT).map(li).join("")}${v.length > FOLD_AT ? `<div class="rest" hidden>${v.slice(FOLD_AT).map((x, i) => li(x, i + FOLD_AT)).join("")}</div><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${FOLD_AT}">Show all ${v.length}</button>` : ""}</div>`;
       return {k: `${k} (${v.length})`, s: perItem ? null : srcOf(k), v: body, wide: k === "Image"};
     }
-    if ((k === "thumb" || k === "art") && isUrl(v) && PICS) return {k, s: srcOf(k), v: `<span class="mono">${link(v)}</span><span class="mini ${k === "art" ? "background" : "poster"}">${pic(v, k === "art" ? "background" : "poster", `The show's ${k === "art" ? "background" : "poster"}`)}</span>`};
+    if ((k === "thumb" || k === "art") && isUrl(v)) return {k, s: srcOf(k), v: `<span class="mono"><a class="peekl" data-kind="${k === "art" ? "background" : "poster"}" href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a></span>`};
     if (k === "duration" && typeof v === "number") return {k, s: false, v: `${esc(v)} ms (${Math.round(v/60000)} min)`};
     return {k, s: srcOf(k), v: v === "" ? '<span class="dim">empty</span>' : `<span class="${isUrl(v) || /^(key|guid|ratingKey)$/.test(k) ? "mono" : ""}">${one(k, v)}</span>`};
   });
-  return `<div class="rec item">${rows.map(r => `<div class="rec-r ${r.wide ? "wide" : ""}"><span class="rec-k mono">${esc(r.k)}</span>${r.wide ? "" : r.s ? th(r.s) : "<span></span>"}<div class="rec-v">${r.v}</div></div>`).join("")}</div>`;
+  return new Map(rows.map((r, i) => [r.key ?? i, `<div class="rec-r ${r.wide ? "wide" : ""}${r.pr ? ` pr${ITEM_OPEN.has(r.key) ? " open" : ""}" data-row="${esc(r.key)}` : ""}">${r.pr
+    ? `<button class="rec-k mono row-t" aria-expanded="${ITEM_OPEN.has(r.key)}">${esc(r.k)}</button>` : `<span class="rec-k mono">${esc(r.k)}</span>`}${r.wide ? "" : r.s ? th(r.s) : "<span></span>"}<div class="rec-v">${r.v}</div></div>`]));
+}
+// thumb and art: the picture loads only while the pointer (or focus) is on the link.
+let PEEK = null;
+function peek(a) {
+  if (!PEEK) { PEEK = document.createElement("div"); PEEK.className = "peek"; PEEK.setAttribute("aria-hidden", "true"); document.body.append(PEEK); }
+  PEEK.className = "peek " + a.dataset.kind;
+  PEEK.innerHTML = img(thumbUrl(a.href, a.dataset.kind), "");
+  const r = a.getBoundingClientRect(), w = a.dataset.kind === "background" ? 320 : 160, h = a.dataset.kind === "background" ? 180 : 240;
+  const left = Math.max(8, Math.min(r.left, innerWidth - w - 8)), below = r.bottom + 8 + h <= innerHeight;
+  PEEK.style.left = left + "px"; PEEK.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - 8 - h)) + "px";
+  PEEK.hidden = false;
+}
+const unpeek = () => { if (PEEK) { PEEK.hidden = true; PEEK.innerHTML = ""; } };
+for (const [on, off] of [["mouseover", "mouseout"], ["focusin", "focusout"]]) {
+  document.addEventListener(on, e => { const a = e.target.closest && e.target.closest("a.peekl"); if (a) peek(a); });
+  document.addEventListener(off, e => { if (e.target.closest && e.target.closest("a.peekl")) unpeek(); });
+}
+document.addEventListener("scroll", unpeek, {passive: true});
+function toggleItemRow(row, byKey) {
+  const k = row.dataset.row;
+  if (ITEM_OPEN.has(k)) ITEM_OPEN.delete(k); else ITEM_OPEN.add(k);
+  row.outerHTML = itemRows(ITEM_B).get(k);
+  const again = document.querySelector(`#s-output .rec-r[data-row="${CSS.escape(k)}"]`);
+  if (again) { if (byKey) again.querySelector(".row-t").focus({preventScroll: true}); if (ITEM_OPEN.has(k)) again.classList.add("fresh"); }
 }
 
 const times = r => r.count > 1 ? `<span class="times" title="The same request ${Number(r.count)} times in a row; the time is the last">${Number(r.count)} times</span>` : "";
@@ -1028,7 +1066,7 @@ function renderShow() {
     <h3 id="s-fields">What each source offered</h3><p class="lede">One row per show field, sources in the configured order. The cell with the coloured bar is what Plex got.</p>${renderFields(b)}</section>
   <section id="s-episodes"><h2>Episodes</h2><p class="lede">The list as Plex got it. Open an episode for everything sent for it and the source of each value.</p>${renderEpisodes(b, newest)}</section>
   <section id="s-art"><h2>Art</h2><p class="lede">Every image Plex got for the show and each season, with the source that gave it. Images load when you open a level.</p>${renderArt(b, newest)}</section>
-  <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. ${b.itemSrc ? "A bar names the source of a value; a value without one, like an id, has no single source. " : ""}Its seasons and episodes are separate items: see Episodes and Art.</p><div class="panel">${!PICS && pictureCount(b.item) ? `<div class="pics-bar"><button class="btn" data-pics>Show the ${pictureCount(b.item)} pictures</button><span>Images and cast photos load from the sources' servers.</span></div>` : ""}<div class="item-at">${renderItem(b)}</div></div></section>
+  <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. ${b.itemSrc ? "A bar names the source of a value; a value without one, like an id, has no single source. " : ""}Its seasons and episodes are separate items: see Episodes and Art.</p><div class="panel">${renderItem(b)}</div></section>
   <section id="s-trace"><h2>Timeline</h2><p class="lede">Everything Kizuna downloaded, read from its cache or had in memory for this build, and when. ${b.complete ? "" : "Striped bars finished after the build, so their data is missing from it; the next build uses them."}</p>${renderTrace(b)}</section>
   <section id="s-requests"><h2>Plex requests</h2><p class="lede">The last ${plural((S.requests || []).length, "request")} about this show, newest first (up to 50 are kept). Rows answered by the selected build are shaded.</p>${renderRequests(S, curBuild)}</section>
   <p class="foot">${written()}</p></main></div>`;
@@ -1190,7 +1228,8 @@ document.addEventListener("click", e => {
   if (ixcap) { IX.cap[ixcap.dataset.ixcap] = Infinity; ixDraw(); return; }
   const f = t.closest(".seg button[data-f]");
   if (f) { f.parentNode.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === f)); EP.only = f.dataset.f === "issue"; EP.shut.clear(); renderEpList(); return; }
-  if (t.closest("[data-pics]")) { showPics(document.getElementById("s-output")); return; }
+  const pr = t.closest(".rec-r.pr");
+  if (pr && !t.closest("a, [data-rest]") && (t.closest(".row-t") || !pr.classList.contains("open"))) { toggleItemRow(pr, e.detail === 0); return; }
   const all = t.closest("[data-allseasons]");
   if (all) { const open = EP.open.size < EP.groups.length; EP.open = new Set(open ? EP.groups.map(g => g.s) : []); EP.shut.clear(); all.textContent = open ? "Close all seasons" : "Open all seasons"; renderEpList(); return; }
   const cap = t.closest("[data-cap]");
