@@ -469,7 +469,7 @@ func TestExtras(t *testing.T) {
 	var asked []string
 	for _, on := range []bool{false, true} {
 		if on {
-			p.SetExtras(func(guid string) { asked = append(asked, guid) })
+			p.OnExtrasRequest(func(guid string) { asked = append(asked, guid) })
 		}
 		for _, path := range []string{
 			"/anidb/library/metadata/anidb-23/extras?updating=1&X-Plex-Container-Size=50",

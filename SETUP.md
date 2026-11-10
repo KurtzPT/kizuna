@@ -259,7 +259,7 @@ Metadata* on the library).
 Set [`PLEX_URL` and `PLEX_TOKEN`](SETTINGS.md#-opening-and-ending-titles) and Kizuna gives these extras readable
 titles, made from the same words in the file name:
 
-| File | Plex's title | With `PLEX_URL` |
+| File | Plex's title | Kizuna's title |
 |---|---|---|
 | `Show - OP01.mkv` | `OP01` | **Opening 1** |
 | `Show - OP01a.mkv` · `Show - OP 1 a.mkv` | `OP01a` · `OP 1 a` | **Opening 1a** |
@@ -267,6 +267,7 @@ titles, made from the same words in the file name:
 | `Show - OP1v2.mkv` | `OP1` | **Opening 1** |
 | `Show - NCED2.mkv` · `Show - Clean Ending 2.mkv` | `NCED2` · `Clean Ending 2` | **Ending 2** |
 | `Show - NCOP.mkv` | `NCOP` | **Opening** |
+| `Show - OP a.mkv` (a letter without a number) | `OP a` | **Opening a** |
 | `Show - OPED.mkv` | `OPED` | **Opening & Ending** |
 | `Show - NCED1.mkv` next to `Show - ED1.mkv` | `NCED1` | **Ending 1 (creditless)** |
 
@@ -274,15 +275,20 @@ How it works, and what follows from it:
 
 - Plex sets every extra's title back to its own on each metadata refresh. It also asks Kizuna for the show's extras
   at that moment (Kizuna has none), so Kizuna knows: 15 seconds and again 2 minutes later it looks the show up in
-  Plex and sets the titles that differ. So **a title changes about 15 seconds after its show's refresh**, and until
-  then you see Plex's own (`OP1`).
+  Plex and sets the titles that differ. So, when Plex answers, **a title changes about 15 seconds after its show's
+  refresh**, and until then you see Plex's own (`OP1`).
 - The 15 seconds count per show, from that show's refresh, not one after the other: 10 shows refreshed together are
   all renamed about 15 seconds later. Kizuna takes them one at a time, a few hundredths of a second each, so even a
   *Refresh All Metadata* of a large library adds almost nothing to the wait.
+- Each refresh gets its own two looks: a show refreshed again while it waits is looked at 15 seconds and 2 minutes
+  after the newer refresh.
 - Nothing happens until Plex refreshes a show. After setting the two values, run *Refresh All Metadata* once.
 - Kizuna only changes the titles of opening and ending extras, only for shows matched by Kizuna, in every library
   that has the show. Your files are never touched, and the titles come from the file names: AniDB isn't asked.
-- The log has a `plex: extra renamed` line per title, and a warning when Plex can't be reached or refuses the token.
+- The log has a `plex: extra renamed` line per title. When Plex can't be reached or refuses the token, a warning
+  says so, at most once a minute.
+- When Plex doesn't answer several times in a row, Kizuna stops asking for a minute, with a warning. The shows that
+  waited then, and those refreshed during that minute, get their titles on their next refresh.
 
 ## 📜 Logs
 

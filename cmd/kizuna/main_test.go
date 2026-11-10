@@ -228,7 +228,7 @@ func TestExtraTitles(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(old) })
+	defer slog.SetDefault(old)
 
 	for _, c := range []struct {
 		url, token string
@@ -239,6 +239,8 @@ func TestExtraTitles(t *testing.T) {
 		{"http://plex:32400", "", false, true},
 		{"", "s3cret", false, true},
 		{"plex:32400", "s3cret", false, true},
+		{"http://plex:32400/web", "s3cret", false, true},
+		{"http://user:s3cret@plex:32400", "s3cret", false, true},
 	} {
 		logs.Reset()
 		r := extraTitles(config.Config{PlexURL: c.url, PlexToken: c.token})

@@ -1,6 +1,6 @@
 // Package plex renames the opening and ending extras Plex makes from local
 // files ("OP1", "NCED2a") to readable titles ("Opening 1", "Ending 2a"),
-// through Plex's own HTTP API. See MIGRATION.md ("Openings and endings").
+// through Plex's own HTTP API. See SETUP.md ("Openings and endings").
 package plex
 
 import (
@@ -29,10 +29,10 @@ type Credit struct {
 // CreditOf reads the opening or ending a file name (without its folder and
 // extension) stands for, the way Plex's scanner does: OP1 is "Opening 1",
 // NCED02a "Ending 2a", "OP 1 b" "Opening 1b"; a version (OP1v2) isn't part
-// of the title. ok is
-// false for a name Plex doesn't make an opening or ending of: one without the
-// pattern, or with a spelled-out Opening or Ending that lacks Creditless or
-// Clean in front (Plex leaves that file out of the library).
+// of the title. ok is false for a name Plex doesn't make an opening or
+// ending of: one without the pattern, or with a spelled-out Opening or
+// Ending that lacks Creditless or Clean in front (Plex leaves that file out
+// of the library).
 func CreditOf(stem string) (c Credit, ok bool) {
 	m := creditRe.FindStringSubmatch(stem)
 	if m == nil {

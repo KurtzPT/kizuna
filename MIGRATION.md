@@ -251,7 +251,6 @@ new files in either of two ways:
 | `Show - S01E05.mkv` | `S01E05` | none |
 | `Specials/Show - 01.mkv` | `S00E01` | none |
 | openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | none to keep them as extras ([titles](SETUP.md#readable-titles)), or ✋ rename to Kizuna's number, e.g. `Show - S00E101.mkv`, for specials: the script reports each one, with the name when it knows the number ([why](#openings-and-endings-plex-makes-them-extras), [variants](#openings-and-endings-with-variants)) |
-| `Opening 1` `Ending 2` (the whole word) | left out of the library | ✋ rename: `OP1` for an extra, Kizuna's number for a special |
 | specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `S00E01`) |
 | trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` → `S00E202` (AniDB's trailer numbers) |
 | a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
@@ -286,13 +285,13 @@ and when the extras appear: [SETUP, "Openings and endings"](SETUP.md#-openings-a
 
 | Your file | After the switch | To do |
 |---|---|---|
-| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | nothing, or set [`PLEX_URL`](SETUP.md#readable-titles) for the titles `Opening 1`, `Opening 1b`…, or rename it to its number to make it a special |
-| `Opening 1` `Ending` (the whole word, without `Creditless` or `Clean`) | **left out of the library** | rename it: `OP1` for an extra, its number for a special. The script reports it like the row above: check these by hand |
+| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | nothing, or let Kizuna give it a [readable title](SETUP.md#readable-titles) (`Opening 1`, `Opening 1b`…), or rename it to its number to make it a special |
+| `Opening 1` `Ending` (the whole word, without `Creditless` or `Clean`) | **left out of the library** ([why](SETUP.md#-openings-and-endings)) | rename it: `OP1` for an extra, its number for a special. The script reports it like the row above: check these by hand |
 | `Show - 05 [ED fix].mkv` (an episode with such a word) | an extra, missing from the episodes | rename it without the word (the script warns) |
 
 To get an opening or ending as Kizuna's special, rename it to its number, e.g. `Show - S00E101.mkv`. The scanner
 reads that by itself, no hint needed, and the script prints the name to use when it knows the number. Not tested yet:
-whether an `ep:` hint works for a file named with the whole word (`Opening 1`), which Plex doesn't make an extra.
+whether an `ep:` hint works for a file named with the whole word (`Opening 1`).
 
 The extras appear when Plex refreshes the show's metadata, which [step 4](#-4-switch-the-library) does.
 

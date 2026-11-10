@@ -284,15 +284,13 @@ When a source fails (TheTVDB: its login too), an expired cached copy answers ins
 ## 🎵 Opening and ending titles
 
 Plex names the opening and ending extras it makes from your files after the file: `OP1`, `NCED2`. With both settings
-below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own API. How it works, and how the titles
-are made: [SETUP](SETUP.md#-openings-and-endings).
+below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own API. How it works, when a title
+changes and how the titles are made: [SETUP](SETUP.md#readable-titles).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network |
+| `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. The bare address: nothing after the port (no path, no `?…`) |
 | `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner. It gives full access to the server: keep the settings file private. Kizuna sends it only to `PLEX_URL` and never logs it |
 
-A title changes about 15 seconds after Plex refreshes its show's metadata, never before a refresh ([why](SETUP.md#readable-titles)).
-
-With only one of the two set, or a `PLEX_URL` that isn't a web address, Kizuna logs a warning at start and leaves the
-titles alone.
+With only one of the two set, or a `PLEX_URL` that isn't a bare web address, Kizuna logs a warning at start and
+leaves the titles alone.

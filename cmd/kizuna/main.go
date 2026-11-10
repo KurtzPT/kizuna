@@ -208,16 +208,17 @@ func serve(cfg config.Config) error {
 		}
 	}
 	// Opening and ending titles (PLEX_URL + PLEX_TOKEN): set through Plex's API.
-	if renamer := extraTitles(cfg); renamer != nil {
-		p.SetExtras(renamer.Queue)
-		defer renamer.Stop()
+	renamer := extraTitles(cfg)
+	if renamer != nil {
+		p.OnExtrasRequest(renamer.Queue)
+		go renamer.Run(ctx)
 	}
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
 	loaded := p.Loading()
 	go keepLoaded(func() {
 		loaded()
-		logReady(cfg, ln, tvdb, start)
+		logReady(cfg, ln, tvdb, start, renamer != nil)
 	})
 
 	srv := &http.Server{Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second,
@@ -251,11 +252,11 @@ func extraTitles(cfg config.Config) *plex.Renamer {
 		slog.Warn("PLEX_URL and PLEX_TOKEN are both needed to set the opening and ending titles in Plex: only one is set, so they stay as Plex names them")
 		return nil
 	}
-	if why := plex.CheckURL(cfg.PlexURL); why != "" {
-		slog.Warn("PLEX_URL isn't a web address, so the opening and ending titles stay as Plex names them", "why", why)
+	if err := plex.CheckURL(cfg.PlexURL); err != nil {
+		slog.Warn("PLEX_URL can't be used, so the opening and ending titles stay as Plex names them", "why", err)
 		return nil
 	}
-	return plex.New(cfg.PlexURL, cfg.PlexToken, nil)
+	return plex.New(cfg.PlexURL, cfg.PlexToken)
 }
 
 // drain stops the server within timeout in all: it waits for the requests
@@ -273,7 +274,9 @@ func drain(srv *http.Server, waitBuilds func(context.Context) bool, timeout time
 }
 
 // logReady logs the settings in effect once the first list load is over.
-func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time) {
+// extraTitles says whether the opening and ending titles are really on
+// (extraTitles returned a Renamer), not just set.
+func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time, extraTitles bool) {
 	u := cfg.UsableOf // each list as it works: sources without a key are skipped
 	// The cache cleanup frees at least CACHE_MIN_FREE (fetch.KeepFree raises a
 	// lower target to it): log the target it works with.
@@ -284,7 +287,7 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
 		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", u(cfg.DateSources),
 		"episode_fill", u(cfg.EpisodeFillSources), "episode_titles", u(cfg.EpisodeTitles), "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", max(cfg.CacheFreeTarget, cfg.CacheMinFree)>>20,
-		"match_reports", cfg.MatchReports, "extra_titles", cfg.PlexURL != "" && cfg.PlexToken != "")
+		"match_reports", cfg.MatchReports, "extra_titles", extraTitles)
 }
 
 // listen opens the address Kizuna serves on. A port that another program

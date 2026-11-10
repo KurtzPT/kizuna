@@ -255,6 +255,12 @@ func writeUnavailable(w http.ResponseWriter, err error) {
 // keyRe is a rating key: a show key (rootPattern), plus a season and an episode.
 var keyRe = regexp.MustCompile(`^(` + rootPattern + `)(?:-s(\d+)(?:-e(\d+))?)?$`)
 
+// OnExtrasRequest sets what is called, with the show's GUID, each time Plex
+// asks for a show's extras, which it does on every metadata refresh of the
+// show. f runs inside the request, so it must not wait. Call this before
+// serving.
+func (p *Provider) OnExtrasRequest(f func(guid string)) { p.onExtras = f }
+
 func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	m := keyRe.FindStringSubmatch(r.PathValue("key"))
 	sub := r.PathValue("sub")
@@ -267,8 +273,8 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 		// refresh, just before it sets the titles of the local opening and
 		// ending extras back to their file names: the moment to plan their
 		// renaming (PLEX_URL, internal/plex).
-		if m[2] == "" && p.extras != nil {
-			p.extras(mode.Identifier() + "://show/" + m[1])
+		if m[2] == "" && p.onExtras != nil {
+			p.onExtras(mode.Identifier() + "://show/" + m[1])
 		}
 		writeJSON(w, http.StatusOK, container(mode, nil, 0, 0))
 		return
