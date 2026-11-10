@@ -128,8 +128,14 @@ const count = (text, re) => (text.match(re) || []).length;
   check(/data-s="anidb"/.test(row("title")), "show item: title has AniDB's thread");
   check(/data-s="tvdb"/.test(row("summary")) && /data-s="tvdb"/.test(row("thumb")), "show item: summary and thumb have TheTVDB's thread");
   for (const key of ["ratingKey", "guid", "year", "art", "originalTitle", "duration", "Genre \\(2\\)"]) check(row(key) !== undefined && !/class="th/.test(row(key)), `show item: ${key} has a thread, but no source was recorded for it`);
-  check(count(item, /class="li"><span class="th" data-s="(tvdb|tmdb)"/g) === 3 && count(item, /class="li"><span class="th none"/g) === 3, "show item: 3 images with their source's thread and 3 with a hollow one");
-  check(item.includes("alt “Lighthouse Keepers”") && item.includes('<span class="tech dim">1</span> CAST-NAME One as Keeper'), "show item: an image's alt and a role's order are shown");
+  check(count(item, /<li class="shot" data-s="(tvdb|tmdb)">/g) === 3 && count(item, /<li class="shot">/g) === 3 && count(item, /source not recorded/g) === 3, "show item: 3 images with their source's colour and 3 marked as not recorded");
+  check(item.includes("“Lighthouse Keepers”") && item.includes('<span class="ord">1</span><span class="nm">CAST-NAME One</span><span class="as">as Keeper</span>'), "show item: an image's alt and a role's order are shown");
+  check(!/<img/.test(item) && /class="defer" data-src="https:/.test(item), "show item: no picture loads before it is asked for");
+  const shown = page.run("PICS = true; const h = renderItem(DATA.show.builds[0]); PICS = false; h");
+  const pics = [...shown.matchAll(/<img[^>]*>/g)].map(m => m[0]);
+  check(pics.length > 0 && pics.every(i => /\ssrc="https:\/\//.test(i) && /loading="lazy"/.test(i) && /referrerpolicy="no-referrer"/.test(i)), "show item, pictures shown: an image is not https, lazy and without a referrer");
+  checkLinks("show item, pictures shown", shown);
+  checkEscaped("show item, pictures shown", shown);
   // A build recorded before itemSrc: no threads, no failure.
   const bare = page.run("renderItem({...DATA.show.builds[0], itemSrc: undefined})");
   check(!/class="th/.test(bare) && bare.includes("coverPoster"), "show item without itemSrc: it still renders, without threads");
