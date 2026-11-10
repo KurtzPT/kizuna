@@ -48,7 +48,7 @@ func longShow() *Recorder {
 		res.Episodes = append(res.Episodes, Episode{Season: (i-1)/(episodes/seasons) + 1, Index: i,
 			Title: fmt.Sprintf("Episode title number %d, of a usual length", i), From: "anidb",
 			Titles:  map[string]string{"anidb": fmt.Sprintf("Episode title number %d, of a usual length", i), "tvdb": fmt.Sprintf("Another title for episode %d", i)},
-			Pairs:   map[string]string{"anidb": fmt.Sprintf("69 · %d", i), "tmdb": fmt.Sprintf("S%02dE%02d", (i-1)/55+1, (i-1)%55+1)},
+			Pairs:   map[string]string{"anidb": fmt.Sprintf("69 ep %d", i), "tmdb": fmt.Sprintf("S%02dE%02d", (i-1)/55+1, (i-1)%55+1)},
 			Summary: summary, Date: "1999-10-20", Thumb: fmt.Sprintf("https://artworks.thetvdb.com/banners/episodes/81797/%d.jpg", 360000+i), Minutes: 24,
 			Directors: []string{"Konosuke Uda"}, Writers: []string{"Junki Takegami", "Hirohiko Kamisaka"},
 			Src: map[string]string{"summary": "tvdb", "date": "tvdb", "thumb": "tvdb", "minutes": "tvdb", "directors": "tvdb", "writers": "tmdb"}})

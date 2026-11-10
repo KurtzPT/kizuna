@@ -1,0 +1,25 @@
+{
+  "schema": 3,
+  "key": "unmatched-lighthouse-weepers-0d77e353",
+  "match": {
+    "time": "2026-11-10T20:59:42Z",
+    "mode": "anidb",
+    "type": "show",
+    "title": "Lighthouse Weepers </script><b>x [anidb-1]",
+    "year": 2004,
+    "file": "/media/Anime/Lighthouse Weepers/Lighthouse Weepers - S01E01.mkv",
+    "guid": "javascript:alert(1)",
+    "how": "title search: best score 61 below MIN_SCORE 80",
+    "by": {"search": "low", "best": 61},
+    "min": 80,
+    "candidates": [
+      {"aid": 7, "title": "Lighthouse Keepers \"><i>y", "score": 61},
+      {"aid": 8, "title": "Lightship", "score": 40}
+    ],
+    "query": "Lighthouse Weepers </script><b>x"
+  },
+  "last": "2026-11-10T20:59:42Z",
+  "requests": [
+    {"time": "2026-11-10T20:59:42Z", "mode": "anidb", "method": "POST", "url": "/anidb/library/metadata/matches", "answer": {"kind": "nomatch"}, "note": "title search: best score 61 below MIN_SCORE 80", "status": 200, "bytes": 105, "tookMs": 0.5, "count": 4}
+  ]
+}

@@ -270,6 +270,17 @@ func TestSentReportTVDB(t *testing.T) {
 		}
 	}
 	sameLines(t, "the show item's images", recorded, sent)
+	// Each value of the show item has its source: the fields', and each
+	// image's as the art lists it (8 TheTVDB posters, 2 TheMovieDb's, then a
+	// background and a logo of each).
+	wantSrc := map[string]string{"title": "anidb", "summary": "anidb", "originallyAvailableAt": "anidb", "year": "anidb", "thumb": "tvdb", "art": "tvdb"}
+	for i, src := range strings.Fields("tvdb tvdb tvdb tvdb tvdb tvdb tvdb tvdb tmdb tmdb tvdb tmdb tvdb tmdb") {
+		wantSrc["Image."+strconv.Itoa(i)] = src
+	}
+	if !maps.Equal(b.ItemSrc, wantSrc) {
+		t.Errorf("item sources\n%v\nwant\n%v", b.ItemSrc, wantSrc)
+	}
+	itemSrcFits(t, b, item)
 
 	wantSeasons := []report.Season{
 		{Name: "Specials", Count: 1, Index: 0, Thumb: "https://artworks.thetvdb.com/tvdb-s0-poster", Art: "https://artworks.thetvdb.com/tvdb-b1", Date: "2009-05-01"},
@@ -298,6 +309,14 @@ func TestSentReportAniDB(t *testing.T) {
 	_, ask, build := sentProvider(t, sentSeries)
 	item := ask("/anidb/library/metadata/anidb-100")
 	b := build("anidb-100")
+	wantSrc := map[string]string{"title": "anidb", "summary": "anidb", "originallyAvailableAt": "anidb", "year": "anidb", "thumb": "tvdb", "art": "tvdb"}
+	for i := range 12 {
+		wantSrc["Image."+strconv.Itoa(i)] = "tvdb"
+	}
+	if !maps.Equal(b.ItemSrc, wantSrc) {
+		t.Errorf("item sources\n%v\nwant\n%v", b.ItemSrc, wantSrc)
+	}
+	itemSrcFits(t, b, item)
 	sameItem(t, b, item)
 	sameEpisodes(t, b, ask, "anidb")
 	if guid, _ := item["guid"].(string); !strings.Contains(guid, ".anidb://") || len(item["Image"].([]any)) != 12 {
@@ -445,9 +464,89 @@ func TestSentReportByHand(t *testing.T) {
 	if two.Date != "" || two.Src != nil {
 		t.Errorf("S02E02 %+v, want no date (Plex got none) and no source", two)
 	}
+	// The flag follows what was sent: S02E02's "200" is no date for Plex.
+	if one.Issue != "" || two.Issue != "no air date" {
+		t.Errorf("issues %q and %q, want none and %q", one.Issue, two.Issue, "no air date")
+	}
+	if want := (report.Check{Level: report.LevelInfo, Title: "1 episode has no air date", Text: "S02E02.", Section: report.SectionEpisodes}); !slices.Contains(b.Checks, want) {
+		t.Errorf("checks %+v, want %+v among them", b.Checks, want)
+	}
+	// No field was recorded and only the posters' sources are known: the
+	// posters and the thumb have theirs, the title and the background none.
+	wantSrc := map[string]string{"thumb": "tvdb"}
+	for i := range 10 {
+		wantSrc["Image."+strconv.Itoa(i)] = map[bool]string{true: "tvdb", false: "tmdb"}[i < 4]
+	}
+	if !maps.Equal(b.ItemSrc, wantSrc) {
+		t.Errorf("item sources\n%v\nwant\n%v", b.ItemSrc, wantSrc)
+	}
 	var item Item
 	if err := json.Unmarshal(b.Item, &item); err != nil || !reflect.DeepEqual(item, p.showItem(Modes["anidb"], s, false)) {
 		t.Errorf("item %s (%v), want the show item", b.Item, err)
+	}
+}
+
+// itemSrcFits: every source recorded for the show item is for a key the
+// item has, and an image's is the one the art lists for that URL.
+func itemSrcFits(t *testing.T, b report.Build, item map[string]any) {
+	t.Helper()
+	artSrc := map[string]string{}
+	for _, g := range b.Art {
+		if g.Season == nil {
+			for _, im := range g.Images {
+				artSrc[g.Kind+" "+im.URL] = im.Src
+			}
+		}
+	}
+	kinds := map[string]string{"coverPoster": "poster", "background": "background", "clearLogo": "logo"}
+	images, _ := item["Image"].([]any)
+	for key, src := range b.ItemSrc {
+		n, isImage := strings.CutPrefix(key, "Image.")
+		if !isImage {
+			if _, ok := item[key]; !ok {
+				t.Errorf("source %q for %q, which the item doesn't have", src, key)
+			}
+			continue
+		}
+		i, err := strconv.Atoi(n)
+		if err != nil || i >= len(images) {
+			t.Errorf("source for %q: the item has %d images", key, len(images))
+			continue
+		}
+		im := images[i].(map[string]any)
+		if want := artSrc[kinds[im["type"].(string)]+" "+im["url"].(string)]; src != want {
+			t.Errorf("%s (%v): source %q, the art says %q", key, im["url"], src, want)
+		}
+	}
+	for _, key := range []string{"ratingKey", "key", "guid", "type", "Guid", "duration", "originalTitle"} {
+		if src, ok := b.ItemSrc[key]; ok {
+			t.Errorf("%s has the source %q: Kizuna knows none for it", key, src)
+		}
+	}
+}
+
+// Each show field's source goes to the item keys it is sent as, when the
+// item has them: crew to Director and Writer, the date to the date and the
+// year. A field no source or more than one filled gives none.
+func TestItemSources(t *testing.T) {
+	it := Item{Title: "T", Summary: "S", OriginalTitle: "O", Studio: "St", ContentRating: "TV-14", Year: 2009, OriginallyAvailableAt: "2009-04-01",
+		Duration: 60000, Genre: []Tag{{"Action"}}, Director: []Tag{{"D"}}, Role: []Role{{Tag: "A"}}, Guid: []GuidTag{{"tvdb://1"}},
+		Thumb: "https://img.example/p2", Image: []Image{{Type: "coverPoster", URL: "https://img.example/p1"}, {Type: "snapshot", URL: "https://img.example/x"},
+			{Type: "coverPoster", URL: "https://img.example/p2"}}}
+	field := func(name string, used ...string) report.Field { return report.Field{Name: name, Used: used} }
+	fields := []report.Field{field("Title", "anidb"), field("Summary"), field("Genres", "tmdb"), field("Cast", "mal"), field("Studio", "ann"),
+		field("Crew", "tvdb"), field("Content rating", "tmdb"), field("First aired", "tvdb"), field("Posters", "tvdb", "tmdb")}
+	art := []report.ArtGroup{
+		{Level: "show", Kind: "poster", Images: []report.ArtImage{{URL: "https://img.example/p1", Src: "tvdb"}, {URL: "https://img.example/p2", Src: "tmdb", Primary: true}}},
+		{Level: "Season 1", Season: intp(1), Kind: "poster", Images: []report.ArtImage{{URL: "https://img.example/s1", Src: "ann", Primary: true}}},
+	}
+	want := map[string]string{"title": "anidb", "Genre": "tmdb", "Role": "mal", "studio": "ann", "Director": "tvdb", "contentRating": "tmdb",
+		"originallyAvailableAt": "tvdb", "year": "tvdb", "thumb": "tmdb", "Image.0": "tvdb", "Image.2": "tmdb"}
+	if got := itemSources(it, fields, art); !maps.Equal(got, want) {
+		t.Errorf("item sources\n%v\nwant\n%v", got, want)
+	}
+	if got := itemSources(Item{Title: "T"}, nil, nil); got != nil {
+		t.Errorf("item sources %v without fields or art, want none", got)
 	}
 }
 

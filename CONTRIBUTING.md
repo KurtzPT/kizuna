@@ -97,6 +97,7 @@ for f in scripts/*.sh; do bash -n "$f"; done
 shellcheck --severity=warning scripts/*.sh
 bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
 bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, needs jq)
+node scripts/report-page_test.js      # the match report page's script (offline, Node without packages)
 ```
 
 CI also fuzzes the parsers for a few seconds each (the `Fuzz*` tests; their seeds run with `go test`), runs
@@ -132,6 +133,7 @@ internal/sources                AniDB HTTP API (fair-use rules), TheTVDB v4 (+ l
 internal/provider               modes, matching, show model, Plex JSON, HTTP routes
 internal/plex                   opening and ending titles, set through Plex's own API (PLEX_URL)
 internal/report                 match reports (MATCH_REPORTS): an HTML page per show, written in batches
+scripts/report-page_test.js     the report page's tests: runs its script on fixture pages (scripts/testdata/report)
 scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not part of the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run by a workflow)
@@ -143,5 +145,5 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 | a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) / [SETTINGS.md](SETTINGS.md) (what a user sees or sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
-| something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`); the page: `internal/report/page.html` |
+| something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`, a show item value's at the end of the build); the page: `internal/report/page.html`, one file with its styles and script, tested by `scripts/report-page_test.js` |
 | a migration rule | `scripts/kizuna-migrate.sh`, then [MIGRATION.md](MIGRATION.md) |

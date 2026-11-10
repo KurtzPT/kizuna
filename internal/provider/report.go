@@ -183,6 +183,7 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 		show := p.showItem(mode, s, false)
 		res.Item = itemJSON(show)
 		res.Art = artGroups(nil, "show", nil, show, s.artBy.of(nil))
+		res.ItemSrc = itemSources(show, rec.Facts().Fields, res.Art)
 		for _, n := range plexSeasons(s) {
 			it := p.seasonItem(mode, s, n, false)
 			if it == nil {
@@ -340,6 +341,70 @@ func artGroups(out []report.ArtGroup, level string, season *int, it Item, by art
 	return out
 }
 
+// itemFields: the show fields fill records and the item keys showItem
+// sends each one as.
+var itemFields = [...]struct {
+	field string
+	keys  []string
+}{
+	{"Title", []string{"title"}}, {"Summary", []string{"summary"}}, {"Genres", []string{"Genre"}}, {"Cast", []string{"Role"}},
+	{"Studio", []string{"studio"}}, {"Crew", []string{"Director", "Writer"}}, {"Content rating", []string{"contentRating"}},
+	{"First aired", []string{"originallyAvailableAt", "year"}},
+}
+
+// itemSources names the source of each value of the show item it, by item
+// key, for the keys with one source: the recorded show fields' (fields) and
+// the images' (art: the show's own groups, as artGroups made them from it).
+// A value no source gave (a title kept from the title dump, the ids, the
+// duration) gets no entry, and neither does a key the item doesn't have.
+func itemSources(it Item, fields []report.Field, art []report.ArtGroup) map[string]string {
+	has := map[string]bool{
+		"title": it.Title != "", "summary": it.Summary != "", "Genre": len(it.Genre) > 0, "Role": len(it.Role) > 0,
+		"studio": it.Studio != "", "Director": len(it.Director) > 0, "Writer": len(it.Writer) > 0,
+		"contentRating": it.ContentRating != "", "originallyAvailableAt": it.OriginallyAvailableAt != "", "year": it.Year != 0,
+	}
+	out := map[string]string{}
+	for _, f := range itemFields {
+		i := slices.IndexFunc(fields, func(x report.Field) bool { return x.Name == f.field })
+		if i < 0 || len(fields[i].Used) != 1 {
+			continue
+		}
+		for _, k := range f.keys {
+			if has[k] {
+				out[k] = fields[i].Used[0]
+			}
+		}
+	}
+	// The groups hold the item's images of the three kinds in the order
+	// sent, so the n-th of them is the n-th such image of the item.
+	var sent []report.ArtImage
+	for _, g := range art {
+		if g.Season != nil {
+			continue
+		}
+		sent = append(sent, g.Images...)
+		for _, im := range g.Images {
+			if key := map[string]string{"poster": "thumb", "background": "art"}[g.Kind]; im.Primary && im.Src != "" && key != "" {
+				out[key] = im.Src
+			}
+		}
+	}
+	n := 0
+	for i, im := range it.Image {
+		if _, ok := imageKinds[im.Type]; !ok {
+			continue
+		}
+		if n < len(sent) && sent[n].URL == im.URL && sent[n].Src != "" {
+			out["Image."+strconv.Itoa(i)] = sent[n].Src
+		}
+		n++
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // episodeRows lists the episodes as Plex gets them (what episodeItem sends,
 // each value with its source) and, per episodeProblems, the episodes with
 // that problem ("S01E05").
@@ -349,14 +414,15 @@ func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string
 	for _, n := range s.Seasons() {
 		for i := range s.Episodes[n] {
 			ep := &s.Episodes[n][i]
+			it := p.episodeItem(mode, s, ep)
 			var issues []string
 			for j, pr := range episodeProblems {
-				if text := pr.issue(ep); text != "" {
+				if text := pr.issue(ep, &it); text != "" {
 					issues = append(issues, text)
 					with[j] = append(with[j], fmt.Sprintf("S%02dE%02d", ep.Season, ep.Index))
 				}
 			}
-			out = append(out, sentEpisode(p.episodeItem(mode, s, ep), ep, strings.Join(issues, "; ")))
+			out = append(out, sentEpisode(it, ep, strings.Join(issues, "; ")))
 		}
 	}
 	return out, with
@@ -398,14 +464,14 @@ func sentEpisode(it Item, ep *Ep, issue string) report.Episode {
 }
 
 // episodeProblems is what can be wrong with an episode as Plex gets it:
-// issue says it on the episode's row ("" if fine), and one check lists
-// every episode with it.
+// issue says it on the episode's row ("" if fine; sent is the episode's
+// item), and one check lists every episode with it.
 var episodeProblems = []struct {
-	issue       func(ep *Ep) string
+	issue       func(ep *Ep, sent *Item) string
 	level       report.Level
 	title, text string // the check's, after "N episodes have" and after the episode list
 }{
-	{func(ep *Ep) string {
+	{func(ep *Ep, _ *Item) string {
 		switch {
 		case ep.Title == "":
 			return "no title from any source: Plex shows \"Episode " + strconv.Itoa(ep.Index) + "\""
@@ -414,14 +480,15 @@ var episodeProblems = []struct {
 		}
 		return ""
 	}, report.LevelWarn, " no real title", `. No source in EPISODE_TITLES has a title for them, or only a placeholder like "Episode 5".`},
-	{func(ep *Ep) string {
+	{func(ep *Ep, _ *Item) string {
 		if htmlEntity.MatchString(ep.Title) || htmlEntity.MatchString(ep.Summary) {
 			return "HTML entity in the text (shown literally by Plex)"
 		}
 		return ""
 	}, report.LevelWarn, " an HTML entity in the text", `. Plex shows it literally ("&lt;3" instead of "<3").`},
-	{func(ep *Ep) string {
-		if ep.Date == "" && ep.Season > 0 {
+	// What was sent decides: a date too short to send ("200") is no date.
+	{func(ep *Ep, sent *Item) string {
+		if sent.OriginallyAvailableAt == "" && ep.Season > 0 {
 			return "no air date"
 		}
 		return ""
