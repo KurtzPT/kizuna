@@ -71,7 +71,7 @@ func main() {
 			fileErr = err
 		}
 	}
-	handler := slog.Handler(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level}))
+	handler := newLogHandler(out, level)
 	if file != nil {
 		handler = file.WarnVia(handler) // a later day the file can't be dated: a warning
 	}
@@ -351,4 +351,12 @@ func health(cfg config.Config) int {
 		return 1
 	}
 	return 0
+}
+
+// newLogHandler is the format of every log line: slog's text lines. It
+// quotes a message, key or value that holds a line break, so text from a
+// request can't end its line and start one that reads like another entry
+// (TestLogLinesCantBeForged).
+func newLogHandler(out io.Writer, level slog.Leveler) slog.Handler {
+	return slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})
 }
