@@ -38,6 +38,7 @@ const requestTimeout = 25 * time.Second
 //	GET  /{mode}/library/metadata/{key}/children      seasons or episodes
 //	GET  /{mode}/library/metadata/{key}/grandchildren all episodes of a show
 //	GET  /{mode}/library/metadata/{key}/images        artwork
+//	GET  /{mode}/library/metadata/{key}/extras        none (Plex asks on every refresh)
 func (p *Provider) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", p.health)
@@ -254,11 +255,28 @@ func writeUnavailable(w http.ResponseWriter, err error) {
 // keyRe is a rating key: a show key (rootPattern), plus a season and an episode.
 var keyRe = regexp.MustCompile(`^(` + rootPattern + `)(?:-s(\d+)(?:-e(\d+))?)?$`)
 
+// OnExtrasRequest sets what is called, with the show's GUID, each time Plex
+// asks for a show's extras, which it does on every metadata refresh of the
+// show. f runs inside the request, so it must not wait. Call this before
+// serving.
+func (p *Provider) OnExtrasRequest(f func(guid string)) { p.onExtras = f }
+
 func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	m := keyRe.FindStringSubmatch(r.PathValue("key"))
 	sub := r.PathValue("sub")
-	if m == nil || (sub != "" && sub != "children" && sub != "grandchildren" && sub != "images") {
+	if m == nil || (sub != "" && sub != "children" && sub != "grandchildren" && sub != "images" && sub != "extras") {
 		http.NotFound(w, r)
+		return
+	}
+	if sub == "extras" {
+		// Kizuna has no extras of its own. Plex asks for a show's on every
+		// refresh, just before it sets the titles of the local opening and
+		// ending extras back to their file names: the moment to plan their
+		// renaming (PLEX_URL, internal/plex).
+		if m[2] == "" && p.onExtras != nil {
+			p.onExtras(mode.Identifier() + "://show/" + m[1])
+		}
+		writeJSON(w, http.StatusOK, container(mode, nil, 0, 0))
 		return
 	}
 	ctx := r.Context()
