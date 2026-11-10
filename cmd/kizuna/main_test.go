@@ -249,3 +249,19 @@ func TestExtraTitles(t *testing.T) {
 		}
 	}
 }
+
+// Kizuna logs what Plex sends as it came: a title, a path or a body may
+// hold a line break. Whatever part of a log line it lands in, the line
+// stays one line, so no entry can be forged (CodeQL's go/log-injection).
+func TestLogLinesCantBeForged(t *testing.T) {
+	const forged = "time=2026-01-01T00:00:00Z level=ERROR msg=forged"
+	for _, br := range []string{"\n", "\r\n", "\r"} {
+		var out bytes.Buffer
+		bad := "x" + br + forged
+		slog.New(newLogHandler(&out, slog.LevelInfo)).Info("message "+bad, "key "+bad, "value "+bad, "err", errors.New(bad), "list", []string{bad})
+		line, rest, _ := strings.Cut(out.String(), "\n")
+		if rest != "" || strings.ContainsAny(line, "\r\n") || !strings.HasPrefix(line, "time=") || strings.Count(line, forged) != 5 {
+			t.Errorf("break %q: logged %q, want one line holding all five texts", br, out.String())
+		}
+	}
+}

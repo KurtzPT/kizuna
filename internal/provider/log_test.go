@@ -7,9 +7,10 @@ import (
 )
 
 // What Plex sends (a title, a file path, a GUID) is logged as it came, and
-// may hold a line break. The log is slog's text format, as in main: a value
-// with a line break is quoted and the break written as \n, so the value
-// can't end its line and start one that reads like another entry.
+// may hold a line break. The match lines carry it as one quoted value with
+// the break written as \n, so it can't end its line and start one that
+// reads like another entry. The format itself is pinned where it is made
+// (cmd/kizuna, TestLogLinesCantBeForged).
 func TestLoggedValuesStayOnOneLine(t *testing.T) {
 	l, titles := onePiece()
 	p := &Provider{lists: l, titles: titles, tagsLogged: everyTenMinutes{max: 1000}}
@@ -28,7 +29,7 @@ func TestLoggedValuesStayOnOneLine(t *testing.T) {
 	}
 	var match []string // this request's lines: the logger is global, other tests' background work may log too
 	for _, line := range strings.Split(strings.TrimSuffix(logs.String(), "\n"), "\n") {
-		if strings.HasPrefix(line, forged) || strings.HasPrefix(line, "/01.mkv") {
+		if strings.HasPrefix(line, forged) {
 			t.Errorf("a logged value started a line of its own: %q", line)
 		}
 		if strings.Contains(line, `msg="match: `) {
