@@ -169,7 +169,7 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 	if rec == nil {
 		return
 	}
-	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the output
+	mode := Modes[rec.Mode()] // the provider Plex asked (buildMode); its GUID scheme is in the item and the episodes' GUIDs
 	aids := p.aidsOf(root)
 	res := report.Result{Mapping: p.mappingRows(aids)}
 	if s != nil {
@@ -362,9 +362,10 @@ func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string
 	return out, with
 }
 
-// sentEpisode is an episode's row: the values of it, the item Plex gets for
-// ep, and ep's note of where each came from. The title stays ep's: the item
-// says "Episode N" for an episode without one, the report says it has none.
+// sentEpisode is an episode's row. Its values are read off it, the item Plex
+// gets for ep, so the row can't differ from what was sent; ep says where each
+// came from. The title stays ep's: the item says "Episode N" for an episode
+// without one, the report says it has none.
 func sentEpisode(it Item, ep *Ep, issue string) report.Episode {
 	e := report.Episode{Season: ep.Season, Index: ep.Index, Title: ep.Title, From: ep.titleSrc, Titles: ep.titles, Pairs: ep.pairs,
 		Summary: it.Summary, Date: it.OriginallyAvailableAt, Thumb: it.Thumb, Minutes: it.Duration / 60000, Issue: issue}

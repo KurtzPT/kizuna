@@ -129,8 +129,8 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	return tvOK && tmOK && crewOK
 }
 
-// fillTVDB is *v = firstOf(*v, tvdb), and notes in src when TheTVDB's value
-// was the one taken.
+// fillTVDB gives a blank *v TheTVDB's value, and notes in src when it took
+// one: the episode's report says which source each value came from.
 func fillTVDB(v *string, tvdb string, src *srcCode) {
 	if strings.TrimSpace(*v) != "" {
 		return

@@ -504,7 +504,7 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
 			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers,
 			listed: spot{e.Season, e.Number}, tvdbEp: e.ID,
-			src: epSources{srcTVDB, srcTVDB, srcTVDB, srcTVDB, srcTVDB, srcTVDB}}
+			src: epSources{summary: srcTVDB, date: srcTVDB, thumb: srcTVDB, minutes: srcTVDB, directors: srcTVDB, writers: srcTVDB}}
 		if e.Season == 0 {
 			ep.Index = e.Number
 		}

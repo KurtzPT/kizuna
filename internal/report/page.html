@@ -468,7 +468,7 @@ function renderShow() {
       <section id="s-match"><h2>Match</h2><p class="lede">What Plex sent and how Kizuna chose the show.</p>${renderMatch(b, S.lastMatch)}</section>
       <section id="s-ids"><h2>Id mapping</h2><p class="lede">How the AniDB entries link to TVDB and TMDB in the mapping lists. These links decide which TVDB and TMDB pages are read and how episodes pair up.</p>${renderMapping(b)}</section>
       <section id="s-fields"><h2>Fields</h2><p class="lede">What each source offered for the show, in the configured order. The highlighted cell is what Plex got.</p>${renderFields(b)}</section>
-      <section id="s-art"><h2>Art</h2><p class="lede">Every image Plex got for the show and each season, with the source that gave it. Plex gets up to 10 of a kind.</p>${renderArt(b, bi === 0)}</section>
+      <section id="s-art"><h2>Art</h2><p class="lede">Every image Plex got for the show and each season, with the source that gave it.</p>${renderArt(b, bi === 0)}</section>
       <section id="s-episodes"><h2>Episodes</h2><p class="lede">${esc((b.seasons || []).map(s => `${s.name}: ${s.count}`).join(", ") || "No episodes.")}</p>${renderEpisodes(b, bi === 0)}</section>
       <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. Its seasons and episodes are separate items: see Art and Episodes.</p><div class="panel">${renderItem(b.item)}</div></section>
       <section id="s-requests"><h2>Plex requests</h2><p class="lede">The last ${(S.requests || []).length} requests about this show, newest first (up to 50 are kept). Rows answered by the selected build are shaded.</p>${renderRequests(S, curBuild)}</section>
