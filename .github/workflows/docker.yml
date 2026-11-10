@@ -1,12 +1,18 @@
 # Builds the image with Docker (tests run inside the build) and publishes it
-# to GitHub Container Registry, ghcr.io/<owner>/<repo>:
-#   push to dev         -> :dev and :sha-<short>                  (beta)
-#   tag v1.2.3 on main  -> :1.2.3, :1.2, :latest and :sha-<short>  (stable)
-#   tag v1.2.3-beta.1   -> :1.2.3-beta.1 and :sha-<short>          (never :latest)
-#   push to main        -> build + test only: a release is the tag, not the merge
-#   pull request        -> build + test only
-#   manual run          -> like a push to that branch; on any other branch
-#                          (e.g. a go-update PR) it only builds + tests
+# to GitHub Container Registry, ghcr.io/<owner>/<repo>. Two jobs:
+#
+#   image    build + test only, read-only token. Runs for pull requests (the
+#            required "image" check), pushes to main and manual runs of this
+#            workflow on any branch (e.g. a go-update PR). Never publishes.
+#   publish  build, test, push and attest. Only when the ci workflow calls
+#            this one, after all of ci's checks passed on the same commit
+#            (ci.yml, jobs gate and docker; the check shows as
+#            "docker / publish"):
+#              push to dev         -> :dev and :sha-<short>                  (beta)
+#              tag v1.2.3 on main  -> :1.2.3, :1.2, :latest and :sha-<short>  (stable)
+#              tag v1.2.3-beta.1   -> :1.2.3-beta.1 and :sha-<short>          (never :latest)
+#            To rebuild :dev by hand, run the ci workflow on dev.
+#
 # Every published image gets a signed build provenance attestation, so anyone
 # can check it was built here from this repo:
 #   gh attestation verify oci://ghcr.io/kurtzpt/kizuna:<tag> -R KurtzPT/kizuna
@@ -15,23 +21,93 @@ name: docker
 
 on:
   push:
-    branches: [main, dev]
-    tags: ["v*"]
-    paths-ignore: ["**.md", ".github/ISSUE_TEMPLATE/**", "assets/**"]
+    branches: [main]
+    # only what goes into the image (see .dockerignore), plus this file
+    paths:
+      - "**"
+      - "!**.md"
+      - "!assets/**"
+      - "!scripts/**"
+      - "!unraid/**"
+      - "!compose.yml"
+      - "!.gitignore"
+      - "!.gitattributes"
+      - "!.github/**"
+      - ".github/workflows/docker.yml"
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        description: Push the image to GHCR and attest it (ci passes true, for dev and v* tags only)
+        type: boolean
+        required: true
 
 permissions: {}
-
-# a new push to a pull request replaces the run for the old one; pushes and
-# tags always finish, so every published tag gets its image
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   image:
     name: image
+    # every run that isn't ci's publishing call
+    if: ${{ !inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # a new push to a pull request replaces the run for the old one. Not
+    # github.workflow in the group: when ci calls this file that is "ci", and
+    # the same group as the caller deadlocks.
+    concurrency:
+      group: docker-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # no QEMU: the build stage runs on the build platform and cross-compiles
+      # (FROM --platform=$BUILDPLATFORM), the final stage has no RUN
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # image names must be lowercase: KurtzPT/kizuna -> ghcr.io/kurtzpt/kizuna
+      - name: image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # build with the Go version from go.mod, not the Dockerfile default
+      - name: go version
+        run: echo "GO_VERSION=$(awk '$1 == "go" {print $2}' go.mod)" >> "$GITHUB_ENV"
+
+      # what /health, the logs and Plex show: the short sha
+      - name: kizuna version
+        run: echo "KIZUNA_VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: type=sha
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.KIZUNA_VERSION }}
+            GO_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # built here too, so a pull request catches a break in either
+          sbom: true
+          provenance: mode=max
+
+  publish:
+    name: publish
+    # only ci's call (no concurrency group of its own: ci's group already runs
+    # one publish per branch at a time)
+    if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,31 +115,36 @@ jobs:
       id-token: write     # attestation: sign with the workflow's identity (Sigstore)
       attestations: write # attestation: store it on GitHub
     env:
-      # publish only from dev or a release tag (pull requests have a refs/pull/... ref)
-      PUBLISH: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
       # a stable release: a v* tag without a pre-release part (v1.2.3, not v1.2.3-beta.1)
       STABLE: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     steps:
+      # ci only calls this for dev and v* tags; refuse anything else anyway
+      - name: dev or a release tag
+        run: |
+          case $GITHUB_REF in
+            refs/heads/dev | refs/tags/v*) ;;
+            *) echo "::error::publishes only dev and v* tags, not $GITHUB_REF"; exit 1 ;;
+          esac
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the stable-tag check below needs main's history
           persist-credentials: false
 
-      # :latest must only ever be something that was merged to main
+      # :latest must only ever be something that was merged to main. The only
+      # step that needs history: main's, fetched here (public repository, no
+      # token) instead of a full clone on every run.
       - name: stable tag is on main
         if: env.STABLE == 'true'
         run: |
+          git fetch --quiet --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::$GITHUB_REF_NAME isn't on main. Stable releases are tagged on main; tag a beta (v1.2.3-beta.1) on dev"
             exit 1
           fi
 
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -77,13 +158,12 @@ jobs:
       - name: go version
         run: echo "GO_VERSION=$(awk '$1 == "go" {print $2}' go.mod)" >> "$GITHUB_ENV"
 
-      # what /health, the logs and Plex show: v1.2.3 for a tag, dev-<sha> for a
-      # beta build, the short sha for anything else
+      # what /health, the logs and Plex show: v1.2.3 for a tag, dev-<sha> for
+      # a beta build
       - name: kizuna version
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then v=$GITHUB_REF_NAME
-          elif [ "$GITHUB_REF" = refs/heads/dev ]; then v=dev-${GITHUB_SHA::7}
-          else v=${GITHUB_SHA::7}
+          else v=dev-${GITHUB_SHA::7}
           fi
           echo "KIZUNA_VERSION=$v" >> "$GITHUB_ENV"
 
@@ -104,7 +184,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUBLISH == 'true' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -121,7 +201,6 @@ jobs:
       # Signed SLSA build provenance for the image just pushed (all its tags
       # share this digest), stored on GitHub and next to the image in GHCR.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        if: env.PUBLISH == 'true'
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}

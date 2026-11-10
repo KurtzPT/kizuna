@@ -1,11 +1,12 @@
 # Auto-merges Dependabot version updates against dev (squash) once the
-# required checks pass, except a new major version of anything, which waits
-# for a review. Security updates open against main and are never auto-merged
-# (RELEASING.md, hotfix).
+# required checks pass, except a new major version of anything, or an update
+# it can't classify, which waits for a review. Security updates open against
+# main and are never auto-merged (RELEASING.md, hotfix).
 #
 # A merge done with GITHUB_TOKEN doesn't start the push workflows, so after the
-# merge this job starts ci and docker on dev itself: :dev gets rebuilt with the
-# update (a new distroless digest, say) like after any other push.
+# merge this job starts ci and codeql on dev itself. ci publishes :dev with the
+# update once its checks pass when the update changes the image (a new
+# distroless digest, say), like after any other push; not for an Actions update.
 # Needs: Settings -> General -> "Allow auto-merge".
 name: dependabot-automerge
 
@@ -32,43 +33,60 @@ jobs:
     permissions:
       contents: write      # merge
       pull-requests: write # turn on auto-merge
-      actions: write       # start ci and docker on dev after the merge
+      actions: write       # start ci and codeql on dev after the merge
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
       TITLE: ${{ github.event.pull_request.title }}
-      BODY: ${{ github.event.pull_request.body }}
     steps:
-      # Dependabot writes "from 1.2.3 to 2.0.0" in the title of a single update
-      # (maybe followed by "in the actions group") and a "| `1.2.3` | `2.0.0` |" table row per update in a group. A digest
-      # update (`afa5c87` to `b1c2d3e`) has no version, so no major.
-      - name: new major version?
-        id: major
+      # Dependabot's own metadata (the YAML block in its commit message), read
+      # by GitHub's action. It fails, and so nothing is merged, when the pull
+      # request's commit isn't Dependabot's, signed.
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # Fails closed: only updates Dependabot marks as a minor or patch version
+      # are merged. A new major version, or an update with no type that isn't a
+      # Docker digest bump (`afa5c87` to `b1c2d3e`: no version, so no major),
+      # waits for a review.
+      - name: minor, patch or digest only?
+        id: check
+        env:
+          DEPS: ${{ steps.meta.outputs.updated-dependencies-json }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
         run: |
-          # shellcheck disable=SC2016 # the backticks are Dependabot's, not expansions
-          pairs=$(
-            { printf '%s\n' "$TITLE" | sed -nE 's/.* from `?v?([^ `]+)`? to `?v?([^ `]+)`?( .*)?$/\1 \2/p'
-              printf '%s\n' "$BODY" | sed -nE 's/.*\| `v?([^`]+)` \| `v?([^`]+)` \|.*/\1 \2/p'
-            } | sort -u
-          )
-          major=false
-          while read -r from to; do
-            [ -z "$from" ] && continue
-            [[ $from =~ ^[0-9]+\. && $to =~ ^[0-9]+\. ]] || continue
-            if [ "${from%%.*}" != "${to%%.*}" ]; then
-              echo "::notice::$from -> $to is a new major version: review and merge it by hand"
-              major=true
-            fi
-          done <<< "$pairs"
-          echo "major=$major" >> "$GITHUB_OUTPUT"
+          # one "name|type|from|to" line per update; fails the job if it can't be read
+          rows=$(jq -er '.[] | [.dependencyName, (.updateType // ""), (.prevVersion // ""), (.newVersion // "")] | join("|")' <<< "$DEPS")
+          merge=true
+          while IFS='|' read -r name type from to; do
+            case $type in
+              version-update:semver-minor | version-update:semver-patch) ;;
+              version-update:semver-major)
+                echo "::notice::$name $from -> $to is a new major version: review and merge it by hand"
+                merge=false
+                ;;
+              *)
+                # shellcheck disable=SC2016 # the backticks are Dependabot's, not expansions
+                if [ "$ECOSYSTEM" = docker ] && grep -qE ' from `[0-9a-f]{7,}` to `[0-9a-f]{7,}`' <<< "$TITLE"; then
+                  echo "$name: a digest update"
+                else
+                  echo "::notice::$name ($from -> $to): couldn't tell what kind of update this is: review and merge it by hand"
+                  merge=false
+                fi
+                ;;
+            esac
+          done <<< "$rows"
+          echo "merge=$merge" >> "$GITHUB_OUTPUT"
 
       - name: turn on auto-merge
-        if: steps.major.outputs.major == 'false'
+        if: steps.check.outputs.merge == 'true'
         run: gh pr merge "$PR" --auto --squash
 
-      - name: wait for the merge, then build dev
-        if: steps.major.outputs.major == 'false'
+      - name: wait for the merge, then check (and maybe publish) dev
+        if: steps.check.outputs.merge == 'true'
+        env:
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
         run: |
           while :; do
             # both in one call: a merge clears autoMergeRequest, so two calls
@@ -86,5 +104,12 @@ jobs:
             fi
             sleep 30
           done
-          gh workflow run ci.yml --ref dev
-          gh workflow run docker.yml --ref dev
+          # ci publishes :dev once its checks pass, but only for an update that
+          # changes the image (the distroless digest, a Go module); an Actions
+          # update would only add an identical sha-* image
+          case $ECOSYSTEM in
+            docker | go_modules | gomod) publish=true ;;
+            *) publish=false ;;
+          esac
+          gh workflow run ci.yml --ref dev -f publish="$publish"
+          gh workflow run codeql.yml --ref dev

@@ -7,6 +7,9 @@ name: codeql
 on:
   push:
     branches: [main, dev]
+    # docs only: nothing to analyze (Go code and workflows). Pull requests
+    # stay unfiltered, like ci's.
+    paths-ignore: ["**.md", "assets/**", ".github/ISSUE_TEMPLATE/**"]
   pull_request:
   schedule:
     - cron: "41 5 * * 3" # Wednesdays 05:41 UTC: new queries find old code too

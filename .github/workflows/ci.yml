@@ -1,22 +1,46 @@
-# Fast checks on every push and pull request (the Docker workflow builds and
-# publishes the image):
+# Checks on every push, release tag and pull request. On a push to dev or a v*
+# tag this workflow also publishes the image, and only once every check passed,
+# so nothing reaches GHCR that failed here (the image build itself only runs
+# `go test`):
 #   go         Go version in sync, no PORT in the image, gofmt, go vet (also
 #              for Windows and macOS), staticcheck, govulncheck, tests with
 #              the race detector
 #   fuzz       a short run of every fuzz target
 #   script     bash syntax, ShellCheck and the behaviour tests of the scripts
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
+#   gate       (dev and v* tags only, never a pull request) does this run
+#              publish an image?
+#   docker     (only when gate says so) the docker workflow, publishing: shows
+#              as "docker / publish"
+# Pull requests get their "image" check (build only) from docker.yml itself.
 name: ci
 
 on:
   push:
     branches: [main, dev]
+    tags: ["v*"] # path filters don't apply to tags: every release tag runs
+    # docs only: nothing here checks them, and the image doesn't contain them.
+    # Not on pull requests, where go and script are required checks. A push
+    # to dev doesn't wait for checks (the ruleset's admin bypass), so a
+    # skipped run leaves nothing pending there.
+    paths-ignore: ["**.md", "assets/**", ".github/ISSUE_TEMPLATE/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "On dev or a v* tag: publish the image once the checks pass"
+        type: boolean
+        default: true
 
 permissions: {}
 
-# a new push to a pull request replaces the run for the old one
+# A new push to a pull request cancels the run for the old one. Push and tag
+# runs are never cancelled once started, but GitHub keeps only one waiting run
+# per group: a newer push to the same branch replaces a waiting one. Three
+# quick pushes to dev therefore run the first and the last; the middle commit
+# gets no checks and no :sha-<short> image, and :dev still ends on the newest.
+# Kept that way on purpose: one run per branch at a time means an older run
+# can never overwrite :dev after a newer one. Every tag is its own group.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,11 +57,14 @@ jobs:
           persist-credentials: false
 
       # check-latest: the newest patch release, not an older one from the
-      # runner's cache (govulncheck below checks that version's stdlib)
+      # runner's cache (govulncheck below checks that version's stdlib).
+      # No Go build cache for a tag: that run publishes a release, and it
+      # shouldn't depend on cache entries other runs wrote (here and below).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           check-latest: true
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       # the Dockerfile's GO_VERSION default is what a local docker build uses
       - name: Go version in sync
@@ -103,6 +130,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       # go test runs only one fuzz target at a time; the seeds of every target
       # already run as plain tests in the go job. A crash leaves the failing
@@ -159,6 +187,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       # syntax, expressions and (with the runner's shellcheck) every run: script
       - name: actionlint
@@ -170,3 +199,76 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: pipx run zizmor==1.32.0 --format=github .
+
+  # Publishes: a v* tag; a push to dev that changes what goes into the image; a
+  # manual run on dev or a tag with "publish" ticked. Never a pull request,
+  # main or any other branch. "Changes the image" follows .dockerignore: a push
+  # that only touches docs, assets/, scripts/, unraid/, compose.yml,
+  # .gitignore, .gitattributes or .github/ (except docker.yml) would build the
+  # same image again and only add another sha-* version.
+  gate:
+    name: gate
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: publish?
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PUBLISH_INPUT: ${{ inputs.publish }}
+        run: |
+          want=true
+          [ "$EVENT" = workflow_dispatch ] && want=$PUBLISH_INPUT
+          publish=false
+          case $GITHUB_REF in # only dev and v* tags get here (the job's if)
+            refs/tags/v*) publish=$want ;;
+            refs/heads/dev)
+              if [ "$EVENT" != push ]; then
+                publish=$want
+              # the commit dev pointed at before this push: compare the two
+              # trees. Not there (a new branch, a force push)? Publish.
+              elif ! git fetch --quiet --no-tags --depth=1 origin "$BEFORE"; then
+                echo "::notice::couldn't fetch the previous dev commit ($BEFORE): publishing"
+                publish=true
+              else
+                changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+                echo "changed files:"
+                sed 's/^/  /' <<< "$changed"
+                # an empty diff (an empty commit) publishes rather than guess
+                if [ -z "$changed" ] ||
+                   grep -Fxq .github/workflows/docker.yml <<< "$changed" ||
+                   grep -vqE '\.md$|^(\.github|scripts|assets|unraid)/|^(compose\.yml|\.gitignore|\.gitattributes)$' <<< "$changed"; then
+                  publish=true
+                else
+                  echo "::notice::nothing that goes into the image changed: not publishing"
+                fi
+              fi
+              ;;
+          esac
+          echo "publish: $publish"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  # the docker workflow's publish job, with the only write scopes in this file
+  docker:
+    name: docker
+    needs: [go, fuzz, script, workflows, gate]
+    if: needs.gate.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write     # push the image to GHCR
+      id-token: write     # attestation: sign with the workflow's identity (Sigstore)
+      attestations: write # attestation: store it on GitHub
+    uses: ./.github/workflows/docker.yml
+    with:
+      publish: true

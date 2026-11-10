@@ -4,9 +4,11 @@
 # rebuilt: the ci check passes with the newest patch while the image people run
 # still has the old one. This run fails (GitHub emails the failure) when a
 # published image needs a rebuild:
-#   :dev     push to dev, or run the docker workflow on dev by hand
+#   :dev     push to dev, or run the ci workflow on dev by hand (it publishes
+#            :dev once its checks pass)
 #   :latest  release a patch version (RELEASING.md, hotfix)
-# A tag that doesn't exist yet (:latest before the first release) is skipped.
+# A tag that doesn't exist yet (:latest before the first release) is skipped;
+# any other pull failure fails the run.
 #
 # Scheduled runs use the copy of this file on the default branch (main), so a
 # change here only takes effect once it's released to main.
@@ -46,9 +48,17 @@ jobs:
           TAG: ${{ matrix.tag }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}:$TAG"
-          if ! docker pull --quiet --platform linux/amd64 "$image"; then
-            echo "::notice::$image doesn't exist (yet): nothing to check"
-            exit 0
+          # skip only when the registry says the tag doesn't exist; any other
+          # failure (GHCR down, rate limit, network) fails the run instead of
+          # passing without a check
+          if ! out=$(docker pull --quiet --platform linux/amd64 "$image" 2>&1); then
+            echo "$out"
+            if grep -qiE 'manifest unknown|not found' <<< "$out"; then
+              echo "::notice::$image doesn't exist (yet): nothing to check"
+              exit 0
+            fi
+            echo "::error::couldn't pull $image, and not because the tag is missing (see above): nothing was checked"
+            exit 1
           fi
           id=$(docker create --platform linux/amd64 "$image")
           docker cp "$id:/kizuna" ./kizuna-bin
