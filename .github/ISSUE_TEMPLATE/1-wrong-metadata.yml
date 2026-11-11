@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for reporting! One show per issue, please. The more of the boxes below you fill in, the faster it can
         be reproduced and fixed. Logs and names may contain file paths: remove anything you don't want public.
-        API keys and Plex tokens are already shown as `***` in Kizuna's logs.
+        API keys and Plex tokens never appear in Kizuna's logs.
 
   - type: dropdown
     id: problem
@@ -77,6 +77,15 @@ body:
       description: A screenshot is welcome too. *Get Info → View XML* in Plex shows the item's GUID, e.g. `tv.plex.agents.custom.kizuna.anidb://show/anidb-123`.
     validations:
       required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: "Optional: match report for this show"
+      description: |
+        With `MATCH_REPORTS=true`, open `reports/index.html` in the data folder, pick the show (or its unmatched
+        title), click **Copy for a bug report** and paste it here. It already leaves out folders, request URLs,
+        summaries, cast and image addresses. [About the reports](https://github.com/KurtzPT/kizuna/blob/main/GUIDE.md#-match-reports)
 
   - type: textarea
     id: logs

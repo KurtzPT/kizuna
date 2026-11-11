@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Not sure which form fits? This one is fine. Logs may contain file paths: remove anything you don't want
-        public. API keys and Plex tokens are already shown as `***` in Kizuna's logs.
+        public. API keys and Plex tokens never appear in Kizuna's logs.
 
   - type: dropdown
     id: kind
