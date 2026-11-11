@@ -233,8 +233,9 @@ has only *Opening 1* is *Opening 1*; one AniDB doesn't list is reported without 
 > [!IMPORTANT]
 > This needs **Kizuna running with AniDB details** for the show, at [`-u`](#-command-line-reference). Without it,
 > plain `OP1`, `ED2`… are numbered from the name, as `S00E101` and `S00E152`, and a folder with opening (or ending)
-> variants gets no numbers for them. The script reads Kizuna's English titles for them, such as *Opening 1a*: keep
-> `en` first in [`EPISODE_LANGS`](SETTINGS.md#-matching--titles) while you run it.
+> variants gets no numbers for them. The script reads Kizuna's English or Japanese titles for them, such as
+> *Opening 1a* or *オープニング 1a*. With titles in another language it gives no numbers and says so: for the run, put
+> `en` first in Kizuna's [`EPISODE_LANGS`](SETTINGS.md#-matching--titles) and restart Kizuna, then set it back.
 
 ### HAMA `.id` files
 
