@@ -16,11 +16,6 @@
 
 ---
 
-```mermaid
-flowchart LR
-    K["🔑 1. Keys"] --> R["🐳 2. Run"] --> P["🔌 3. Plex"] --> L["📚 4. Library"]
-```
-
 ## 📋 Before you start
 
 | You need | Why |

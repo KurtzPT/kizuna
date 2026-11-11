@@ -73,12 +73,6 @@ untouched, and Plex sees the same paths.
 
 ---
 
-```mermaid
-flowchart LR
-    A["📦 1. Install"] --> B["🔍 2. Dry run"] --> C["📝 3. Apply"] --> D["🔁 4. Switch"] --> F["🧹 5. Clean up"]
-    B -. "plan wrong? fix folders, run again" .-> B
-```
-
 ## 📦 1. Install the script
 
 Run it on any machine that **sees the library folder with write access** and, for `tvdb` and `auto`, **can reach
