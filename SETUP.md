@@ -169,7 +169,7 @@ In Plex Web, open **Settings → Metadata Agents**.
 3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
 
 A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
-shows fill in on later refreshes. **Done!** [GUIDE.md](GUIDE.md) explains movies, openings, logs and match reports.
+shows fill in on later refreshes.
 
 ---
 
@@ -201,6 +201,8 @@ Kizuna's messages are in its log: `docker logs kizuna`, or `logs/kizuna.log` in 
 | Log: `refused a request from an address outside ALLOW_FROM` | Add the address from that log line to [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access) |
 | Log: `refused a request for an unknown host name` | Add the domain name to [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
 
-A show doesn't match or lacks details: [metadata problems](GUIDE.md#-metadata-problems).
+### A show doesn't match or lacks details
+
+No match, the wrong show, missing episodes or summaries, a sequel's episodes in the wrong season: see [metadata problems](GUIDE.md#-metadata-problems) in the guide.
 
 **Still stuck?** [Open an issue](CONTRIBUTING.md#-reporting-a-problem).
