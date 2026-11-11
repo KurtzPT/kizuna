@@ -19,7 +19,7 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -35,19 +35,13 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 | 🗂️ **Three modes** | One AniDB entry per show, one TVDB series per show (its movies and OVAs apart), or [both in one library](#auto-both-in-one-library) |
 | 🏷️ **Matches by id** | `[anidb-8550]`, `[tvdb-81797]`, `[mal-21]`… in the folder name. No guessing |
 | 🔀 **Per-field sources** | Pick the source order for titles, summaries, posters, cast… separately |
-| 🖼️ **Your files win** | `poster.jpg`, `fanart.jpg`, `theme.mp3` next to your files override every online source |
+| 🖼️ **Your files win**\* | `poster.jpg`, `fanart.jpg`, `theme.mp3` next to your files override every online source |
 | 📊 **Match reports** | An optional [page per show](#-match-reports) that says how it was matched and where each value came from |
 | 🤝 **Plays fair** | Every source is [rate-limited and cached](#-fair-use), so your IP stays welcome |
 | 🪶 **Tiny** | One static Go binary, standard library only, a ~10 MB image |
 
-## 🚀 Quick start
-
-1. [Get an AniDB client name and the API keys](SETUP.md#-1-get-your-keys) for the sources you want.
-2. [Run Kizuna](SETUP.md#-2-run-kizuna) with Docker Compose, plain Docker or Unraid.
-3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
-4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
-
-Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
+<sub>\* Done by *Plex Local Media*, Plex's own provider, when you add it to the agent next to Kizuna (optional,
+[setup](SETUP.md#-3-register-kizuna-in-plex)). Kizuna itself never reads your folders.</sub>
 
 ## 🧭 How it works
 
@@ -57,14 +51,14 @@ flowchart LR
     S -- "show · S01E05" --> K(["絆 Kizuna"])
     K -- "titles, summaries,<br/>artwork, cast…" --> P["📺 Plex library"]
     K <--> A[("AniDB · TheTVDB · TheMovieDb<br/>MyAnimeList · Anime News Network")]
-    L["🖼️ Plex Local Media<br/>poster.jpg, theme.mp3"] --> P
+    L["🖼️ Plex Local Media <i>(optional)</i><br/>poster.jpg, theme.mp3"] -.-> P
 ```
 
 | Step | Who | Does |
 |---|---|---|
 | 1 | Plex's **Plex TV Series** scanner | reads your file names and `.plexmatch` hints, and sets each file's season and episode |
 | 2 | **Kizuna** | gets the show name and file path from Plex, [finds the show](#-how-a-show-is-found), and describes it |
-| 3 | **Plex Local Media** | adds your own artwork and theme songs on top |
+| 3 | **Plex Local Media** *(optional)* | Plex's own provider: adds your own artwork and theme songs on top, when the agent has it |
 
 Kizuna never reads your media folders and can't move an episode to another number. **The folder layout of your
 [mode](#%EF%B8%8F-modes) is what puts each file in the right place.**
@@ -125,6 +119,11 @@ flowchart LR
 | `T` trailers | `S00E201` … |
 | `P` parodies | `S00E301` … |
 | `O` other | `S00E401` … |
+
+> [!NOTE]
+> Openings and endings don't have to be specials. Named `OP1`, `NCED2`…, Plex makes them **extras** of the show
+> instead, and Kizuna can give them readable titles such as *Opening 1*
+> ([openings and endings](SETUP.md#-openings-and-endings)).
 
 - **Movies** are one-episode AniDB entries: `S01E01`, with the movie's own title and summary.
 - **Episode thumbnails**, and summaries and dates AniDB lacks, come from TheTVDB.
@@ -194,28 +193,19 @@ detail](SETUP.md#-matching-in-detail).
 
 ## 📚 Sources
 
-| Source | Best at |
-|---|---|
-| [**AniDB**](https://anidb.net) | titles in every language, summaries, episodes and specials, cast with characters, staff |
-| [**TheTVDB**](https://thetvdb.com) | `/tvdb` seasons and episodes, episode thumbnails, posters, backgrounds, logos |
-| [**TheMovieDb**](https://www.themoviedb.org) | artwork and details where TheTVDB has none; episode titles and crew |
-| [**MyAnimeList**](https://myanimelist.net) | summary, poster, genres, studio, rating, date |
-| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | summary, genres, Japanese cast, staff, studio, date |
+| Source | Key | Used by default for |
+|---|---|---|
+| [**AniDB**](https://anidb.net) | client name | first for the show title, summary, genres, cast, crew, studio, rating and date; episode titles |
+| [**TheTVDB**](https://thetvdb.com) | API key | first for posters, backgrounds and logos; `/tvdb` seasons and episodes; episode thumbnails, directors and writers |
+| [**TheMovieDb**](https://www.themoviedb.org) | API key | after TheTVDB, for show details, artwork, episode titles and crew |
+| [**MyAnimeList**](https://myanimelist.net) | client ID | after TheMovieDb, for the summary, poster, genres, studio, rating and date |
+| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | none | last, for show details and posters |
 
-Every field has its own source order, and a source is only asked when the ones before it have nothing. By default
-AniDB comes first for show details and TheTVDB for artwork.
+Only AniDB (for `/anidb`) or TheTVDB (for `/tvdb`) is required; every other key just adds details. Every field has
+its own source order, which you can change, and a source is only asked when the ones before it have nothing.
 
 **Setup and settings:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
 [what each source can supply, and changing the order per field](SETTINGS.md#-sources-per-field).
-
-### 🏷️ Episode titles and pairing
-
-Episode titles come from AniDB first, then TheTVDB, then TheMovieDb (`EPISODE_TITLES`), in English where AniDB has
-it, else romaji (`EPISODE_LANGS`). Placeholders such as *Episode 12* or *TBA* are skipped.
-
-To take a title from another site, Kizuna **pairs** each episode with the same episode there, through the
-[id mapping](#-id-mapping) and its exceptions for recaps, split seasons and specials. When an episode gets the wrong
-title or thumbnail, the mapping is what to [fix](MAPPING.md). [How pairing works](MAPPING.md#-how-episodes-are-paired).
 
 ### 🔗 Id mapping
 
@@ -228,6 +218,15 @@ in `MAPPING_SOURCES` wins:
 | [Fribb/anime-lists](https://github.com/Fribb/anime-lists) | MyAnimeList, AniList, Kitsu and ANN ids, plus TVDB, TMDB and IMDb ids Anime-Lists lacks |
 
 Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md](MAPPING.md).
+
+### 🏷️ Episode titles and pairing
+
+Episode titles come from AniDB first, then TheTVDB, then TheMovieDb (`EPISODE_TITLES`), in English where AniDB has
+it, else romaji (`EPISODE_LANGS`). Placeholders such as *Episode 12* or *TBA* are skipped.
+
+To take a title from another site, Kizuna **pairs** each episode with the same episode there, through the
+[id mapping](#-id-mapping) and its exceptions for recaps, split seasons and specials. When an episode gets the wrong
+title or thumbnail, the mapping is what to [fix](MAPPING.md). [How pairing works](MAPPING.md#-how-episodes-are-paired).
 
 <a name="-anidb-fair-use"></a>
 
@@ -256,6 +255,17 @@ says:
 Titles that matched nothing get a page too, with the closest candidates and how to fix them. **Copy for a bug
 report** turns a page into Markdown to paste into an issue, without your folders or other personal details.
 [More about the reports](SETUP.md#-match-reports).
+
+---
+
+## 🚀 Quick start
+
+1. [Get an AniDB client name and the API keys](SETUP.md#-1-get-your-keys) for the sources you want.
+2. [Run Kizuna](SETUP.md#-2-run-kizuna) with Docker Compose, plain Docker or Unraid.
+3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
+4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
+
+Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
 
 ---
 

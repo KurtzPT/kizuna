@@ -50,7 +50,8 @@ the script plans nothing for them. Kizuna can give those extras [readable titles
 (`Opening 1`).
 
 HAMA features Kizuna leaves out on purpose, to stay small: collections, online theme songs and rating badges.
-Local `theme.mp3` files still work through *Plex Local Media*.
+Local `theme.mp3` files still work through *Plex Local Media*, when the agent has it
+([step 3 of the setup](SETUP.md#-3-register-kizuna-in-plex)).
 
 > [!IMPORTANT]
 > **Plain HAMA `tvdb` shows need the `[tvdb-…]` tag** (no digit after `tvdb`). That tag is the only way the script

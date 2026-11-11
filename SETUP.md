@@ -151,19 +151,20 @@ In Plex Web, open **Settings → Metadata Agents**.
 
 You can add more than one; each is its own provider.
 
-**b. Create an agent.** Click *Add Agent*, give it a name (e.g. *Kizuna Anime*), then add two providers:
+**b. Create an agent.** Click *Add Agent*, give it a name (e.g. *Kizuna Anime*), then add its providers:
 
 1. **The Kizuna provider from step a.** It's the agent's **primary** provider (matching and metadata) and always
    stays first, so there's nothing to reorder.
-2. **Plex Local Media.** It adds your own `poster.jpg`, `fanart.jpg`, `clearlogo.png`, `Season02.jpg`, `theme.mp3`
-   and subtitles from your folders, and they win over online artwork. Kizuna never reads your folders.
+2. **Plex Local Media** (optional, Plex's own provider). It adds your own `poster.jpg`, `fanart.jpg`, `clearlogo.png`, `Season02.jpg`, `theme.mp3`
+   and subtitles from your folders, and they win over online artwork. Leave it out and none of these are picked
+   up: Kizuna never reads your folders.
 
 ```mermaid
 flowchart LR
     subgraph agent["🧩 Agent: Kizuna Anime"]
         direction TB
         A["① Kizuna provider<br/><i>primary: matching + metadata</i>"]
-        B["② Plex Local Media<br/><i>poster.jpg, fanart.jpg, theme.mp3,<br/>subtitles from your folders</i>"]
+        B["② Plex Local Media <i>(optional)</i><br/><i>poster.jpg, fanart.jpg, theme.mp3,<br/>subtitles from your folders</i>"]
     end
 ```
 
