@@ -19,7 +19,7 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md)
 
 </div>
 
@@ -269,7 +269,7 @@ report** turns a page into Markdown to paste into an issue, without your folders
 
 <div align="center">
 
-**[Set it up →](SETUP.md)** &nbsp;·&nbsp; [Contribute](CONTRIBUTING.md) &nbsp;·&nbsp; [Security](SECURITY.md)
+**[Set it up →](SETUP.md)**
 
 <sub>Metadata from <a href="https://anidb.net">AniDB</a>, <a href="https://thetvdb.com">TheTVDB</a>,
 <a href="https://www.themoviedb.org">TheMovieDb</a>, <a href="https://myanimelist.net">MyAnimeList</a> and the
