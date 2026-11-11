@@ -81,9 +81,12 @@ Show - 05|
 Show - S01E01|
 EOF
 
-while IFS='|' read -r name want; do
-	check "credit_title \"$name\"" "$(credit_title "$name")" "$want"
-done <<'EOF'
+# the same answer whatever the machine's locale: Japanese titles are matched
+# as bytes, and full-width characters are turned into ASCII first
+for loc in C C.UTF-8; do
+	while IFS='|' read -r name want; do
+		check "credit_title \"$name\" ($loc)" "$(LC_ALL=$loc credit_title "$name")" "$want"
+	done <<'EOF'
 Opening 1a|1 a
 Opening 1 (b)|1 b
 Ending|1 -
@@ -93,8 +96,11 @@ Episode 1|
 エンディング 2|2 -
 オープニング２|2 -
 オープニング　３b|3 b
+オープニング1（ｂ）|1 b
+オープニング１ｂ|1 b
 Sobakasu|
 EOF
+done
 
 while IFS='|' read -r name want; do
 	check "special_number \"$name\"" "$(special_number "$name")" "$want"
@@ -297,7 +303,7 @@ check "plex credits: exit" "$?" "0"
 line_of() { grep -F "WARNING: $show/$1.mkv: " <<<"$out"; }
 # by_hand TEXT NUMBER: the end of a note, on making the file a special
 by_hand() {
-	printf '%s' "If you want it as a special, that is yours to do: rename it to a name without \"$1\" or another such word, and add \"ep: $2: <new name>\" to the show's .plexmatch by hand ($2 is Kizuna's number for it)"
+	printf '%s' "If you want it as a special, that is yours to do: rename it to a name without \"$1\" or another such word, and add \"ep: $2: <new name>\" to the show's .plexmatch by hand ($2 is its number from the file name, right unless AniDB has variants of it)"
 }
 stays="opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page) and gets no hint. "
 left="out of the library, as neither an extra nor an episode, so it gets no hint. To have it as an extra, rename it with "
@@ -471,6 +477,8 @@ curl() {
 		*'[anidb-1]'*) key=anidb-1 ;;
 		*'[anidb-2]'*) key=anidb-2 ;;
 		*'[anidb-3]'*) key=anidb-3 ;;
+		*'[anidb-4]'*) key=anidb-4 ;;
+		*'[anidb-5]'*) key=anidb-5 ;;
 		esac
 		if [[ -n $key ]]; then
 			printf '{"MediaContainer":{"size":1,"Metadata":[{"type":"show","ratingKey":"%s"}]}}' "$key"
@@ -493,6 +501,14 @@ curl() {
 	"$FAKE"/anidb/library/metadata/anidb-3-s0/children)
 		printf '{"MediaContainer":{"Metadata":[%s]}}' \
 			'{"index":101,"title":"Sobakasu"},{"index":102,"title":"Kimi ni Todoke"},{"index":151,"title":"Tsuki"}'
+		;;
+	# openings readable, endings not
+	"$FAKE"/anidb/library/metadata/anidb-4-s0/children)
+		printf '{"MediaContainer":{"Metadata":[%s]}}' '{"index":101,"title":"Opening 1"},{"index":151,"title":"Tsuki"}'
+		;;
+	# an ending AniDB has no title for: Kizuna's placeholder, not a title to read
+	"$FAKE"/anidb/library/metadata/anidb-5-s0/children)
+		printf '{"MediaContainer":{"Metadata":[%s]}}' '{"index":101,"title":"Opening 1"},{"index":151,"title":"Episode 151"}'
 		;;
 	*) return 7 ;; # "couldn't connect"
 	esac
@@ -595,17 +611,25 @@ if ((have_jq)); then
 	mkdir -p "$lib/Ja [anidb-2]" "$lib/Unread [anidb-3]"
 	for f in OP1b OP2 ED1; do : >"$lib/Ja [anidb-2]/Ja - $f.mkv"; done
 	for f in OP1 ED1b; do : >"$lib/Unread [anidb-3]/Unread - $f.mkv"; done
+	mkdir -p "$lib/Mixed [anidb-4]" "$lib/Placeholder [anidb-5]"
+	: >"$lib/Mixed [anidb-4]/Mixed - ED2.mkv"
+	: >"$lib/Placeholder [anidb-5]/Placeholder - ED2.mkv"
 	out=$(bash "$SCRIPT" -u "$FAKE" "$lib" 2>&1)
 	check "credit langs: exit" "$?" "0"
 	number_of() { grep -F "$1.mkv: " <<<"$out" | sed 's/.*, and add //'; }
 	check "credit langs: Japanese variant" "$(number_of "Ja - OP1b")" "\"ep: S00E102: <new name>\" $by_hand_end (S00E102 is Kizuna's number for it)"
 	check "credit langs: Japanese, full-width digit" "$(number_of "Ja - OP2")" "\"ep: S00E103: <new name>\" $by_hand_end (S00E103 is Kizuna's number for it)"
 	check "credit langs: Japanese ending" "$(number_of "Ja - ED1")" "\"ep: S00E151: <new name>\" $by_hand_end (S00E151 is Kizuna's number for it)"
-	langs_fix="Kizuna's titles for this show's openings and endings can't be read: put en first in its EPISODE_LANGS"
-	check "credit langs: unreadable titles, a plain number" "$(number_of "Unread - OP1")" \
-		"\"ep: S00E101: <new name>\" $by_hand_end (S00E101 is Kizuna's number for it; guessed from the file name, as $langs_fix)"
+	langs_fix="for this run, put en first in Kizuna's EPISODE_LANGS and restart it (then set it back)"
+	unread="Kizuna's titles for this show's openings and endings can't be read; $langs_fix"
+	check "credit langs: unreadable titles, no guess for a plain number" "$(number_of "Unread - OP1")" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP1: $unread), $by_hand_end"
 	check "credit langs: unreadable titles, a variant" "$(number_of "Unread - ED1b")" \
-		"an ep: hint for the new name, with its Kizuna number (S00E101...; ED1b: $langs_fix), $by_hand_end"
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; ED1b: $unread), $by_hand_end"
+	check "credit langs: some titles unreadable" "$(number_of "Mixed - ED2")" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; ED2: not among the ones whose Kizuna titles the script can read; $langs_fix), $by_hand_end"
+	check "credit langs: a placeholder title isn't unreadable" "$(number_of "Placeholder - ED2")" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; ED2: not among this show's AniDB openings/endings), $by_hand_end"
 	check "credit langs: never 'run with -u'" "$(grep -c 'run with -u' <<<"$out")" "0"
 else
 	echo "SKIP fake-Kizuna checks (tvdb, auto and anidb with Kizuna): jq not found (install jq, or set JQ=gojq)"

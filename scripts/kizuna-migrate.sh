@@ -115,9 +115,16 @@ SHORT_CREDIT_RE='^(NC)?(OP|ED)[ ._]([0-9].*)$'
 # and the Japanese ones Kizuna sends when EPISODE_LANGS puts ja first
 # ("オープニング2", "エンディング")
 CREDIT_TITLE_RE='^(opening|op|ending|ed|オープニング|エンディング)([[:space:]]*0*([0-9]+))?[[:space:]]*(\(([a-z])\)|([a-z]))?([^[:alnum:]]|$)'
-# full-width digits and space, turned into ASCII before CREDIT_TITLE_RE: in
-# the C locale "２" isn't a digit, so "オープニング２" would read as opening 1
-FULLWIDTH=(０ １ ２ ３ ４ ５ ６ ７ ８ ９)
+# full-width digits, letters and brackets, turned into the ASCII at the same
+# place in FULLWIDTH_ASCII before CREDIT_TITLE_RE reads a title: CREDIT_TITLE_RE
+# only knows ASCII, so "オープニング1（ｂ）" would lose its letter and read as
+# opening 1, and "オープニング２" would be unreadable
+FULLWIDTH=(０ １ ２ ３ ４ ５ ６ ７ ８ ９
+	Ａ Ｂ Ｃ Ｄ Ｅ Ｆ Ｇ Ｈ Ｉ Ｊ Ｋ Ｌ Ｍ Ｎ Ｏ Ｐ Ｑ Ｒ Ｓ Ｔ Ｕ Ｖ Ｗ Ｘ Ｙ Ｚ
+	ａ ｂ ｃ ｄ ｅ ｆ ｇ ｈ ｉ ｊ ｋ ｌ ｍ ｎ ｏ ｐ ｑ ｒ ｓ ｔ ｕ ｖ ｗ ｘ ｙ ｚ （ ） 　)
+FULLWIDTH_ASCII='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz() '
+# Kizuna's title for a credit AniDB has no title for: not unreadable, just empty
+CREDIT_PLACEHOLDER_RE='^(episode|ep\.?)[[:space:]]*[0-9]+$'
 # other special patterns: "regex|base|number group" (no group = number 1)
 SPECIALS=(
 	'^(pv|cm|trailer|teaser|promo|preview)[[:space:]]*0*([0-9]{1,2})?(v[0-9])?$|200|2'
@@ -178,9 +185,8 @@ credit_of() {
 # ("Opening 1a" -> "1 a", "Ending" -> "1 -", "オープニング２" -> "2 -"), or
 # nothing.
 credit_title() {
-	local num letter t=$1 d
-	for d in "${!FULLWIDTH[@]}"; do t=${t//"${FULLWIDTH[d]}"/$d}; done
-	t=${t//　/ }
+	local num letter t=$1 i
+	for i in "${!FULLWIDTH[@]}"; do t=${t//"${FULLWIDTH[i]}"/"${FULLWIDTH_ASCII:i:1}"}; done
 	shopt -s nocasematch
 	if [[ $t =~ $CREDIT_TITLE_RE ]]; then
 		num=${BASH_REMATCH[3]:-1} letter=${BASH_REMATCH[5]:-${BASH_REMATCH[6]}}
@@ -248,7 +254,8 @@ capital_credit() {
 # $1 the file's name, $2 what Plex does with it (extra or dropped, as
 # plex_credit says, or plain: it doesn't take the name), $3 the part of the
 # name that says so, $4 the special number it would have, if known, with $5
-# a remark on that number, else $5 how to find the number. The script
+# a remark on that number, else $5 how to find the number; $6 1 when the
+# number is guessed from the file name, not Kizuna's. The script
 # renames nothing, so making the file a special is left to the user: the
 # note only says how.
 credit_note() {
@@ -268,7 +275,11 @@ credit_note() {
 	esac
 	note+=". If you want it as a special, that is yours to do: rename it to a name without \"$3\" or another such word, and add "
 	if [[ -n ${4:-} ]]; then
-		note+="\"ep: $4: <new name>\" to the show's .plexmatch by hand ($4 is Kizuna's number for it${5:+; $5})"
+		if ((${6:-0})); then
+			note+="\"ep: $4: <new name>\" to the show's .plexmatch by hand ($4 is its number from the file name, right unless AniDB has variants of it${5:+; $5})"
+		else
+			note+="\"ep: $4: <new name>\" to the show's .plexmatch by hand ($4 is Kizuna's number for it${5:+; $5})"
+		fi
 	else
 		note+="an ep: hint for the new name, with ${5:-its number}, to the show's .plexmatch by hand"
 	fi
@@ -533,9 +544,10 @@ show_rules() {
 declare -A CREDIT_AT # "op 1 a" -> Plex episode (101...), for the show in CREDITS_FOR
 CREDITS_FOR=""
 CREDITS_UNREAD=0 # Kizuna's credit titles for that show that credit_title can't read
-CREDIT_N=0 CREDIT_NOTE=""
-# what fixes unreadable credit titles: Kizuna sends them in EPISODE_LANGS
-LANGS_FIX="Kizuna's titles for this show's openings and endings can't be read: put en first in its EPISODE_LANGS"
+CREDIT_N=0 CREDIT_NOTE="" CREDIT_GUESS=0
+# what helps with titles the script can't read: Kizuna sends them in its
+# EPISODE_LANGS, a setting for all of Kizuna, so only for the run
+LANGS_FIX="for this run, put en first in Kizuna's EPISODE_LANGS and restart it (then set it back)"
 SHOW_VARIANTS="" # " op ed": kinds with variant files (OP1b...) in the current show folder
 
 # fetch_credits prints "INDEX<TAB>TITLE" for the openings and endings Kizuna
@@ -554,7 +566,8 @@ fetch_credits() {
 # load_credits fills CREDIT_AT from Kizuna's credit titles for the show in $1
 # ($2 = one video in it). Empty when Kizuna isn't used or has no titles
 # (AniDB unavailable). CREDITS_UNREAD counts the titles it couldn't read, such
-# as a song name or a language without "Opening" in it.
+# as a song name or a language without "Opening" in it; Kizuna's placeholder
+# for a credit without any title isn't one.
 load_credits() {
 	local index title kind num letter
 	CREDIT_AT=() CREDITS_FOR=$1 CREDITS_UNREAD=0
@@ -565,19 +578,27 @@ load_credits() {
 		if ((index > 150)); then kind="ed"; fi
 		if read -r num letter < <(credit_title "$title"); then
 			if [[ -z ${CREDIT_AT["$kind $num $letter"]:-} ]]; then CREDIT_AT["$kind $num $letter"]=$index; fi
-		else
+		elif ! [[ ${title,,} =~ $CREDIT_PLACEHOLDER_RE ]]; then
 			CREDITS_UNREAD=$((CREDITS_UNREAD + 1))
 		fi
 	done < <(fetch_credits "$2")
 }
 
+# credit_guess sets CREDIT_N to 100/150 + number from the file name ($1
+# op|ed, $2 number), with CREDIT_GUESS set: only right without variants.
+credit_guess() {
+	CREDIT_N=$((100 + $2)) CREDIT_GUESS=1
+	if [[ $1 == ed ]]; then CREDIT_N=$((150 + $2)); fi
+}
+
 # credit_index sets CREDIT_N to the Plex number of an opening or ending
 # ($1 op|ed, $2 number, $3 letter or -) and CREDIT_NOTE to anything worth
-# saying about it. With Kizuna's titles it uses AniDB's own numbering; without them
-# 100/150 + number, which is only safe without a variant letter.
+# saying about it. With Kizuna's titles it uses AniDB's own numbering; without
+# them 100/150 + number (CREDIT_GUESS), which is only safe without a variant
+# letter and without variant files of that kind in the show.
 credit_index() {
 	local kind=$1 num=$2 letter=$3 l
-	CREDIT_N=0 CREDIT_NOTE=""
+	CREDIT_N=0 CREDIT_NOTE="" CREDIT_GUESS=0
 	if ((${#CREDIT_AT[@]} > 0)); then
 		if [[ -n ${CREDIT_AT["$kind $num $letter"]:-} ]]; then
 			CREDIT_N=${CREDIT_AT["$kind $num $letter"]}
@@ -594,24 +615,20 @@ credit_index() {
 		fi
 		if ((CREDIT_N == 0)); then
 			CREDIT_NOTE="not among this show's AniDB openings/endings"
-			if ((CREDITS_UNREAD > 0)); then CREDIT_NOTE="not among those Kizuna's titles could be read for ($LANGS_FIX)"; fi
+			if ((CREDITS_UNREAD > 0)); then
+				CREDIT_NOTE="not among the ones whose Kizuna titles the script can read; $LANGS_FIX"
+			fi
 		fi
-	elif ((CREDITS_UNREAD > 0)); then # Kizuna answered, in titles credit_title can't read
-		if [[ $letter == - && $SHOW_VARIANTS != *" $kind"* ]]; then
-			CREDIT_N=$((100 + num))
-			if [[ $kind == ed ]]; then CREDIT_N=$((150 + num)); fi
-			CREDIT_NOTE="guessed from the file name, as $LANGS_FIX"
-		else
-			CREDIT_NOTE=$LANGS_FIX
-		fi
+	elif ((CREDITS_UNREAD > 0)); then
+		# Kizuna answered, in titles credit_title can't read: AniDB's list may
+		# have variants that shift the numbers, so no guess from the file name
+		CREDIT_NOTE="Kizuna's titles for this show's openings and endings can't be read; $LANGS_FIX"
 	elif [[ $letter != - ]]; then
 		CREDIT_NOTE="a variant needs Kizuna with AniDB details to find its number (run with -u)"
 	elif [[ $SHOW_VARIANTS == *" $kind"* ]]; then # OP1a/OP1b shift every later number: 100 + n would be wrong
 		CREDIT_NOTE="this show has variant files, so its numbers need Kizuna with AniDB details (run with -u)"
-	elif [[ $kind == ed ]]; then
-		CREDIT_N=$((150 + num))
 	else
-		CREDIT_N=$((100 + num))
+		credit_guess "$kind" "$num"
 	fi
 	((CREDIT_N > 0))
 }
@@ -751,7 +768,7 @@ plan_show() {
 			fi
 			if [[ $CREDITS_FOR != "$dir" ]]; then load_credits "$dir" "$v"; fi
 			if credit_index "$ckind" "$cnum" "$cletter"; then
-				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")" "$CREDIT_NOTE")"
+				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")" "$CREDIT_NOTE" "$CREDIT_GUESS")"
 			else
 				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)")"
 			fi
