@@ -19,22 +19,21 @@ here to change what Kizuna does.</sub>
 
 ## 📄 Where settings go
 
-Everything is an environment variable; [`compose.yml`](compose.yml) lists the common ones. Plex doesn't pass
-per-library settings to providers, so every setting applies to every mode and every library.
-
-**Or put them in a file:** Kizuna reads `kizuna.env` in the data folder (`/data/kizuna.env` in Docker), one
-`NAME=value` per line, the same names as below, in upper case (`port=` is ignored, also on Windows).
-[`.env.sample`](.env.sample) lists every setting with its default:
+Settings go in **`kizuna.env` in the data folder** (`/data/kizuna.env` in Docker), one `NAME=value` per line, the same
+names as below, in upper case (`port=` is ignored, also on Windows). [`.env.sample`](.env.sample) lists every setting
+with its default; [SETUP.md](SETUP.md#-2-run-kizuna) shows how to create the file. Restart Kizuna after editing it.
+Plex doesn't pass per-library settings to providers, so every setting applies to every mode and every library.
 
 ```bash
-# /change/me/kizuna.env
+# /srv/kizuna/kizuna.env
 ANIDB_CLIENT=myclient
 TVDB_API_KEY=...
 TITLE_LANGS=en,main      # comments after a space are fine
 ```
 
-- **Environment variables win over the file**, even when set to `""`: `TVDB_API_KEY: ""` in `compose.yml` keeps
-  TVDB off whatever the file says. Use the file for your settings and the environment for one-off changes.
+- **Environment variables win over the file**, even when set to `""`: `-e TVDB_API_KEY=` with `docker run`, or
+  `TVDB_API_KEY: ""` under `environment:` in `compose.yml`, keeps TVDB off whatever the file says. Use the file for
+  your settings and the environment for one-off overrides.
 - `KIZUNA_CONFIG=/path/to/file` (environment only) reads that file instead; Kizuna won't start if it's missing.
 - `DATA_DIR` in the file moves the cache and logs, but not where the file is looked for.
 - Values may be in `"..."` or `'...'` (taken as written; needed for a `#` in a value). `export NAME=value` works too,

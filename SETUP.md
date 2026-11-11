@@ -44,22 +44,51 @@ flowchart LR
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
 | **Anime News Network** | – | no key | – |
 
-`/auto` works with AniDB, TheTVDB or both. One working mode is enough for Kizuna to start; its log says which ones
-are ready (`modes anidb=ready tvdb="off: …"`).
-
 **TheTVDB's PIN:** a free, user-supported v4 key only works together with your subscriber PIN in `TVDB_PIN`. A
 company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the log says](GUIDE.md#-metadata-problems)).
 
 ## 🐳 2. Run Kizuna
 
+Kizuna keeps everything in one **data folder**: its settings file `kizuna.env` (your keys go there), the cache, logs
+and reports. Set that up first, then start the container.
+
+**a. Create the data folder and the settings file.** [`.env.sample`](.env.sample) is the settings file with every
+setting listed and explained; download it as `kizuna.env`:
+
+```bash
+sudo mkdir -p /srv/kizuna
+sudo curl -fsSL -o /srv/kizuna/kizuna.env https://raw.githubusercontent.com/KurtzPT/kizuna/main/.env.sample
+```
+
+**b. Fill in your keys** from [step 1](#-1-get-your-keys) (`sudo nano /srv/kizuna/kizuna.env`). Leave every other line
+as it is; [SETTINGS.md](SETTINGS.md) explains them when you want to change titles, artwork or sources.
+
+```bash
+ANIDB_CLIENT=myclient
+TVDB_API_KEY=...
+TVDB_PIN=...
+TMDB_API_KEY=...
+```
+
+**c. Hand the folder to Kizuna's user.** Kizuna runs as `1000:1000`, not root, and must be able to write the folder.
+The file holds your keys, so only that user reads it:
+
+```bash
+sudo chown -R 1000:1000 /srv/kizuna
+sudo chmod 600 /srv/kizuna/kizuna.env
+```
+
+**d. Start it:**
+
 <table>
 <tr><th>Docker Compose (recommended)</th><th>Plain Docker</th></tr>
 <tr><td>
 
-Edit [`compose.yml`](compose.yml): fill in the `<...>` placeholders and replace `/change/me` with a folder on the
-host. Then:
+Get [`compose.yml`](compose.yml) and start it. It already uses `/srv/kizuna`; change the path under `volumes:` if
+you picked another folder.
 
 ```bash
+curl -fsSLO https://raw.githubusercontent.com/KurtzPT/kizuna/main/compose.yml
 docker compose up -d
 ```
 
@@ -72,10 +101,6 @@ docker run -d --name kizuna \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -p 32600:32600 \
   -v /srv/kizuna:/data \
-  -e ANIDB_CLIENT=myclient \
-  -e TVDB_API_KEY=... \
-  -e TVDB_PIN=... \
-  -e TMDB_API_KEY=... \
   ghcr.io/kurtzpt/kizuna:latest
 ```
 
@@ -85,9 +110,10 @@ docker run -d --name kizuna \
 <details>
 <summary><b>Unraid</b></summary>
 
-1. Create `/mnt/user/appdata/kizuna` through the `appdata` share, so it belongs to `nobody:users` (99:100), the user
-   Unraid runs Kizuna as.
-2. Copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in at least `ANIDB_CLIENT` or a TheTVDB key.
+Unraid runs Kizuna as `nobody:users` (99:100), and the folder lives under `appdata`:
+
+1. Create `/mnt/user/appdata/kizuna` through the `appdata` share, so it already belongs to `nobody:users`.
+2. Copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in your keys (steps a and b above).
 3. Get the template, in the Unraid terminal:
 
    ```bash
@@ -95,20 +121,17 @@ docker run -d --name kizuna \
      https://raw.githubusercontent.com/KurtzPT/kizuna/main/unraid/kizuna.xml
    ```
 
-4. **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*. Settings come from `kizuna.env`:
-   restart the container after editing it. Unraid's own `TZ` wins over the file's.
+4. **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*. Unraid's own `TZ` wins over the
+   file's.
 
 </details>
 
-**The data folder** (`/data` in the container) holds the [settings file](SETTINGS.md#-where-settings-go), the cache,
-logs and reports. **It must be writable by `1000:1000`** (or the `user` you set; on Unraid, 99:100).
+**Changed a setting later?** Edit `kizuna.env`, then `docker restart kizuna`.
 
-| Image tag | Use it |
-|---|---|
-| **`:latest`** | normally: the newest stable release |
-| `:1.2.3`, `:1.2` | to pin a version |
-| `:1.2.3-beta.1` | to test a pre-release |
-| `:dev` | to try fixes before release; may break |
+> [!NOTE]
+> **Overriding the file:** a setting given to the container itself (`-e NAME=value` with `docker run`, an
+> `environment:` entry in `compose.yml`, a variable in the Unraid template) wins over `kizuna.env`, even when it is
+> empty. Useful for a quick test, such as `-e LOG_LEVEL=debug`; remove it to go back to the file.
 
 **Check that it's up**, from the machine (or container) that runs Plex:
 
@@ -131,6 +154,18 @@ curl http://<kizuna-host>:32600/health
 > [!WARNING]
 > Kizuna has **no login** ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Keep port 32600 on your LAN and
 > never forward it to the internet.
+
+<details>
+<summary><b>Which image tag?</b></summary>
+
+| Image tag | Use it |
+|---|---|
+| **`:latest`** | normally: the newest stable release |
+| `:1.2.3`, `:1.2` | to pin a version |
+| `:1.2.3-beta.1` | to test a pre-release |
+| `:dev` | to try fixes before release; may break |
+
+</details>
 
 ## 🔌 3. Register Kizuna in Plex
 

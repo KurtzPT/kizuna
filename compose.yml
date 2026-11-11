@@ -1,5 +1,6 @@
 # docker compose up -d
-# Replace every <...> placeholder and /change/me below before starting.
+# Settings, your keys included, go in kizuna.env in the data folder (/srv/kizuna/kizuna.env):
+# start from .env.sample, see SETUP.md step 2 and SETTINGS.md.
 services:
   kizuna:
     image: ghcr.io/kurtzpt/kizuna:latest
@@ -7,82 +8,19 @@ services:
     container_name: kizuna
     restart: unless-stopped
     stop_grace_period: 35s   # lets running Plex requests finish on stop (Docker's default is 10s)
-    user: "1000:1000"        # uid:gid that can write the data folder (/change/me)
+    user: "1000:1000"        # uid:gid that can write the data folder (/srv/kizuna)
     # Locked down: Kizuna only ever writes to /data, needs no Linux capabilities
     # and never gains privileges. Remove a line only if you know you need it.
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    # Settings can also go in kizuna.env in the data folder (/change/me/kizuna.env), one NAME=value per line.
-    # Variables set here win over that file, even "": delete the lines below that the file sets. See SETTINGS.md.
-    environment:
-      # --- AniDB (required for summaries, episodes, specials) ---
-      # Register a free HTTP client: anidb.net > Settings > Client > add client (protocol HTTP)
-      ANIDB_CLIENT: "<anidb-client-name>"
-      ANIDB_CLIENTVER: "1"
-
-      # --- TVDB / TMDB (TVDB is needed for /tvdb mode; both add artwork for both modes) ---
-      # Set a key to "" to disable that source.
-      TVDB_API_KEY: "<tvdb-api-key>"
-      # TVDB_PIN: "<tvdb-pin>"       # only for subscriber keys
-      # TVDB_LEGACY_API_KEY: "<key>"  # a legacy (v3) key: used when TVDB_API_KEY is empty or rejected
-      TMDB_API_KEY: "<tmdb-api-key>"
-
-      # --- MyAnimeList (summary, poster, genres, studio, rating, date; "" to disable) ---
-      # Create a client at myanimelist.net/apiconfig; only the Client ID is used
-      MAL_CLIENT_ID: "<mal-client-id>"
-
-      # --- id mapping: lists in priority order; later ones only fill missing ids ---
-      # MAPPING_SOURCES: "animelists,fribb"
-
-      # --- titles ---
-      # TITLE_LANGS: "main,x-jat,en" # main = AniDB main (romaji) title; any AniDB language code: en, x-jat, ja, de...
-      # TITLE_OFFICIAL_ONLY: "false"  # true = skip AniDB synonyms, fall through to the next language
-      # ORIGINAL_TITLE_LANGS: "ja"   # e.g. "x-jat" for romaji; "none" = no original title
-      # EPISODE_LANGS: "en,x-jat"     # AniDB episode title languages
-      # EPISODE_TITLES: "anidb,tvdb,tmdb"  # episode titles, both modes; first real title wins
-      # MIN_SCORE: "80"              # lowest auto-match score (0-100)
-      # AUTO_DEFAULT: "anidb"        # /auto provider: rules for shows without an [anidb-N] / [tvdb-N] tag or GUID
-
-      # --- sources per field: first = default, the rest are fallbacks in order ---
-      # anidb, tvdb, tmdb, mal, ann (Anime News Network, no key); "none" turns a field off.
-      # TITLE_SOURCES: "anidb,tvdb,tmdb,ann"
-      # SUMMARY_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # POSTER_SOURCES: "tvdb,tmdb,anidb,mal,ann"
-      # BACKGROUND_SOURCES: "tvdb,tmdb"
-      # LOGO_SOURCES: "tvdb,tmdb"
-      # EPISODE_FILL_SOURCES: "tvdb"  # /anidb mode: episode thumbnails (+ summaries, dates, runtimes AniDB lacks); "none" = off
-      # In /anidb mode, tvdb/tmdb are only used for these on a series' first AniDB entry:
-      # GENRE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # CAST_SOURCES: "anidb,tvdb,tmdb,ann"
-      # STUDIO_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # CREW_SOURCES: "anidb,tvdb,tmdb,ann"   # directors + writers
-      # RATING_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # RATING_COUNTRY: "US"              # e.g. "DE" or "GB,US"; other countries only as a last resort
-      # DATE_SOURCES: "anidb,tvdb,tmdb,mal,ann"
-      # ART_ALL_SOURCES: "false"       # true = artwork from every listed source; false = first source that has any
-      # SEASON_ART_FALLBACK: "true"   # a TVDB/TMDB season without art: true = its series art; false = the next source
-
-      # CACHE_MIN_FREE: "1GB"         # below this much free disk space, delete the oldest cache files...
-      # CACHE_FREE_TARGET: "2GB"      # ...until this much is free; CACHE_MIN_FREE "0" = never
-      # TZ: "Europe/London"           # time zone for log days and timestamps (default UTC)
-      # LOG_RETENTION_DAYS: "7"      # days of old logs kept in /change/me/logs; 0 = keep forever
-      # LOG_LEVEL: "debug"          # info (default) or debug: everything needed to see why something went wrong
-      # MATCH_REPORTS: "true"       # an HTML report per show in /change/me/reports (default false)
-      # PLEX_URL: "http://192.168.1.10:32400"  # with PLEX_TOKEN: opening and ending extras get the titles
-      # PLEX_TOKEN: "<plex-token>"             # "Opening 1", "Ending 2" instead of "OP1", "NCED2" (SETUP.md)
-      # --- who may talk to Kizuna (it has no login: Plex can't send one) ---
-      # ALLOW_FROM: "private"         # client addresses: private (LAN, Docker, Tailscale), IPs, networks
-                                      # e.g. "192.168.1.10" = only the Plex server; "any" = no limit
-      # ALLOWED_HOSTS: ""             # extra names Kizuna is reached by, e.g. "kizuna.example.com",
-                                      # ".example.com" (or "*.example.com") = it and every name under it;
-                                      # "any" (or "*") = no limit. Always allowed: IPs, localhost, one-word
-                                      # names, .local/.lan/.home/.home.arpa/.internal/.localdomain
-      # PORT: "32600"               # port inside the container; to use another port on this machine,
-                                    # change the FIRST number below instead (e.g. "32700:32600")
+    # A setting here wins over kizuna.env, even "". Only for overriding the file, e.g. for a quick test:
+    # environment:
+    #   LOG_LEVEL: "debug"
     ports:
-      - "32600:32600"        # host:container. Keep it on your LAN; Plex can't authenticate to providers
+      - "32600:32600"        # host:container. Another port on this machine: change the FIRST number (e.g. "32700:32600").
+                             # Keep it on your LAN; Plex can't authenticate to providers
     volumes:
       # Data folder on this machine: settings file (kizuna.env), cache, AniDB state, mapping corrections, match reports and logs
       # (logs/kizuna.log, older days logs/kizuna-YYYY-MM-DD.log). Must be writable by the user above.
-      - /change/me:/data
+      - /srv/kizuna:/data
