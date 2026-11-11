@@ -29,7 +29,7 @@ flowchart LR
 
 | Source | Setting | Where to get it | Needed for |
 |---|---|---|---|
-| **AniDB** | `ANIDB_CLIENT` | [anidb.net](https://anidb.net) → *Settings → Client → Add client*, protocol **HTTP** | `/anidb` |
+| **AniDB** | `ANIDB_CLIENT` | [anidb.net](https://anidb.net) → *Settings → Client → Add client*, protocol **HTTP** | `/anidb`; show details and episode titles in every mode |
 | **TheTVDB** | `TVDB_API_KEY` (v4), or a legacy `TVDB_LEGACY_API_KEY` | [thetvdb.com](https://thetvdb.com/api-information) | `/tvdb` |
 | **TheMovieDb** | `TMDB_API_KEY` | [themoviedb.org](https://www.themoviedb.org/settings/api) | optional: more details and art |
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
@@ -72,7 +72,8 @@ docker run -d --name kizuna \
 <details>
 <summary><b>Unraid</b></summary>
 
-1. Create `/mnt/user/appdata/kizuna` (through the `appdata` share).
+1. Create `/mnt/user/appdata/kizuna` through the `appdata` share, so it belongs to `nobody:users` (99:100), the user
+   Unraid runs Kizuna as.
 2. Copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in at least `ANIDB_CLIENT` or a TheTVDB key.
 3. Get the template, in the Unraid terminal:
 
@@ -87,7 +88,7 @@ docker run -d --name kizuna \
 </details>
 
 **The data folder** (`/data` in the container) holds the [settings file](SETTINGS.md#-where-settings-go), the cache,
-logs and reports. **It must be writable by `1000:1000`** (or the `user` you set).
+logs and reports. **It must be writable by `1000:1000`** (or the `user` you set; on Unraid, 99:100).
 
 | Image tag | Use it |
 |---|---|

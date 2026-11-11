@@ -136,7 +136,8 @@ changes them:
 | **Cache** | 6 days while airing and for 60 days after, then 180 days |
 | **One anime** | asked at most once a day |
 | **Failures** | a growing pause for every call: 30 s, 2 min, 15 min… up to 24 h |
-| **A ban, or a rejected `ANIDB_CLIENT`** | every call paused for 24 h. A restart with a new client name tries at once |
+| **A ban** | every call paused for 24 h |
+| **A rejected `ANIDB_CLIENT` / `ANIDB_CLIENTVER`** | every call paused for 24 h, or until a restart with changed values |
 
 So a large library takes **several days** to get all its AniDB details; shows fill in on later refreshes. The limits
 survive restarts (`anidb-state.json` in the data folder). While AniDB can't be asked, cached data and the other
@@ -160,7 +161,8 @@ Kizuna won't start, or Plex can't reach it: [SETUP, troubleshooting](SETUP.md#-t
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
 | `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
 | `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (the reason follows). Plex asks again later |
-| `source rejected the request: check its API key / client id`, `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired (a user-supported TheTVDB key also needs `TVDB_PIN`). The source is skipped for 10 min; cached data still answers |
+| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired (a user-supported TheTVDB key also needs `TVDB_PIN`). The source is skipped for 10 min; cached data still answers |
+| `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |
 | `AniDB rejected the client` | Use the name and version of a client registered at anidb.net (protocol HTTP), then restart |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` (or `TVDB_PIN`) and restart. Until then: no TheTVDB logos, studio or show crew |
 
