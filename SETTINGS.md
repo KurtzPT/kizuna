@@ -149,7 +149,7 @@ For each field, Kizuna asks the sources in its list's order. A source without it
 is only downloaded when the ones before it have nothing.
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["1st source"] -- "nothing: no entry,<br/>no key, empty field" --> B["2nd source"] -- "nothing" --> C["…"]
     A -- "has a value" --> W["✅ used"]
     B -- "has a value" --> W

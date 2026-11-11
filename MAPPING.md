@@ -88,7 +88,7 @@ says otherwise for specific episodes:
 When several rules cover the same episode, the most specific one wins:
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["AniDB episode"] --> P{"listed in a<br/>;a-t; pair?"}
     P -- yes --> R1["✅ that pair"]
     P -- no --> G{"inside a<br/>start…end range?"}
@@ -296,7 +296,7 @@ To give an episode a title, thumbnail or crew from another source, Kizuna first 
 source: it **pairs** them through the mapping.
 
 ```mermaid
-flowchart LR
+flowchart TD
     T["📺 TVDB S02E05<br/><i>(absolute 30)</i>"] --> M{"mapping"}
     M -- "per-episode exception?" --> X["use it<br/><i>recaps, split seasons, specials</i>"]
     M -- "else" --> D["entry's TVDB season + offset"]

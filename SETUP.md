@@ -18,7 +18,7 @@
 
 ```mermaid
 flowchart LR
-    K["🔑 1. Get keys"] --> R["🐳 2. Run Kizuna"] --> P["🔌 3. Add it to Plex"] --> L["📚 4. Point a library at it"] --> D["✅ Scan + refresh"]
+    K["🔑 1. Keys"] --> R["🐳 2. Run"] --> P["🔌 3. Plex"] --> L["📚 4. Library"]
 ```
 
 ## 📋 Before you start

@@ -68,8 +68,9 @@ Plex's scanner decides by itself which files are openings and endings, from the 
 | the word in small letters | `op1` `ncop` | a normal file, no extra |
 | a season and episode | `Show - S00E101.mkv` | an episode: a special with its AniDB title |
 
-- An **extra** plays from the show's page (*Extras*). It has no episode number and nothing from Kizuna. To have an
-  opening as a special instead, name it by its number ([the numbers](MIGRATION.md#openings-and-endings-with-variants)).
+An **extra** plays from the show's page (*Extras*). It has no episode number and nothing from Kizuna. To have an
+opening as a special instead, name it by its number ([the numbers](MIGRATION.md#openings-and-endings-with-variants)).
+
 > [!WARNING]
 > The first such word counts, wherever it is: `Show - 05 [ED fix].mkv` becomes an ending extra too.
 
@@ -194,7 +195,7 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 | *Plex*: `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (Kizuna logs `show build failed` with the reason). Plex asks again later |
 | `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired; a user-supported TheTVDB key also needs [`TVDB_PIN`](SETTINGS.md#-accounts--keys). The source is skipped for 10 min; cached data still answers |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` or `TVDB_PIN` and restart. Until then: no TheTVDB logos, studio or show crew |
-| `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 s |
+| `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 seconds |
 | `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |
 | `AniDB rejected the client` | Use the name and version of a client registered at anidb.net (protocol HTTP), then restart |
 | `AniDB call failed; backing off` | AniDB is down or unreachable. Kizuna waits longer after each failure ([limits](#-anidb-fair-use)) |

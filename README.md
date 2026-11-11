@@ -167,11 +167,11 @@ flowchart LR
 Each show folder picks its rules:
 
 ```mermaid
-flowchart LR
+flowchart TD
     D["📁 show folder"] --> Q{"id tag, or<br/>existing GUID?"}
     Q -- "[anidb-8550]<br/>[anidb2-…]" --> AN["/anidb rules"]
     Q -- "[tvdb-267440]<br/>[tvdb3-…]" --> TV["/tvdb rules"]
-    Q -- "other id, or none" --> DEF["AUTO_DEFAULT<br/><i>anidb unless set</i>"]
+    Q -- "other id,<br/>or none" --> DEF["AUTO_DEFAULT<br/>(anidb unless set)"]
 ```
 
 ```text

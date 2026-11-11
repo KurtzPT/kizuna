@@ -33,13 +33,13 @@ untouched, and Plex sees the same paths.
 
 ## ✅ What can be migrated
 
-| HAMA mode | Folder tag | Episode numbers | Script mode | Kizuna provider | Hints for |
-|---|---|---|---|---|---|
-| **`anidb`** | `[anidb-23]` or none | absolute, `- 033` | `-m anidb` | `/anidb` | specials, trailers, a lone unnumbered movie |
-| **`tvdb3`** | `[tvdb3-81797]` | absolute, `S02E26` | `-m tvdb` | `/tvdb` | every episode outside season 1 |
-| **`tvdb`** | `[tvdb-81797]` | per season, `S02E01` | `-m tvdb` | `/tvdb` | every episode outside season 1, [renumbered](#plain-tvdb-folders-per-season-numbers) to absolute |
-| a mix | any | any | `-m auto` | `/auto` | per folder, by its tag ([rules](#auto-rules)) |
-| `tvdb2`, `tvdb4`–`tvdb6`, `anidb2`–`anidb4`, `tmdb`, `imdb` | | | ❌ | | not supported |
+| HAMA mode | Folder, episode | Script → provider | Hints for |
+|---|---|---|---|
+| **`anidb`** | `[anidb-23]` or none, absolute `- 033` | `-m anidb` → `/anidb` | specials, trailers, a lone unnumbered movie |
+| **`tvdb3`** | `[tvdb3-81797]`, absolute `S02E26` | `-m tvdb` → `/tvdb` | every episode outside season 1 |
+| **`tvdb`** | `[tvdb-81797]`, per season `S02E01` | `-m tvdb` → `/tvdb` | every episode outside season 1, [renumbered](#plain-tvdb-folders-per-season-numbers) to absolute |
+| a mix | any | `-m auto` → `/auto` | per folder, by its tag ([rules](#auto-rules)) |
+| `tvdb2`, `tvdb4`–`tvdb6`, `anidb2`–`anidb4`, `tmdb`, `imdb` | | ❌ | not supported |
 
 - **Unsupported numbering:** an `[anidb2-…]`, `[tvdb2-…]`, `[tvdb4-…]`… tag still finds the right show, but Kizuna
   numbers episodes its own way. The script warns about each such folder, and plans it like `[anidb-…]` or
@@ -75,7 +75,7 @@ untouched, and Plex sees the same paths.
 
 ```mermaid
 flowchart LR
-    A["📦 1. Install"] --> B["🔍 2. Dry run"] --> C["📝 3. Apply"] --> D["🔁 4. Switch + scan"] --> F["🧹 5. Clean up"]
+    A["📦 1. Install"] --> B["🔍 2. Dry run"] --> C["📝 3. Apply"] --> D["🔁 4. Switch"] --> F["🧹 5. Clean up"]
     B -. "plan wrong? fix folders, run again" .-> B
 ```
 
@@ -304,7 +304,7 @@ With the [`/auto` provider](README.md#auto-both-in-one-library), `-m auto` picks
 will in Plex, by its first id tag, in the folder or a file name:
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["📁 Show folder"] --> B{"first id tag"}
     B -->|"[anidb-N], [anidb2-N]…"| C["anidb rules<br/><i>no Kizuna needed</i>"]
     B -->|"[tvdb-N], [tvdb3-N]…"| D["tvdb rules"]
@@ -312,7 +312,7 @@ flowchart LR
 ```
 
 Without Kizuna, only `[anidb-N]` folders are planned. A tag still has to work in Plex: one per show, for a mode
-that is set up ([`/auto`](README.md#auto-both-in-one-library)).
+that is set up ([how `/auto` decides](README.md#auto-both-in-one-library)).
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has, such as HAMA's
@@ -336,7 +336,8 @@ The script only **adds `ep:` lines** at the end, and reads the rest the way Plex
 ## 💻 Command-line reference
 
 ```text
-kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] [-a] LIBRARY      options before LIBRARY; -h prints this
+kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] [-a] LIBRARY
+# options go before LIBRARY; -h prints this
 ```
 
 | Option | Meaning | Default |

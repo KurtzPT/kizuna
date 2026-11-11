@@ -10,6 +10,8 @@
 
 </div>
 
+---
+
 ## 📮 Reporting a vulnerability
 
 > [!CAUTION]
