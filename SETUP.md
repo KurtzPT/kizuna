@@ -39,13 +39,16 @@ flowchart LR
 | Source | Setting | Where to get it | Needed for |
 |---|---|---|---|
 | **AniDB** | `ANIDB_CLIENT` | [anidb.net](https://anidb.net) → *Settings → Client → Add client*, protocol **HTTP** | `/anidb`; show details and episode titles in every mode |
-| **TheTVDB** | `TVDB_API_KEY` (v4), or a legacy `TVDB_LEGACY_API_KEY` | [thetvdb.com](https://thetvdb.com/api-information) | `/tvdb` |
+| **TheTVDB** | `TVDB_API_KEY` (v4) + `TVDB_PIN`, or a legacy `TVDB_LEGACY_API_KEY` | [thetvdb.com](https://thetvdb.com/api-information); the PIN is your subscriber PIN, on your TheTVDB account page | `/tvdb` |
 | **TheMovieDb** | `TMDB_API_KEY` | [themoviedb.org](https://www.themoviedb.org/settings/api) | optional: more details and art |
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
 | **Anime News Network** | – | no key | – |
 
 `/auto` works with AniDB, TheTVDB or both. One working mode is enough for Kizuna to start; its log says which ones
 are ready (`modes anidb=ready tvdb="off: …"`).
+
+**TheTVDB's PIN:** a free, user-supported v4 key only works together with your subscriber PIN in `TVDB_PIN`. A
+company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the log says](GUIDE.md#-metadata-problems)).
 
 ## 🐳 2. Run Kizuna
 
@@ -71,6 +74,7 @@ docker run -d --name kizuna \
   -v /srv/kizuna:/data \
   -e ANIDB_CLIENT=myclient \
   -e TVDB_API_KEY=... \
+  -e TVDB_PIN=... \
   -e TMDB_API_KEY=... \
   ghcr.io/kurtzpt/kizuna:latest
 ```
