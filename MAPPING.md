@@ -6,7 +6,7 @@
 
 **Correct which AniDB entry is which TVDB series, season and episode, for your own library.**
 
-[📄 The file](#-the-file) &nbsp;·&nbsp; [📖 Exceptions](#-reading-mapping-list) &nbsp;·&nbsp; [🧩 Use cases](#-use-cases) &nbsp;·&nbsp; [✅ Checking it](#-checking-a-correction)
+[📄 The file](#-the-file) &nbsp;·&nbsp; [📖 Exceptions](#-reading-mapping-list) &nbsp;·&nbsp; [🔗 Pairing](#-how-episodes-are-paired) &nbsp;·&nbsp; [🧩 Use cases](#-use-cases) &nbsp;·&nbsp; [✅ Checking it](#-checking-a-correction)
 
 </div>
 
@@ -23,7 +23,7 @@ are used even while neither list could be downloaded.
 | 🎯 Matching | which AniDB entry a `[tvdb-…]`, `[tmdb-…]` or `[imdb-…]` tag points to |
 | 📺 `/tvdb` shows | which AniDB entries make up a TVDB series, and which one supplies the show details |
 | 🖼️ `/anidb` episodes | which TVDB episode gives each AniDB episode its thumbnail, summary and date |
-| 🏷️ Episode titles | which episodes are [paired](README.md#%EF%B8%8F-episode-titles-and-pairing) across AniDB, TheTVDB and TheMovieDb, in both modes |
+| 🏷️ Episode titles | which episodes are [paired](#-how-episodes-are-paired) across AniDB, TheTVDB and TheMovieDb, in both modes |
 
 ## 📄 The file
 
@@ -94,6 +94,46 @@ flowchart LR
 S01E26". Two *different* episodes for one AniDB episode is a mistake in the entry: Kizuna uses the first and logs
 a warning (`an AniDB episode is paired with two different episodes`) that names the file and the entry. Fix your
 own entry, or correct the list's entry in your `anime-list-custom.xml`.
+
+## 🔗 How episodes are paired
+
+To give an episode a title, thumbnail or crew from another source, Kizuna first finds that episode on the other
+source: it **pairs** them through the mapping.
+
+```mermaid
+flowchart LR
+    T["📺 TVDB S02E05<br/><i>(absolute 30)</i>"] --> M{"mapping"}
+    M -- "per-episode exception?" --> X["use it<br/><i>recaps, split seasons, specials</i>"]
+    M -- "else" --> D["entry's TVDB season + offset"]
+    X --> A["AniDB <b>Season 2</b> entry · episode 5"]
+    D --> A
+    A --> L["title in EPISODE_LANGS<br/><i>en → x-jat</i>"]
+```
+
+**AniDB and TheTVDB**, first rule that applies:
+
+1. The per-episode exceptions ([above](#-reading-mapping-list)).
+2. The AniDB entry's TVDB season and episode offset.
+3. For an AniDB special the mapping doesn't list: TheTVDB's special with the same number (`S1` = `S00E01`), but
+   only on the entry that starts the series and isn't in TVDB season 0. Openings, endings and trailers only pair
+   through an exception.
+
+**The other sites** are paired per mode:
+
+- **`/anidb`**: TheMovieDb the same way, by its own season, offset and exceptions (`tmdbseason`…), else at TheTVDB's
+  season and number.
+- **`/tvdb`**: through AniDB. An episode's place on the list gives its AniDB episode, and the mapping gives that
+  episode's place on the other site. An episode without an AniDB counterpart (or whose AniDB entry isn't cached yet)
+  is paired by absolute number, a special by its number in season 0. An episode whose AniDB entry the mapping puts on
+  another TheMovieDb show gets no TheMovieDb title or crew.
+
+**Picking the title:** `EPISODE_TITLES` sets the source order (default AniDB → TheTVDB → TheMovieDb), in both modes.
+The first **real** title wins: *Episode 12* or *TBA* don't count. AniDB titles follow `EPISODE_LANGS` (default
+English, then romaji); with none of those, the other sources' real titles come first, then AniDB's title in any
+language.
+
+In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background
+([within AniDB's limits](SETUP.md#-anidb-fair-use)), so their titles appear on a later refresh.
 
 ## 🧩 Use cases
 

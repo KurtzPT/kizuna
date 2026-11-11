@@ -58,7 +58,7 @@ docker build -t kizuna .
 
 > [!WARNING]
 > **Mind AniDB while developing.** Use your own registered client name, and don't loop refreshes or bulk-scan a big
-> library against AniDB: the [fair-use limits](README.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
+> library against AniDB: the [fair-use limits](SETUP.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
 > The tests never call a real service, so `go test` is always safe.
 
 ## 📐 Ground rules

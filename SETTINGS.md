@@ -74,7 +74,7 @@ Where to get each one, and which modes need which: [SETUP step 1](SETUP.md#-1-ge
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` = AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
 | `ORIGINAL_TITLE_LANGS` | `ja` | Language order for Plex's *original title* (official titles only, e.g. `x-jat` for romaji). Left empty when it equals the title; `none` turns it off |
-| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order ([fallbacks](README.md#%EF%B8%8F-episode-titles-and-pairing)) |
+| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order ([fallbacks](MAPPING.md#-how-episodes-are-paired)) |
 
 ## 🔀 Sources per field
 
@@ -183,7 +183,7 @@ series.
 
 | Variable | Default | Allowed | Notes |
 |---|---|---|---|
-| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes ([how titles are picked](README.md#%EF%B8%8F-episode-titles-and-pairing)). `tvdb,tmdb,anidb` = TheTVDB's English titles first |
+| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | anidb tvdb tmdb | Both modes ([how titles are picked](MAPPING.md#-how-episodes-are-paired)). `tvdb,tmdb,anidb` = TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb` | tvdb | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `none` turns it off |
 
 <details>
@@ -263,7 +263,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 
 | Cached | For |
 |---|---|
-| AniDB anime | see [AniDB fair use](README.md#-anidb-fair-use) |
+| AniDB anime | see [AniDB fair use](SETUP.md#-anidb-fair-use) |
 | TheTVDB · TheMovieDb | 2–7 days (TheMovieDb id lookups: 30 days) |
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
