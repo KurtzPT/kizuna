@@ -25,7 +25,7 @@ with its default; [SETUP.md](SETUP.md#-2-run-kizuna) shows how to create the fil
 Plex doesn't pass per-library settings to providers, so every setting applies to every mode and every library.
 
 ```bash
-# /srv/kizuna/kizuna.env
+# /change/me/kizuna.env
 ANIDB_CLIENT=myclient
 TVDB_API_KEY=...
 TITLE_LANGS=en,main      # comments after a space are fine

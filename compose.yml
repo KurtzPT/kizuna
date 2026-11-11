@@ -1,6 +1,7 @@
 # docker compose up -d
-# Settings, your keys included, go in kizuna.env in the data folder (/srv/kizuna/kizuna.env):
-# start from .env.sample, see SETUP.md step 2 and SETTINGS.md.
+# Replace /change/me below with your data folder before starting.
+# Settings, your keys included, go in kizuna.env in that folder: start from .env.sample,
+# see SETUP.md step 2 and SETTINGS.md.
 services:
   kizuna:
     image: ghcr.io/kurtzpt/kizuna:latest
@@ -8,7 +9,7 @@ services:
     container_name: kizuna
     restart: unless-stopped
     stop_grace_period: 35s   # lets running Plex requests finish on stop (Docker's default is 10s)
-    user: "1000:1000"        # uid:gid that can write the data folder (/srv/kizuna)
+    user: "1000:1000"        # uid:gid that can write the data folder (/change/me)
     # Locked down: Kizuna only ever writes to /data, needs no Linux capabilities
     # and never gains privileges. Remove a line only if you know you need it.
     read_only: true
@@ -23,4 +24,4 @@ services:
     volumes:
       # Data folder on this machine: settings file (kizuna.env), cache, AniDB state, mapping corrections, match reports and logs
       # (logs/kizuna.log, older days logs/kizuna-YYYY-MM-DD.log). Must be writable by the user above.
-      - /srv/kizuna:/data
+      - /change/me:/data

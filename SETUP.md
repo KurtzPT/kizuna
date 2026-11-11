@@ -49,50 +49,24 @@ company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the lo
 
 ## 🐳 2. Run Kizuna
 
-Kizuna keeps everything in one **data folder**: its settings file `kizuna.env` (your keys go there), the cache, logs
-and reports. Set that up first, then start the container.
+Kizuna keeps everything in one **data folder**: its settings file, the cache, logs and reports.
 
-**a. Create the data folder and the settings file.** [`.env.sample`](.env.sample) is the settings file with every
-setting listed and explained; download it as `kizuna.env`:
+1. **Create the data folder** on the machine that runs Docker. Kizuna doesn't run as root, so its user must own the
+   folder (or at least be able to write to it): `1000:1000` with Compose or plain Docker, `nobody:users` (99:100) on
+   Unraid.
+2. **Add the settings file:** copy [`.env.sample`](.env.sample) into the folder as `kizuna.env` and fill in your keys
+   from [step 1](#-1-get-your-keys). Leave the rest for now; [SETTINGS.md](SETTINGS.md) explains every setting. The
+   file holds your keys: Kizuna's user must be able to read it, nobody else needs to.
+3. **Start the container** with the data folder mounted at `/data`:
 
-```bash
-sudo mkdir -p /srv/kizuna
-sudo curl -fsSL -o /srv/kizuna/kizuna.env https://raw.githubusercontent.com/KurtzPT/kizuna/main/.env.sample
-```
+| Setup | How |
+|---|---|
+| **Docker Compose** (recommended) | Download [`compose.yml`](compose.yml), replace `/change/me` with your data folder, run `docker compose up -d` |
+| **Plain Docker** | `docker run` with the same options as `compose.yml` (below) |
+| **Unraid** | see *Unraid* below |
 
-**b. Fill in your keys** from [step 1](#-1-get-your-keys) (`sudo nano /srv/kizuna/kizuna.env`). Leave every other line
-as it is; [SETTINGS.md](SETTINGS.md) explains them when you want to change titles, artwork or sources.
-
-```bash
-ANIDB_CLIENT=myclient
-TVDB_API_KEY=...
-TVDB_PIN=...
-TMDB_API_KEY=...
-```
-
-**c. Hand the folder to Kizuna's user.** Kizuna runs as `1000:1000`, not root, and must be able to write the folder.
-The file holds your keys, so only that user reads it:
-
-```bash
-sudo chown -R 1000:1000 /srv/kizuna
-sudo chmod 600 /srv/kizuna/kizuna.env
-```
-
-**d. Start it:**
-
-<table>
-<tr><th>Docker Compose (recommended)</th><th>Plain Docker</th></tr>
-<tr><td>
-
-Get [`compose.yml`](compose.yml) and start it. It already uses `/srv/kizuna`; change the path under `volumes:` if
-you picked another folder.
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/KurtzPT/kizuna/main/compose.yml
-docker compose up -d
-```
-
-</td><td>
+<details>
+<summary><b>The <code>docker run</code> command</b></summary>
 
 ```bash
 docker run -d --name kizuna \
@@ -100,50 +74,38 @@ docker run -d --name kizuna \
   --user 1000:1000 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -p 32600:32600 \
-  -v /srv/kizuna:/data \
+  -v /change/me:/data \
   ghcr.io/kurtzpt/kizuna:latest
 ```
 
-</td></tr>
-</table>
+</details>
 
 <details>
 <summary><b>Unraid</b></summary>
 
-Unraid runs Kizuna as `nobody:users` (99:100), and the folder lives under `appdata`:
+Unraid runs Kizuna as `nobody:users` (99:100), not `1000:1000`. Don't change the folder's owner:
 
-1. Create `/mnt/user/appdata/kizuna` through the `appdata` share, so it already belongs to `nobody:users`.
-2. Copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in your keys (steps a and b above).
-3. Get the template, in the Unraid terminal:
-
-   ```bash
-   wget -O /boot/config/plugins/dockerMan/templates-user/my-kizuna.xml \
-     https://raw.githubusercontent.com/KurtzPT/kizuna/main/unraid/kizuna.xml
-   ```
-
+1. Create the data folder `kizuna` inside the `appdata` share (from the network share or Unraid's file manager).
+   Folders made through a share already belong to `nobody:users`.
+2. Put `kizuna.env` in it, as in step 2 above.
+3. Save [`unraid/kizuna.xml`](unraid/kizuna.xml) as `my-kizuna.xml` in the `flash` share, folder
+   `config/plugins/dockerMan/templates-user`.
 4. **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*. Unraid's own `TZ` wins over the
    file's.
 
 </details>
 
-**Changed a setting later?** Edit `kizuna.env`, then `docker restart kizuna`.
+**Changing a setting later:** edit `kizuna.env` and restart the container. A setting given to the container itself
+(`environment:` in `compose.yml`, `-e` with `docker run`, a variable in the Unraid template) overrides the file, even
+when empty: handy for a quick test, such as `LOG_LEVEL=debug`.
 
-> [!NOTE]
-> **Overriding the file:** a setting given to the container itself (`-e NAME=value` with `docker run`, an
-> `environment:` entry in `compose.yml`, a variable in the Unraid template) wins over `kizuna.env`, even when it is
-> empty. Useful for a quick test, such as `-e LOG_LEVEL=debug`; remove it to go back to the file.
-
-**Check that it's up**, from the machine (or container) that runs Plex:
-
-```bash
-curl http://<kizuna-host>:32600/health
-```
+**Check that it's up:** open `http://<kizuna-host>:32600/health` from the machine that runs Plex.
 
 | Answer | Means |
 |---|---|
 | `"status":"ok"` | ✅ ready |
 | `"status":"starting"` | loading its lists: seconds, longer on the first start |
-| `"status":"degraded"` | the id mapping lists didn't download: `[tvdb-…]` tags and `/tvdb` find nothing yet. It retries every 5 min |
+| `"status":"degraded"` | the id mapping lists didn't download yet; it retries every 5 min |
 | `403` | Kizuna refused the caller: see [access](SETTINGS.md#%EF%B8%8F-access) |
 | no answer | wrong address, or a firewall: see [troubleshooting](#-troubleshooting) |
 
@@ -224,7 +186,7 @@ shows fill in on later refreshes.
 | `docker compose up` says *port is already allocated* | Change the first number under `ports:` in `compose.yml` |
 | `can't start: no mode can build shows` | Set `ANIDB_CLIENT` or a TheTVDB key ([step 1](#-1-get-your-keys)). With a settings file, check the `settings file` log line: it may not be where Kizuna looks |
 | `can't start: can't read the settings file` | `KIZUNA_CONFIG` names a missing file, or one the container's user can't read |
-| `can't write the log file` | Make the data folder writable by `1000:1000` (no logs or cache until then) |
+| `can't write the log file` | Make the data folder writable by `1000:1000`, on Unraid by `nobody:users` (no logs or cache until then) |
 | `/health` stays `starting` | The AniDB title list didn't download (no network?). It retries every 5 min |
 | `/health` says `degraded` | The id mapping lists didn't download (GitHub unreachable?). It retries every 5 min |
 | Plex can't add the provider | `curl` the `/health` URL from the Plex machine or container. In Docker, `localhost` is the container itself |
