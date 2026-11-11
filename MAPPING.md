@@ -275,7 +275,7 @@ details:
 
 ## ✅ Checking a correction
 
-1. **Restart Kizuna** (`docker restart kizuna`). The file is also re-read on the daily mapping refresh, but shows
+1. **Restart Kizuna**, e.g. `docker restart kizuna`. The file is also re-read on the daily mapping refresh, but shows
    Kizuna built in the last hour keep the old pairing until a restart.
 2. In Plex, run **Refresh Metadata** on the show.
 3. With [`LOG_LEVEL=debug`](SETTINGS.md#-logging), find the show's lines:
