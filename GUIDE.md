@@ -119,10 +119,8 @@ cached data and the other sources fill in.
 ## 📜 Logs
 
 Logs go to `docker logs kizuna` and to `logs/kizuna.log` in the data folder, one `key=value` line per event. Each
-day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging).
-
-> [!NOTE]
-> Keys and tokens never appear in the logs.
+day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging). Keys and
+tokens are [never in them](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected).
 
 | [`LOG_LEVEL`](SETTINGS.md#-logging) | Logs |
 |---|---|

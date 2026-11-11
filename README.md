@@ -43,7 +43,7 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 | 🪶 **Tiny** | One static Go binary, standard library only, a ~10 MB image |
 
 <sub>\* Done by *Plex Local Media*, Plex's own provider, when you add it to the agent next to Kizuna (optional,
-[setup](SETUP.md#-3-register-kizuna-in-plex)). Kizuna itself never reads your folders.</sub>
+[setup](SETUP.md#-3-register-kizuna-in-plex)).</sub>
 
 ## 🚀 Quick start
 
@@ -201,7 +201,7 @@ The first piece of evidence that names a show wins:
 
 > [!TIP]
 > **Tag your show folders.** An id tag is the sure way to the right show. Use **one id tag per show**: two different
-> ones give no match and a warning; the same tag in the folder and the file name is fine.
+> ones give no match; the same tag in the folder and the file name is fine.
 
 How an id that fits several entries is resolved, and when a tag blocks the match: [matching in
 detail](GUIDE.md#-matching-in-detail).
@@ -210,19 +210,16 @@ detail](GUIDE.md#-matching-in-detail).
 
 ## 📚 Sources
 
-| Source | Key | Used by default for |
-|---|---|---|
-| [**AniDB**](https://anidb.net) | client name | first for the show title, summary, genres, cast, crew, studio, rating and date; episode titles |
-| [**TheTVDB**](https://thetvdb.com) | API key | first for posters, backgrounds and logos; `/tvdb` seasons and episodes; episode thumbnails, directors and writers |
-| [**TheMovieDb**](https://www.themoviedb.org) | API key | after TheTVDB, for show details, artwork, episode titles and crew |
-| [**MyAnimeList**](https://myanimelist.net) | client ID | after TheMovieDb, for the summary, poster, genres, studio, rating and date |
-| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | none | last, for show details and posters |
+| Source | Mainly gives |
+|---|---|
+| [**AniDB**](https://anidb.net) | show details and episode titles |
+| [**TheTVDB**](https://thetvdb.com) | artwork, `/tvdb` seasons and episodes, episode thumbnails |
+| [**TheMovieDb**](https://www.themoviedb.org) | more details, artwork and episode titles |
+| [**MyAnimeList**](https://myanimelist.net) | more details and posters |
+| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | more details and posters, no key needed |
 
-Only AniDB is required for `/anidb`, or TheTVDB for `/tvdb`; every other key just adds details. Every field has
-its own source order, which you can change, and a source is only asked when the ones before it have nothing.
-
-**Setup and settings:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
-[changing the order per field](SETTINGS.md#-sources-per-field) · [what each source can supply](SETTINGS.md#which-source-answers).
+Each field has its own source order, which you can change. **More:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
+[what each source can supply](SETTINGS.md#which-source-answers) · [changing the order per field](SETTINGS.md#-sources-per-field).
 
 ### 🔗 Id mapping
 
@@ -238,42 +235,26 @@ Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md
 
 ### 🏷️ Episode titles and pairing
 
-Episode titles come from AniDB first, then TheTVDB, then TheMovieDb, in English where AniDB has it, else romaji.
-Change both with [`EPISODE_TITLES`](SETTINGS.md#-sources-per-field) and [`EPISODE_LANGS`](SETTINGS.md#-matching--titles). Placeholders such as *Episode 12* or *TBA* are skipped.
-
-To take a title from another site, Kizuna **pairs** each episode with the same episode there, through the
-[id mapping](#-id-mapping) and its exceptions for recaps, split seasons and specials. When an episode gets the wrong
-title or thumbnail, the mapping is what to [fix](MAPPING.md). [How pairing works](MAPPING.md#-how-episodes-are-paired).
+Episode titles come from AniDB, TheTVDB or TheMovieDb ([order](SETTINGS.md#-sources-per-field),
+[language](SETTINGS.md#-matching--titles)). To take a title from another site, Kizuna **pairs** each episode with
+the same episode there, through the [id mapping](#-id-mapping). When an episode gets the wrong title or thumbnail,
+the mapping is what to [fix](MAPPING.md). [How pairing works](MAPPING.md#-how-episodes-are-paired).
 
 <a name="-anidb-fair-use"></a>
 
 ### 🤝 Fair use
 
 Each source's API has usage rules, and Kizuna keeps to them: it paces its requests to every source and caches the
-answers for days. No setting turns this off.
-
-AniDB is the strictest: it bans clients that ask too much, and a ban hits your whole IP. Kizuna finds shows in its
-offline title list without asking the API, and asks for at most 200 anime a day.
-
-> [!WARNING]
-> **A large library takes several days to get all its AniDB details**; shows fill in on later refreshes, and cached
-> details keep working meanwhile. [AniDB's limits](GUIDE.md#-anidb-fair-use).
+answers for days. No setting turns this off. AniDB is the strictest, so a large library takes several days to fill
+in: [AniDB's limits](GUIDE.md#-anidb-fair-use).
 
 ---
 
 ## 📊 Match reports
 
 Wondering why a show matched the way it did, or where a title came from? Set [**`MATCH_REPORTS=true`**](SETTINGS.md#-logging) and Kizuna
-writes one page per show to `reports/` in its data folder. Open `reports/index.html` in a browser. A show's page
-says:
-
-- how the show was matched: the id tag, the GUID, or the title search and its scores
-- which source gave each value Plex got, down to every episode's title and the artwork
-- what looks wrong: episodes without a real title, a source that failed, an inexact match
-
-Titles that matched nothing get a page too, with the closest candidates and how to fix them. **Copy for a bug
-report** turns a page into Markdown to paste into an issue, without your folders or other personal details.
-[More about the reports](GUIDE.md#-match-reports).
+writes one page per show: how it was matched, which source gave each value, and what looks wrong. Titles that
+matched nothing get a page too. [More about the reports](GUIDE.md#-match-reports).
 
 ---
 

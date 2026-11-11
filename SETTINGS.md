@@ -34,7 +34,7 @@ Plex doesn't pass per-library settings to providers.
 ## ⚙️ All settings
 
 > [!WARNING]
-> - **`PLEX_TOKEN` gives full access to your Plex server.** Keep the settings file readable only by Kizuna's user.
+> - **`PLEX_TOKEN` gives full access to your Plex server.** [Keep the settings file private](SETUP.md#changing-settings).
 > - **In Docker, leave `PORT`, `LISTEN` and `DATA_DIR` alone.** Change the port mapping's *host* side and the
 >   volume instead: `LISTEN=127.0.0.1:…` in a container makes Kizuna unreachable.
 > - **`ALLOW_FROM=any`**, or `0.0.0.0/0`, lets every address use Kizuna, which has no login.
@@ -99,7 +99,7 @@ Both are needed for Kizuna to give Plex's opening and ending extras readable tit
 | Variable | Default | What it does |
 |---|---|---|
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. Nothing after the port: no path, no `?…` |
-| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner. Kizuna sends it only to `PLEX_URL` and never logs it |
+| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner ([where it goes](SECURITY.md#-your-data)) |
 
 ### 📝 Logging
 
@@ -119,7 +119,7 @@ Both are needed for Kizuna to give Plex's opening and ending extras readable tit
 
 ### 🖥️ Server
 
-For the binary or host networking. In Docker, change the port mapping's host side, such as `"32700:32600"`, and the volume.
+For the binary or host networking. In Docker, leave them alone ([why](#%EF%B8%8F-all-settings)).
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -194,7 +194,7 @@ only goes to the entry that starts the series; the other entries skip them and t
 
 - **"Starts the series" is per site.** With *X* and *X Part 2* as one TheTVDB series but two TheMovieDb shows,
   part 2 is a later entry for TheTVDB and a first entry for TheMovieDb.
-- **No entry mapped to season 1?** The lowest AniDB id counts as the first, leaving out movies and OVAs.
+- **Which entry starts the series** follows the mapping: [the rule](MAPPING.md#-how-episodes-are-paired).
 
 ### Episode directors and writers
 
@@ -273,5 +273,4 @@ Kizuna warns at startup, quoting the value as written:
 | a bad `TZ` | keeps the default time zone |
 | a bad `ALLOW_FROM` or `ALLOWED_HOSTS` entry | ignores it. An `ALLOW_FROM` with no valid entry left falls back to `private` |
 | an unknown language or country code | no warning: it never matches, so the next one is used |
-| neither `ANIDB_CLIENT` nor a TheTVDB key | **doesn't start**: `no mode can build shows` |
-| a port in use, or a `LISTEN` address it can't open | **doesn't start** ([troubleshooting](SETUP.md#-troubleshooting)) |
+| neither `ANIDB_CLIENT` nor a TheTVDB key, a port in use, or a `LISTEN` address it can't open | **doesn't start** ([troubleshooting](SETUP.md#kizuna-doesnt-start)) |

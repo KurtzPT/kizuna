@@ -199,16 +199,15 @@ specials and trailers as `S00Exx` with [Kizuna's number](#openings-and-endings-w
 
 ### Openings and endings
 
-Plex makes openings and endings **extras** before it reads any hint ([which names](GUIDE.md#-openings-and-endings)),
-so the script writes **no hint for them**. It only reports each one, with [Kizuna's
-number](#openings-and-endings-with-variants) when it knows it. What you may want to do by hand:
+Plex makes openings and endings **extras** before it reads any hint, so the script writes **no hint for them**. It
+only reports each one, with [Kizuna's number](#openings-and-endings-with-variants) when it knows it. Check
+[which names Plex keeps](GUIDE.md#-openings-and-endings), then by hand:
 
-| Your file | After the switch | To do |
-|---|---|---|
-| `NCOP1` `OP1b` `NCED` `Creditless Opening` | an extra | nothing, or give it a [readable title](GUIDE.md#readable-titles) |
-| `Opening 1` `Ending` `NCOpening 1` | **left out of the library** | ✋ rename it with `OP1` / `ED1` in place of the word |
-| `op1` `ncop2`, in small letters | a normal file, no extra | ✋ rename it with `OP1` / `NCOP2` |
-| `Show - 05 [ED fix].mkv`, an episode with such a word | missing from the episodes; the script warns | ✋ rename it without the word. With `S01E05` in the name it stays an episode |
+- ✋ **`Opening 1`, `Ending`** (left out of the library): rename with `OP1` / `ED1` in place of the word.
+- ✋ **`op1`, `ncop2`** (small letters, no extra): rename with `OP1` / `NCOP2`.
+- ✋ **An episode with such a word**, `Show - 05 [ED fix].mkv`: rename it without the word; the script warns about
+  it. With `S01E05` in the name it stays an episode.
+- Extras such as `NCOP1` can get a [readable title](GUIDE.md#readable-titles).
 
 > [!TIP]
 > **Want an opening as Kizuna's special instead?** Rename the file so it has none of those words, e.g.
@@ -273,8 +272,8 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 - **Left alone:** files with `SxxEyy` in the name or in a `Season NN` folder.
 - **Episode numbers** are read from ` - 033`, `E33`, `Ep 33`, `Episode 33`, or a number ending the name; `[…]`,
   `(…)` and `{…}` groups don't count. A file with none is reported.
-- **A lone unnumbered movie** gets `ep: S01E01`. A movie folder with the series' tag becomes the whole series in
-  Kizuna: tag it `[anidb-…]` instead ([movies and specials](GUIDE.md#-movies-and-specials)).
+- **A lone unnumbered movie** gets `ep: S01E01`. Tag its folder `[anidb-…]`, not with the series' tag
+  ([why](GUIDE.md#-movies-and-specials)).
 - **Specials** are only reported: TheTVDB numbers its own. Add their `ep: S00Exx:` lines
   [yourself](#-your-own-plexmatch-files).
 
@@ -312,9 +311,8 @@ flowchart LR
     B -->|"[mal-N], [imdb-tt…]…, or none"| E["ask Kizuna's<br/>/auto provider"]
 ```
 
-Without Kizuna, only `[anidb-N]` folders are planned. In Plex, an `[anidb-N]` tag needs `ANIDB_CLIENT` and a
-`[tvdb-N]` tag a TheTVDB key, else the show gets no match. Keep one id tag per show: Kizuna gives a show with two
-different ones no match.
+Without Kizuna, only `[anidb-N]` folders are planned. A tag still has to work in Plex: one per show, for a mode
+that is set up ([`/auto`](README.md#auto-both-in-one-library)).
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has, such as HAMA's

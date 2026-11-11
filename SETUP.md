@@ -27,7 +27,7 @@ flowchart LR
 |---|---|
 | **Plex Media Server 1.43 or newer** | Kizuna plugs into Plex as a custom metadata provider |
 | **Docker** (Compose, plain Docker or Unraid) | Kizuna ships as a container image |
-| **A host Plex can reach** on port 32600 | Plex calls Kizuna for every match and refresh; keep it on your LAN |
+| **A host Plex can reach** on port 32600 | Plex calls Kizuna for every match and refresh |
 | **A free AniDB account, a TheTVDB key, or both** | at least one source to match against: see [step 1](#-1-get-your-keys) |
 
 > [!TIP]
@@ -115,10 +115,10 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 | Answer | Means |
 |---|---|
 | `"status":"ok"` | ✅ ready |
-| `"status":"starting"` | loading its lists: seconds, longer on the first start |
-| `"status":"degraded"` | the id mapping lists didn't download yet; it retries every 5 min |
+| `"status":"starting"` | loading its lists: seconds, longer on the first start. Stuck there: the AniDB title list didn't download (no network?); it retries every 5 min |
+| `"status":"degraded"` | the id mapping lists didn't download (GitHub unreachable?); it retries every 5 min |
 | `403` | Kizuna refused the caller: see [access](SETTINGS.md#%EF%B8%8F-access) |
-| no answer | wrong address, or a firewall: see [troubleshooting](#-troubleshooting) |
+| no answer | wrong address, a firewall, or Kizuna [didn't start](#kizuna-doesnt-start) |
 
 > [!IMPORTANT]
 > **Plex in Docker?** Inside the Plex container, `localhost` is Plex itself. Use the host's LAN IP, or put both
@@ -127,7 +127,8 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 ### Changing settings
 
 - **Edit `kizuna.env`, then restart the container.** [SETTINGS.md](SETTINGS.md) explains every setting.
-- **Keep the file private:** it holds your keys. Only Kizuna's user needs to read it.
+- **Keep the file private:** it holds your keys and maybe your Plex token. Only Kizuna's user needs to read it.
+
 > [!NOTE]
 > **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
 > `docker run`, a variable in the Unraid template, where Unraid always sets `TZ`. Handy for a quick test, such as
@@ -196,18 +197,11 @@ Kizuna's messages are in its log: `docker logs kizuna`, or `logs/kizuna.log` in 
 | `can't read the settings file` | Kizuna's user can't read `kizuna.env` (or `KIZUNA_CONFIG` names a missing file) |
 | `can't write the log file` | The data folder isn't writable by Kizuna's user: `1000:1000`, on Unraid `nobody:users`. No logs or cache until then |
 
-### `/health` isn't `ok`
-
-| Answer | Fix |
-|---|---|
-| stays `starting` | The AniDB title list didn't download (no network?). It retries every 5 min |
-| `degraded` | The id mapping lists didn't download (GitHub unreachable?). It retries every 5 min |
-
 ### Plex can't reach Kizuna
 
 | You see | Fix |
 |---|---|
-| Plex can't add the provider | Open the `/health` URL from the Plex machine. Plex in Docker: `localhost` is the Plex container, use the host's LAN IP |
+| `/health` isn't `ok`, or Plex can't add the provider | See [check that it's up](#check-that-its-up), including *Plex in Docker* |
 | Log: `refused a request from an address outside ALLOW_FROM` | Add the address from that log line to [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access) |
 | Log: `refused a request for an unknown host name` | Add the domain name to [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
 
