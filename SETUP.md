@@ -168,8 +168,9 @@ In Plex Web, open **Settings → Metadata Agents**.
 
 3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
 
-A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
-shows fill in on later refreshes.
+> [!WARNING]
+> A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
+> shows fill in on later refreshes.
 
 ---
 
