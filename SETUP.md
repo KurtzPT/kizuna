@@ -203,6 +203,6 @@ Kizuna's messages are in its log: `docker logs kizuna`, or `logs/kizuna.log` in 
 
 ### A show doesn't match or lacks details
 
-No match, the wrong show, missing episodes or summaries, a sequel's episodes in the wrong season: see [metadata problems](GUIDE.md#-metadata-problems) in the guide.
+No match, the wrong show, missing episodes or summaries, episodes in the wrong season: see [metadata problems](GUIDE.md#-metadata-problems) in the guide.
 
 **Still stuck?** [Open an issue](CONTRIBUTING.md#-reporting-a-problem).
