@@ -91,6 +91,19 @@ Unraid runs Kizuna as **`nobody:users` (99:100)**, not `1000:1000`. Keep that ow
    folder `config/plugins/dockerMan/templates-user`.
 4. **Start it:** **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*.
 
+### Choosing a version
+
+Every setup runs `:latest` unless you change it. The version is the part after `:` in
+`ghcr.io/kurtzpt/kizuna:latest`: under `image:` in `compose.yml`, on the last line of `docker run`, or in
+*Repository* when you edit the container on Unraid.
+
+| Tag | Use it |
+|---|---|
+| **`:latest`** | normally: the newest stable release |
+| `:1.2.3`, `:1.2` | to stay on one version |
+| `:1.2.3-beta.1` | to test a pre-release |
+| `:dev` | to try fixes before release; may break |
+
 ### Check that it's up
 
 From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
@@ -114,18 +127,6 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 - **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
   `docker run`, a variable in the Unraid template (Unraid always sets `TZ`). Handy for a quick test, such as
   `LOG_LEVEL=debug`.
-
-<details>
-<summary><b>Which image tag?</b></summary>
-
-| Image tag | Use it |
-|---|---|
-| **`:latest`** | normally: the newest stable release |
-| `:1.2.3`, `:1.2` | to pin a version |
-| `:1.2.3-beta.1` | to test a pre-release |
-| `:dev` | to try fixes before release; may break |
-
-</details>
 
 ## 🔌 3. Register Kizuna in Plex
 
