@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 📖 Setup and settings
-    url: https://github.com/KurtzPT/kizuna/blob/main/SETUP.md
-    about: Running Kizuna, adding it to Plex, every setting, and a troubleshooting table.
-  - name: 🧰 Troubleshooting table
+  - name: 🧰 Metadata problems
+    url: https://github.com/KurtzPT/kizuna/blob/main/GUIDE.md#-metadata-problems
+    about: No match, the wrong show, no summaries, episodes in the wrong season… and what to check first.
+  - name: 📖 Setup and troubleshooting
     url: https://github.com/KurtzPT/kizuna/blob/main/SETUP.md#-troubleshooting
-    about: Common problems (no match, no summaries, wrong season…) and what to check first.
+    about: Running Kizuna and adding it to Plex, and what to do when it won't start or Plex can't reach it.
+  - name: ⚙️ Settings
+    url: https://github.com/KurtzPT/kizuna/blob/main/SETTINGS.md
+    about: Every setting, with its default.

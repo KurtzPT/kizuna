@@ -6,7 +6,9 @@
 
 **Bug fixes, mapping fixes, new features and docs are all welcome.**
 
-[🐛 Issues](#-reporting-a-problem) &nbsp;·&nbsp; [🛠️ Setup](#%EF%B8%8F-development-setup) &nbsp;·&nbsp; [📐 Rules](#-ground-rules) &nbsp;·&nbsp; [✅ Checks](#-checks) &nbsp;·&nbsp; [🔀 Pull requests](#-pull-requests) &nbsp;·&nbsp; [🗺️ Code map](#%EF%B8%8F-code-map)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Issues](#-reporting-a-problem) · [Development setup](#%EF%B8%8F-development-setup) · [Rules](#-ground-rules) · [Checks](#-checks) · [Pull requests](#-pull-requests) · [Code map](#%EF%B8%8F-code-map)</sub>
 
 </div>
 
@@ -15,8 +17,8 @@
 ## 🐛 Reporting a problem
 
 Not writing code? Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the template that
-fits. **Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file
-names, your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
+fits. **Check the troubleshooting tables first** ([setup](SETUP.md#-troubleshooting), [metadata](GUIDE.md#-metadata-problems)). Each form asks for the folder and file
+names, your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](GUIDE.md#-logs)). Keys and Plex tokens are
 already `***` in the logs, but remove any paths you don't want public.
 
 > [!IMPORTANT]
@@ -58,7 +60,7 @@ docker build -t kizuna .
 
 > [!WARNING]
 > **Mind AniDB while developing.** Use your own registered client name, and don't loop refreshes or bulk-scan a big
-> library against AniDB: the [fair-use limits](README.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
+> library against AniDB: the [fair-use limits](GUIDE.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
 > The tests never call a real service, so `go test` is always safe.
 
 ## 📐 Ground rules
@@ -92,12 +94,13 @@ GOOS=darwin go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 go test -race -count=1 ./...
-go test -count=1 -run '^TestReportsOffAllocs$' ./internal/provider   # allocation budgets (skipped under -race)
+# allocation budgets (skipped under -race):
+go test -count=1 -run '^TestReportsOffAllocs$' ./internal/provider
 for f in scripts/*.sh; do bash -n "$f"; done
 shellcheck --severity=warning scripts/*.sh
 bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
 bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, needs jq)
-node scripts/report-page_test.js      # the match report page's script (offline, Node without packages)
+node scripts/report-page_test.js      # the match report page's script (offline, plain Node)
 ```
 
 CI also fuzzes the parsers for a few seconds each (the `Fuzz*` tests; their seeds run with `go test`), runs
@@ -114,8 +117,8 @@ without publishing anything.
 2. Branch from **`dev`** and open the pull request **against `dev`**, not `main`. `main` only holds released
    versions. Keep it to **one change**, and add or update tests for it.
 3. Run the [checks](#-checks).
-4. Write the pull request **title as a short summary** and the **body as the why**. Pull requests are squash-merged,
-   so the title and body become the commit.
+4. Write the pull request **title for users**, as the line the release notes will show, and the **body as the why**.
+   Pull requests are squash-merged, so the title and body become the commit.
 5. Link the issue it fixes (`Fixes #123`).
 
 By contributing, you agree that your work is released under the [GPL-3.0](LICENSE), like the rest of Kizuna.
@@ -125,16 +128,16 @@ By contributing, you agree that your work is released under the [GPL-3.0](LICENS
 ```text
 cmd/kizuna/main.go              start-up, list refresh, "kizuna health" (Docker healthcheck)
 internal/config                 settings: environment variables and the settings file
-internal/fetch                  HTTP + disk cache + throttling + free-space cleanup (every source uses it)
+internal/fetch                  HTTP, disk cache, throttling, free-space cleanup (all sources)
 internal/logfile                daily log file, old days deleted
 internal/anidb                  offline AniDB title list: search and title-language picking
-internal/mapping                AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists + Fribb)
-internal/sources                AniDB HTTP API (fair-use rules), TheTVDB v4 (+ legacy v3), TheMovieDb, MyAnimeList, ANN
+internal/mapping                AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists, Fribb)
+internal/sources                AniDB HTTP API (fair use), TheTVDB v4 + v3, TheMovieDb, MAL, ANN
 internal/provider               modes, matching, show model, Plex JSON, HTTP routes
-internal/plex                   opening and ending titles, set through Plex's own API (PLEX_URL)
-internal/report                 match reports (MATCH_REPORTS): an HTML page per show, written in batches
-scripts/report-page_test.js     the report page's tests: runs its script on fixture pages (scripts/testdata/report)
-scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not part of the image)
+internal/plex                   opening and ending titles, set through Plex's API (PLEX_URL)
+internal/report                 match reports (MATCH_REPORTS): an HTML page per show
+scripts/report-page_test.js     the report page's tests, on fixture pages in scripts/testdata/report
+scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not in the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run by a workflow)
 ```
@@ -142,7 +145,7 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 | To add… | Start in |
 |---|---|
 | a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETTINGS.md](SETTINGS.md) |
-| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) / [SETTINGS.md](SETTINGS.md) (what a user sees or sets) |
+| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (the summary), [GUIDE.md](GUIDE.md) (matching in detail, what a user sees), [MAPPING.md](MAPPING.md#-how-episodes-are-paired) (pairing) or [SETTINGS.md](SETTINGS.md) (what a user sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`, a show item value's at the end of the build); the page: `internal/report/page.html`, one file with its styles and script, tested by `scripts/report-page_test.js` |

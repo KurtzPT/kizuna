@@ -3,8 +3,9 @@ Thanks for contributing! Before you start, read CONTRIBUTING.md:
 https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md
 
 - Open this pull request against `dev`, not `main`.
-- It's squash-merged: the title and the "Why" section become the commit.
-  Write the title as a short summary, e.g. "tvdb: pair recaps filed as specials".
+- It's squash-merged: the title and body become the commit.
+- Write the title for users: it becomes a line in the release notes,
+  e.g. "Special-only shows keep their episodes on the legacy TheTVDB key".
 - Delete the sections that don't apply.
 -->
 
@@ -20,8 +21,9 @@ https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md
 
 <!--
 Tick all that apply, for the reviewer: nothing reads these boxes. The area labels (metadata, migration,
-running, documentation) are added from the files you change; a maintainer sets the bug or enhancement
-label. The release notes are grouped by label.
+running, documentation) are added from the files you change; a maintainer sets the type label: bug,
+enhancement, or internal (nothing a user can see, left out of the notes). The release notes are grouped
+by label.
 -->
 
 - [ ] 🐛 Bug fix
@@ -50,7 +52,8 @@ Example: "Attack on Titan [tvdb-267440], /tvdb: S02E26 was titled 'Episode 1', n
 <!--
 Will users see different matches, titles or episode numbers after updating? Do they need
 to refresh metadata, re-run the migration script or change a setting? Does a default change?
-Write "None" if nothing changes for them.
+Write "None" if nothing changes for them. Anything else goes into the release notes' "Breaking
+changes" section.
 -->
 
 ## How it was tested
@@ -62,5 +65,5 @@ Write "None" if nothing changes for them.
 - [ ] Targets `dev`, and is **one change**
 - [ ] [Checks](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-checks) pass locally
 - [ ] Tests added or updated, and they stay offline
-- [ ] Follows the [ground rules](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-ground-rules) (standard library only, AniDB limits untouched, requests through `internal/fetch`, no secret logged)
-- [ ] Docs updated: a new or changed setting in `.env.sample` and [SETTINGS.md](https://github.com/KurtzPT/kizuna/blob/dev/SETTINGS.md), a migration rule in [MIGRATION.md](https://github.com/KurtzPT/kizuna/blob/dev/MIGRATION.md)
+- [ ] Follows the [ground rules](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#-ground-rules)
+- [ ] Docs updated: the page that describes the change ([where](https://github.com/KurtzPT/kizuna/blob/dev/CONTRIBUTING.md#%EF%B8%8F-code-map)), and `.env.sample` for a setting

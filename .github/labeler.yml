@@ -9,9 +9,11 @@ metadata:
       - any-glob-to-any-file:
           - internal/anidb/**
           - internal/mapping/**
+          - internal/plex/**
           - internal/provider/**
           - internal/report/**
           - internal/sources/**
+          - GUIDE.md
           - MAPPING.md
 
 migration:
@@ -27,6 +29,8 @@ running:
           - internal/config/**
           - internal/fetch/**
           - internal/logfile/**
+          - unraid/**
+          - .env.sample
           - Dockerfile
           - compose.yml
           - SETTINGS.md

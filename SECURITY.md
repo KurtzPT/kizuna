@@ -4,23 +4,27 @@
 
 # Kizuna · Security
 
-[📮 Report](#-reporting-a-vulnerability) &nbsp;·&nbsp; [🎯 What counts](#-what-counts-as-a-vulnerability) &nbsp;·&nbsp; [📦 Versions](#-supported-versions) &nbsp;·&nbsp; [🛡️ How Kizuna is protected](#%EF%B8%8F-how-kizuna-is-protected)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Report](#-reporting-a-vulnerability) · [What counts](#-what-counts-as-a-vulnerability) · [Versions](#-supported-versions) · [How Kizuna is protected](#%EF%B8%8F-how-kizuna-is-protected) · [Your data](#-your-data)</sub>
 
 </div>
 
+---
+
 ## 📮 Reporting a vulnerability
 
-**Don't open a public issue.** Report it privately:
+> [!CAUTION]
+> **Never open a public issue for a security problem.** Report it privately.
 
-1. Open the repository's **Security** tab.
-2. Click **Report a vulnerability** (GitHub's private vulnerability reporting).
-3. Describe the problem, how to trigger it, and your Kizuna version (`curl http://<host>:32600/health` shows it).
+1. Open the repository's **Security** tab and click **Report a vulnerability**.
+2. Describe the problem, how to trigger it, and your Kizuna version (`curl http://<host>:32600/health` shows it).
 
 Once a fix is released, the report can be published, with credit to you if you want it.
 
 ## 🎯 What counts as a vulnerability
 
-Kizuna has **no login, by design** (see [below](#%EF%B8%8F-how-kizuna-is-protected)). Anyone it lets in can query it.
+Kizuna has **no login, by design** ([why](#%EF%B8%8F-how-kizuna-is-protected)): anyone it lets in can query it.
 
 | | Report it |
 |---|---|
@@ -29,27 +33,23 @@ Kizuna has **no login, by design** (see [below](#%EF%B8%8F-how-kizuna-is-protect
 | ✅ | a request that makes Kizuna read or write files outside its data folder |
 | ✅ | a request that crashes Kizuna, or makes it use unbounded memory or disk |
 | ✅ | a way to make Kizuna break AniDB's rate limits (that gets *your* IP banned) |
-| ✅ | the migration script touching any file other than a `.plexmatch` in a show folder of the library you gave it |
+| ✅ | the migration script touching anything but the `.plexmatch` files in the library you gave it |
 | ❌ | "anyone on my LAN can query it": that's the design |
-| ❌ | a problem that needs Kizuna's port forwarded to the internet, or behind a public reverse proxy: that's unsupported |
+| ❌ | anything that needs Kizuna reachable from the internet (port forward, public reverse proxy): unsupported |
 
 ## 📦 Supported versions
 
-Only the **latest release** (`:latest`) gets security fixes, as a patch release (`1.2.3` → `1.2.4`). Betas
-(`:1.2.3-beta.1`) and `:dev` aren't supported, though they usually get the fix first. All tags:
-[SETUP.md](SETUP.md#-2-run-kizuna).
+| Version | Security fixes |
+|---|---|
+| **Latest release** (`:latest`) | ✅ as a patch release (`1.2.3` → `1.2.4`) |
+| Older releases | ❌ update to the latest |
+| Betas (`:1.2.3-beta.1`), `:dev` | ❌ not supported, though they usually get the fix first |
 
-Update with:
+> [!NOTE]
+> There is no stable release yet. Until v0.1.0, fixes go into the next beta.
 
-```bash
-docker compose pull && docker compose up -d
-```
-
-Check that an image was built by Kizuna's own workflow from this repository (needs the [GitHub CLI](https://cli.github.com)):
-
-```bash
-gh attestation verify oci://ghcr.io/kurtzpt/kizuna:latest -R KurtzPT/kizuna
-```
+> [!TIP]
+> Update with `docker compose pull && docker compose up -d`. All tags: [SETUP.md](SETUP.md#-2-run-kizuna).
 
 ## 🛡️ How Kizuna is protected
 
@@ -58,25 +58,32 @@ may talk to it, and what it exposes:
 
 | Protection | Stops | Where |
 |---|---|---|
-| **Private clients only** | an accidental port forward: requests from public addresses get `403` | `ALLOW_FROM`, default `private` |
-| **Known host names only** | DNS rebinding: a web page reaching Kizuna through your browser | `ALLOWED_HOSTS` |
-| **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers; logs show them as `***` | built in |
-| **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, `Dockerfile` |
-| **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](README.md#-anidb-fair-use) |
-| **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |
-| **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, [check it](#-supported-versions) |
+| **Private clients only** | an accidental port forward: a request from a public address gets `403`. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can fake | [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access), default `private` |
+| **Known host names only** | DNS rebinding: a web page that points its own domain at your LAN to reach Kizuna through your browser. Kizuna doesn't know that name, so it refuses | [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
+| **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers or logs | built in |
+| **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, Unraid template, `Dockerfile` |
+| **AniDB fair use** | a burst of requests breaking AniDB's limits and getting your IP banned | built in, [fixed](GUIDE.md#-anidb-fair-use) |
+| **Checked code** | GitHub Actions pinned to exact commits; CodeQL and `govulncheck` on every change, `govulncheck` weekly on the published images; Dependabot updates | `.github/workflows` |
+| **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml` |
 
-- **`ALLOW_FROM` makes an accidental port forward harmless.** A request from the internet comes from a public
-  address and gets refused. Kizuna checks the connection's own address, never `X-Forwarded-For`, which a client can
-  fake.
-- **`ALLOWED_HOSTS` stops DNS rebinding.** A web page can try to reach devices on your LAN through your browser, by
-  pointing its own domain at a LAN address. The browser then sends that domain as the host name, which Kizuna doesn't
-  know, so it refuses.
-- **Behind a reverse proxy**, every request comes from the proxy's private address, so `ALLOW_FROM` can't tell clients
-  apart. The host name check still refuses a public domain you haven't listed.
-
-How to change the two checks: [SETTINGS.md → Access](SETTINGS.md#%EF%B8%8F-access).
+> [!NOTE]
+> **Behind a reverse proxy**, every request comes from the proxy's address, so `ALLOW_FROM` can't tell clients
+> apart. The host name check still refuses a public domain you haven't listed.
 
 > [!WARNING]
-> These reduce the risk; they don't make Kizuna safe on the internet. Keep port `32600` on your local network.
-> **Never** forward it or put it behind a public reverse proxy.
+> These checks reduce the risk; they don't make Kizuna safe on the internet. Keep port `32600` on your local
+> network: **never** forward it or put it behind a public reverse proxy.
+
+## 🔒 Your data
+
+> [!IMPORTANT]
+> **What Kizuna handles belongs to you alone.** It has no telemetry and sends nothing to its developers or anyone
+> else. Your settings, API keys, cache, logs and match reports stay in your data folder.
+
+Kizuna only connects to:
+
+| Where | Why | What it sends |
+|---|---|---|
+| AniDB, TheTVDB, TheMovieDb, MyAnimeList, Anime News Network | to look up the shows in your library | the show's id or title, and that service's own key or client name, never another's |
+| Your Plex server (`PLEX_URL`), only if you set it | to name openings and endings | your `PLEX_TOKEN`, only to that server |
+| GitHub | to download the public id mapping and AniDB title lists | nothing about you or your library |

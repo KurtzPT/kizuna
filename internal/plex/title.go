@@ -1,6 +1,6 @@
 // Package plex renames the opening and ending extras Plex makes from local
 // files ("OP1", "NCED2a") to readable titles ("Opening 1", "Ending 2a"),
-// through Plex's own HTTP API. See SETUP.md ("Openings and endings").
+// through Plex's own HTTP API. See GUIDE.md ("Openings and endings").
 package plex
 
 import (
