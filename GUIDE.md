@@ -21,8 +21,8 @@ then the title search. The finer points:
 
 | Case | What happens |
 |---|---|
-| Two different id tags, or (`/auto`) a tag for a mode that is off | no match and a warning. The GUID and the title aren't tried |
-| An id tag Kizuna can't resolve: a typo, or an id the [id mapping](README.md#-id-mapping) doesn't have | **skipped without a warning**: the GUID, then the title decide |
+| Two different id tags, or in `/auto` a tag for a mode that is off | no match and a warning. The GUID and the title aren't tried |
+| An id tag Kizuna can't resolve: a typo, or an id the [id mapping](README.md#-id-mapping) doesn't have | **skipped without a warning**: the GUID, then the title decides |
 | A `[tmdb-…]` tag or `tmdb://` GUID | read as a TheMovieDb **TV show** id. It's a movie id only when no entry has that number as a TV show; when both exist, the title search decides, else the TV show wins |
 | `/anidb`, an id that covers several entries (a TVDB series with one entry per season) | the series' first entry, by that site's own order. Movies and specials only when nothing else matches |
 | *Fix Match* on a show with no match because of its tags | still lists the results for the title you type (not for a season or an episode) |
@@ -30,8 +30,8 @@ then the title search. The finer points:
 ## 🎬 Movies and specials
 
 TheTVDB often files an anime's movies, OVAs and specials among a series' specials: One Piece Film Red is S00E46 of
-One Piece. Kizuna makes each of them **its own show, in every mode**, with the `/anidb` rules (the movie is
-`S01E01`).
+One Piece. Kizuna makes each of them **its own show, in every mode**, with the `/anidb` rules: the movie is
+`S01E01`.
 
 | You have | You get |
 |---|---|
@@ -41,8 +41,8 @@ One Piece. Kizuna makes each of them **its own show, in every mode**, with the `
 | a folder tagged with the series, `[tvdb-81797]` (or another agent's TheTVDB GUID) | the whole series, unless the name clearly names one of its movies: then that movie, with the warning `matched to an AniDB entry by name inside a TheTVDB id; may be wrong` |
 | `One Piece - S00E46.mkv` inside the series' `/tvdb` folder | a special of the series |
 
-<sub>*Clearly* means at least `MIN_SCORE`, and 10 points ahead of the series' and the other movies' titles. The
-year (`(2022)` in the name, or the one Plex sends) tells two close movies apart.</sub>
+<sub>*Clearly* means at least `MIN_SCORE`, and 10 points ahead of the series' and the other movies' titles. A
+year in the name, such as `(2022)`, or the one Plex sends tells two close movies apart.</sub>
 
 - **Without AniDB details**, such a show still gets its episodes from TheTVDB's specials.
 - **GUIDs:** a movie (an entry with a TheMovieDb movie id, and no regular TVDB season or no TheMovieDb TV show id)
@@ -82,14 +82,14 @@ touched):
 
 - Plex resets the titles on every refresh, so Kizuna sets them again **about 15 seconds after each show's refresh**
   (and once more 2 minutes later). Until then you see Plex's own title.
-- Each rename logs `plex: extra renamed`. Titles stuck as `OP1`: [problems](#episodes-and-details).
+- Each rename logs `plex: extra renamed`. Titles stuck as `OP1`? See [problems](#episodes-and-details).
 
 ## 🤝 AniDB fair use
 
 AniDB bans clients that ask too much, and a ban covers your whole IP. Kizuna keeps to these limits, and no setting
 changes them:
 
-| | |
+| What | Limit |
 |---|---|
 | **Finding a show** | never calls the API: the daily title list is searched offline |
 | **Pace** | one call every 4 s, at most 200 a day (background fetches stop at 150) |
@@ -99,7 +99,7 @@ changes them:
 | **A ban** | every call paused for 24 h |
 | **A rejected `ANIDB_CLIENT` / `ANIDB_CLIENTVER`** | every call paused for 24 h, or until a restart with changed values |
 
-The limits survive restarts (`anidb-state.json` in the data folder). While AniDB can't be asked, cached data and the
+The limits survive restarts: they are kept in `anidb-state.json` in the data folder. While AniDB can't be asked, cached data and the
 other sources fill in.
 
 ## 📜 Logs
@@ -110,7 +110,7 @@ never appear in them.
 
 | `LOG_LEVEL` | Logs |
 |---|---|
-| `info` (default) | the settings in effect (`ready`), the lists loaded, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
+| `info` (default) | the settings in effect as the `ready` line, the lists loaded, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
 | `debug` | also every Plex request, outgoing call and cache decision, the title-search scores, and which source gave each field |
 
 - **`show built … complete=false`**: something was missing (AniDB details, part of an episode list, a source that
@@ -151,24 +151,24 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 
 | Symptom | Fix |
 |---|---|
-| A show doesn't match | `match: nothing found` says why (`how=`); its [unmatched report](#-match-reports) lists the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
+| A show doesn't match | `match: nothing found` says why in `how=`; its [unmatched report](#-match-reports) lists the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
 | Wrong show (a remake, a sequel) | Add an id tag, or use *Fix Match* in Plex |
 | An id tag seems ignored | Kizuna doesn't know that id (a typo?) and matched by title ([why](#-matching-in-detail)) |
 | A new anime isn't found by its AniDB id | It's unknown until the next daily title list |
 | A movie folder became the whole series | Tag it `[anidb-…]` instead of `[tvdb-…]` ([movies and specials](#-movies-and-specials)) |
 | `match: more than one id tag; only one is allowed` | Keep one tag in the folder and file names |
-| `/auto`: `match: id tag needs /tvdb, which is off` (or `/anidb`) | Set up that mode's key ([keys](SETUP.md#-1-get-your-keys)), or change the tag |
+| `/auto`: `match: id tag needs /tvdb, which is off`, or the same for `/anidb` | Set up that mode's key ([keys](SETUP.md#-1-get-your-keys)), or change the tag |
 | `a request for a mode that is off` | The library's provider URL is for a mode without its key: set the key, or use another mode |
 
 ### Episodes and details
 
 | Symptom | Fix |
 |---|---|
-| No summaries, only *Episode N* titles | AniDB isn't set up (`ANIDB_CLIENT not set` at startup), or can't be asked yet: `AniDB details not available` says why. A later *Refresh Metadata* fills them in ([AniDB's limits](#-anidb-fair-use)) |
+| No summaries, only *Episode N* titles | AniDB isn't set up, as the startup log's `ANIDB_CLIENT not set` says, or can't be asked yet: `AniDB details not available` says why. A later *Refresh Metadata* fills them in ([AniDB's limits](#-anidb-fair-use)) |
 | `/tvdb` show has no episodes | `show build failed` with `TheTVDB has no episodes for this show`: use `/anidb` for it |
 | Episodes in the wrong season | Plex's scanner sets seasons from file names and `.plexmatch` hints, not Kizuna: see [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
-| Openings and endings keep Plex's titles (`OP1`) | Check the startup warning about `PLEX_URL` / `PLEX_TOKEN`, or `can't set the opening and ending titles in Plex` / `Plex doesn't answer`. Then *Refresh Metadata* ([readable titles](#readable-titles)) |
+| Openings and endings keep Plex's titles, such as `OP1` | Check the startup warning about `PLEX_URL` / `PLEX_TOKEN`, or `can't set the opening and ending titles in Plex` / `Plex doesn't answer`. Then *Refresh Metadata* ([readable titles](#readable-titles)) |
 
 ### Sources and keys
 
@@ -176,8 +176,8 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 |---|---|
 | *Plex*: `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
 | *Plex*: `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (Kizuna logs `show build failed` with the reason). Plex asks again later |
-| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired (a user-supported TheTVDB key also needs `TVDB_PIN`). The source is skipped for 10 min; cached data still answers |
-| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` (or `TVDB_PIN`) and restart. Until then: no TheTVDB logos, studio or show crew |
+| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired; a user-supported TheTVDB key also needs `TVDB_PIN`. The source is skipped for 10 min; cached data still answers |
+| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` or `TVDB_PIN` and restart. Until then: no TheTVDB logos, studio or show crew |
 | `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 s |
 | `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |
 | `AniDB rejected the client` | Use the name and version of a client registered at anidb.net (protocol HTTP), then restart |
