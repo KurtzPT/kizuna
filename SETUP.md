@@ -147,7 +147,10 @@ In Plex Web, open **Settings → Metadata Agents**.
    | 1 | **Kizuna**, the provider you just added | matching and all metadata. Always first |
    | 2 | **Plex Local Media** (optional) | uses your own `poster.jpg`, `fanart.jpg`, `theme.mp3` and subtitles, which Kizuna never reads |
 
-**One Kizuna provider per agent:** `/anidb` and `/tvdb` number episodes differently. For a mixed library, use `/auto`.
+> [!TIP]
+> **Libraries in different modes?** Add one provider per mode and one agent for each, e.g. *Kizuna AniDB* with
+> `/anidb` for one library and *Kizuna TVDB* with `/tvdb` for another. Each agent holds only one Kizuna provider:
+> the modes number episodes differently. One Kizuna serves all of them, with the same settings.
 
 ## 📚 4. Point a library at it
 
