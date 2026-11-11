@@ -330,7 +330,9 @@ So the script asks Kizuna for the show's credit list and matches each file to a 
 > script uses Kizuna at [`-u`](#-command-line-reference) and says at the start when it can't reach it. Without
 > Kizuna, plain `OP1`, `ED2`… are numbered from the file name (`S00E101`, `S00E152`). Variant files get no number,
 > and neither does any opening in a folder with opening variants (endings likewise), because a variant shifts the
-> numbers.
+> numbers. The script reads Kizuna's English or Japanese titles for them, such as *Opening 1a* or *オープニング 1a*.
+> With titles in another language it gives no numbers and says so: for the run, put `en` first in Kizuna's
+> `EPISODE_LANGS` and restart Kizuna, then set it back.
 
 ### HAMA `.id` files
 
