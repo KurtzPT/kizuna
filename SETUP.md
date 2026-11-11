@@ -49,24 +49,23 @@ company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the lo
 
 ## 🐳 2. Run Kizuna
 
-Kizuna keeps everything in one **data folder**: its settings file, the cache, logs and reports.
+Kizuna runs in Docker and keeps everything in one **data folder**: its settings file `kizuna.env`, the cache, logs
+and reports. Follow the part for your setup, then check that it's up.
 
-1. **Create the data folder** on the machine that runs Docker. Kizuna doesn't run as root, so its user must own the
-   folder (or at least be able to write to it): `1000:1000` with Compose or plain Docker, `nobody:users` (99:100) on
-   Unraid.
-2. **Add the settings file:** copy [`.env.sample`](.env.sample) into the folder as `kizuna.env` and fill in your keys
-   from [step 1](#-1-get-your-keys). Leave the rest for now; [SETTINGS.md](SETTINGS.md) explains every setting. The
-   file holds your keys: Kizuna's user must be able to read it, nobody else needs to.
-3. **Start the container** with the data folder mounted at `/data`:
+> [!WARNING]
+> Kizuna has **no login** ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Keep port 32600 on your LAN and
+> never forward it to the internet.
 
-| Setup | How |
-|---|---|
-| **Docker Compose** (recommended) | Download [`compose.yml`](compose.yml), replace `/change/me` with your data folder, run `docker compose up -d` |
-| **Plain Docker** | `docker run` with the same options as `compose.yml` (below) |
-| **Unraid** | see *Unraid* below |
+### Docker Compose or plain Docker
+
+1. **Create the data folder**, owned by (or writable for) `1000:1000`: Kizuna's user, not root.
+2. **Add the settings file:** copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in your keys from
+   [step 1](#-1-get-your-keys).
+3. **Start it:** download [`compose.yml`](compose.yml), replace `/change/me` with your data folder and run
+   `docker compose up -d`. Without Compose, use the command below.
 
 <details>
-<summary><b>The <code>docker run</code> command</b></summary>
+<summary><b>Plain Docker command</b></summary>
 
 ```bash
 docker run -d --name kizuna \
@@ -80,26 +79,21 @@ docker run -d --name kizuna \
 
 </details>
 
-<details>
-<summary><b>Unraid</b></summary>
+### Unraid
 
-Unraid runs Kizuna as `nobody:users` (99:100), not `1000:1000`. Don't change the folder's owner:
+Unraid runs Kizuna as **`nobody:users` (99:100)**, not `1000:1000`. Keep that owner.
 
-1. Create the data folder `kizuna` inside the `appdata` share (from the network share or Unraid's file manager).
-   Folders made through a share already belong to `nobody:users`.
-2. Put `kizuna.env` in it, as in step 2 above.
-3. Save [`unraid/kizuna.xml`](unraid/kizuna.xml) as `my-kizuna.xml` in the `flash` share, folder
-   `config/plugins/dockerMan/templates-user`.
-4. **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*. Unraid's own `TZ` wins over the
-   file's.
+1. **Create the data folder:** a `kizuna` folder in the `appdata` share. Made through the share, it already belongs to
+   `nobody:users`.
+2. **Add the settings file:** copy [`.env.sample`](.env.sample) into it as `kizuna.env` and fill in your keys from
+   [step 1](#-1-get-your-keys).
+3. **Add the template:** save [`unraid/kizuna.xml`](unraid/kizuna.xml) as `my-kizuna.xml` in the `flash` share,
+   folder `config/plugins/dockerMan/templates-user`.
+4. **Start it:** **Docker → Add Container**, pick **kizuna** under *Template*, click *Apply*.
 
-</details>
+### Check that it's up
 
-**Changing a setting later:** edit `kizuna.env` and restart the container. A setting given to the container itself
-(`environment:` in `compose.yml`, `-e` with `docker run`, a variable in the Unraid template) overrides the file, even
-when empty: handy for a quick test, such as `LOG_LEVEL=debug`.
-
-**Check that it's up:** open `http://<kizuna-host>:32600/health` from the machine that runs Plex.
+From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 
 | Answer | Means |
 |---|---|
@@ -113,9 +107,13 @@ when empty: handy for a quick test, such as `LOG_LEVEL=debug`.
 > **Plex in Docker?** Inside the Plex container, `localhost` is Plex itself. Use the host's LAN IP, or put both
 > containers on one Docker network and use `http://kizuna:32600`.
 
-> [!WARNING]
-> Kizuna has **no login** ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Keep port 32600 on your LAN and
-> never forward it to the internet.
+### Changing settings
+
+- **Edit `kizuna.env`, then restart the container.** [SETTINGS.md](SETTINGS.md) explains every setting.
+- **Keep the file private:** it holds your keys. Only Kizuna's user needs to read it.
+- **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
+  `docker run`, a variable in the Unraid template (Unraid always sets `TZ`). Handy for a quick test, such as
+  `LOG_LEVEL=debug`.
 
 <details>
 <summary><b>Which image tag?</b></summary>
