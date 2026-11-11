@@ -183,16 +183,18 @@ the series' runtime</sub>
 
 ### Later entries in `/anidb`
 
-TheTVDB and TheMovieDb TV data describe the whole series, so for the title, genres, cast, crew, studio, rating and
-date they're only used on the AniDB entry that starts the series. A TheMovieDb movie is always its own entry.
+In `/anidb` each AniDB entry is its own show, but TheTVDB and TheMovieDb describe the whole series. So their data
+only goes to the entry that starts the series; the other entries skip them and take the next source in the list.
 
-- **Each site decides by its own placement.** When TheTVDB has one series and TheMovieDb a show per part (*X* and
-  *X Part 2*), part 2 is a later entry for TheTVDB's data but the first one for TheMovieDb's, and the reverse.
-- **A series that no entry starts** in season 1 or absolute order without an offset starts with its lowest AniDB id,
-  leaving out movies and OVAs among the specials unless there's nothing else.
-- **The summary** of a later entry is that of the season the [id mapping](README.md#-id-mapping) puts it in. With no
-  such season (absolute order, specials, no mapped season, or a season without an English summary), TheTVDB and
-  TheMovieDb are skipped and the next source in `SUMMARY_SOURCES` answers.
+| `/anidb` show | TheTVDB / TheMovieDb give its… |
+|---|---|
+| **First entry**: *Shingeki no Kyojin* | title, summary, genres, cast, crew, studio, rating, date: the series' |
+| **Later entry**: *Shingeki no Kyojin Season 2* | summary only: that of the season the [id mapping](README.md#-id-mapping) puts it in (TVDB season 2). None without such a season, or without an English summary |
+| **Movie or OVA** among the series' specials | nothing from TheTVDB. A TheMovieDb movie is its own entry, so it gets TheMovieDb's movie data |
+
+- **"Starts the series" is per site.** With *X* and *X Part 2* as one TheTVDB series but two TheMovieDb shows,
+  part 2 is a later entry for TheTVDB and a first entry for TheMovieDb.
+- **No entry mapped to season 1?** The lowest AniDB id counts as the first, leaving out movies and OVAs.
 
 ### Episode directors and writers
 
