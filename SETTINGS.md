@@ -10,7 +10,7 @@
 
 <sub>Settings: [Keys](#-accounts--keys) · [Matching](#-matching--titles) · [Sources](#-sources-per-field) · [Openings](#-opening-and-ending-titles) · [Logging](#-logging) · [Cache](#-storage--cache) · [Server](#%EF%B8%8F-server) · [Access](#%EF%B8%8F-access)</sub>
 
-<sub>More: [The settings file](#-where-settings-go) · [How sources are used](#-how-sources-are-used) · [Cache cleanup](#-cache-cleanup) · [Wrong values](#%EF%B8%8F-when-a-value-is-wrong) · [Examples](#-examples)</sub>
+<sub>More: [The settings file](#-where-settings-go) · [How sources are used](#-how-sources-are-used) · [Cache cleanup](#-cache-cleanup) · [Wrong values](#%EF%B8%8F-when-a-value-is-wrong)</sub>
 
 </div>
 
@@ -275,30 +275,3 @@ Kizuna warns at startup, quoting the value as written:
 | an unknown language or country code | no warning: it never matches, so the next one is used |
 | neither `ANIDB_CLIENT` nor a TheTVDB key | **doesn't start**: `no mode can build shows` |
 | a port in use, or a `LISTEN` address it can't open | **doesn't start** ([troubleshooting](SETUP.md#-troubleshooting)) |
-
-## 🧪 Examples
-
-```bash
-# AniDB posters by default, the others still offered in Plex's Edit dialog
-POSTER_SOURCES=anidb,tvdb,tmdb,mal,ann
-ART_ALL_SOURCES=true
-
-# English titles where AniDB has an official one, else romaji
-TITLE_LANGS=en,x-jat
-TITLE_OFFICIAL_ONLY=true
-
-# German age ratings first, then British, then anything
-RATING_COUNTRY=DE,GB
-
-# No cast at all
-CAST_SOURCES=none
-
-# Only the Plex server (and the machine itself) may use Kizuna
-ALLOW_FROM=192.168.1.10
-
-# The LAN plus one outside address
-ALLOW_FROM=private,203.0.113.7
-
-# You added the provider as http://kizuna.mynas.example:32600
-ALLOWED_HOSTS=kizuna.mynas.example
-```
