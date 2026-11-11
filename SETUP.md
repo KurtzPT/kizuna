@@ -8,7 +8,7 @@
 
 [Home](README.md) &nbsp;·&nbsp; **Setup** &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
 
-<sub>On this page: [① Keys](#-1-get-your-keys) · [② Run](#-2-run-kizuna) · [③ Plex](#-3-register-kizuna-in-plex) · [④ Library](#-4-point-a-library-at-it) · [Troubleshooting](#-troubleshooting)</sub>
+<sub>On this page: [1. Keys](#-1-get-your-keys) · [2. Run](#-2-run-kizuna) · [3. Plex](#-3-register-kizuna-in-plex) · [4. Library](#-4-point-a-library-at-it) · [Troubleshooting](#-troubleshooting)</sub>
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 

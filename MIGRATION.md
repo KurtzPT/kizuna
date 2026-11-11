@@ -8,7 +8,7 @@
 
 [Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; **Migration**
 
-<sub>On this page: [How it works](#-how-it-works) · [What migrates](#-what-can-be-migrated) · [Before you start](#-before-you-start) · [① Install](#-1-install-the-script) · [② Dry run](#-2-dry-run) · [③ Apply](#-3-apply-the-hints) · [④ Switch](#-4-switch-the-library) · [⑤ Clean up](#-5-clean-up) · [Reference](#-what-the-script-writes)</sub>
+<sub>On this page: [How it works](#-how-it-works) · [What migrates](#-what-can-be-migrated) · [Before you start](#-before-you-start) · [1. Install](#-1-install-the-script) · [2. Dry run](#-2-dry-run) · [3. Apply](#-3-apply-the-hints) · [4. Switch](#-4-switch-the-library) · [5. Clean up](#-5-clean-up) · [Reference](#-what-the-script-writes)</sub>
 
 </div>
 
