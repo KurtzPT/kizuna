@@ -19,7 +19,9 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md)
+**Home** &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Quick start](#-quick-start) · [How it works](#-how-it-works) · [Modes](#%EF%B8%8F-modes) · [Matching](#-how-a-show-is-found) · [Sources](#-sources) · [Reports](#-match-reports)</sub>
 
 </div>
 

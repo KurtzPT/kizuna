@@ -6,7 +6,9 @@
 
 **From zero to a matched anime library in four steps.**
 
-[① Keys](#-1-get-your-keys) &nbsp;·&nbsp; [② Run](#-2-run-kizuna) &nbsp;·&nbsp; [③ Plex](#-3-register-kizuna-in-plex) &nbsp;·&nbsp; [④ Library](#-4-point-a-library-at-it) &nbsp;·&nbsp; [🧰 Troubleshooting](#-troubleshooting) &nbsp;·&nbsp; [⚙️ Settings](SETTINGS.md) &nbsp;·&nbsp; [📖 Guide](GUIDE.md)
+[Home](README.md) &nbsp;·&nbsp; **Setup** &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [① Keys](#-1-get-your-keys) · [② Run](#-2-run-kizuna) · [③ Plex](#-3-register-kizuna-in-plex) · [④ Library](#-4-point-a-library-at-it) · [Troubleshooting](#-troubleshooting)</sub>
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 

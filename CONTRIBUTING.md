@@ -6,7 +6,9 @@
 
 **Bug fixes, mapping fixes, new features and docs are all welcome.**
 
-[🐛 Issues](#-reporting-a-problem) &nbsp;·&nbsp; [🛠️ Setup](#%EF%B8%8F-development-setup) &nbsp;·&nbsp; [📐 Rules](#-ground-rules) &nbsp;·&nbsp; [✅ Checks](#-checks) &nbsp;·&nbsp; [🔀 Pull requests](#-pull-requests) &nbsp;·&nbsp; [🗺️ Code map](#%EF%B8%8F-code-map)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Issues](#-reporting-a-problem) · [Development setup](#%EF%B8%8F-development-setup) · [Rules](#-ground-rules) · [Checks](#-checks) · [Pull requests](#-pull-requests) · [Code map](#%EF%B8%8F-code-map)</sub>
 
 </div>
 

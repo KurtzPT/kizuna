@@ -6,7 +6,9 @@
 
 **Move a HAMA + Absolute Series Scanner library to Kizuna without renaming a single file.**
 
-[How it works](#-how-it-works) &nbsp;·&nbsp; [What migrates](#-what-can-be-migrated) &nbsp;·&nbsp; [Before you start](#-before-you-start) &nbsp;·&nbsp; [① Install](#-1-install-the-script) &nbsp;·&nbsp; [② Dry run](#-2-dry-run) &nbsp;·&nbsp; [③ Apply](#-3-apply-the-hints) &nbsp;·&nbsp; [④ Switch](#-4-switch-the-library) &nbsp;·&nbsp; [⑤ Clean up](#-5-clean-up) &nbsp;·&nbsp; [📘 Reference](#-what-the-script-writes)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; **Migration**
+
+<sub>On this page: [How it works](#-how-it-works) · [What migrates](#-what-can-be-migrated) · [Before you start](#-before-you-start) · [① Install](#-1-install-the-script) · [② Dry run](#-2-dry-run) · [③ Apply](#-3-apply-the-hints) · [④ Switch](#-4-switch-the-library) · [⑤ Clean up](#-5-clean-up) · [Reference](#-what-the-script-writes)</sub>
 
 </div>
 

@@ -6,7 +6,9 @@
 
 **What Kizuna does with your library once it runs, and what to do when a show looks wrong.**
 
-[🎬 Movies](#-movies-and-specials) &nbsp;·&nbsp; [🎵 Openings](#-openings-and-endings) &nbsp;·&nbsp; [🔍 Matching](#-matching-in-detail) &nbsp;·&nbsp; [📜 Logs](#-logs) &nbsp;·&nbsp; [📊 Reports](#-match-reports) &nbsp;·&nbsp; [🤝 AniDB](#-anidb-fair-use) &nbsp;·&nbsp; [🧰 Problems](#-metadata-problems) &nbsp;·&nbsp; [🧭 Setup](SETUP.md)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; **Guide** &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Movies](#-movies-and-specials) · [Openings](#-openings-and-endings) · [Matching](#-matching-in-detail) · [Logs](#-logs) · [Reports](#-match-reports) · [AniDB](#-anidb-fair-use) · [Problems](#-metadata-problems)</sub>
 
 </div>
 

@@ -4,7 +4,9 @@
 
 # Kizuna · Security
 
-[📮 Report](#-reporting-a-vulnerability) &nbsp;·&nbsp; [🎯 What counts](#-what-counts-as-a-vulnerability) &nbsp;·&nbsp; [📦 Versions](#-supported-versions) &nbsp;·&nbsp; [🛡️ How Kizuna is protected](#%EF%B8%8F-how-kizuna-is-protected)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Report](#-reporting-a-vulnerability) · [What counts](#-what-counts-as-a-vulnerability) · [Versions](#-supported-versions) · [How Kizuna is protected](#%EF%B8%8F-how-kizuna-is-protected)</sub>
 
 </div>
 

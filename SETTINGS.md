@@ -6,7 +6,9 @@
 
 **Every setting, its default and what it changes.**
 
-[📄 Where settings go](#-where-settings-go) &nbsp;·&nbsp; [🔑 Keys](#-accounts--keys) &nbsp;·&nbsp; [🎯 Matching](#-matching--titles) &nbsp;·&nbsp; [🔀 Sources](#-sources-per-field) &nbsp;·&nbsp; [🖥️ Server](#%EF%B8%8F-server) &nbsp;·&nbsp; [🛡️ Access](#%EF%B8%8F-access) &nbsp;·&nbsp; [💾 Cache](#-storage--cache) &nbsp;·&nbsp; [📝 Logging](#-logging) &nbsp;·&nbsp; [🎵 Openings](#-opening-and-ending-titles) &nbsp;·&nbsp; [🧭 Setup](SETUP.md)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; **Settings** &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [Where settings go](#-where-settings-go) · [Keys](#-accounts--keys) · [Matching](#-matching--titles) · [Sources](#-sources-per-field) · [Server](#%EF%B8%8F-server) · [Access](#%EF%B8%8F-access) · [Cache](#-storage--cache) · [Logging](#-logging) · [Openings](#-opening-and-ending-titles)</sub>
 
 <sub>Setting Kizuna up for the first time? Follow <a href="SETUP.md">SETUP.md</a>: it needs only the keys. Come back
 here to change what Kizuna does.</sub>

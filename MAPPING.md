@@ -6,7 +6,9 @@
 
 **Correct which AniDB entry is which TVDB series, season and episode, for your own library.**
 
-[📄 The file](#-the-file) &nbsp;·&nbsp; [📖 Exceptions](#-reading-mapping-list) &nbsp;·&nbsp; [🔗 Pairing](#-how-episodes-are-paired) &nbsp;·&nbsp; [🧩 Use cases](#-use-cases) &nbsp;·&nbsp; [✅ Checking it](#-checking-a-correction)
+[Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; **Mapping** &nbsp;·&nbsp; [Migration](MIGRATION.md)
+
+<sub>On this page: [The file](#-the-file) · [Exceptions](#-reading-mapping-list) · [Pairing](#-how-episodes-are-paired) · [Use cases](#-use-cases) · [Checking it](#-checking-a-correction)</sub>
 
 </div>
 
