@@ -302,7 +302,6 @@ flowchart LR
     M -- "else" --> D["entry's TVDB season + offset"]
     X --> A["AniDB <b>Season 2</b> entry · episode 5"]
     D --> A
-    A --> L["title in EPISODE_LANGS<br/><i>en → x-jat</i>"]
 ```
 
 **The entry that starts the series** is the lowest AniDB id in TVDB season 1 or `a` with offset 0; else the lowest
