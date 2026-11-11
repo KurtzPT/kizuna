@@ -222,7 +222,7 @@ MyAnimeList and Anime News Network have one poster per entry, whatever `SEASON_A
 | Plex item | TheTVDB / TheMovieDb art of |
 |---|---|
 | `/anidb` show, the entry that starts its series (on that site) | the series, then season 1 |
-| `/anidb` show, a later entry (*Attack on Titan Season 3*) | the season the [id mapping](MAPPING.md) puts it in (TVDB season 3) |
+| `/anidb` show, a later entry (*Shingeki no Kyojin Season 3*) | the season the [id mapping](MAPPING.md) puts it in (TVDB season 3) |
 | `/anidb` show, a movie or special among the series' specials | season 0 (TheMovieDb: the movie's own art) |
 | `/anidb` show in absolute order, or not mapped to a season | the series |
 | `/anidb` *Season 1* / *Specials* | the entry's season, as above (the first entry: season 1 alone) / season 0 |
