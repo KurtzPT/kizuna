@@ -19,7 +19,7 @@ here to change what Kizuna does.</sub>
 
 ## 📄 Where settings go
 
-Settings go in **`kizuna.env` in the data folder** (`/data/kizuna.env` in Docker), one `NAME=value` per line.
+Settings go in **`kizuna.env` in the data folder**, `/data/kizuna.env` in Docker, one `NAME=value` per line.
 [`.env.sample`](.env.sample) lists every setting with its default; [SETUP.md](SETUP.md#-2-run-kizuna) shows how to
 create the file.
 
@@ -34,8 +34,8 @@ TITLE_LANGS=en,main      # a comment after a space is fine
 > **Restart Kizuna after editing the file**, and refresh the metadata of the shows that should change. Every setting
 > applies to every mode and library: Plex doesn't pass per-library settings to providers.
 
-- **Names are upper case**; any other name (`port=`) is ignored with a warning.
-- **Quotes** (`"..."` or `'...'`) keep a value exactly as written. You need them only for ` #` in a value: unquoted,
+- **Names are upper case**; any other name, such as `port=`, is ignored with a warning.
+- **Quotes**, `"..."` or `'...'`, keep a value exactly as written. You need them only for ` #` in a value: unquoted,
   a `#` after a space or tab starts a comment. A line with a missing closing quote, or text after it, is skipped
   with a warning.
 - `export NAME=value` works too, so a shell can `source` the same file.
@@ -55,12 +55,12 @@ and tokens are never logged.
 | You set | Kizuna |
 |---|---|
 | a variable to `""` or nothing | uses the default. For an API key the default is empty, so that source is off |
-| an unknown source, or one the field doesn't allow, in a list (`TITLE_SOURCES=anidb,tvbd`) | warns and drops it. A list with nothing left uses the default; only `none` turns a field off |
-| a boolean, number, size, mode or `LOG_LEVEL` it can't read or that is out of range (`TITLE_OFFICIAL_ONLY=yes`, `MIN_SCORE=150`) | warns and uses the default. Booleans: `true`/`false` or `1`/`0`. Sizes: `MB`, `GB`, `TB` |
+| an unknown source, or one the field doesn't allow, in a list, such as `TITLE_SOURCES=anidb,tvbd` | warns and drops it. A list with nothing left uses the default; only `none` turns a field off |
+| a boolean, number, size, mode or `LOG_LEVEL` it can't read or that is out of range, such as `TITLE_OFFICIAL_ONLY=yes` or `MIN_SCORE=150` | warns and uses the default. Booleans: `true`/`false` or `1`/`0`. Sizes: `MB`, `GB`, `TB` |
 | a bad `TZ` | warns and keeps the default time zone |
 | a bad `ALLOW_FROM` or `ALLOWED_HOSTS` entry | warns and ignores it. An `ALLOW_FROM` with no valid entry left falls back to `private` |
 | an unknown language or country code | nothing: it never matches, so the next one is used |
-| neither `ANIDB_CLIENT` nor a TheTVDB key | **doesn't start** (`no mode can build shows`) |
+| neither `ANIDB_CLIENT` nor a TheTVDB key | **doesn't start**: `no mode can build shows` |
 | a port in use, or a `LISTEN` address it can't open | **doesn't start** ([troubleshooting](SETUP.md#-troubleshooting)) |
 
 Warnings appear at startup and quote the value as written.
@@ -81,7 +81,7 @@ Where to get each one, and which modes need which: [SETUP step 1](SETUP.md#-1-ge
 
 > [!WARNING]
 > **The legacy TheTVDB key gives less** ([footnotes](#-sources-per-field)), and TheTVDB may switch its v3 API off at
-> any time. When TheTVDB rejects `TVDB_API_KEY` (wrong key, missing `TVDB_PIN`), Kizuna logs a warning and uses the
+> any time. When TheTVDB rejects `TVDB_API_KEY`, for a wrong key or a missing `TVDB_PIN`, Kizuna logs a warning and uses the
 > legacy key until it restarts. Without a legacy key, TheTVDB is skipped and tried again every 10 minutes.
 
 ## 🎯 Matching & titles
@@ -111,7 +111,7 @@ flowchart LR
 
 > [!NOTE]
 > **A list where no source is set up leaves its field empty.** For a list in your settings, Kizuna warns at startup
-> (`no usable source in these lists`): set it to `none` if you want it empty. A list you didn't set only gets an info
+> with `no usable source in these lists`: set it to `none` if you want it empty. A list you didn't set only gets an info
 > line naming the key that would fill it.
 
 **What each source can supply:**
@@ -128,13 +128,13 @@ flowchart LR
 | Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
 | Poster | ✅ | ⭐ | ✅ | ✅ | ✅ |
 | Background, logo | | ⭐³ | ✅ | | |
-| Episode list (`/tvdb`) | | ⭐ only | | | |
+| Episode list, `/tvdb` | | ⭐ only | | | |
 | Episode titles | ⭐ | ✅ | ✅ | | |
-| Episode thumbnails (`/anidb`) | | ⭐ | | | |
+| Episode thumbnails, `/anidb` | | ⭐ | | | |
 | Episode directors, writers | | ⭐ | ✅ | | |
 
-<sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key
-(`TVDB_LEGACY_API_KEY`): ¹ none, ² US rating only, ³ backgrounds only, no logos; no season summaries or season
+<sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key,
+`TVDB_LEGACY_API_KEY`: ¹ none, ² US rating only, ³ backgrounds only, no logos; no season summaries or season
 backgrounds, and episodes get the series' runtime</sub>
 
 ### Show details
@@ -148,7 +148,7 @@ backgrounds, and episodes get the series' runtime</sub>
 | `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | anidb tvdb tmdb ann | The show's directors and writers, both from the same source. Episodes get their own ([episodes](#episodes)) |
 | `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | |
 | `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | First aired / release date |
-| `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+ (`X`); MAL uses US ratings |
+| `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | anidb tvdb tmdb mal ann | Content rating. AniDB only marks 18+, as `X`; MAL uses US ratings |
 | `RATING_COUNTRY` | `US` | ISO country codes | Country order, e.g. `DE` or `GB,US`. Every source is checked for these countries before any other is used. Non-US ratings are written the Plex way: `de/12` |
 
 #### Later entries in `/anidb`
@@ -200,7 +200,7 @@ MyAnimeList and Anime News Network have one poster per entry, whatever `SEASON_A
 | `/tvdb` show | the series |
 | `/tvdb` *Season N* / *Specials* | TheTVDB's season N / 0; TheMovieDb's season that holds the same episodes, when it holds no other TheTVDB season's (else its series) |
 
-With `ART_ALL_SOURCES=true`, each source lists its season's art, then (with `SEASON_ART_FALLBACK`) its series',
+With `ART_ALL_SOURCES=true`, each source lists its season's art, then its series' with `SEASON_ART_FALLBACK`,
 before the next source. A [match report](GUIDE.md#-match-reports) says, per source, how many images came from the
 season and how many from the series.
 
@@ -263,7 +263,7 @@ leaves the titles alone.
 |---|---|---|
 | `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](GUIDE.md#-logs)) |
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` (or 100000 and up) = keep forever |
-| `TZ` | UTC (image) · system time zone (binary) | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
+| `TZ` | UTC (image) · system time zone (binary) | Time zone, e.g. `Europe/London`, for log timestamps and when a new log day starts |
 | `MATCH_REPORTS` | `false` | `true`: write a [match report](GUIDE.md#-match-reports) per show to `reports/` in the data folder |
 
 ## 💾 Storage & cache
@@ -271,7 +271,7 @@ leaves the titles alone.
 | Variable | Default | What it does |
 |---|---|---|
 | `CACHE_MIN_FREE` | `1GB` | When the disk holding the cache has less free space than this, the oldest cache files are deleted. `0` = never clean up |
-| `CACHE_FREE_TARGET` | `2GB` | …until this much is free again (at least `CACHE_MIN_FREE`). Sizes like `500MB`, `2GB`, `1.5TB`; a plain number is MB |
+| `CACHE_FREE_TARGET` | `2GB` | …until this much is free again; at least `CACHE_MIN_FREE`. Sizes like `500MB`, `2GB`, `1.5TB`; a plain number is MB |
 
 The cache has no size limit of its own. Every 10 minutes Kizuna checks the free space and, when it's low, deletes in
 this order:
@@ -292,7 +292,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily (every 5 min until the first download succeeds); an unchanged list isn't downloaded again |
-| Built shows (in memory) | 1 hour; 2 min when something was missing (`complete=false` in the [logs](GUIDE.md#-logs)) or the build failed |
+| Built shows (in memory) | 1 hour; 2 min when something was missing or the build failed: `complete=false` in the [logs](GUIDE.md#-logs) |
 
 > [!TIP]
 > When a source fails (TheTVDB: its login too), an expired cached copy answers instead: old data beats none.
@@ -302,13 +302,13 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | Variable | Default | What it does |
 |---|---|---|
 | `PORT` | `32600` | Port Kizuna listens on (1–65535) |
-| `LISTEN` | – | Full listen address, e.g. `127.0.0.1:32600` to accept only local connections. Overrides `PORT`. The health check asks this address (`127.0.0.1` when it's every address) |
+| `LISTEN` | – | Full listen address, e.g. `127.0.0.1:32600` to accept only local connections. Overrides `PORT`. The health check asks this address, or `127.0.0.1` when it's every address |
 | `DATA_DIR` | `/data` (image) · `./data` (binary, relative to the folder it's started from) | Cache, AniDB state, mapping corrections, logs and match reports |
 
 > [!IMPORTANT]
-> **In Docker, leave `PORT`, `LISTEN` and `DATA_DIR` alone.** Change the *host* side of the port mapping instead
-> (`"32700:32600"` makes Kizuna `http://<host>:32700`), and the volume for the data folder. They're for the binary
-> or host networking; `LISTEN=127.0.0.1:…` in a container makes Kizuna unreachable.
+> **In Docker, leave `PORT`, `LISTEN` and `DATA_DIR` alone**: they're for the binary or host networking, and
+> `LISTEN=127.0.0.1:…` in a container makes Kizuna unreachable. Change the *host* side of the port mapping instead:
+> with `"32700:32600"`, Kizuna is `http://<host>:32700`. For the data folder, change the volume.
 
 ## 🛡️ Access
 
@@ -326,8 +326,8 @@ flowchart LR
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ALLOW_FROM` | `private` | Client addresses that may use Kizuna, comma-separated: `private` (loopback, `10.x`, `172.16–31.x`, `192.168.x`, Tailscale's `100.64.0.0/10`, link-local, IPv6 private), single IPs (`192.168.1.10`) or networks (`192.168.1.0/24`). `any` (or `all`) turns it off. The machine itself (loopback) is always allowed, and so is `/health` from the machine's own address, for Docker's health check with `LISTEN=<ip>` |
-| `ALLOWED_HOSTS` | – | Extra names Kizuna may be reached by: `kizuna.example.com`, or `.example.com` (or `*.example.com`) for it and every name under it. `any` (or `all`, or `*`) turns it off. Always allowed: IP addresses, `localhost`, one-word names (`kizuna`, a container name), and names ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain` |
+| `ALLOW_FROM` | `private` | Client addresses that may use Kizuna, comma-separated: `private` for loopback, `10.x`, `172.16–31.x`, `192.168.x`, Tailscale's `100.64.0.0/10`, link-local and IPv6 private; single IPs such as `192.168.1.10`; networks such as `192.168.1.0/24`. `any` or `all` turns it off. The machine itself (loopback) is always allowed, and so is `/health` from the machine's own address, for Docker's health check with `LISTEN=<ip>` |
+| `ALLOWED_HOSTS` | – | Extra names Kizuna may be reached by: `kizuna.example.com`, or `.example.com` or `*.example.com` for it and every name under it. `any`, `all` or `*` turns it off. Always allowed: IP addresses, `localhost`, one-word names such as a container name, `kizuna`, and names ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.localdomain` |
 
 ```bash
 ALLOW_FROM=192.168.1.10              # only the Plex server (and the machine itself)
@@ -338,5 +338,5 @@ ALLOWED_HOSTS=kizuna.mynas.example   # you added the provider as http://kizuna.m
 Each refused client or name is logged once every 10 minutes, with the setting to change.
 
 > [!WARNING]
-> `ALLOW_FROM=any` (or `0.0.0.0/0`) lets every address use Kizuna, which has no login. Kizuna warns about it at
+> `ALLOW_FROM=any`, or `0.0.0.0/0`, lets every address use Kizuna, which has no login. Kizuna warns about it at
 > startup.
