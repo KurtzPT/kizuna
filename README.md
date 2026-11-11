@@ -19,7 +19,7 @@ into one Plex provider.
 [![docker](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml/badge.svg)](https://github.com/KurtzPT/kizuna/actions/workflows/docker.yml)
 [![Latest release](https://img.shields.io/github/v/release/KurtzPT/kizuna?style=flat-square&label=release&sort=semver)](https://github.com/KurtzPT/kizuna/releases/latest)
 
-[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[**Setup →**](SETUP.md) &nbsp;·&nbsp; [Quick start](#-quick-start) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [How it works](#-how-it-works) &nbsp;·&nbsp; [Modes](#%EF%B8%8F-modes) &nbsp;·&nbsp; [Matching](#-how-a-show-is-found) &nbsp;·&nbsp; [Sources](#-sources) &nbsp;·&nbsp; [Reports](#-match-reports) &nbsp;·&nbsp; [Mapping fixes](MAPPING.md) &nbsp;·&nbsp; [Migrating from HAMA](MIGRATION.md) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -42,6 +42,15 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 
 <sub>\* Done by *Plex Local Media*, Plex's own provider, when you add it to the agent next to Kizuna (optional,
 [setup](SETUP.md#-3-register-kizuna-in-plex)). Kizuna itself never reads your folders.</sub>
+
+## 🚀 Quick start
+
+1. [Get an AniDB client name and the API keys](SETUP.md#-1-get-your-keys) for the sources you want.
+2. [Run Kizuna](SETUP.md#-2-run-kizuna) with Docker Compose, plain Docker or Unraid.
+3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
+4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
+
+Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
 
 ## 🧭 How it works
 
@@ -123,7 +132,7 @@ flowchart LR
 > [!NOTE]
 > Openings and endings don't have to be specials. Named `OP1`, `NCED2`…, Plex makes them **extras** of the show
 > instead, and Kizuna can give them readable titles such as *Opening 1*
-> ([openings and endings](SETUP.md#-openings-and-endings)).
+> ([openings and endings](GUIDE.md#-openings-and-endings)).
 
 - **Movies** are one-episode AniDB entries: `S01E01`, with the movie's own title and summary.
 - **Episode thumbnails**, and summaries and dates AniDB lacks, come from TheTVDB.
@@ -145,7 +154,7 @@ flowchart LR
 - **Specials** are season 0, with TheTVDB's numbers.
 - **Show details** come from the series' first AniDB entry, **episode titles** from each season's own entry.
 - **Movies and OVAs** with no TVDB series of their own, or that TheTVDB lists among the series' specials, are
-  their own show with the `/anidb` rules ([movies and specials](SETUP.md#-movies-and-specials)).
+  their own show with the `/anidb` rules ([movies and specials](GUIDE.md#-movies-and-specials)).
 - A series TheTVDB has no episodes for finds nothing here: use `/anidb` for it.
 
 ### `/auto`: both in one library
@@ -187,7 +196,7 @@ The first piece of evidence that names a show wins:
 - **Ids from other sites** are turned into an AniDB entry through the [id mapping](#-id-mapping).
 
 How an id that fits several entries is resolved, and when a tag blocks the match: [matching in
-detail](SETUP.md#-matching-in-detail).
+detail](GUIDE.md#-matching-in-detail).
 
 ---
 
@@ -238,7 +247,7 @@ answers for days. No setting turns this off.
 AniDB is the strictest: it bans clients that ask too much, and a ban hits your whole IP. Kizuna finds shows in its
 offline title list without asking the API, and asks for at most 200 anime a day. **A large library takes several days
 to get all its AniDB details**; shows fill in on later refreshes, and cached details keep working meanwhile.
-[The AniDB rules in full](SETUP.md#-anidb-fair-use).
+[AniDB's limits](GUIDE.md#-anidb-fair-use).
 
 ---
 
@@ -254,18 +263,7 @@ says:
 
 Titles that matched nothing get a page too, with the closest candidates and how to fix them. **Copy for a bug
 report** turns a page into Markdown to paste into an issue, without your folders or other personal details.
-[More about the reports](SETUP.md#-match-reports).
-
----
-
-## 🚀 Quick start
-
-1. [Get an AniDB client name and the API keys](SETUP.md#-1-get-your-keys) for the sources you want.
-2. [Run Kizuna](SETUP.md#-2-run-kizuna) with Docker Compose, plain Docker or Unraid.
-3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
-4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
-
-Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
+[More about the reports](GUIDE.md#-match-reports).
 
 ---
 

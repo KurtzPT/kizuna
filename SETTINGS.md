@@ -48,7 +48,7 @@ TITLE_LANGS=en,main      # comments after a space are fine
 | an unknown mode, size, port or `LOG_LEVEL` | logs a warning at startup and uses the default |
 | a boolean, number or score it can't read or that is out of range (`TITLE_OFFICIAL_ONLY=yes`, `MIN_SCORE=150`) | logs a warning at startup and uses the default |
 
-The `ready` line at startup shows the settings in effect ([logs](SETUP.md#-logs)).
+The `ready` line at startup shows the settings in effect ([logs](GUIDE.md#-logs)).
 
 ## 🔑 Accounts & keys
 
@@ -176,7 +176,7 @@ have one poster per entry. Those always give their series' (or entry's) art, wha
 
 With `ART_ALL_SOURCES=true`, each source lists its season's art, then (with `SEASON_ART_FALLBACK`) its series',
 before the next source. Banners aren't sent: Plex's metadata providers have no image type for them. A
-[match report](SETUP.md#-match-reports) says, per source, how many images came from the season and how many from the
+[match report](GUIDE.md#-match-reports) says, per source, how many images came from the season and how many from the
 series.
 
 ### Episodes
@@ -263,12 +263,12 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 
 | Cached | For |
 |---|---|
-| AniDB anime | see [AniDB fair use](SETUP.md#-anidb-fair-use) |
+| AniDB anime | see [AniDB fair use](GUIDE.md#-anidb-fair-use) |
 | TheTVDB · TheMovieDb | 2–7 days (TheMovieDb id lookups: 30 days) |
 | MyAnimeList | 30 days |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily (every 5 min until the first download succeeds); an unchanged list isn't downloaded again |
-| Built shows (in memory) | 1 hour; 2 min when something was missing (`complete=false` in the [logs](SETUP.md#-logs)) or the build failed |
+| Built shows (in memory) | 1 hour; 2 min when something was missing (`complete=false` in the [logs](GUIDE.md#-logs)) or the build failed |
 
 When a source fails (TheTVDB: its login too), an expired cached copy answers instead: old data beats none.
 
@@ -276,16 +276,16 @@ When a source fails (TheTVDB: its login too), an expired cached copy answers ins
 
 | Variable | Default | What it does |
 |---|---|---|
-| `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](SETUP.md#-logs)) |
+| `LOG_LEVEL` | `info` | `info` or `debug` ([what each logs](GUIDE.md#-logs)) |
 | `LOG_RETENTION_DAYS` | `7` | Days of old log files kept; older ones are deleted. `0` (or 100000 and up) = keep forever |
 | `TZ` | UTC (image) · system time zone (binary) | Time zone (e.g. `Europe/London`) for log timestamps and when a new log day starts |
-| `MATCH_REPORTS` | `false` | `true`: write a [match report](SETUP.md#-match-reports) per show to `reports/` in the data folder |
+| `MATCH_REPORTS` | `false` | `true`: write a [match report](GUIDE.md#-match-reports) per show to `reports/` in the data folder |
 
 ## 🎵 Opening and ending titles
 
 Plex names the opening and ending extras it makes from your files after the file: `OP1`, `NCED2`. With both settings
 below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own API. How it works, when a title
-changes and how the titles are made: [SETUP](SETUP.md#readable-titles).
+changes and how the titles are made: [the guide](GUIDE.md#readable-titles).
 
 | Variable | Default | What it does |
 |---|---|---|

@@ -133,7 +133,7 @@ English, then romaji); with none of those, the other sources' real titles come f
 language.
 
 In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background
-([within AniDB's limits](SETUP.md#-anidb-fair-use)), so their titles appear on a later refresh.
+([within AniDB's limits](GUIDE.md#-anidb-fair-use)), so their titles appear on a later refresh.
 
 ## 🧩 Use cases
 
@@ -263,7 +263,7 @@ The AniDB entry is a two-episode OVA that TheTVDB has as S00E07 and S00E08. Put 
 ```
 
 In `/tvdb` the OVA's titles then land on those two specials, and the OVA's own folder is its own show in every mode
-([movies and specials](SETUP.md#-movies-and-specials)).
+([movies and specials](GUIDE.md#-movies-and-specials)).
 
 </details>
 

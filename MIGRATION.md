@@ -46,7 +46,7 @@ for those orders won't line up. The script warns about each such folder, and pla
 and `[tvdb2-…]`, `[tvdb4-…]`… like `[tvdb3-…]`.
 
 In every mode, openings and endings named `NCOP1`, `ED2`… stay [extras](#openings-and-endings-plex-makes-them-extras):
-the script plans nothing for them. Kizuna can give those extras [readable titles](SETUP.md#readable-titles)
+the script plans nothing for them. Kizuna can give those extras [readable titles](GUIDE.md#readable-titles)
 (`Opening 1`).
 
 HAMA features Kizuna leaves out on purpose, to stay small: collections, online theme songs and rating badges.
@@ -252,7 +252,7 @@ new files in either of two ways:
 | `Show [anidb-23]/Show - 01.mkv` … `- 148.mkv` | `S01E01` … `S01E148` | none |
 | `Show - S01E05.mkv` | `S01E05` | none |
 | `Specials/Show - 01.mkv` | `S00E01` | none |
-| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | none: they stay extras ([titles](SETUP.md#readable-titles)). The script reports each one and writes no hint ([why, and what you can do by hand](#openings-and-endings-plex-makes-them-extras)) |
+| openings and endings: `NCOP1` `OP1b` `NCED2` `OP` `ED` | made extras, hints ignored | none: they stay extras ([titles](GUIDE.md#readable-titles)). The script reports each one and writes no hint ([why, and what you can do by hand](#openings-and-endings-plex-makes-them-extras)) |
 | specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv` (a bare `OVA` / `OAD` / `Special` is `S00E01`) |
 | trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` → `S00E202` (AniDB's trailer numbers) |
 | a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
@@ -283,14 +283,14 @@ new files in either of two ways:
 Before it reads any `.plexmatch` hint, Plex's scanner checks each file name for an opening or ending, and makes
 every file that has one an **extra**. An extra still plays from the show page, but it isn't a special: it gets no
 Kizuna number or metadata, and an `ep:` hint can't change that. Which names Plex takes, what it does with the others
-and when the extras appear: [SETUP, "Openings and endings"](SETUP.md#-openings-and-endings).
+and when the extras appear: [the guide, "Openings and endings"](GUIDE.md#-openings-and-endings).
 
 **The script writes no hint for any opening or ending file**, however it is spelled. It never renames a file, so it
 only reports each one, with [Kizuna's number](#openings-and-endings-with-variants) for it when it knows it:
 
 | Your file | After the switch | The script | To do |
 |---|---|---|---|
-| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | reports it, no hint | nothing, or let Kizuna give it a [readable title](SETUP.md#readable-titles) (`Opening 1`, `Opening 1b`…) |
+| `NCOP1` `OP1b` `ED 2` `NCED` `Creditless Opening` | an extra titled `NCOP1`, `OP1b`… | reports it, no hint | nothing, or let Kizuna give it a [readable title](GUIDE.md#readable-titles) (`Opening 1`, `Opening 1b`…) |
 | `Opening 1` `Ending` `NCOpening 1` (the whole word, without `Creditless` or `Clean`) | **left out of the library**, as neither an extra nor an episode | reports it, no hint | ✋ rename it with `OP1` / `ED1` in place of the word, to have it as an extra |
 | `Show - 05 [ED fix].mkv` (an episode with such a word) | an extra, or left out (`[Ending fix]`): missing from the episodes | warns | ✋ rename it without the word |
 | `Show - S01E05 [ED fix].mkv` (a season and episode in the name) | an ordinary episode | no warning | nothing |
@@ -370,7 +370,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 | **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) |
 | **Left alone** | files with `SxxEyy` in the name or in a `Season NN` folder (in `[tvdb3-…]` folders these are already absolute) |
 | **Episode numbers read from** | ` - 033`, `E33` / `Ep 33` / `Episode 33`, or a number ending the name; `[…]`, `(…)`, `{…}` groups don't count. A file with none is reported |
-| **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules. A movie's folder with the series' `[tvdb3-…]` tag is the whole series in Kizuna unless its name clearly names the movie: tag it `[anidb-…]` instead ([movies and specials](SETUP.md#-movies-and-specials)) |
+| **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules. A movie's folder with the series' `[tvdb3-…]` tag is the whole series in Kizuna unless its name clearly names the movie: tag it `[anidb-…]` instead ([movies and specials](GUIDE.md#-movies-and-specials)) |
 | **Specials** (`SP3`, `PV`…) | only reported, because TheTVDB numbers its own. Add `ep: S00Exx: <file>` lines with TheTVDB's numbers [yourself](#-your-own-plexmatch-files) |
 
 ### Plain `tvdb` folders: per-season numbers

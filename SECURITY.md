@@ -62,7 +62,7 @@ may talk to it, and what it exposes:
 | **Known host names only** | DNS rebinding: a web page reaching Kizuna through your browser | `ALLOWED_HOSTS` |
 | **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers; logs show them as `***` | built in |
 | **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, `Dockerfile` |
-| **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](SETUP.md#-anidb-fair-use) |
+| **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](GUIDE.md#-anidb-fair-use) |
 | **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |
 | **Signed images** | a tampered or look-alike image: every published image has a signed build provenance attestation | `docker.yml`, [check it](#-supported-versions) |
 

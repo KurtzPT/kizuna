@@ -15,8 +15,8 @@
 ## 🐛 Reporting a problem
 
 Not writing code? Open an [issue](https://github.com/KurtzPT/kizuna/issues/new/choose) and pick the template that
-fits. **Check the [troubleshooting table](SETUP.md#-troubleshooting) first.** Each form asks for the folder and file
-names, your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](SETUP.md#-logs)). Keys and Plex tokens are
+fits. **Check the troubleshooting tables first** ([setup](SETUP.md#-troubleshooting), [metadata](GUIDE.md#-metadata-problems)). Each form asks for the folder and file
+names, your mode and a `LOG_LEVEL=debug` excerpt for that one show ([Logs](GUIDE.md#-logs)). Keys and Plex tokens are
 already `***` in the logs, but remove any paths you don't want public.
 
 > [!IMPORTANT]
@@ -58,7 +58,7 @@ docker build -t kizuna .
 
 > [!WARNING]
 > **Mind AniDB while developing.** Use your own registered client name, and don't loop refreshes or bulk-scan a big
-> library against AniDB: the [fair-use limits](SETUP.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
+> library against AniDB: the [fair-use limits](GUIDE.md#-anidb-fair-use) are per IP, and a ban hits your Plex too.
 > The tests never call a real service, so `go test` is always safe.
 
 ## 📐 Ground rules
@@ -142,7 +142,7 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 | To add… | Start in |
 |---|---|
 | a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETTINGS.md](SETTINGS.md) |
-| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (the summary), [SETUP.md](SETUP.md) (matching in detail, what a user sees), [MAPPING.md](MAPPING.md#-how-episodes-are-paired) (pairing) or [SETTINGS.md](SETTINGS.md) (what a user sets) |
+| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (the summary), [GUIDE.md](GUIDE.md) (matching in detail, what a user sees), [MAPPING.md](MAPPING.md#-how-episodes-are-paired) (pairing) or [SETTINGS.md](SETTINGS.md) (what a user sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`, a show item value's at the end of the build); the page: `internal/report/page.html`, one file with its styles and script, tested by `scripts/report-page_test.js` |

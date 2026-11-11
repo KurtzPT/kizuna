@@ -12,6 +12,7 @@ metadata:
           - internal/provider/**
           - internal/report/**
           - internal/sources/**
+          - GUIDE.md
           - MAPPING.md
 
 migration:
