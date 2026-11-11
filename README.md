@@ -52,7 +52,9 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 3. [Add it to Plex](SETUP.md#-3-register-kizuna-in-plex) as a metadata provider, with the URL of your [mode](#%EF%B8%8F-modes).
 4. [Point a library at it](SETUP.md#-4-point-a-library-at-it), then scan and refresh.
 
-Coming from HAMA + Absolute Series Scanner? [MIGRATION.md](MIGRATION.md) moves a library over without renaming files.
+> [!TIP]
+> **Coming from HAMA + Absolute Series Scanner?** [MIGRATION.md](MIGRATION.md) moves a library over without renaming
+> files.
 
 ## 🧭 How it works
 
@@ -71,8 +73,9 @@ flowchart LR
 | 2 | **Kizuna** | gets the show name and file path from Plex, [finds the show](#-how-a-show-is-found), and describes it |
 | 3 | **Plex Local Media** *(optional)* | Plex's own provider: adds your own artwork and theme songs on top, when the agent has it |
 
-Kizuna never reads your media folders and can't move an episode to another number. **The folder layout of your
-[mode](#%EF%B8%8F-modes) is what puts each file in the right place.**
+> [!IMPORTANT]
+> Kizuna never reads your media folders and can't move an episode to another number. **The folder layout of your
+> [mode](#%EF%B8%8F-modes) is what puts each file in the right place.**
 
 ---
 
@@ -178,8 +181,9 @@ flowchart LR
  └─ 📁 Cowboy Bebop                            ← AUTO_DEFAULT
 ```
 
-With only one of the two modes set up, every show gets that mode's rules, except a show tagged `[anidb-…]` or
-`[tvdb-…]` for the mode that's off: it gets no match.
+> [!NOTE]
+> With only one of the two modes set up, every show gets that mode's rules, except a show tagged `[anidb-…]` or
+> `[tvdb-…]` for the mode that's off: it gets no match.
 
 ## 🔍 How a show is found
 
@@ -191,11 +195,13 @@ The first piece of evidence that names a show wins:
 | 2 | **The GUID Plex already has** from another agent | `com.plexapp.agents.thetvdb://81797`, a HAMA `anidb-69` GUID, `imdb://tt0388629` |
 | 3 | **AniDB title search** in the offline title list (~1 ms, no API call) | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
 
-- **One id tag per show.** Two different ones give no match and a warning; the same tag in the folder and the file
-  name is fine.
 - **Fix Match** in Plex lists the show the tag or GUID names first, then the results for the title you type, so a
   wrong match can be changed without unmatching first.
 - **Ids from other sites** are turned into an AniDB entry through the [id mapping](#-id-mapping).
+
+> [!TIP]
+> **Tag your show folders.** An id tag is the sure way to the right show. Use **one id tag per show**: two different
+> ones give no match and a warning; the same tag in the folder and the file name is fine.
 
 How an id that fits several entries is resolved, and when a tag blocks the match: [matching in
 detail](GUIDE.md#-matching-in-detail).
@@ -247,9 +253,11 @@ Each source's API has usage rules, and Kizuna keeps to them: it paces its reques
 answers for days. No setting turns this off.
 
 AniDB is the strictest: it bans clients that ask too much, and a ban hits your whole IP. Kizuna finds shows in its
-offline title list without asking the API, and asks for at most 200 anime a day. **A large library takes several days
-to get all its AniDB details**; shows fill in on later refreshes, and cached details keep working meanwhile.
-[AniDB's limits](GUIDE.md#-anidb-fair-use).
+offline title list without asking the API, and asks for at most 200 anime a day.
+
+> [!WARNING]
+> **A large library takes several days to get all its AniDB details**; shows fill in on later refreshes, and cached
+> details keep working meanwhile. [AniDB's limits](GUIDE.md#-anidb-fair-use).
 
 ---
 

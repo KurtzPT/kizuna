@@ -44,8 +44,9 @@ flowchart LR
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
 | **Anime News Network** | – | no key | – |
 
-**TheTVDB's PIN:** a free, user-supported v4 key only works together with your subscriber PIN in `TVDB_PIN`. A
-company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the log says](GUIDE.md#-metadata-problems)).
+> [!IMPORTANT]
+> **TheTVDB's PIN:** a free, user-supported v4 key only works together with your subscriber PIN in `TVDB_PIN`. A
+> company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the log says](GUIDE.md#-metadata-problems)).
 
 ## 🐳 2. Run Kizuna
 
@@ -81,7 +82,8 @@ docker run -d --name kizuna \
 
 ### Unraid
 
-Unraid runs Kizuna as **`nobody:users` (99:100)**, not `1000:1000`. Keep that owner.
+> [!IMPORTANT]
+> Unraid runs Kizuna as **`nobody:users` (99:100)**, not `1000:1000`. Keep that owner.
 
 1. **Create the data folder:** a `kizuna` folder in the `appdata` share. Made through the share, it already belongs to
    `nobody:users`.
@@ -124,9 +126,10 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 
 - **Edit `kizuna.env`, then restart the container.** [SETTINGS.md](SETTINGS.md) explains every setting.
 - **Keep the file private:** it holds your keys. Only Kizuna's user needs to read it.
-- **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
-  `docker run`, a variable in the Unraid template (Unraid always sets `TZ`). Handy for a quick test, such as
-  `LOG_LEVEL=debug`.
+> [!NOTE]
+> **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
+> `docker run`, a variable in the Unraid template (Unraid always sets `TZ`). Handy for a quick test, such as
+> `LOG_LEVEL=debug`.
 
 ## 🔌 3. Register Kizuna in Plex
 
@@ -163,10 +166,14 @@ In Plex Web, open **Settings → Metadata Agents**.
 
    | Field | Value |
    |---|---|
-   | **Scanner** | `Plex TV Series` (legacy scanners such as ASS don't work with the new providers) |
+   | **Scanner** | `Plex TV Series` |
    | **Agent** | the agent from step 3 |
 
 3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
+
+> [!IMPORTANT]
+> Only the **Plex TV Series** scanner works with the new providers. Legacy scanners, such as Absolute Series Scanner,
+> don't.
 
 > [!WARNING]
 > A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
