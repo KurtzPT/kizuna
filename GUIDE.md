@@ -22,10 +22,14 @@ then the title search. The finer points:
 | Case | What happens |
 |---|---|
 | Two different id tags, or in `/auto` a tag for a mode that is off | no match and a warning. The GUID and the title aren't tried |
-| An id tag Kizuna can't resolve: a typo, or an id the [id mapping](README.md#-id-mapping) doesn't have | **skipped without a warning**: the GUID, then the title decides |
 | A `[tmdb-…]` tag or `tmdb://` GUID | read as a TheMovieDb **TV show** id. It's a movie id only when no entry has that number as a TV show; when both exist, the title search decides, else the TV show wins |
 | `/anidb`, an id that covers several entries (a TVDB series with one entry per season) | the series' first entry, by that site's own order. Movies and specials only when nothing else matches |
 | *Fix Match* on a show with no match because of its tags | still lists the results for the title you type (not for a season or an episode) |
+
+> [!WARNING]
+> **A mistyped id tag is skipped without a warning.** When Kizuna can't resolve a tag (a typo, or an id the
+> [id mapping](README.md#-id-mapping) doesn't have), the GUID and then the title decide, so the show may match by
+> title instead.
 
 ## 🎬 Movies and specials
 
@@ -33,9 +37,12 @@ TheTVDB often files an anime's movies, OVAs and specials among a series' special
 One Piece. Kizuna makes each of them **its own show, in every mode**, with the `/anidb` rules: the movie is
 `S01E01`.
 
+> [!TIP]
+> **The sure way to get a movie:** tag its folder with the movie's AniDB id, `[anidb-16983]`.
+
 | You have | You get |
 |---|---|
-| a folder tagged `[anidb-16983]` | that movie. **The sure way** |
+| a folder tagged `[anidb-16983]` | that movie |
 | a folder tagged `[tmdb-900667]` (the movie's TheMovieDb id) | that movie, unless the number is also a TheMovieDb TV show ([above](#-matching-in-detail)) |
 | an untagged folder, `One Piece Film Red` | the movie, found by its title |
 | a folder tagged with the series, `[tvdb-81797]` (or another agent's TheTVDB GUID) | the whole series, unless the name clearly names one of its movies: then that movie, with the warning `matched to an AniDB entry by name inside a TheTVDB id; may be wrong` |
@@ -63,8 +70,11 @@ Plex's scanner decides by itself which files are openings and endings, from the 
 
 - An **extra** plays from the show's page (*Extras*). It has no episode number and nothing from Kizuna. To have an
   opening as a special instead, name it by its number ([the numbers](MIGRATION.md#openings-and-endings-with-variants)).
-- The first such word counts, wherever it is: `Show - 05 [ED fix].mkv` becomes an ending extra too.
-- Plex adds and renames extras only on **Refresh Metadata**, not on *Scan Library Files*.
+> [!WARNING]
+> The first such word counts, wherever it is: `Show - 05 [ED fix].mkv` becomes an ending extra too.
+
+> [!IMPORTANT]
+> Plex adds and renames extras only on **Refresh Metadata**, not on *Scan Library Files*.
 
 ### Readable titles
 
@@ -80,14 +90,18 @@ touched):
 | `NCOP.mkv` · `OPED.mkv` | `NCOP` · `OPED` | **Opening** · **Opening & Ending** |
 | `NCED1.mkv` next to `ED1.mkv` | `NCED1` | **Ending 1 (creditless)** |
 
-- Plex resets the titles on every refresh, so Kizuna sets them again **about 15 seconds after each show's refresh**
-  (and once more 2 minutes later). Until then you see Plex's own title.
-- Each rename logs `plex: extra renamed`. Titles stuck as `OP1`? See [problems](#episodes-and-details).
+> [!NOTE]
+> Plex resets the titles on every refresh, so Kizuna sets them again **about 15 seconds after each show's
+> refresh** (and once more 2 minutes later). Until then you see Plex's own title.
+
+Each rename logs `plex: extra renamed`. Titles stuck as `OP1`? See [problems](#episodes-and-details).
 
 ## 🤝 AniDB fair use
 
-AniDB bans clients that ask too much, and a ban covers your whole IP. Kizuna keeps to these limits, and no setting
-changes them:
+> [!WARNING]
+> AniDB bans clients that ask too much, and **a ban covers your whole IP**.
+
+Kizuna keeps to these limits, and no setting changes them:
 
 | What | Limit |
 |---|---|
@@ -99,14 +113,16 @@ changes them:
 | **A ban** | every call paused for 24 h |
 | **A rejected `ANIDB_CLIENT` / `ANIDB_CLIENTVER`** | every call paused for 24 h, or until a restart with changed values |
 
-The limits survive restarts: they are kept in `anidb-state.json` in the data folder. While AniDB can't be asked, cached data and the
-other sources fill in.
+The limits survive restarts: they are kept in `anidb-state.json` in the data folder. While AniDB can't be asked,
+cached data and the other sources fill in.
 
 ## 📜 Logs
 
 Logs go to `docker logs kizuna` and to `logs/kizuna.log` in the data folder, one `key=value` line per event. Each
-day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging). Keys and tokens
-never appear in them.
+day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging).
+
+> [!NOTE]
+> Keys and tokens never appear in the logs.
 
 | `LOG_LEVEL` | Logs |
 |---|---|
@@ -136,11 +152,13 @@ A show's page covers its last 5 builds (the episode and art lists only for the n
 | **Timeline** | every download and cache read, so a slow or failing source stands out |
 | **Plex requests** | the last 50 requests about the show |
 
-- **Copy for a bug report** gives the selected build as Markdown for an issue, without folders, request URLs,
-  summaries, cast or image addresses.
 - A title that matched nothing gets `unmatched-<title>-<hash>.html`, with the closest candidates and how to fix it.
   It goes once the title matches, or after 30 days without a request for it.
 - Delete the `reports/` folder to start over. Turning reports off leaves it as it is.
+
+> [!TIP]
+> **Reporting a bug?** *Copy for a bug report* gives the selected build as Markdown for the issue, without folders,
+> request URLs, summaries, cast or image addresses.
 
 ## 🧰 Metadata problems
 
