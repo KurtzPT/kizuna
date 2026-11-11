@@ -218,7 +218,7 @@ detail](GUIDE.md#-matching-in-detail).
 | [**MyAnimeList**](https://myanimelist.net) | client ID | after TheMovieDb, for the summary, poster, genres, studio, rating and date |
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | none | last, for show details and posters |
 
-Only AniDB (for `/anidb`) or TheTVDB (for `/tvdb`) is required; every other key just adds details. Every field has
+Only AniDB is required for `/anidb`, or TheTVDB for `/tvdb`; every other key just adds details. Every field has
 its own source order, which you can change, and a source is only asked when the ones before it have nothing.
 
 **Setup and settings:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
@@ -238,8 +238,8 @@ Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md
 
 ### 🏷️ Episode titles and pairing
 
-Episode titles come from AniDB first, then TheTVDB, then TheMovieDb (`EPISODE_TITLES`), in English where AniDB has
-it, else romaji (`EPISODE_LANGS`). Placeholders such as *Episode 12* or *TBA* are skipped.
+Episode titles come from AniDB first, then TheTVDB, then TheMovieDb, in English where AniDB has it, else romaji.
+Change both with `EPISODE_TITLES` and `EPISODE_LANGS`. Placeholders such as *Episode 12* or *TBA* are skipped.
 
 To take a title from another site, Kizuna **pairs** each episode with the same episode there, through the
 [id mapping](#-id-mapping) and its exceptions for recaps, split seasons and specials. When an episode gets the wrong

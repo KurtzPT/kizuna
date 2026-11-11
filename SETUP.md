@@ -128,7 +128,7 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 - **Keep the file private:** it holds your keys. Only Kizuna's user needs to read it.
 > [!NOTE]
 > **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
-> `docker run`, a variable in the Unraid template (Unraid always sets `TZ`). Handy for a quick test, such as
+> `docker run`, a variable in the Unraid template, where Unraid always sets `TZ`. Handy for a quick test, such as
 > `LOG_LEVEL=debug`.
 
 ## 🔌 3. Register Kizuna in Plex
