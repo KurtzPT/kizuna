@@ -8,11 +8,24 @@
 
 [Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; **Guide** &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
 
-<sub>On this page: [Movies](#-movies-and-specials) · [Openings](#-openings-and-endings) · [Matching](#-matching-in-detail) · [Logs](#-logs) · [Reports](#-match-reports) · [AniDB](#-anidb-fair-use) · [Problems](#-metadata-problems)</sub>
+<sub>On this page: [Matching](#-matching-in-detail) · [Movies](#-movies-and-specials) · [Openings](#-openings-and-endings) · [AniDB](#-anidb-fair-use) · [Logs](#-logs) · [Reports](#-match-reports) · [Problems](#-metadata-problems)</sub>
 
 </div>
 
 ---
+
+## 🔍 Matching in detail
+
+The README says [how a show is found](README.md#-how-a-show-is-found): an id tag, then the GUID Plex already has,
+then the title search. The finer points:
+
+| Case | What happens |
+|---|---|
+| Two different id tags, or (`/auto`) a tag for a mode that is off | no match and a warning. The GUID and the title aren't tried |
+| An id tag Kizuna can't resolve: a typo, or an id the [id mapping](README.md#-id-mapping) doesn't have | **skipped without a warning**: the GUID, then the title decide |
+| A `[tmdb-…]` tag or `tmdb://` GUID | read as a TheMovieDb **TV show** id. It's a movie id only when no entry has that number as a TV show; when both exist, the title search decides, else the TV show wins |
+| `/anidb`, an id that covers several entries (a TVDB series with one entry per season) | the series' first entry, by that site's own order. Movies and specials only when nothing else matches |
+| *Fix Match* on a show with no match because of its tags | still lists the results for the title you type (not for a season or an episode) |
 
 ## 🎬 Movies and specials
 
@@ -22,7 +35,8 @@ One Piece. Kizuna makes each of them **its own show, in every mode**, with the `
 
 | You have | You get |
 |---|---|
-| a folder tagged `[anidb-16983]`, or `[tmdb-900667]` (the movie's TheMovieDb id) | that movie. **The sure way** |
+| a folder tagged `[anidb-16983]` | that movie. **The sure way** |
+| a folder tagged `[tmdb-900667]` (the movie's TheMovieDb id) | that movie, unless the number is also a TheMovieDb TV show ([above](#-matching-in-detail)) |
 | an untagged folder, `One Piece Film Red` | the movie, found by its title |
 | a folder tagged with the series, `[tvdb-81797]` (or another agent's TheTVDB GUID) | the whole series, unless the name clearly names one of its movies: then that movie, with the warning `matched to an AniDB entry by name inside a TheTVDB id; may be wrong` |
 | `One Piece - S00E46.mkv` inside the series' `/tvdb` folder | a special of the series |
@@ -37,7 +51,7 @@ year (`(2022)` in the name, or the one Plex sends) tells two close movies apart.
 ## 🎵 Openings and endings
 
 Plex's scanner decides by itself which files are openings and endings, from the file name alone, before Kizuna or a
-[`.plexmatch`](MIGRATION.md#-how-it-works) hint is asked (read from Plex Media Server 1.43.5).
+[`.plexmatch`](MIGRATION.md#-how-it-works) hint is asked (seen in Plex Media Server 1.43.5):
 
 | The name has, as a separate word | Example | Plex makes the file |
 |---|---|---|
@@ -54,8 +68,9 @@ Plex's scanner decides by itself which files are openings and endings, from the 
 
 ### Readable titles
 
-Set [`PLEX_URL` and `PLEX_TOKEN`](SETTINGS.md#-opening-and-ending-titles) and Kizuna renames these extras through
-Plex's API:
+Set [`PLEX_URL` and `PLEX_TOKEN`](SETTINGS.md#-opening-and-ending-titles), then run **Refresh All Metadata** once.
+Kizuna renames the opening and ending extras of the shows it matched through Plex's API (your files are never
+touched):
 
 | File | Plex's title | Kizuna's title |
 |---|---|---|
@@ -67,64 +82,7 @@ Plex's API:
 
 - Plex resets the titles on every refresh, so Kizuna sets them again **about 15 seconds after each show's refresh**
   (and once more 2 minutes later). Until then you see Plex's own title.
-- After setting the two values, run **Refresh All Metadata** once.
-- Only the opening and ending extras of shows Kizuna matched are renamed. Your files are never touched.
-- Each rename logs `plex: extra renamed`. When Plex doesn't answer, Kizuna pauses for a minute, and those shows get
-  their titles on their next refresh.
-
-## 🔍 Matching in detail
-
-The README says [how a show is found](README.md#-how-a-show-is-found): an id tag, then the GUID Plex already has,
-then the title search. The finer points:
-
-| Case | What happens |
-|---|---|
-| Two different id tags (`Show [anidb-1234]/Show [tvdb-5678] - 01.mkv`) | no match and a warning. The GUID and the title aren't tried |
-| `/auto`, a tag whose mode is off (`[tvdb-…]` without a TheTVDB key) | no match, the same way |
-| `/auto` with only one mode set up | every other show gets that mode's rules; a GUID of the other site is converted through the [id mapping](README.md#-id-mapping) |
-| *Fix Match* on a blocked show | still lists the results for the title you type (not for a season or an episode) |
-| A `[tmdb-…]` tag or `tmdb://` GUID | a TheMovieDb **TV show** id. It counts as a movie id only when no entry has that number as a TV show; when both exist, the title search decides, else the TV show wins |
-| `/anidb`, an id that covers several entries (a TVDB series with one entry per season) | the series' first entry, by that site's own order. Movies and specials only when nothing else matches |
-| A movie or special inside a `[tvdb-…]` tag | found only when the name clearly names it, with a warning ([movies and specials](#-movies-and-specials)) |
-
-## 📜 Logs
-
-Logs go to `logs/kizuna.log` in the data folder and to `docker logs kizuna`, one `key=value` line per event. A new
-file starts each day, kept for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging). Keys and tokens always show as `***`.
-
-| `LOG_LEVEL` | Logs |
-|---|---|
-| `info` (default) | the settings in effect (`ready`), the lists loaded, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
-| `debug` | also every Plex request, outgoing call and cache decision, the title-search scores, and which source gave each field |
-
-**`show built … complete=false`** means something was missing (AniDB details, part of an episode list, a source that
-failed), so the show is built again in 2 minutes. When AniDB was the missing part, the `AniDB details not available`
-line before it says why (`why=`).
-
-## 📊 Match reports
-
-Set **`MATCH_REPORTS=true`**, then open **`reports/index.html`** in the data folder in a browser. No server is
-needed. The index lists every show, newest first, and the titles that matched nothing, filtered by title, id, mode
-or status.
-
-A show's page covers its last 5 builds:
-
-| Part | Shows |
-|---|---|
-| **What to check** | what looks wrong: episodes without a real title or date, a failed source, an inexact title match |
-| **Match** | what Plex sent, and how Kizuna decided: the tag, the GUID, or the title-search scores |
-| **Sources** | the AniDB entries behind the show, what each source offered per field, and which one Plex got |
-| **Episodes** | every episode, its place on each source, and where its title came from |
-| **Art** | every image sent to Plex, with its source |
-| **Sent to Plex** | the whole answer, each value with its source |
-| **Timeline** | every download and cache read, so a slow or failing source stands out |
-| **Plex requests** | the last 50 requests about the show |
-
-- **Copy for a bug report** gives the page as Markdown for an issue, without folders, request URLs, summaries, cast
-  or image addresses.
-- A title that matched nothing gets `unmatched-<title>-<hash>.html`, with the closest candidates and how to fix it.
-  It is removed once the title matches, or after 30 days.
-- Delete the `reports/` folder to start over. Turning reports off leaves it as it is.
+- Each rename logs `plex: extra renamed`. Titles stuck as `OP1`: [problems](#episodes-and-details).
 
 ## 🤝 AniDB fair use
 
@@ -141,31 +99,89 @@ changes them:
 | **A ban** | every call paused for 24 h |
 | **A rejected `ANIDB_CLIENT` / `ANIDB_CLIENTVER`** | every call paused for 24 h, or until a restart with changed values |
 
-So a large library takes **several days** to get all its AniDB details; shows fill in on later refreshes. The limits
-survive restarts (`anidb-state.json` in the data folder). While AniDB can't be asked, cached data and the other
-sources fill in.
+The limits survive restarts (`anidb-state.json` in the data folder). While AniDB can't be asked, cached data and the
+other sources fill in.
+
+## 📜 Logs
+
+Logs go to `docker logs kizuna` and to `logs/kizuna.log` in the data folder, one `key=value` line per event. Each
+day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SETTINGS.md#-logging). Keys and tokens
+never appear in them.
+
+| `LOG_LEVEL` | Logs |
+|---|---|
+| `info` (default) | the settings in effect (`ready`), the lists loaded, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
+| `debug` | also every Plex request, outgoing call and cache decision, the title-search scores, and which source gave each field |
+
+- **`show built … complete=false`**: something was missing (AniDB details, part of an episode list, a source that
+  failed). Kizuna keeps that show for only 2 minutes, so a refresh after that builds it again.
+- The same `match:` warning is logged at most once every 10 minutes.
+
+## 📊 Match reports
+
+Set **`MATCH_REPORTS=true`**, then open **`reports/index.html`** in the data folder in a browser. No server is
+needed. The index lists every show, newest first, and the titles that matched nothing, filtered by title, id, mode
+or status.
+
+A show's page covers its last 5 builds (the episode and art lists only for the newest):
+
+| Part | Shows |
+|---|---|
+| **What to check** | what looks wrong: episodes without a real title or date, a failed source, an inexact title match |
+| **Match** | what Plex sent, and how Kizuna decided: the tag, the GUID, or the title-search scores |
+| **Sources** | the AniDB entries behind the show, what each source offered per field, and which one Plex got |
+| **Episodes** | every episode, its place on each source, and where its title came from |
+| **Art** | every image sent to Plex, with its source |
+| **Sent to Plex** | the whole answer, each value with its source |
+| **Timeline** | every download and cache read, so a slow or failing source stands out |
+| **Plex requests** | the last 50 requests about the show |
+
+- **Copy for a bug report** gives the selected build as Markdown for an issue, without folders, request URLs,
+  summaries, cast or image addresses.
+- A title that matched nothing gets `unmatched-<title>-<hash>.html`, with the closest candidates and how to fix it.
+  It goes once the title matches, or after 30 days without a request for it.
+- Delete the `reports/` folder to start over. Turning reports off leaves it as it is.
 
 ## 🧰 Metadata problems
 
-Kizuna won't start, or Plex can't reach it: [SETUP, troubleshooting](SETUP.md#-troubleshooting).
+Kizuna won't start, or Plex can't reach it: [SETUP, troubleshooting](SETUP.md#-troubleshooting). Quoted messages are
+from Kizuna's [log](#-logs) unless marked *Plex*.
+
+### Matching
 
 | Symptom | Fix |
 |---|---|
-| A show doesn't match | Its [unmatched report](#-match-reports) or the `match: nothing found` log line gives the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
+| A show doesn't match | `match: nothing found` says why (`how=`); its [unmatched report](#-match-reports) lists the closest titles. Add an id tag to the folder: `Show [anidb-1234]` |
 | Wrong show (a remake, a sequel) | Add an id tag, or use *Fix Match* in Plex |
-| `match: more than one id tag; only one is allowed` | Keep one tag in the folder and file names ([why](#-matching-in-detail)) |
-| `/auto`: `match: id tag needs /tvdb, which is off` (or `/anidb`) | Set up that mode's key ([keys](SETUP.md#-1-get-your-keys)), or change the tag |
-| A movie folder became the whole series | Tag it `[anidb-…]` or `[tmdb-…]` instead of `[tvdb-…]` ([movies and specials](#-movies-and-specials)) |
-| No summaries, only *Episode N* titles | AniDB isn't set up, or is paused: the `AniDB details not available` line says why. A later *Refresh Metadata* fills them in ([AniDB's limits](#-anidb-fair-use)) |
+| An id tag seems ignored | Kizuna doesn't know that id (a typo?) and matched by title ([why](#-matching-in-detail)) |
 | A new anime isn't found by its AniDB id | It's unknown until the next daily title list |
-| `/tvdb` show has no episodes | Set a TheTVDB key. With one, `TheTVDB has no episodes for this show`: use `/anidb` for it |
+| A movie folder became the whole series | Tag it `[anidb-…]` instead of `[tvdb-…]` ([movies and specials](#-movies-and-specials)) |
+| `match: more than one id tag; only one is allowed` | Keep one tag in the folder and file names |
+| `/auto`: `match: id tag needs /tvdb, which is off` (or `/anidb`) | Set up that mode's key ([keys](SETUP.md#-1-get-your-keys)), or change the tag |
+| `a request for a mode that is off` | The library's provider URL is for a mode without its key: set the key, or use another mode |
+
+### Episodes and details
+
+| Symptom | Fix |
+|---|---|
+| No summaries, only *Episode N* titles | AniDB isn't set up (`ANIDB_CLIENT not set` at startup), or can't be asked yet: `AniDB details not available` says why. A later *Refresh Metadata* fills them in ([AniDB's limits](#-anidb-fair-use)) |
+| `/tvdb` show has no episodes | `show build failed` with `TheTVDB has no episodes for this show`: use `/anidb` for it |
 | Episodes in the wrong season | Plex's scanner sets seasons from file names and `.plexmatch` hints, not Kizuna: see [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
-| `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
-| `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (the reason follows). Plex asks again later |
+| Openings and endings keep Plex's titles (`OP1`) | Check the startup warning about `PLEX_URL` / `PLEX_TOKEN`, or `can't set the opening and ending titles in Plex` / `Plex doesn't answer`. Then *Refresh Metadata* ([readable titles](#readable-titles)) |
+
+### Sources and keys
+
+| Symptom | Fix |
+|---|---|
+| *Plex*: `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
+| *Plex*: `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (Kizuna logs `show build failed` with the reason). Plex asks again later |
 | `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired (a user-supported TheTVDB key also needs `TVDB_PIN`). The source is skipped for 10 min; cached data still answers |
+| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` (or `TVDB_PIN`) and restart. Until then: no TheTVDB logos, studio or show crew |
+| `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 s |
 | `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |
 | `AniDB rejected the client` | Use the name and version of a client registered at anidb.net (protocol HTTP), then restart |
-| `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` (or `TVDB_PIN`) and restart. Until then: no TheTVDB logos, studio or show crew |
+| `AniDB call failed; backing off` | AniDB is down or unreachable. Kizuna waits longer after each failure ([limits](#-anidb-fair-use)) |
+| `AniDB banned this IP` | AniDB is paused for 24 h; cached data and the other sources fill in |
 
 **Still stuck?** [Open an issue](CONTRIBUTING.md#-reporting-a-problem).
