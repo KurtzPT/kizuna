@@ -50,8 +50,8 @@ body:
     attributes:
       label: Dry-run output for those shows
       description: |
-        The planned hints and every `WARNING` line for them:
-        `./kizuna-migrate.sh -m <mode> /mnt/media/Anime > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
+        The planned hints and every `WARNING` line for them. Your command above, without `-a`:
+        `<your command> > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
       render: text
     validations:
       required: true
@@ -72,11 +72,15 @@ body:
     attributes:
       label: "tvdb / auto mode, or openings & endings: Kizuna's view of the show"
       description: |
-        The script asks Kizuna for seasons and opening/ending numbers. Replace the folder, file and key:
+        The script asks Kizuna for seasons and opening/ending numbers. Replace the mode (`tvdb` or `anidb`, as
+        the script used for the show), folder and file; the first answer's `ratingKey` is the `<key>`:
         ```
-        curl -s -X POST http://<host>:32600/auto/library/metadata/matches \
-          -d '{"type":2,"title":"<show folder>","filename":"Anime/<show folder>/<one file>","manual":1}'
-        curl -s -H 'X-Plex-Container-Size: 1000' http://<host>:32600/auto/library/metadata/<key>-s0/children
+        curl -s -X POST http://<host>:32600/<mode>/library/metadata/matches \
+          -d '{"type":2,"title":"<show folder>","filename":"Anime/<show folder>/<one file>"}'
+        # seasons:
+        curl -s -H 'X-Plex-Container-Size: 100000' http://<host>:32600/<mode>/library/metadata/<key>/grandchildren
+        # openings and endings:
+        curl -s -H 'X-Plex-Container-Size: 100000' http://<host>:32600/<mode>/library/metadata/<key>-s0/children
         ```
       render: json
 

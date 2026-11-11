@@ -35,10 +35,23 @@ body:
     id: compose
     attributes:
       label: How you run it
-      description: Your `compose.yml` service (or `docker run` command) with the keys replaced by `set`.
+      description: |
+        Your `compose.yml` service, your `docker run` command, or on Unraid the container's settings (*Docker →
+        Edit*, with *Advanced View* on). Replace any key or token in them with `set`.
       render: yaml
     validations:
       required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you changed
+      description: |
+        Every setting in `kizuna.env` you changed, except the keys and names: for `ANIDB_CLIENT`, `TVDB_API_KEY`,
+        `TVDB_PIN`, `TVDB_LEGACY_API_KEY`, `TMDB_API_KEY`, `MAL_CLIENT_ID` and `PLEX_TOKEN` just say *set* /
+        *not set*. This leaves out lines with KEY, PIN, CLIENT or TOKEN, but check before you post:
+        `grep -vE '^[[:space:]]*(#|$)|KEY|PIN|CLIENT|TOKEN' /change/me/kizuna.env`
+      render: shell
 
   - type: input
     id: versions

@@ -117,8 +117,8 @@ without publishing anything.
 2. Branch from **`dev`** and open the pull request **against `dev`**, not `main`. `main` only holds released
    versions. Keep it to **one change**, and add or update tests for it.
 3. Run the [checks](#-checks).
-4. Write the pull request **title as a short summary** and the **body as the why**. Pull requests are squash-merged,
-   so the title and body become the commit.
+4. Write the pull request **title for users**, as the line the release notes will show, and the **body as the why**.
+   Pull requests are squash-merged, so the title and body become the commit.
 5. Link the issue it fixes (`Fixes #123`).
 
 By contributing, you agree that your work is released under the [GPL-3.0](LICENSE), like the rest of Kizuna.
