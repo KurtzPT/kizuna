@@ -132,65 +132,71 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 
 In Plex Web, open **Settings → Metadata Agents**.
 
-**a. Add the provider** (*Add Provider*) with the URL for your library's [mode](README.md#%EF%B8%8F-modes):
+1. **Add Provider** with the URL for your library's [mode](README.md#%EF%B8%8F-modes):
 
-| URL | Shows up as | For |
-|---|---|---|
-| `http://<host>:32600/anidb` | Kizuna (AniDB) | every season its own show, episodes 1…n |
-| `http://<host>:32600/tvdb` | Kizuna (TVDB) | one show per series, with TVDB seasons |
-| `http://<host>:32600/auto` | Kizuna | a library that mixes both |
+   | URL | Shows up as | For |
+   |---|---|---|
+   | `http://<host>:32600/anidb` | Kizuna (AniDB) | every season its own show, episodes 1…n |
+   | `http://<host>:32600/tvdb` | Kizuna (TVDB) | one show per series, with TVDB seasons |
+   | `http://<host>:32600/auto` | Kizuna | a library that mixes both |
 
-**b. Create an agent** (*Add Agent*, e.g. *Kizuna Anime*) with these providers:
+2. **Add Agent** (name it e.g. *Kizuna Anime*) with these providers, in this order:
 
-```mermaid
-flowchart LR
-    subgraph agent["🧩 Agent: Kizuna Anime"]
-        direction TB
-        A["① Kizuna provider<br/><i>primary: matching + metadata</i>"]
-        B["② Plex Local Media <i>(optional)</i><br/><i>your poster.jpg, fanart.jpg,<br/>theme.mp3, subtitles</i>"]
-    end
-```
+   | # | Provider | What it does |
+   |---|---|---|
+   | 1 | **Kizuna**, the provider you just added | matching and all metadata. Always first |
+   | 2 | **Plex Local Media** (optional) | uses your own `poster.jpg`, `fanart.jpg`, `theme.mp3` and subtitles, which Kizuna never reads |
 
-Kizuna is the **primary** provider and always stays first. **Plex Local Media** is Plex's own, and optional: without
-it, your own artwork, theme songs and subtitles aren't used (Kizuna never reads your folders).
-
-**One Kizuna mode per agent.** `/anidb` and `/tvdb` number episodes differently; use `/auto` for a mixed library.
+**One Kizuna provider per agent:** `/anidb` and `/tvdb` number episodes differently. For a mixed library, use `/auto`.
 
 ## 📚 4. Point a library at it
-
-In **Manage Library → Edit → Advanced**:
-
-| Field | Value |
-|---|---|
-| **Scanner** | `Plex TV Series` (legacy scanners such as ASS don't work with the new providers) |
-| **Agent** | the agent from step 3 |
-
-Save, then run **Scan Library Files** and **Refresh All Metadata**.
 
 > [!CAUTION]
 > **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first.
 
-A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
-shows fill in on later refreshes.
+1. **Titles and artwork the way you want them?** Change them in `kizuna.env` ([SETTINGS.md](SETTINGS.md)) and restart
+   Kizuna *now*: changing them after the first scan means refreshing every show again.
+2. In **Manage Library → Edit → Advanced**, set:
 
-**Next:** [change titles, artwork or sources](SETTINGS.md) · [movies, openings and match reports](GUIDE.md).
+   | Field | Value |
+   |---|---|
+   | **Scanner** | `Plex TV Series` (legacy scanners such as ASS don't work with the new providers) |
+   | **Agent** | the agent from step 3 |
+
+3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
+
+A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
+shows fill in on later refreshes. **Done!** [GUIDE.md](GUIDE.md) explains movies, openings, logs and match reports.
 
 ---
 
 ## 🧰 Troubleshooting
 
-| Symptom | Fix |
+Kizuna's messages are in its log: `docker logs kizuna`, or `logs/kizuna.log` in the data folder.
+
+### Kizuna doesn't start
+
+| Log says | Fix |
 |---|---|
-| `can't run: port 32600 is already in use by another program` | Another program (often a second Kizuna) has the port. Stop it, or map another host port |
-| `docker compose up` says *port is already allocated* | Change the first number under `ports:` in `compose.yml` |
-| `can't start: no mode can build shows` | Set `ANIDB_CLIENT` or a TheTVDB key ([step 1](#-1-get-your-keys)). With a settings file, check the `settings file` log line: it may not be where Kizuna looks |
-| `can't start: can't read the settings file` | `KIZUNA_CONFIG` names a missing file, or one the container's user can't read |
-| `can't write the log file` | Make the data folder writable by `1000:1000`, on Unraid by `nobody:users` (no logs or cache until then) |
-| `/health` stays `starting` | The AniDB title list didn't download (no network?). It retries every 5 min |
-| `/health` says `degraded` | The id mapping lists didn't download (GitHub unreachable?). It retries every 5 min |
-| Plex can't add the provider | `curl` the `/health` URL from the Plex machine or container. In Docker, `localhost` is the container itself |
-| `refused a request from an address outside ALLOW_FROM` | Add your address (shown in the log line) to [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access) |
-| `refused a request for an unknown host name` | Add the domain name to [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
+| `port 32600 is already in use`, or Docker says *port is already allocated* | Another program (often a second Kizuna) has the port. Stop it, or change the host port: the first number in `32600:32600` (*Port* on Unraid) |
+| `no mode can build shows` | Set `ANIDB_CLIENT` or a TheTVDB key ([step 1](#-1-get-your-keys)). Already set? The `settings file` log line shows which file Kizuna read |
+| `can't read the settings file` | Kizuna's user can't read `kizuna.env` (or `KIZUNA_CONFIG` names a missing file) |
+| `can't write the log file` | The data folder isn't writable by Kizuna's user: `1000:1000`, on Unraid `nobody:users`. No logs or cache until then |
+
+### `/health` isn't `ok`
+
+| Answer | Fix |
+|---|---|
+| stays `starting` | The AniDB title list didn't download (no network?). It retries every 5 min |
+| `degraded` | The id mapping lists didn't download (GitHub unreachable?). It retries every 5 min |
+
+### Plex can't reach Kizuna
+
+| You see | Fix |
+|---|---|
+| Plex can't add the provider | Open the `/health` URL from the Plex machine. Plex in Docker: `localhost` is the Plex container, use the host's LAN IP |
+| Log: `refused a request from an address outside ALLOW_FROM` | Add the address from that log line to [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access) |
+| Log: `refused a request for an unknown host name` | Add the domain name to [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
 
 A show doesn't match or lacks details: [metadata problems](GUIDE.md#-metadata-problems).
 
