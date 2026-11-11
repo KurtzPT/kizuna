@@ -314,7 +314,7 @@ that isn't specials only. It also supplies the `/tvdb` show details. TheMovieDb 
 1. The per-episode exceptions ([above](#-reading-mapping-list)).
 2. The entry's TVDB season and episode offset. A later entry in `a` with offset 0 pairs nothing this way: the
    mapping has no real position for it.
-3. An AniDB special the mapping doesn't list: TheTVDB's special with the same number (`S1` is `S00E01`), but only on
+3. An AniDB special the mapping doesn't list: TheTVDB's special with the same number, so `S1` is `S00E01`, but only on
    the entry that starts the series and isn't in TVDB season 0. Credits, trailers, parodies and others (101 and up)
    only pair through an exception.
 
