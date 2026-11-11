@@ -68,7 +68,7 @@ Plex's scanner decides by itself which files are openings and endings, from the 
 
 ### Readable titles
 
-Set [`PLEX_URL` and `PLEX_TOKEN`](SETTINGS.md#-opening-and-ending-titles), then run **Refresh All Metadata** once.
+Set `PLEX_URL` and `PLEX_TOKEN` ([how](SETTINGS.md#-opening-and-ending-titles)), then run **Refresh All Metadata** once.
 Kizuna renames the opening and ending extras of the shows it matched through Plex's API (your files are never
 touched):
 
