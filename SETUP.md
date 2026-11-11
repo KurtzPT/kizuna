@@ -8,7 +8,7 @@
 
 [Home](README.md) &nbsp;·&nbsp; **Setup** &nbsp;·&nbsp; [Guide](GUIDE.md) &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
 
-<sub>On this page: [1. Keys](#-1-get-your-keys) · [2. Run](#-2-run-kizuna) · [3. Plex](#-3-register-kizuna-in-plex) · [4. Library](#-4-point-a-library-at-it) · [Troubleshooting](#-troubleshooting)</sub>
+<sub>On this page: [Before you start](#-before-you-start) · [1. Keys](#-1-get-your-keys) · [2. Run](#-2-run-kizuna) · [3. Plex](#-3-register-kizuna-in-plex) · [4. Library](#-4-point-a-library-at-it) · [Troubleshooting](#-troubleshooting)</sub>
 
 <sub>New to Kizuna? Read the <a href="README.md">README</a> first. It explains the three modes.</sub>
 
@@ -21,7 +21,14 @@ flowchart LR
     K["🔑 1. Get keys"] --> R["🐳 2. Run Kizuna"] --> P["🔌 3. Add it to Plex"] --> L["📚 4. Point a library at it"] --> D["✅ Scan + refresh"]
 ```
 
-**You need:** Docker on the same network as Plex, **Plex Media Server 1.43 or newer**, and a free AniDB account.
+## 📋 Before you start
+
+| You need | Why |
+|---|---|
+| **Plex Media Server 1.43 or newer** | Kizuna plugs into Plex as a custom metadata provider |
+| **Docker** (Compose, plain Docker or Unraid) | Kizuna ships as a container image |
+| **A host Plex can reach** on port 32600 | Plex calls Kizuna for every match and refresh; keep it on your LAN |
+| **A free AniDB account, a TheTVDB key, or both** | at least one source to match against: see [step 1](#-1-get-your-keys) |
 
 > [!TIP]
 > **Coming from HAMA + Absolute Series Scanner?** Do steps 1–3 here, then follow [MIGRATION.md](MIGRATION.md) instead
