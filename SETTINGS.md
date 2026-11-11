@@ -19,36 +19,15 @@ here to change what Kizuna does.</sub>
 
 ## 📄 Where settings go
 
-Settings go in **`kizuna.env` in the data folder**, `/data/kizuna.env` in Docker, one `NAME=value` per line.
-[`.env.sample`](.env.sample) lists every setting with its default; [SETUP.md](SETUP.md#-2-run-kizuna) shows how to
-create the file.
+Settings go in `kizuna.env` in the data folder: [SETUP step 2](SETUP.md#-2-run-kizuna) creates it and says how to
+change it. Every setting applies to every mode and library: Plex doesn't pass per-library settings to providers.
 
-```bash
-# /change/me/kizuna.env
-ANIDB_CLIENT=myclient
-TVDB_API_KEY=...
-TITLE_LANGS=en,main      # a comment after a space is fine
-```
-
-> [!IMPORTANT]
-> **Restart Kizuna after editing the file**, and refresh the metadata of the shows that should change. Every setting
-> applies to every mode and library: Plex doesn't pass per-library settings to providers.
-
-- **Names are upper case**; any other name, such as `port=`, is ignored with a warning.
-- **Quotes**, `"..."` or `'...'`, keep a value exactly as written. You need them only for ` #` in a value: unquoted,
-  a `#` after a space or tab starts a comment. A line with a missing closing quote, or text after it, is skipped
-  with a warning.
+- **One `NAME=value` per line, names in upper case.** Any other name, such as `port=`, is ignored with a warning.
+- **A `#` after a space or tab starts a comment.** Quotes, `"..."` or `'...'`, keep a value exactly as written.
+  A line with a missing closing quote, or text after it, is skipped with a warning.
 - `export NAME=value` works too, so a shell can `source` the same file.
 - `KIZUNA_CONFIG=/path/to/file`, in the environment only, reads that file instead; Kizuna won't start if it's
   missing. `DATA_DIR` in the file moves the cache and logs, but not where the file is looked for.
-
-> [!NOTE]
-> **Environment variables win over the file**, even when set to `""`: use the file for your settings and the
-> environment for one-off overrides. `-e TMDB_API_KEY=` with `docker run` keeps TheMovieDb off whatever the file says.
-
-At startup Kizuna logs which file it read, which settings the environment overrode, and any name in the file it
-doesn't know (a typo). The `ready` line then shows the main settings in effect ([logs](GUIDE.md#-logs)). API keys
-and tokens are never logged.
 
 ### When a value is wrong
 
@@ -67,22 +46,16 @@ Warnings appear at startup and quote the value as written.
 
 ## 🔑 Accounts & keys
 
-Where to get each one, and which modes need which: [SETUP step 1](SETUP.md#-1-get-your-keys).
+The keys, what each is for and where to get it: [SETUP step 1](SETUP.md#-1-get-your-keys). Two more:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ANIDB_CLIENT` | – | Your registered AniDB HTTP client name. Without it, AniDB details are off |
-| `ANIDB_CLIENTVER` | `1` | The client version you registered |
-| `TVDB_API_KEY` | – | TheTVDB v4 key: TVDB episodes, episode thumbnails, artwork |
-| `TVDB_PIN` | – | Your TheTVDB subscriber PIN. Needed for a free user-supported key; a company key works without it |
-| `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key (from before v4), for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty or rejected |
-| `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos, details, episode titles and crew |
-| `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID (public data only) |
+| `ANIDB_CLIENTVER` | `1` | The version you registered with your AniDB client |
+| `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key, from before v4, for TheTVDB's older v3 API. Used when `TVDB_API_KEY` is empty or rejected |
 
 > [!WARNING]
 > **The legacy TheTVDB key gives less** ([footnotes](#-sources-per-field)), and TheTVDB may switch its v3 API off at
-> any time. When TheTVDB rejects `TVDB_API_KEY`, for a wrong key or a missing `TVDB_PIN`, Kizuna logs a warning and uses the
-> legacy key until it restarts. Without a legacy key, TheTVDB is skipped and tried again every 10 minutes.
+> any time. What happens when TheTVDB rejects a key: [problems](GUIDE.md#sources-and-keys).
 
 ## 🎯 Matching & titles
 
@@ -242,9 +215,8 @@ CAST_SOURCES=none
 
 ## 🎵 Opening and ending titles
 
-Plex names the opening and ending extras it makes from your files after the file: `OP1`, `NCED2`. With both settings
-below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own API
-([how it works](GUIDE.md#readable-titles)).
+With both settings, Kizuna gives Plex's opening and ending extras readable titles, such as *Opening 1* instead of
+`OP1` ([how it works](GUIDE.md#readable-titles)).
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -253,9 +225,6 @@ below, Kizuna gives them the titles `Opening 1`, `Ending 2` through Plex's own A
 
 > [!CAUTION]
 > **The Plex token gives full access to your server.** Keep the settings file readable only by Kizuna's user.
-
-With only one of the two set, or a `PLEX_URL` that isn't a bare web address, Kizuna logs a warning at start and
-leaves the titles alone.
 
 ## 📝 Logging
 
@@ -314,15 +283,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 
 Two checks limit who may talk to Kizuna ([why](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected)). Both are on by
 default and need no change for the usual setups: Plex and Kizuna on the same LAN, Docker host or Tailscale network.
-
-```mermaid
-flowchart LR
-    R["request"] --> A{"ALLOW_FROM<br/><i>client address<br/>private?</i>"}
-    A -- no --> X["⛔ 403"]
-    A -- yes --> H{"ALLOWED_HOSTS<br/><i>sent to an IP or<br/>a local name?</i>"}
-    H -- no --> X
-    H -- yes --> OK["✅ answered"]
-```
+A refused request gets `403`.
 
 | Variable | Default | What it does |
 |---|---|---|
