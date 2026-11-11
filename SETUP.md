@@ -160,6 +160,10 @@ In Plex Web, open **Settings → Metadata Agents**.
 > [!CAUTION]
 > **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first.
 
+> [!IMPORTANT]
+> Only the **Plex TV Series** scanner works with the new providers. Legacy scanners, such as Absolute Series Scanner,
+> don't.
+
 1. **Titles and artwork the way you want them?** Change them in `kizuna.env` ([SETTINGS.md](SETTINGS.md)) and restart
    Kizuna *now*: changing them after the first scan means refreshing every show again.
 2. In **Manage Library → Edit → Advanced**, set:
@@ -170,10 +174,6 @@ In Plex Web, open **Settings → Metadata Agents**.
    | **Agent** | the agent from step 3 |
 
 3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
-
-> [!IMPORTANT]
-> Only the **Plex TV Series** scanner works with the new providers. Legacy scanners, such as Absolute Series Scanner,
-> don't.
 
 > [!WARNING]
 > A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
