@@ -331,11 +331,3 @@ that isn't specials only. It also supplies the `/tvdb` show details. TheMovieDb 
 > [!NOTE]
 > In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background
 > ([within AniDB's limits](GUIDE.md#-anidb-fair-use)), so their titles appear on a later refresh.
-
-### Picking the title
-
-[`EPISODE_TITLES`](SETTINGS.md#-sources-per-field) sets the source order, by default AniDB → TheTVDB → TheMovieDb,
-in both modes. The first **real** title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* don't
-count. AniDB titles follow [`EPISODE_LANGS`](SETTINGS.md#-matching--titles), by default English, then romaji; with
-none of those, the other sources' real titles come first, then AniDB's title in any language. With no real title
-anywhere, a placeholder still beats nothing.

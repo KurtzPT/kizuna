@@ -65,7 +65,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order: `main` is AniDB's main title, then AniDB language codes such as `x-jat` (romaji), `en`, `ja`, `de` |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: `TITLE_LANGS` only uses AniDB's main and official titles, never synonyms, so a language without an official title falls through to the next |
 | `ORIGINAL_TITLE_LANGS` | `ja` | Language order for Plex's *original title*, official titles only; `x-jat` gives romaji. Left empty when it equals the title; `none` turns it off |
-| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order ([fallbacks](MAPPING.md#picking-the-title)) |
+| `EPISODE_LANGS` | `en,x-jat` | AniDB episode title language order. With none of these, the other sources' real titles come first, then AniDB's title in any language |
 
 ### 🔀 Sources per field
 
@@ -88,7 +88,7 @@ Each list names the sources to ask, in order, from the ones the field allows: `a
 | `LOGO_SOURCES` | `tvdb,tmdb` | Clear logos |
 | `ART_ALL_SOURCES` | `false` | `true`: images from **every** listed source; the first source's best is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
 | `SEASON_ART_FALLBACK` | `true` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art. `false`: the next source is asked instead ([season art](#season-art)) |
-| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | Episode titles, both modes ([how they're picked](MAPPING.md#picking-the-title)). `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
+| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | Episode titles, both modes, from the [paired](MAPPING.md#-how-episodes-are-paired) episode. The first real title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* only beat nothing. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb` | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `tvdb` or `none` |
 
 ### 🎵 Opening and ending titles
