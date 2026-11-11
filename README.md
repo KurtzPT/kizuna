@@ -128,7 +128,7 @@ flowchart LR
 
 - **Movies** are one-episode AniDB entries: `S01E01`, with the movie's own title and summary.
 - **Episode thumbnails**, and summaries and dates AniDB lacks, come from TheTVDB.
-- **Without AniDB details** (not set up yet, or its daily limit reached), every episode still exists as
+- **Without AniDB details** (AniDB paused, or its daily limit reached), every episode still exists as
   *Episode N*. A later refresh fills it in.
 
 ### `/tvdb`: one TVDB series per show
@@ -183,7 +183,8 @@ The first piece of evidence that names a show wins:
 
 - **One id tag per show.** Two different ones give no match and a warning; the same tag in the folder and the file
   name is fine.
-- **Fix Match** in Plex lists the show the tag or GUID names first, then the results for the title you type.
+- **Fix Match** in Plex lists the show the tag or GUID names first, then the results for the title you type, so a
+  wrong match can be changed without unmatching first.
 - **Ids from other sites** are turned into an AniDB entry through the [id mapping](#-id-mapping).
 
 How an id that fits several entries is resolved, and when a tag blocks the match: [matching in
@@ -228,10 +229,12 @@ in `MAPPING_SOURCES` wins:
 
 Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md](MAPPING.md).
 
+<a name="-anidb-fair-use"></a>
+
 ### 🤝 Fair use
 
-Each source's API has usage rules, and Kizuna keeps to them: it paces its requests to every source, caches the
-answers for days, and backs off when a source fails instead of retrying. No setting turns this off.
+Each source's API has usage rules, and Kizuna keeps to them: it paces its requests to every source and caches the
+answers for days. No setting turns this off.
 
 AniDB is the strictest: it bans clients that ask too much, and a ban hits your whole IP. Kizuna finds shows in its
 offline title list without asking the API, and asks for at most 200 anime a day. **A large library takes several days

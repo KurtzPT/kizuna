@@ -142,7 +142,7 @@ scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run 
 | To add… | Start in |
 |---|---|
 | a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETTINGS.md](SETTINGS.md) |
-| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (how it works) or [SETUP.md](SETUP.md) / [SETTINGS.md](SETTINGS.md) (what a user sees or sets) |
+| a matching or metadata rule | `internal/provider`, then [README.md](README.md) (the summary), [SETUP.md](SETUP.md) (matching in detail, what a user sees), [MAPPING.md](MAPPING.md#-how-episodes-are-paired) (pairing) or [SETTINGS.md](SETTINGS.md) (what a user sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`, a show item value's at the end of the build); the page: `internal/report/page.html`, one file with its styles and script, tested by `scripts/report-page_test.js` |

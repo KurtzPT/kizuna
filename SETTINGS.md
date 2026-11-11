@@ -89,7 +89,7 @@ flowchart LR
     B -- "has a value" --> W
 ```
 
-`none` turns a field off. A list where no source is set up leaves its field empty. For a list you set yourself,
+By default TheTVDB comes before TheMovieDb, and Anime News Network is the last fallback. `none` turns a field off. A list where no source is set up leaves its field empty. For a list you set yourself,
 Kizuna warns at startup (`no usable source in these lists`); set it to `none` if you want it empty. A list left at
 its default only gets an info line naming the key that would fill it.
 

@@ -413,8 +413,8 @@ included: the first call after a restart waits for the rest of it. If that file 
 whether a ban or a full day of calls was in it, so it doesn't ask AniDB until 24 h after the file was last
 written. While AniDB can't be asked, shows use cached AniDB data, then the other sources.
 
-In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background within these limits, so
-their episode titles appear on a later refresh.
+The other sources have no daily limit: Kizuna spaces its calls to each one, and caches their answers for days
+([how long](SETTINGS.md#-storage--cache)).
 
 ## 🧰 Troubleshooting
 
