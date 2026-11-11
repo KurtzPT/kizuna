@@ -48,7 +48,7 @@ One Piece. Kizuna makes each of them **its own show, in every mode**, with the `
 | a folder tagged with the series, `[tvdb-81797]` (or another agent's TheTVDB GUID) | the whole series, unless the name clearly names one of its movies: then that movie, with the warning `matched to an AniDB entry by name inside a TheTVDB id; may be wrong` |
 | `One Piece - S00E46.mkv` inside the series' `/tvdb` folder | a special of the series |
 
-<sub>*Clearly* means at least `MIN_SCORE`, and 10 points ahead of the series' and the other movies' titles. A
+<sub>*Clearly* means at least [`MIN_SCORE`](SETTINGS.md#-matching--titles), and 10 points ahead of the series' and the other movies' titles. A
 year in the name, such as `(2022)`, or the one Plex sends tells two close movies apart.</sub>
 
 - **Without AniDB details**, such a show still gets its episodes from TheTVDB's specials.
@@ -124,7 +124,7 @@ day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SET
 > [!NOTE]
 > Keys and tokens never appear in the logs.
 
-| `LOG_LEVEL` | Logs |
+| [`LOG_LEVEL`](SETTINGS.md#-logging) | Logs |
 |---|---|
 | `info` (default) | the settings in effect as the `ready` line, the lists loaded, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
 | `debug` | also every Plex request, outgoing call and cache decision, the title-search scores, and which source gave each field |
@@ -135,7 +135,7 @@ day's log is then kept as `kizuna-YYYY-MM-DD.log` for [`LOG_RETENTION_DAYS`](SET
 
 ## 📊 Match reports
 
-Set **`MATCH_REPORTS=true`**, then open **`reports/index.html`** in the data folder in a browser. No server is
+Set [**`MATCH_REPORTS=true`**](SETTINGS.md#-logging), then open **`reports/index.html`** in the data folder in a browser. No server is
 needed. The index lists every show, newest first, and the titles that matched nothing, filtered by title, id, mode
 or status.
 
@@ -194,7 +194,7 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 |---|---|
 | *Plex*: `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
 | *Plex*: `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (Kizuna logs `show build failed` with the reason). Plex asks again later |
-| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired; a user-supported TheTVDB key also needs `TVDB_PIN`. The source is skipped for 10 min; cached data still answers |
+| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired; a user-supported TheTVDB key also needs [`TVDB_PIN`](SETTINGS.md#-accounts--keys). The source is skipped for 10 min; cached data still answers |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` or `TVDB_PIN` and restart. Until then: no TheTVDB logos, studio or show crew |
 | `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 s |
 | `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |

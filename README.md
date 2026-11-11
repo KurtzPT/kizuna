@@ -222,12 +222,12 @@ Only AniDB is required for `/anidb`, or TheTVDB for `/tvdb`; every other key jus
 its own source order, which you can change, and a source is only asked when the ones before it have nothing.
 
 **Setup and settings:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
-[what each source can supply, and changing the order per field](SETTINGS.md#-sources-per-field).
+[changing the order per field](SETTINGS.md#-sources-per-field) · [what each source can supply](SETTINGS.md#which-source-answers).
 
 ### 🔗 Id mapping
 
 Two community lists connect AniDB to every other site. Both are downloaded daily; when they disagree, the first list
-in `MAPPING_SOURCES` wins:
+in [`MAPPING_SOURCES`](SETTINGS.md#-matching--titles) wins:
 
 | List | Adds |
 |---|---|
@@ -239,7 +239,7 @@ Wrong mapping? Correct it yourself with `anime-list-custom.xml`: see [MAPPING.md
 ### 🏷️ Episode titles and pairing
 
 Episode titles come from AniDB first, then TheTVDB, then TheMovieDb, in English where AniDB has it, else romaji.
-Change both with `EPISODE_TITLES` and `EPISODE_LANGS`. Placeholders such as *Episode 12* or *TBA* are skipped.
+Change both with [`EPISODE_TITLES`](SETTINGS.md#-sources-per-field) and [`EPISODE_LANGS`](SETTINGS.md#-matching--titles). Placeholders such as *Episode 12* or *TBA* are skipped.
 
 To take a title from another site, Kizuna **pairs** each episode with the same episode there, through the
 [id mapping](#-id-mapping) and its exceptions for recaps, split seasons and specials. When an episode gets the wrong
@@ -263,7 +263,7 @@ offline title list without asking the API, and asks for at most 200 anime a day.
 
 ## 📊 Match reports
 
-Wondering why a show matched the way it did, or where a title came from? Set **`MATCH_REPORTS=true`** and Kizuna
+Wondering why a show matched the way it did, or where a title came from? Set [**`MATCH_REPORTS=true`**](SETTINGS.md#-logging) and Kizuna
 writes one page per show to `reports/` in its data folder. Open `reports/index.html` in a browser. A show's page
 says:
 

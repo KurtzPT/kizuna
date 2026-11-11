@@ -166,7 +166,7 @@ window, and use `/d/Anime` for `D:\Anime` or `//nas/Anime` for a share:
 </details>
 
 > [!NOTE]
-> **"Kizuna not reachable"?** Kizuna's `ALLOW_FROM` lets in private network addresses by default. If you narrowed it
+> **"Kizuna not reachable"?** Kizuna's [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access) lets in private network addresses by default. If you narrowed it
 > to the Plex server, add the machine running the script ([access settings](SETTINGS.md#%EF%B8%8F-access)).
 
 ## 🔍 2. Dry run
@@ -369,7 +369,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 | Topic | Rule |
 |---|---|
 | **Episode numbers** | stay absolute: `S02E26`, not `S02E01`. That's what Kizuna's `/tvdb` expects |
-| **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`) |
+| **Seasons** | come from Kizuna, through the same calls Plex makes. Kizuna needs a [TheTVDB key](SETTINGS.md#-accounts--keys) |
 | **Left alone** | files with `SxxEyy` in the name or in a `Season NN` folder (in `[tvdb3-…]` folders these are already absolute) |
 | **Episode numbers read from** | ` - 033`, `E33` / `Ep 33` / `Episode 33`, or a number ending the name; `[…]`, `(…)`, `{…}` groups don't count. A file with none is reported |
 | **A lone unnumbered movie** | `ep: S01E01`, as in `anidb` rules. A movie's folder with the series' `[tvdb3-…]` tag is the whole series in Kizuna unless its name clearly names the movie: tag it `[anidb-…]` instead ([movies and specials](GUIDE.md#-movies-and-specials)) |
@@ -412,14 +412,14 @@ flowchart LR
 
 The tag can also be in a file name, as Kizuna reads it. Keep one id tag per show: the script follows the first one,
 but Kizuna in Plex gives a show with two different tags no match ([README](README.md#-how-a-show-is-found)).
-`tvdb`-rule folders need Kizuna with a TheTVDB key (`TVDB_API_KEY` or `TVDB_LEGACY_API_KEY`); without it, Kizuna in
+`tvdb`-rule folders need Kizuna with a [TheTVDB key](SETTINGS.md#-accounts--keys); without it, Kizuna in
 Plex gives a `[tvdb-…]` folder no match. Without Kizuna, only `[anidb-N]` folders are planned; every other folder is
 reported as skipped.
 
 > [!WARNING]
 > **Tag your untagged folders.** In Plex, `/auto` also follows the GUID a show already has: a HAMA
 > `com.plexapp.agents.hama://tvdb3-81797` or a `com.plexapp.agents.thetvdb://…` GUID gives `tvdb` rules. The script
-> can't see those GUIDs, so for an untagged folder it plans with `AUTO_DEFAULT`, and the two can disagree. A tag in
+> can't see those GUIDs, so for an untagged folder it plans with [`AUTO_DEFAULT`](SETTINGS.md#-matching--titles), and the two can disagree. A tag in
 > the folder name decides for both.
 
 ## 📄 Your own `.plexmatch` files

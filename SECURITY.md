@@ -60,9 +60,9 @@ may talk to it, and what it exposes:
 
 | Protection | Stops | Where |
 |---|---|---|
-| **Private clients only** | an accidental port forward: requests from public addresses get `403` | `ALLOW_FROM`, default `private` |
-| **Known host names only** | DNS rebinding: a web page reaching Kizuna through your browser | `ALLOWED_HOSTS` |
-| **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers; logs show them as `***` | built in |
+| **Private clients only** | an accidental port forward: requests from public addresses get `403` | [`ALLOW_FROM`](SETTINGS.md#%EF%B8%8F-access), default `private` |
+| **Known host names only** | DNS rebinding: a web page reaching Kizuna through your browser | [`ALLOWED_HOSTS`](SETTINGS.md#%EF%B8%8F-access) |
+| **Secrets hidden** | API keys, the AniDB client name and Plex tokens never appear in answers or logs | built in |
 | **Locked-down container** | non-root user, read-only filesystem, no Linux capabilities, no privilege gain, no shell in the image | `compose.yml`, `Dockerfile` |
 | **AniDB fair use** | a burst of requests can't break AniDB's limits and get your IP banned | built in, [fixed](GUIDE.md#-anidb-fair-use) |
 | **Pinned CI** | GitHub Actions run at exact commits, never a tag that can be moved | `.github/workflows` |

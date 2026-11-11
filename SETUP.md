@@ -44,6 +44,8 @@ flowchart LR
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
 | **Anime News Network** | – | no key | – |
 
+What each key setting does: [SETTINGS.md](SETTINGS.md#-accounts--keys).
+
 > [!IMPORTANT]
 > **TheTVDB's PIN:** a free, user-supported v4 key only works together with your subscriber PIN in `TVDB_PIN`. A
 > company key needs no PIN. Without the PIN, TheTVDB rejects the key ([what the log says](GUIDE.md#-metadata-problems)).

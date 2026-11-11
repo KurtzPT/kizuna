@@ -129,8 +129,8 @@ flowchart LR
   is paired by absolute number, a special by its number in season 0. An episode whose AniDB entry the mapping puts on
   another TheMovieDb show gets no TheMovieDb title or crew.
 
-**Picking the title:** `EPISODE_TITLES` sets the source order (default AniDB → TheTVDB → TheMovieDb), in both modes.
-The first **real** title wins: *Episode 12* or *TBA* don't count. AniDB titles follow `EPISODE_LANGS` (default
+**Picking the title:** [`EPISODE_TITLES`](SETTINGS.md#-sources-per-field) sets the source order (default AniDB → TheTVDB → TheMovieDb), in both modes.
+The first **real** title wins: *Episode 12* or *TBA* don't count. AniDB titles follow [`EPISODE_LANGS`](SETTINGS.md#-matching--titles) (default
 English, then romaji); with none of those, the other sources' real titles come first, then AniDB's title in any
 language.
 
@@ -307,7 +307,7 @@ used for artwork and details:
    (an XML error) is logged as `anime-list-custom.xml ignored`; the daily refresh then keeps the entries of the
    file's last good version, a restart starts without them.
 2. In Plex, run **Refresh Metadata** on the show.
-3. With `LOG_LEVEL=debug`, find the show's lines:
+3. With [`LOG_LEVEL=debug`](SETTINGS.md#-logging), find the show's lines:
 
 | Log line | Tells you |
 |---|---|
