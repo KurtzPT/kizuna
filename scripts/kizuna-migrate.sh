@@ -111,8 +111,13 @@ PLEX_CREDIT_RE='(^|[^[:alnum:]])((NC|(Creditless|Clean)[ ._])?(OP|ED|Opening|End
 PLEX_SXE_RE='s[0-9]+[._ ]*e[0-9]+|s[0-9]{2}[-._ ]+[0-9]+'
 # a spelled-out word and its number, as plex_credit prints them: "NCOpening 1"
 SHORT_CREDIT_RE='^(NC)?(OP|ED)[ ._]([0-9].*)$'
-# AniDB credit titles: "Opening 1a", "Opening 1 (b)", "Ending", "Ending 2: Song"
-CREDIT_TITLE_RE='^(opening|op|ending|ed)([[:space:]]*0*([0-9]+))?[[:space:]]*(\(([a-z])\)|([a-z]))?([^[:alnum:]]|$)'
+# AniDB credit titles: "Opening 1a", "Opening 1 (b)", "Ending", "Ending 2: Song",
+# and the Japanese ones Kizuna sends when EPISODE_LANGS puts ja first
+# ("オープニング2", "エンディング")
+CREDIT_TITLE_RE='^(opening|op|ending|ed|オープニング|エンディング)([[:space:]]*0*([0-9]+))?[[:space:]]*(\(([a-z])\)|([a-z]))?([^[:alnum:]]|$)'
+# full-width digits and space, turned into ASCII before CREDIT_TITLE_RE: in
+# the C locale "２" isn't a digit, so "オープニング２" would read as opening 1
+FULLWIDTH=(０ １ ２ ３ ４ ５ ６ ７ ８ ９)
 # other special patterns: "regex|base|number group" (no group = number 1)
 SPECIALS=(
 	'^(pv|cm|trailer|teaser|promo|preview)[[:space:]]*0*([0-9]{1,2})?(v[0-9])?$|200|2'
@@ -170,11 +175,14 @@ credit_of() {
 }
 
 # credit_title prints "NUMBER LETTER" for an AniDB credit title
-# ("Opening 1a" -> "1 a", "Ending" -> "1 -"), or nothing.
+# ("Opening 1a" -> "1 a", "Ending" -> "1 -", "オープニング２" -> "2 -"), or
+# nothing.
 credit_title() {
-	local num letter
+	local num letter t=$1 d
+	for d in "${!FULLWIDTH[@]}"; do t=${t//"${FULLWIDTH[d]}"/$d}; done
+	t=${t//　/ }
 	shopt -s nocasematch
-	if [[ $1 =~ $CREDIT_TITLE_RE ]]; then
+	if [[ $t =~ $CREDIT_TITLE_RE ]]; then
 		num=${BASH_REMATCH[3]:-1} letter=${BASH_REMATCH[5]:-${BASH_REMATCH[6]}}
 		shopt -u nocasematch
 		letter=${letter,,}
@@ -524,7 +532,10 @@ show_rules() {
 
 declare -A CREDIT_AT # "op 1 a" -> Plex episode (101...), for the show in CREDITS_FOR
 CREDITS_FOR=""
+CREDITS_UNREAD=0 # Kizuna's credit titles for that show that credit_title can't read
 CREDIT_N=0 CREDIT_NOTE=""
+# what fixes unreadable credit titles: Kizuna sends them in EPISODE_LANGS
+LANGS_FIX="Kizuna's titles for this show's openings and endings can't be read: put en first in its EPISODE_LANGS"
 SHOW_VARIANTS="" # " op ed": kinds with variant files (OP1b...) in the current show folder
 
 # fetch_credits prints "INDEX<TAB>TITLE" for the openings and endings Kizuna
@@ -542,10 +553,11 @@ fetch_credits() {
 
 # load_credits fills CREDIT_AT from Kizuna's credit titles for the show in $1
 # ($2 = one video in it). Empty when Kizuna isn't used or has no titles
-# (AniDB unavailable).
+# (AniDB unavailable). CREDITS_UNREAD counts the titles it couldn't read, such
+# as a song name or a language without "Opening" in it.
 load_credits() {
 	local index title kind num letter
-	CREDIT_AT=() CREDITS_FOR=$1
+	CREDIT_AT=() CREDITS_FOR=$1 CREDITS_UNREAD=0
 	((KIZUNA)) || return 0
 	while IFS=$'\t' read -r index title; do
 		[[ $index =~ ^[0-9]+$ ]] || continue
@@ -553,6 +565,8 @@ load_credits() {
 		if ((index > 150)); then kind="ed"; fi
 		if read -r num letter < <(credit_title "$title"); then
 			if [[ -z ${CREDIT_AT["$kind $num $letter"]:-} ]]; then CREDIT_AT["$kind $num $letter"]=$index; fi
+		else
+			CREDITS_UNREAD=$((CREDITS_UNREAD + 1))
 		fi
 	done < <(fetch_credits "$2")
 }
@@ -578,7 +592,18 @@ credit_index() {
 				fi
 			done
 		fi
-		if ((CREDIT_N == 0)); then CREDIT_NOTE="not among this show's AniDB openings/endings"; fi
+		if ((CREDIT_N == 0)); then
+			CREDIT_NOTE="not among this show's AniDB openings/endings"
+			if ((CREDITS_UNREAD > 0)); then CREDIT_NOTE="not among those Kizuna's titles could be read for ($LANGS_FIX)"; fi
+		fi
+	elif ((CREDITS_UNREAD > 0)); then # Kizuna answered, in titles credit_title can't read
+		if [[ $letter == - && $SHOW_VARIANTS != *" $kind"* ]]; then
+			CREDIT_N=$((100 + num))
+			if [[ $kind == ed ]]; then CREDIT_N=$((150 + num)); fi
+			CREDIT_NOTE="guessed from the file name, as $LANGS_FIX"
+		else
+			CREDIT_NOTE=$LANGS_FIX
+		fi
 	elif [[ $letter != - ]]; then
 		CREDIT_NOTE="a variant needs Kizuna with AniDB details to find its number (run with -u)"
 	elif [[ $SHOW_VARIANTS == *" $kind"* ]]; then # OP1a/OP1b shift every later number: 100 + n would be wrong
