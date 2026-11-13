@@ -52,9 +52,10 @@ type showSources struct {
 	plexSeasonList lazy[[]sources.PlexSeason]
 	plexImages     lazy[sources.PlexImages]
 	plexSeasonAt   int
-	// plexAll: plexArt's answer with ART_ALL_SOURCES, worked out once.
-	plexAllOnce sync.Once
-	plexAll     sources.Art
+	// plexAllArt: plexArt's answer with ART_ALL_SOURCES, worked out once
+	// (setPlex doesn't reset it: it replaces only what wasn't used yet).
+	plexAllArtOnce sync.Once
+	plexAllArt     sources.Art
 
 	// show, seasons: what the show's and each Plex season's art is of
 	// (art.go); set by the build before fill.

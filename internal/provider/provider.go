@@ -127,13 +127,14 @@ type build struct {
 
 // Sources are the metadata sources a Provider asks besides AniDB. A struct
 // and not one argument each: a new source changes no call site, and tests
-// set only the ones they need. A nil source is off.
+// set only the ones they need. A nil source is off, except ANN, which is
+// asked for any entry with an ANN id: a build of one needs it set.
 type Sources struct {
 	TVDB *sources.TVDB
 	TMDB *sources.TMDB
 	MAL  *sources.MAL
 	ANN  *sources.ANN
-	Plex *sources.Plex // Plex's metadata service; nil = off
+	Plex *sources.Plex
 }
 
 func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapping.Lists, src Sources) *Provider {

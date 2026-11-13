@@ -327,7 +327,7 @@ func TestPlexRejectedToken(t *testing.T) {
 				t.Errorf("%d lines name PLEX_TOKEN, %d requests: want 0 and 5\n%s", named, sent, logs)
 			}
 			if code != 401 && strings.Contains(logs.String(), "API key") {
-				t.Errorf("a %d is logged as a rejected key\n%s", code, logs)
+				t.Errorf("a %d is logged as a rejected key (fetch's line, which keyCheck's requests leave out)\n%s", code, logs)
 			}
 		})
 	}

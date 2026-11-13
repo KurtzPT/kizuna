@@ -222,7 +222,6 @@ func (p *Plex) get(ctx context.Context, r fetch.Request, out *plexContainer) err
 	h := map[string]string{"X-Plex-Token": p.token, "X-Plex-Language": "en-US", "Accept": "application/json"}
 	maps.Copy(h, r.Headers)
 	r.Headers, r.NoRedirect = h, true // a redirect would carry the token to another host
-	r.PlainForbidden = true           // a 403 is Cloudflare's: not the token (as in NewPlex)
 	return p.keys.getJSON(ctx, p.f, r, out)
 }
 
@@ -439,9 +438,9 @@ func (p *Plex) Seasons(ctx context.Context, r PlexRef) ([]PlexSeason, error) {
 // Like the other sources' lists, a season that failed makes the list
 // ErrIncomplete.
 func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
-	seasons, cut := p.seasonItems(ctx, r)
-	if cut != nil && !errors.Is(cut, ErrIncomplete) {
-		return nil, cut
+	seasons, listErr := p.seasonItems(ctx, r) // ErrIncomplete: the seasons that came are still read
+	if listErr != nil && !errors.Is(listErr, ErrIncomplete) {
+		return nil, listErr
 	}
 	var (
 		out    []Episode
@@ -464,8 +463,8 @@ func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
 	if len(failed) > 0 {
 		return out, fmt.Errorf("%w: plex %s seasons %v: %v", ErrIncomplete, r, failed, last)
 	}
-	if cut != nil {
-		return out, cut
+	if listErr != nil {
+		return out, listErr
 	}
 	return out, nil
 }

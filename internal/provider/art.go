@@ -466,7 +466,7 @@ func (ss *showSources) plexArt() sources.Art {
 	if !ss.plexImages.fetches() {
 		return ss.plexShow.get().Art
 	}
-	ss.plexAllOnce.Do(func() {
+	ss.plexAllArtOnce.Do(func() {
 		a, im := ss.plexShow.get().Art, ss.plexImages.get()
 		only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
 			out := slices.Clone(own) // the lazy's own list stays as it is
@@ -481,10 +481,10 @@ func (ss *showSources) plexArt() sources.Art {
 			}
 			return out
 		}
-		ss.plexAll = sources.Art{Posters: only(a.Posters, im.Posters, posterArt),
+		ss.plexAllArt = sources.Art{Posters: only(a.Posters, im.Posters, posterArt),
 			Backgrounds: only(a.Backgrounds, im.Backgrounds, backgroundArt), Logos: a.Logos}
 	})
-	return ss.plexAll
+	return ss.plexAllArt
 }
 
 // plexSeasons: the seasons Plex gets for a show (seasonItem): those with
