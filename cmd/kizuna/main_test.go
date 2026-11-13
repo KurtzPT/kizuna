@@ -83,7 +83,7 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 	titles.SetForTest(map[int][]anidb.Title{1: {{Type: "main", Text: "A"}}})
 	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
 	cfg := config.Config{Listen: ln.Addr().String(), AllowFrom: []string{"203.0.113.9"}}
-	p := provider.New(cfg, titles, nil, lists, nil, nil, nil, nil)
+	p := provider.New(cfg, titles, nil, lists, provider.Sources{})
 	srv := &http.Server{Handler: p.Handler()}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
@@ -224,6 +224,8 @@ func TestDrainWaitsForBuilds(t *testing.T) {
 
 // The opening and ending titles need PLEX_URL and PLEX_TOKEN, both and
 // usable: anything less is off, with a warning that never shows the token.
+// PLEX_TOKEN alone is a valid setup (the plex source uses it): one info
+// line says the titles need PLEX_URL too.
 func TestExtraTitles(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
@@ -232,19 +234,22 @@ func TestExtraTitles(t *testing.T) {
 
 	for _, c := range []struct {
 		url, token string
-		on, warns  bool
+		on         bool
+		log        string // the level logged, "" = nothing
 	}{
-		{"", "", false, false},
-		{"http://plex:32400", "s3cret", true, false},
-		{"http://plex:32400", "", false, true},
-		{"", "s3cret", false, true},
-		{"plex:32400", "s3cret", false, true},
-		{"http://plex:32400/web", "s3cret", false, true},
-		{"http://user:s3cret@plex:32400", "s3cret", false, true},
+		{"", "", false, ""},
+		{"http://plex:32400", "s3cret", true, ""},
+		{"http://plex:32400", "", false, "WARN"},
+		{"", "s3cret", false, "INFO"},
+		{"plex:32400", "s3cret", false, "WARN"},
+		{"http://plex:32400/web", "s3cret", false, "WARN"},
+		{"http://user:s3cret@plex:32400", "s3cret", false, "WARN"},
 	} {
 		logs.Reset()
 		r := extraTitles(config.Config{PlexURL: c.url, PlexToken: c.token})
-		if (r != nil) != c.on || (logs.Len() > 0) != c.warns || strings.Contains(logs.String(), "s3cret") {
+		lines := strings.Count(logs.String(), "\n")
+		if (r != nil) != c.on || strings.Contains(logs.String(), "s3cret") || c.log == "" && lines != 0 ||
+			c.log != "" && (lines != 1 || !strings.Contains(logs.String(), "level="+c.log)) {
 			t.Errorf("PLEX_URL=%q PLEX_TOKEN=%q: on=%v, log %q", c.url, c.token, r != nil, logs.String())
 		}
 	}

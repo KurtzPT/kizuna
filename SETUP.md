@@ -38,6 +38,7 @@
 | **TheMovieDb** | `TMDB_API_KEY` | [themoviedb.org](https://www.themoviedb.org/settings/api) | optional: more details and art |
 | **MyAnimeList** | `MAL_CLIENT_ID` | [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig) | optional: more details |
 | **Anime News Network** | – | no key | – |
+| **Plex** | `PLEX_TOKEN` | [a token of your Plex account](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) | optional: [Plex's own metadata](GUIDE.md#-plex-as-a-source), and readable opening and ending titles (with `PLEX_URL`) |
 
 What each key setting does: [SETTINGS.md](SETTINGS.md#-accounts--keys).
 

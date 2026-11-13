@@ -210,13 +210,12 @@ detail](GUIDE.md#-matching-in-detail).
 
 ## 📚 Sources
 
-| Source | Mainly gives |
-|---|---|
-| [**AniDB**](https://anidb.net) | show details and episode titles |
-| [**TheTVDB**](https://thetvdb.com) | artwork, `/tvdb` seasons and episodes, episode thumbnails |
-| [**TheMovieDb**](https://www.themoviedb.org) | more details, artwork and episode titles |
-| [**MyAnimeList**](https://myanimelist.net) | more details and posters |
-| [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | more details and posters, no key needed |
+- [**AniDB**](https://anidb.net)
+- [**TheTVDB**](https://thetvdb.com)
+- [**TheMovieDb**](https://www.themoviedb.org)
+- [**MyAnimeList**](https://myanimelist.net)
+- [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/)
+- **Plex** ([its own metadata service](GUIDE.md#-plex-as-a-source))
 
 Each field has its own source order, which you can change. **More:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
 [what each source can supply](SETTINGS.md#which-source-answers) · [changing the order per field](SETTINGS.md#-sources-per-field).

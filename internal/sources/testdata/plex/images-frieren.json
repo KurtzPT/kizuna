@@ -1,0 +1,59 @@
+{
+  "MediaContainer": {
+    "Art": [
+      {
+        "height": 2160,
+        "key": "https://image.tmdb.org/t/p/original/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg",
+        "source": "tmdb",
+        "width": 3840
+      },
+      {
+        "height": 1080,
+        "key": "https://artworks.thetvdb.com/banners/v4/series/424536/backgrounds/64e6cbe29d9c0.jpg",
+        "previewKey": "https://artworks.thetvdb.com/banners/v4/series/424536/backgrounds/64e6cbe29d9c0_t.jpg",
+        "source": "tvdb",
+        "width": 1920
+      },
+      {
+        "height": 1080,
+        "key": "https://assets.fanart.tv/fanart/frieren-beyond-journeys-end-651b2c7b0eecb.jpg",
+        "previewKey": "https://assets.fanart.tv/preview/frieren-beyond-journeys-end-651b2c7b0eecb.jpg",
+        "source": "fanarttv",
+        "width": 1920
+      }
+    ],
+    "Thumb": [
+      {
+        "height": 3000,
+        "key": "https://image.tmdb.org/t/p/original/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+        "source": "tmdb",
+        "width": 2000
+      },
+      {
+        "height": 3000,
+        "key": "https://image.tmdb.org/t/p/original/dhzbCznEzU67RXWYb53fyPe9Keb.jpg",
+        "source": "tmdb",
+        "width": 2000
+      },
+      {
+        "height": 3000,
+        "key": "https://m.media-amazon.com/images/M/MV5BZTI4ZGMxN2UtODlkYS00MTBjLWE1YzctYzc3NDViMGI0ZmJmXkEyXkFqcGc@._V1_.jpg",
+        "source": "imdb",
+        "width": 2000
+      },
+      {
+        "height": 1000,
+        "key": "https://artworks.thetvdb.com/banners/v4/series/424536/posters/64e6a8b95dfad.jpg",
+        "previewKey": "https://artworks.thetvdb.com/banners/v4/series/424536/posters/64e6a8b95dfad_t.jpg",
+        "source": "tvdb",
+        "width": 680
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 385,
+    "totalSize": 385
+  }
+}

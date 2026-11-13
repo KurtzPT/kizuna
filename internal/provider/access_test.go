@@ -118,7 +118,7 @@ func TestEveryoneWarned(t *testing.T) {
 	}
 	var logs strings.Builder
 	restore := captureLogs(&logs)
-	New(config.Config{AllowFrom: []string{"192.168.1.0/24", "0.0.0.0/0"}}, nil, nil, nil, nil, nil, nil, nil)
+	New(config.Config{AllowFrom: []string{"192.168.1.0/24", "0.0.0.0/0"}}, nil, nil, nil, Sources{})
 	restore()
 	if !strings.Contains(logs.String(), `level=WARN msg="ALLOW_FROM=0.0.0.0/0: every address may use Kizuna`) {
 		t.Errorf("logs:\n%s\nwant the warning for 0.0.0.0/0", logs.String())

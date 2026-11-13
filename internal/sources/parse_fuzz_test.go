@@ -1,7 +1,11 @@
 package sources
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +66,46 @@ func FuzzParseANN(f *testing.F) {
 					t.Errorf("%q listed twice in %q", p, list)
 				}
 				seen[p] = true
+			}
+		}
+	})
+}
+
+// FuzzParsePlex: any answer from Plex's metadata service decodes or fails
+// without a panic, and what Kizuna takes from it keeps its limits.
+func FuzzParsePlex(f *testing.F) {
+	for _, name := range []string{"show-frieren.json", "movie-yourname.json", "children-frieren.json", "season-frieren-1.json",
+		"images-frieren.json", "match-none.json"} {
+		data, err := os.ReadFile(filepath.Join("testdata", "plex", name))
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+	}
+	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Studio":[{"tag":"x"}],"studio":"y","Guid":[],"guid":"plex://show/1","rating":9,"Rating":[],"contentRating":"/"}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"duration":-90000,"Role":[{"tag":" ","order":-1}],"Director":[{"tag":""}]}]}}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var c plexContainer
+		if json.Unmarshal(data, &c) != nil {
+			return
+		}
+		for _, it := range c.MediaContainer.Metadata {
+			d := it.details()
+			if len(d.Cast) > plexCast {
+				t.Errorf("%d cast", len(d.Cast))
+			}
+			for _, p := range d.Cast {
+				if strings.TrimSpace(p.Name) == "" {
+					t.Errorf("cast member without a name: %+v", p)
+				}
+			}
+			for _, list := range [][]string{d.Genres, d.Directors, d.Writers} {
+				if slices.Contains(list, "") {
+					t.Errorf("empty name in %q", list)
+				}
+			}
+			if e := it.episode(1); e.Minutes < 0 || e.Season != 1 {
+				t.Errorf("episode %+v", e)
 			}
 		}
 	})

@@ -51,32 +51,33 @@ type Config struct {
 	// Source order per field: the first source that has a value wins, the
 	// rest are fallbacks in order. Each comment lists the allowed sources in
 	// their default order (see Load).
-	TitleSources      []string // anidb, tvdb, tmdb, ann
-	SummarySources    []string // anidb, tvdb, tmdb, mal, ann
-	PosterSources     []string // tvdb, tmdb, anidb, mal, ann
-	BackgroundSources []string // tvdb, tmdb
-	LogoSources       []string // tvdb, tmdb
+	TitleSources      []string // anidb, tvdb, tmdb, plex, ann
+	SummarySources    []string // anidb, tvdb, tmdb, mal, plex, ann
+	PosterSources     []string // tvdb, tmdb, anidb, mal, plex, ann
+	BackgroundSources []string // tvdb, tmdb, plex
+	LogoSources       []string // tvdb, tmdb, plex
 	// EpisodeFillSources: in /anidb mode, where missing episode thumbnails,
 	// summaries, dates and runtimes come from, matched through the
-	// mapping's TVDB season and episode offset. tvdb. (Titles follow
-	// EpisodeTitles.)
+	// mapping's TVDB season and episode offset: per episode and value,
+	// AniDB's own, then the first listed source with one. tvdb, plex.
+	// (Titles follow EpisodeTitles.)
 	EpisodeFillSources []string
 	// EpisodeTitles: where episode titles come from, in both modes (first
-	// real title wins). anidb (per EpisodeLangs), tvdb, tmdb.
+	// real title wins). anidb (per EpisodeLangs), tvdb, tmdb, plex.
 	EpisodeTitles []string
 	// AutoDefault: the rules /auto uses for a show without an AniDB or TVDB
 	// tag or GUID. anidb or tvdb.
 	AutoDefault string
 	// In /anidb mode, TVDB and TMDB describe the whole series, so for these
 	// fields they are only used on the series' first AniDB entry.
-	GenreSources  []string // anidb, tvdb, tmdb, mal, ann
-	CastSources   []string // anidb, tvdb, tmdb, ann
-	StudioSources []string // anidb, tvdb, tmdb, mal, ann
-	CrewSources   []string // anidb, tvdb, tmdb, ann (directors and writers)
-	RatingSources []string // anidb, tvdb, tmdb, mal, ann (content rating)
+	GenreSources  []string // anidb, tvdb, tmdb, mal, plex, ann
+	CastSources   []string // anidb, tvdb, tmdb, plex, ann
+	StudioSources []string // anidb, tvdb, tmdb, mal, plex, ann
+	CrewSources   []string // anidb, tvdb, tmdb, plex, ann (directors and writers)
+	RatingSources []string // anidb, tvdb, tmdb, mal, plex, ann (content rating)
 	// RatingCountries: TVDB/TMDB rating country order (ISO 3166-1 alpha-2, e.g. "DE,US").
 	RatingCountries []string
-	DateSources     []string // anidb, tvdb, tmdb, mal, ann
+	DateSources     []string // anidb, tvdb, tmdb, mal, plex, ann
 	// ArtAllSources offers posters/backgrounds/logos from every listed source
 	// (the first source's best image is the default). false = only the first
 	// source that has any.
@@ -95,7 +96,8 @@ type Config struct {
 
 	// PlexURL and PlexToken: the Plex server's address and an account token.
 	// With both, the opening and ending extras Plex makes from local files
-	// get readable titles through Plex's API (internal/plex).
+	// get readable titles through Plex's API (internal/plex). The token
+	// alone makes the plex source usable (Plex's metadata service).
 	PlexURL, PlexToken string
 }
 
@@ -119,23 +121,24 @@ func Load() Config {
 		EpisodeLangs:       lowerList(env("EPISODE_LANGS", "en,x-jat")),
 		MinScore:           num("MIN_SCORE", 80, 0, 100),
 
-		TitleSources:       sourceList("TITLE_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
-		SummarySources:     sourceList("SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
-		PosterSources:      sourceList("POSTER_SOURCES", "tvdb,tmdb,anidb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
-		BackgroundSources:  sourceList("BACKGROUND_SOURCES", "tvdb,tmdb", "tvdb", "tmdb"),
-		LogoSources:        sourceList("LOGO_SOURCES", "tvdb,tmdb", "tvdb", "tmdb"),
-		EpisodeFillSources: sourceList("EPISODE_FILL_SOURCES", "tvdb", "tvdb"),
-		GenreSources:       sourceList("GENRE_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
-		CastSources:        sourceList("CAST_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
-		StudioSources:      sourceList("STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
-		CrewSources:        sourceList("CREW_SOURCES", "anidb,tvdb,tmdb,ann", "anidb", "tvdb", "tmdb", "ann"),
-		RatingSources:      sourceList("RATING_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
+		// plex is last in a default list, or right before ann, which stays last.
+		TitleSources:       sourceList("TITLE_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
+		SummarySources:     sourceList("SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
+		PosterSources:      sourceList("POSTER_SOURCES", "tvdb,tmdb,anidb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
+		BackgroundSources:  sourceList("BACKGROUND_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
+		LogoSources:        sourceList("LOGO_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
+		EpisodeFillSources: sourceList("EPISODE_FILL_SOURCES", "tvdb,plex", "tvdb", "plex"),
+		GenreSources:       sourceList("GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
+		CastSources:        sourceList("CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
+		StudioSources:      sourceList("STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
+		CrewSources:        sourceList("CREW_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
+		RatingSources:      sourceList("RATING_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
 		RatingCountries:    upperList(env("RATING_COUNTRY", "US")),
-		DateSources:        sourceList("DATE_SOURCES", "anidb,tvdb,tmdb,mal,ann", "anidb", "tvdb", "tmdb", "mal", "ann"),
+		DateSources:        sourceList("DATE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
 		ArtAllSources:      flag("ART_ALL_SOURCES", false),
 		SeasonArtFallback:  flag("SEASON_ART_FALLBACK", true),
 		AutoDefault:        oneOf("AUTO_DEFAULT", "anidb", "tvdb"),
-		EpisodeTitles:      sourceList("EPISODE_TITLES", "anidb,tvdb,tmdb", "anidb", "tvdb", "tmdb"),
+		EpisodeTitles:      sourceList("EPISODE_TITLES", "anidb,tvdb,tmdb,plex", "anidb", "tvdb", "tmdb", "plex"),
 		CacheMinFree:       size("CACHE_MIN_FREE", 1<<30),
 		CacheFreeTarget:    size("CACHE_FREE_TARGET", 2<<30),
 		MatchReports:       flag("MATCH_REPORTS", false),
@@ -146,8 +149,9 @@ func Load() Config {
 
 // Usable reports whether a source has what it needs to answer: AniDB a
 // client name, TheTVDB a v4 or legacy key, TheMovieDb a key, MyAnimeList a
-// client ID. Anime News Network needs nothing. Each source list uses the
-// first usable source that has a value; the others are skipped.
+// client ID, Plex's metadata service a token. Anime News Network needs
+// nothing. Each source list uses the first usable source that has a value;
+// the others are skipped.
 func (c Config) Usable(source string) bool {
 	switch source {
 	case "anidb":
@@ -158,6 +162,8 @@ func (c Config) Usable(source string) bool {
 		return c.TMDBKey != ""
 	case "mal":
 		return c.MALClientID != ""
+	case "plex":
+		return c.PlexToken != ""
 	}
 	return source == "ann"
 }
@@ -235,7 +241,8 @@ func (c Config) LogModes() {
 }
 
 // sourceKeys: the setting that makes each source usable (see Usable).
-var sourceKeys = map[string]string{"anidb": "ANIDB_CLIENT", "tvdb": "TVDB_API_KEY", "tmdb": "TMDB_API_KEY", "mal": "MAL_CLIENT_ID"}
+var sourceKeys = map[string]string{"anidb": "ANIDB_CLIENT", "tvdb": "TVDB_API_KEY", "tmdb": "TMDB_API_KEY", "mal": "MAL_CLIENT_ID",
+	"plex": "PLEX_TOKEN"}
 
 // emptyFields: the source lists that name sources, none of them usable
 // ("none" turns a list off on purpose and isn't reported). set are the ones

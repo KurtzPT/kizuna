@@ -54,6 +54,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 | `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key, for its older v3 API. Used when `TVDB_API_KEY` is empty or rejected |
 | `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos, details, episode titles and crew |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID |
+| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner ([where it goes](SECURITY.md#-your-data)): turns on the `plex` source, [Plex's own metadata service](GUIDE.md#-plex-as-a-source), and with `PLEX_URL` the [opening and ending titles](#-opening-and-ending-titles) |
 
 ### 🎯 Matching & titles
 
@@ -70,36 +71,38 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 ### 🔀 Sources per field
 
 Each list names the sources to ask, in order, from the ones the field allows: `anidb`, `tvdb`, `tmdb`, `mal`,
-`ann`. The first that has a value wins; `none` turns the field off ([how it works](#-how-sources-are-used)).
+`plex`, `ann`. The first that has a value wins; `none` turns the field off ([how it works](#-how-sources-are-used)).
+`plex` is always last in a default list, or right before `ann`: by default it only fills what the others leave
+empty.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `TITLE_SOURCES` | `anidb,tvdb,tmdb,ann` | Show title. AniDB's follows `TITLE_LANGS`; in `/anidb`, a sequel or a movie keeps its own ([later entries](#later-entries-in-anidb)) |
-| `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | Summary. In `/anidb`, a later entry gets its season's ([later entries](#later-entries-in-anidb)) |
-| `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | Genres. AniDB: its main ("infobox") tags |
-| `CAST_SOURCES` | `anidb,tvdb,tmdb,ann` | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
-| `CREW_SOURCES` | `anidb,tvdb,tmdb,ann` | The show's directors and writers, both from the same source. Episodes get their own ([episode crew](#episode-directors-and-writers)) |
-| `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | Studio |
-| `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | First aired or release date |
-| `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,ann` | Content rating. AniDB only marks 18+, as `X`; MAL uses US ratings |
+| `TITLE_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | Show title. AniDB's follows `TITLE_LANGS`; in `/anidb`, a sequel or a movie keeps its own ([later entries](#later-entries-in-anidb)) |
+| `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Summary. In `/anidb`, a later entry gets its season's ([later entries](#later-entries-in-anidb)) |
+| `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Genres. AniDB: its main ("infobox") tags |
+| `CAST_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | Voice actors with their characters; an actor listed twice for the same character shows once. ANN: Japanese cast, no photos |
+| `CREW_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | The show's directors and writers, both from the same source. Episodes get their own ([episode crew](#episode-directors-and-writers)) |
+| `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Studio |
+| `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | First aired or release date |
+| `RATING_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Content rating. AniDB only marks 18+, as `X`; MAL uses US ratings |
 | `RATING_COUNTRY` | `US` | Rating country order, e.g. `DE` or `GB,US`: every source is checked for these before any other country. Non-US ratings are written the Plex way: `de/12` |
-| `POSTER_SOURCES` | `tvdb,tmdb,anidb,mal,ann` | Posters |
-| `BACKGROUND_SOURCES` | `tvdb,tmdb` | Backgrounds |
-| `LOGO_SOURCES` | `tvdb,tmdb` | Clear logos |
-| `ART_ALL_SOURCES` | `false` | `true`: images from **every** listed source; the first source's best is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any |
+| `POSTER_SOURCES` | `tvdb,tmdb,anidb,mal,plex,ann` | Posters |
+| `BACKGROUND_SOURCES` | `tvdb,tmdb,plex` | Backgrounds |
+| `LOGO_SOURCES` | `tvdb,tmdb,plex` | Clear logos |
+| `ART_ALL_SOURCES` | `false` | `true`: images from **every** listed source; the first source's best is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any. With `true`, `plex` adds the pictures only Plex has, such as fanart.tv's |
 | `SEASON_ART_FALLBACK` | `true` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art. `false`: the next source is asked instead ([season art](#season-art)) |
-| `EPISODE_TITLES` | `anidb,tvdb,tmdb` | Episode titles, both modes, from the [paired](MAPPING.md#-how-episodes-are-paired) episode. The first real title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* only beat nothing. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
-| `EPISODE_FILL_SOURCES` | `tvdb` | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired TVDB episode. `tvdb` or `none` |
+| `EPISODE_TITLES` | `anidb,tvdb,tmdb,plex` | Episode titles, both modes, from the [paired](MAPPING.md#-how-episodes-are-paired) episode. The first real title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* only beat nothing. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
+| `EPISODE_FILL_SOURCES` | `tvdb,plex` | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired episode: per episode and value, the first listed source that has one. `tvdb`, `plex` or `none` |
 
 ### 🎵 Opening and ending titles
 
 Both are needed for Kizuna to give Plex's opening and ending extras readable titles, such as *Opening 1* instead of
-`OP1` ([how it works](GUIDE.md#readable-titles)).
+`OP1` ([how it works](GUIDE.md#readable-titles)). `PLEX_TOKEN` alone turns on the `plex` source only.
 
 | Variable | Default | What it does |
 |---|---|---|
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. Nothing after the port: no path, no `?…` |
-| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner ([where it goes](SECURITY.md#-your-data)) |
+| `PLEX_TOKEN` | – | See [Accounts & keys](#-accounts--keys) |
 
 ### 📝 Logging
 
@@ -155,26 +158,26 @@ flowchart TD
     B -- "has a value" --> W
 ```
 
-| Field | AniDB | TheTVDB | TheMovieDb | MyAnimeList | ANN |
-|---|:-:|:-:|:-:|:-:|:-:|
-| Title | ⭐ | ✅ | ✅ | | ✅ |
-| Summary | ⭐ | ✅ | ✅ | ✅ | ✅ |
-| Genres | ⭐ | ✅ | ✅ | ✅ | ✅ |
-| Cast | ⭐ | ✅ | ✅ | | ✅ |
-| Crew | ⭐ | ✅¹ | ✅ | | ✅ |
-| Studio | ⭐ | ✅¹ | ✅ | ✅ | ✅ |
-| Content rating | ⭐ | ✅² | ✅ | ✅ | ✅ |
-| Date | ⭐ | ✅ | ✅ | ✅ | ✅ |
-| Poster | ✅ | ⭐ | ✅ | ✅ | ✅ |
-| Background, logo | | ⭐³ | ✅ | | |
-| Episode list, `/tvdb` | | ⭐ only | | | |
-| Episode titles | ⭐ | ✅ | ✅ | | |
-| Episode thumbnails, `/anidb` | | ⭐ | | | |
-| Episode directors, writers | | ⭐ | ✅ | | |
+| Field | AniDB | TheTVDB | TheMovieDb | MyAnimeList | Plex | ANN |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| Title | ⭐ | ✅ | ✅ | | ✅ | ✅ |
+| Summary | ⭐ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Genres | ⭐ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Cast | ⭐ | ✅ | ✅ | | ✅ | ✅ |
+| Crew | ⭐ | ✅¹ | ✅ | | ✅ | ✅ |
+| Studio | ⭐ | ✅¹ | ✅ | ✅ | ✅ | ✅ |
+| Content rating | ⭐ | ✅² | ✅ | ✅ | ✅ | ✅ |
+| Date | ⭐ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Poster | ✅ | ⭐ | ✅ | ✅ | ✅ | ✅ |
+| Background, logo | | ⭐³ | ✅ | | ✅ | |
+| Episode list, `/tvdb` | | ⭐ only | | | | |
+| Episode titles | ⭐ | ✅ | ✅ | | ✅ | |
+| Episode thumbnails, `/anidb` | | ⭐ | | | ✅ | |
+| Episode directors, writers | | ⭐ | ✅ | | ✅⁴ | |
 
 <sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key:
 ¹ none, ² US rating only, ³ backgrounds only, no logos; no season summaries or season backgrounds, and episodes get
-the series' runtime</sub>
+the series' runtime &nbsp;·&nbsp; ⁴ [not for every show](#episode-directors-and-writers)</sub>
 
 > [!NOTE]
 > **A list where no source is set up leaves its field empty.** For a list in your settings, Kizuna warns at startup
@@ -185,6 +188,7 @@ the series' runtime</sub>
 
 In `/anidb` each AniDB entry is its own show, but TheTVDB and TheMovieDb describe the whole series. So their data
 only goes to the entry that starts the series; the other entries skip them and take the next source in the list.
+Plex is treated like TheTVDB here.
 
 | `/anidb` show | TheTVDB / TheMovieDb give its… |
 |---|---|
@@ -199,7 +203,9 @@ only goes to the entry that starts the series; the other entries skip them and t
 ### Episode directors and writers
 
 They have no setting: they come from TheTVDB, else TheMovieDb, each field on its own, in both modes. AniDB has none
-per episode.
+per episode. Plex's can fill in what both lack, but not for every show: only when Kizuna needed Plex for that
+show's episodes anyway, because an episode was still missing a title (or, in `/anidb`, a summary, thumbnail, date or
+runtime).
 
 > [!TIP]
 > With a v4 TheTVDB key, Kizuna fetches them for up to 8 seconds while building a show and the rest in the
@@ -216,8 +222,9 @@ per episode.
 ### Season art
 
 A show and each of its Plex seasons get the art of the season they stand for, where the site has season art of that
-kind: TheTVDB season posters and backgrounds, TheMovieDb season posters. No site has season logos. AniDB,
-MyAnimeList and Anime News Network have one poster per entry, whatever `SEASON_ART_FALLBACK` says.
+kind: TheTVDB season posters and backgrounds, TheMovieDb season posters, Plex season posters, backgrounds and
+logos (Plex's seasons are TheTVDB's). AniDB, MyAnimeList and Anime News Network have one poster per entry, whatever
+`SEASON_ART_FALLBACK` says.
 
 | Plex item | TheTVDB / TheMovieDb art of |
 |---|---|
@@ -242,7 +249,7 @@ The cache has no size limit of its own. Every 10 minutes Kizuna checks the free 
 
 ```mermaid
 flowchart LR
-    A["1️⃣ TVDB · TMDB · MAL · ANN<br/><i>oldest first, quick to download again</i>"] --> B["2️⃣ AniDB anime entries<br/><i>oldest first, slow to get back:<br/>200 a day</i>"]
+    A["1️⃣ TVDB · TMDB · MAL · Plex · ANN<br/><i>oldest first, quick to download again</i>"] --> B["2️⃣ AniDB anime entries<br/><i>oldest first, slow to get back:<br/>200 a day</i>"]
     N["🔒 never: AniDB title list, mapping lists"]
     B ~~~ N
 ```
@@ -254,6 +261,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | AniDB anime | see [AniDB fair use](GUIDE.md#-anidb-fair-use) |
 | TheTVDB · TheMovieDb | 2–7 days; TheMovieDb id lookups 30 days |
 | MyAnimeList | 30 days |
+| Plex | 2–7 days; id lookups 30 days. A show Plex doesn't have yet is looked for again after 1 day |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily, every 5 min until the first download succeeds; an unchanged list isn't downloaded again |
 | Built shows, in memory | 1 hour; 2 min when something was missing or the build failed: `complete=false` in the [logs](GUIDE.md#-logs) |

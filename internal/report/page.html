@@ -8,7 +8,7 @@
 <style>
 :root{
   --ground:#EEF0F3;--surface:#FFFFFF;--sunk:#F6F7F9;--ink:#101B2D;--muted:#566275;--rule:#D5DAE1;--edge:#A9B2BF;
-  --anidb:#2A62CC;--tvdb:#17824F;--tmdb:#7248CC;--mal:#BE3777;--ann:#B06A06;--map:#5F6B7C;
+  --anidb:#2A62CC;--tvdb:#17824F;--tmdb:#7248CC;--mal:#BE3777;--ann:#B06A06;--plex:#8A6A00;--map:#5F6B7C;
   --warn:#8A4A0C;--bad:#B3261E;--tile:#6B7686;
   --tech:Bahnschrift,"DIN Alternate","DIN Next","Roboto Condensed","Noto Sans",system-ui,sans-serif;
   --prose:"Segoe UI Variable Text","Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Noto Sans",sans-serif;
@@ -18,7 +18,7 @@
 }
 @media (prefers-color-scheme:dark){:root{
   --ground:#10151C;--surface:#171D26;--sunk:#131920;--ink:#E6EAF0;--muted:#97A2B2;--rule:#2A3340;--edge:#4A5667;
-  --anidb:#6E9DF0;--tvdb:#4CC28B;--tmdb:#A788F0;--mal:#E673A9;--ann:#E5A24A;--map:#8E99A8;
+  --anidb:#6E9DF0;--tvdb:#4CC28B;--tmdb:#A788F0;--mal:#E673A9;--ann:#E5A24A;--plex:#E5C24A;--map:#8E99A8;
   --warn:#E9A867;--bad:#F0796E;--tile:#566172;
   color-scheme:dark;
 }}
@@ -38,7 +38,7 @@ code,.mono{font-family:var(--mono);font-size:.9em}
 [hidden]{display:none!important}
 
 /* Sources: one colour each, set by data-s. */
-[data-s="anidb"]{--c:var(--anidb)}[data-s="tvdb"]{--c:var(--tvdb)}[data-s="tmdb"],[data-s="tmdbmovie"]{--c:var(--tmdb)}
+[data-s="anidb"]{--c:var(--anidb)}[data-s="tvdb"]{--c:var(--tvdb)}[data-s="tmdb"],[data-s="tmdbmovie"]{--c:var(--tmdb)}[data-s="plex"]{--c:var(--plex)}
 [data-s="mal"]{--c:var(--mal)}[data-s="ann"]{--c:var(--ann)}
 [data-s="map"],[data-s="kizuna"],[data-s="show"],[data-s="anilist"],[data-s="imdb"],[data-s="kitsu"],[data-s="other"]{--c:var(--map)}
 /* The thread: a 4px bar in the source's colour, then its name. The bar is
@@ -473,7 +473,7 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
 <script>
 const DATA = /*KIZUNA_DATA*/null;
 
-const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",show:"Show"};
+const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",plex:"Plex",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",show:"Show"};
 const SITE_URL = {
   anidb:v=>"https://anidb.net/anime/"+v, tvdb:v=>"https://thetvdb.com/?tab=series&id="+v,
   tmdb:v=>"https://www.themoviedb.org/tv/"+v, tmdbmovie:v=>"https://www.themoviedb.org/movie/"+v,

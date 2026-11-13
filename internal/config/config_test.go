@@ -216,7 +216,7 @@ func TestUsableSources(t *testing.T) {
 // the user set to sources without a key is a warning.
 func TestLogModesDefaultListsNoWarning(t *testing.T) {
 	unset(t, sourceSettings...)
-	unset(t, "TVDB_API_KEY", "TVDB_LEGACY_API_KEY", "TMDB_API_KEY", "MAL_CLIENT_ID")
+	unset(t, "TVDB_API_KEY", "TVDB_LEGACY_API_KEY", "TMDB_API_KEY", "MAL_CLIENT_ID", "PLEX_TOKEN")
 	t.Setenv("ANIDB_CLIENT", "x")
 	c := Load()
 	log := warnings(t, c.LogModes)
@@ -224,7 +224,7 @@ func TestLogModesDefaultListsNoWarning(t *testing.T) {
 		t.Errorf("warning for lists left at their default: %q", log)
 	}
 	want := `level=INFO msg="these fields stay empty: their default sources need a key" ` +
-		`settings="[BACKGROUND_SOURCES LOGO_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY]"`
+		`settings="[BACKGROUND_SOURCES LOGO_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`
 	if strings.Count(log, "these fields stay empty") != 1 || !strings.Contains(log, want) {
 		t.Errorf("no %q (once) in %q", want, log)
 	}
@@ -234,7 +234,50 @@ func TestLogModesDefaultListsNoWarning(t *testing.T) {
 	if !strings.Contains(log, `level=WARN msg="no usable source in these lists`) || !strings.Contains(log, "settings=[LOGO_SOURCES]") {
 		t.Errorf("LOGO_SOURCES set without a TMDB key: no warning naming it in %q", log)
 	}
-	if !strings.Contains(log, `settings="[BACKGROUND_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY]"`) {
+	if !strings.Contains(log, `settings="[BACKGROUND_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`) {
 		t.Errorf("the defaults' info line: %q", log)
+	}
+}
+
+// plex comes last in every default list it is in, or right before ann, which
+// stays last. It is usable with PLEX_TOKEN alone.
+func TestPlexSource(t *testing.T) {
+	unset(t, sourceSettings...)
+	unset(t, "PLEX_TOKEN", "PLEX_URL")
+	c := Load()
+	for _, l := range []struct {
+		name, want string
+		got        []string
+	}{
+		{"TITLE_SOURCES", "anidb,tvdb,tmdb,plex,ann", c.TitleSources},
+		{"SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.SummarySources},
+		{"POSTER_SOURCES", "tvdb,tmdb,anidb,mal,plex,ann", c.PosterSources},
+		{"BACKGROUND_SOURCES", "tvdb,tmdb,plex", c.BackgroundSources},
+		{"LOGO_SOURCES", "tvdb,tmdb,plex", c.LogoSources},
+		{"EPISODE_FILL_SOURCES", "tvdb,plex", c.EpisodeFillSources},
+		{"EPISODE_TITLES", "anidb,tvdb,tmdb,plex", c.EpisodeTitles},
+		{"GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.GenreSources},
+		{"CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", c.CastSources},
+		{"STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.StudioSources},
+		{"CREW_SOURCES", "anidb,tvdb,tmdb,plex,ann", c.CrewSources},
+		{"RATING_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.RatingSources},
+		{"DATE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.DateSources},
+	} {
+		if got := strings.Join(l.got, ","); got != l.want {
+			t.Errorf("%s default %q, want %q", l.name, got, l.want)
+		}
+	}
+	if !slices.Equal(c.MappingSources, []string{"animelists", "fribb"}) {
+		t.Errorf("MAPPING_SOURCES %v", c.MappingSources)
+	}
+	t.Setenv("LOGO_SOURCES", "plex,tmdb")
+	c = Load()
+	if !slices.Equal(c.LogoSources, []string{"plex", "tmdb"}) || c.Usable("plex") || len(c.UsableOf(c.LogoSources)) != 0 {
+		t.Errorf("without PLEX_TOKEN: %v usable %v", c.LogoSources, c.UsableOf(c.LogoSources))
+	}
+	t.Setenv("PLEX_TOKEN", "token")
+	c = Load()
+	if !c.Usable("plex") || !slices.Equal(c.UsableOf(c.LogoSources), []string{"plex"}) {
+		t.Errorf("with PLEX_TOKEN: usable %v", c.UsableOf(c.LogoSources))
 	}
 }

@@ -91,7 +91,7 @@ func sameMatch(a, b MatchRequest) bool {
 // for a key that isn't a show key.
 func TestMetadataNotFound(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	s := &Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1}}}}
 	p.shows["anidb-1"] = cachedShow{s, time.Now()}
 	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("must not be built") }

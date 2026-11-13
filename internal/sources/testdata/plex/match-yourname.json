@@ -1,0 +1,18 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "guid": "plex://movie/5d776bfffb0d55001f579a01",
+        "ratingKey": "5d776bfffb0d55001f579a01",
+        "title": "Your Name.",
+        "type": "movie"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 1,
+    "totalSize": 1
+  }
+}

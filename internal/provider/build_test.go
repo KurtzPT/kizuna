@@ -32,10 +32,20 @@ type fakeNet struct {
 	mu     sync.Mutex
 	answer func(path string, q map[string][]string) (int, string)
 	hits   map[string]int
+	// tokenElsewhere: hosts other than Plex's service that got X-Plex-Token.
+	tokenElsewhere []string
 }
 
 func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
 	path := r.URL.Hostname() + r.URL.Path
+	if r.Header.Get("X-Plex-Token") != "" && r.URL.Hostname() != "metadata.provider.plex.tv" {
+		f.mu.Lock()
+		f.tokenElsewhere = append(f.tokenElsewhere, r.URL.Hostname())
+		f.mu.Unlock()
+	}
+	if r.Method == http.MethodPost && r.URL.Hostname() == "metadata.provider.plex.tv" {
+		path += plexMatchPath(r) // ".../matches/<type>/<guid>": Plex's service matches by the body
+	}
 	f.mu.Lock()
 	f.hits[path]++
 	f.mu.Unlock()
@@ -122,8 +132,8 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
 		TMDB: mapping.Placement{ID: 77}}})
 	cfg := config.Load()
-	p := New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists,
-		sources.NewTVDB(f, "key", "", ""), sources.NewTMDB(f, "key"), sources.NewMAL(f, ""), sources.NewANN(f))
+	p := New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists, Sources{
+		TVDB: sources.NewTVDB(f, "key", "", ""), TMDB: sources.NewTMDB(f, "key"), MAL: sources.NewMAL(f, ""), ANN: sources.NewANN(f)})
 	// No waits between requests: the throttles are tested in fetch and
 	// sources. A test that needs a gap sets it itself.
 	f.ThrottleAll(0)

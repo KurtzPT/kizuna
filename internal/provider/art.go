@@ -69,12 +69,13 @@ type plexSeason struct {
 
 // seriesFirst: the series' art comes before season 1's on src.
 func (t artTarget) seriesFirst(src string) bool {
-	return src == "tvdb" && t.first.tvdb || src == "tmdb" && t.first.tmdb
+	return (src == "tvdb" || src == "plex") && t.first.tvdb || src == "tmdb" && t.first.tmdb
 }
 
+// on: the target's season on src. Plex's seasons are TheTVDB's.
 func (t artTarget) on(src string) int {
 	switch src {
-	case "tvdb":
+	case "tvdb", "plex":
 		return t.tvdb
 	case "tmdb":
 		return t.tmdb
@@ -170,13 +171,15 @@ func tmdbSeasonPairs(s *Show, x episodeIndex, pr tvdbPairing) map[int]int {
 
 // seasonKind: a source has art of the kind for seasons. TheTVDB's seasons
 // have posters and backgrounds (the legacy key: posters only), TheMovieDb's
-// posters; no site has season logos.
+// posters, Plex's (a series') all three kinds.
 func (ss *showSources) seasonKind(src string, k artKind) bool {
 	switch src {
 	case "tvdb":
 		return k == posterArt || k == backgroundArt && ss.p.tvdb.API() == "v4"
 	case "tmdb":
 		return k == posterArt && !ss.movie
+	case "plex":
+		return ss.plexSeasonList.fetches()
 	}
 	return false
 }
@@ -237,9 +240,12 @@ type seasonFetch struct {
 	err  error
 }
 
-// seasonArt returns a TheTVDB or TheMovieDb season's art, fetched once, on
-// first use.
+// seasonArt returns a TheTVDB, TheMovieDb or Plex season's art, fetched
+// once, on first use (Plex's with its season list).
 func (ss *showSources) seasonArt(src string, n int) sources.Art {
+	if src == "plex" {
+		return ss.plexSeasonOf(n).Art
+	}
 	id, on := ss.tvdb, ss.p.tvdb.Enabled()
 	if src == "tmdb" {
 		id, on = ss.tmdb, ss.p.tmdb.Enabled() && !ss.movie
@@ -388,7 +394,7 @@ func (ss *showSources) warmArt(jobs []func(), take func(src string) bool, settle
 		return false
 	}
 	add := func(t artTarget) {
-		for _, src := range [...]string{"tvdb", "tmdb", "anidb", "mal", "ann"} {
+		for _, src := range [...]string{"tvdb", "tmdb", "plex", "anidb", "mal", "ann"} {
 			if take(src) && (asks(posterArt, src) || asks(backgroundArt, src) || asks(logoArt, src)) {
 				jobs = append(jobs, func() {
 					for _, k := range artKinds {
@@ -425,6 +431,8 @@ func (ss *showSources) artAsked(src string, k artKind, settled bool) bool {
 		return ss.tvdbArt.fetches()
 	case "tmdb":
 		return ss.tmdbArt.fetches()
+	case "plex":
+		return ss.plexShow.fetches()
 	case "anidb": // not ss.art: its one-poster list allocates
 		return !settled || k == posterArt && ss.a != nil && ss.a.Picture != ""
 	case "mal":
@@ -433,6 +441,50 @@ func (ss *showSources) artAsked(src string, k artKind, settled bool) bool {
 		return !settled || ss.ann.fetches()
 	}
 	return false
+}
+
+// plexSeasonOf: Plex's season n (noSeason: none), from its season list.
+func (ss *showSources) plexSeasonOf(n int) sources.PlexSeason {
+	if n == noSeason {
+		return sources.PlexSeason{}
+	}
+	for _, s := range ss.plexSeasonList.get() {
+		if s.Number == n {
+			return s
+		}
+	}
+	return sources.PlexSeason{}
+}
+
+// plexArt: Plex's pictures of the show. With ART_ALL_SOURCES, every one its
+// /images lists too, except its copies of TheTVDB's and TheMovieDb's when
+// that site is set up and in the kind's list: the same pictures at the same
+// addresses, plus TheMovieDb posters in languages Kizuna leaves out on
+// purpose. What stays is what only Plex has (fanart.tv, Gracenote, IMDb).
+// The lists are made once: every kind and target asks for them.
+func (ss *showSources) plexArt() sources.Art {
+	if !ss.plexImages.fetches() {
+		return ss.plexShow.get().Art
+	}
+	ss.plexAllArtOnce.Do(func() {
+		a, im := ss.plexShow.get().Art, ss.plexImages.get()
+		only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
+			out := slices.Clone(own) // the lazy's own list stays as it is
+			order := k.order(ss)
+			skipTVDB := ss.p.tvdb.Enabled() && slices.Contains(order, "tvdb")
+			skipTMDB := ss.p.tmdb.Enabled() && slices.Contains(order, "tmdb")
+			for _, x := range pics {
+				if x.Source == "tvdb" && skipTVDB || x.Source == "tmdb" && skipTMDB {
+					continue
+				}
+				out = append(out, x.URL)
+			}
+			return out
+		}
+		ss.plexAllArt = sources.Art{Posters: only(a.Posters, im.Posters, posterArt),
+			Backgrounds: only(a.Backgrounds, im.Backgrounds, backgroundArt), Logos: a.Logos}
+	})
+	return ss.plexAllArt
 }
 
 // plexSeasons: the seasons Plex gets for a show (seasonItem): those with

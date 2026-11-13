@@ -134,7 +134,7 @@ body:
       placeholder: |
         ANIDB_CLIENT=set  TVDB_API_KEY=set  TVDB_LEGACY_API_KEY=not set  TMDB_API_KEY=not set  MAL_CLIENT_ID=not set
         TITLE_LANGS=en,x-jat
-        EPISODE_TITLES=anidb,tvdb,tmdb
+        EPISODE_TITLES=anidb,tvdb,tmdb,plex
 
   - type: input
     id: versions

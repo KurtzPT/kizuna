@@ -81,8 +81,12 @@ type pairedList struct {
 	at func(*Ep) (spot, bool)
 }
 
-// of looks up ep at the spot at() gives it on this list.
+// of looks up ep at the spot at() gives it on this list (the zero
+// pairedList: a list not read, which has nothing).
 func (l pairedList) of(ep *Ep) (sources.Episode, bool) {
+	if l.at == nil {
+		return sources.Episode{}, false
+	}
 	if sp, ok := l.at(ep); ok {
 		return l.x.at(sp)
 	}
@@ -102,8 +106,9 @@ func (l pairedList) title(ep *Ep, src string, record bool) (sources.Episode, boo
 	return e, ok
 }
 
-// seriesEpisodes returns a TVDB or TMDB series' episodes, absolute numbers
-// filled in (an empty index when the list can't be had). complete is false
+// seriesEpisodes returns a TVDB, TMDB or Plex series' episodes (Plex's by
+// the TheTVDB id), absolute numbers filled in (an empty index when the list
+// can't be had). complete is false
 // when the list failed or came back partial, so the show is rebuilt soon; a
 // series the source doesn't have (404) counts as complete.
 func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x episodeIndex, complete bool) {
@@ -115,6 +120,8 @@ func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x ep
 		eps, err = p.tvdb.Episodes(ctx, id)
 	case "tmdb":
 		eps, posters, err = p.tmdb.EpisodesAndPosters(ctx, id)
+	case "plex":
+		eps, err = p.plex.Episodes(ctx, sources.PlexSeries(id))
 	}
 	if err != nil {
 		slog.Debug("episode list not available", "source", src, "id", id, "err", err)

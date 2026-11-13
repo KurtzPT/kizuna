@@ -41,6 +41,22 @@ type showSources struct {
 	mal                      lazy[sources.MALAnime]
 	ann                      lazy[sources.ANNAnime]
 
+	// Plex's metadata service: plexRef is what it is asked for (a series by
+	// its TheTVDB id, a movie by its TheMovieDb or IMDb id); plexShow its
+	// title, summary, details and pictures (one request), plexSeasonList each
+	// season's summary and pictures (one request), plexImages every
+	// picture it lists (ART_ALL_SOURCES only). plexSeasonAt: the season a later
+	// entry sits in on TheTVDB, for its summary (noSeason = none).
+	plexRef        sources.PlexRef
+	plexShow       lazy[sources.PlexShow]
+	plexSeasonList lazy[[]sources.PlexSeason]
+	plexImages     lazy[sources.PlexImages]
+	plexSeasonAt   int
+	// plexAllArt: plexArt's answer with ART_ALL_SOURCES, worked out once
+	// (setPlex doesn't reset it: it replaces only what wasn't used yet).
+	plexAllArtOnce sync.Once
+	plexAllArt     sources.Art
+
 	// show, seasons: what the show's and each Plex season's art is of
 	// (art.go); set by the build before fill.
 	show    artTarget
@@ -101,8 +117,43 @@ func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry,
 		}
 		return p.tmdb.SeasonArt(ctx, tmdb, n)
 	}
+	ss.plexSeasonAt = noSeason
+	if p.plex.Enabled() { // the closures only when used: they allocate
+		switch {
+		case movie:
+			ss.setPlex(ctx, sources.PlexMovie(tmdb))
+		case tvdb > 0:
+			ss.setPlex(ctx, sources.PlexSeries(tvdb))
+			if n, ok := mappedSeason(entry.TVDB); ok && !first.tvdb {
+				ss.plexSeasonAt = n
+			}
+		}
+	}
 	return ss
 }
+
+// setPlex sets what Plex's service is asked for (an invalid ref: nothing),
+// replacing what was set before, which must not have been used yet.
+func (ss *showSources) setPlex(ctx context.Context, r sources.PlexRef) {
+	p := ss.p
+	if !r.Valid() {
+		return
+	}
+	ss.plexRef = r
+	ss.plexShow, ss.plexSeasonList, ss.plexImages = lazy[sources.PlexShow]{}, lazy[[]sources.PlexSeason]{}, lazy[sources.PlexImages]{}
+	ss.plexShow.from(1, true, func() (sources.PlexShow, error) { return p.plex.Show(ctx, r) })
+	if !r.Movie {
+		ss.plexSeasonList.from(1, true, func() ([]sources.PlexSeason, error) { return p.plex.Seasons(ctx, r) })
+	}
+	if p.cfg.ArtAllSources {
+		ss.plexImages.from(1, true, func() (sources.PlexImages, error) { return p.plex.Images(ctx, r) })
+	}
+}
+
+// plexFirst: Plex's show-level data describes this show: a movie is its own
+// entry; a series' data is used, like TheTVDB's, only on the entry that
+// starts it there.
+func (ss *showSources) plexFirst() bool { return ss.plexRef.Movie || ss.first.tvdb }
 
 // setAniDB sets AniDB's details (nil = none) and the ANN and MAL entries
 // they link to (else the mapping's), once per build. A /tvdb build sets them
@@ -123,6 +174,12 @@ func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entr
 	}
 	if malID != 0 {
 		ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
+	}
+	// A movie only AniDB's type says is one (no TheMovieDb movie id) is
+	// asked for as a movie, by its IMDb id: known only now. Not in a /tvdb
+	// build, whose Plex lazies warmEarly may already use (a series anyway).
+	if p.plex.Enabled() && !ss.movie && !ss.early && a != nil && a.IsMovie() {
+		ss.setPlex(ctx, sources.PlexIMDbMovie(entry.IMDB)) // none without an IMDb id: the series stays
 	}
 }
 
@@ -153,7 +210,8 @@ func (ss *showSources) failed() []string {
 	}{
 		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
 		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"tvdb season", &ss.tvdbSeason},
-		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann},
+		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann}, {"plex", &ss.plexShow},
+		{"plex seasons", &ss.plexSeasonList}, {"plex images", &ss.plexImages},
 	} {
 		if l.lazy.failed() {
 			out = append(out, l.name)
@@ -178,6 +236,10 @@ func (ss *showSources) title(src string) string {
 	case "tmdb":
 		if ss.first.tmdb {
 			return ss.tmdbText.get().title
+		}
+	case "plex":
+		if ss.plexFirst() {
+			return ss.plexShow.get().Title
 		}
 	case "ann":
 		return ss.ann.get().Title
@@ -205,6 +267,11 @@ func (ss *showSources) summary(src string) string {
 		return ss.tmdbText.get().summary
 	case "mal":
 		return ss.mal.get().Synopsis
+	case "plex":
+		if !ss.plexFirst() {
+			return ss.plexSeasonOf(ss.plexSeasonAt).Summary
+		}
+		return ss.plexShow.get().Summary
 	case "ann":
 		return ss.ann.get().Summary
 	}
@@ -229,6 +296,8 @@ func (ss *showSources) art(src string) sources.Art {
 		if n := ss.ann.get(); n.Poster != "" {
 			return sources.Art{Posters: []string{n.Poster}}
 		}
+	case "plex":
+		return ss.plexArt()
 	}
 	return sources.Art{}
 }
@@ -251,6 +320,10 @@ func (ss *showSources) details(src string) sources.Details {
 		}
 	case "mal":
 		return ss.mal.get().Details
+	case "plex":
+		if ss.plexFirst() {
+			return ss.plexShow.get().Details
+		}
 	case "ann": // per entry, like AniDB: no first-entry guard needed
 		return ss.ann.get().Details
 	}
@@ -391,7 +464,7 @@ func (ss *showSources) finish(s *Show) bool {
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
 	var jobs []func()
-	var asked [10]warmer // the lazies warmed so far: one job each
+	var asked [12]warmer // the lazies warmed so far: one job each
 	na := 0
 	add := func(w warmer) {
 		if w == nil || slices.Contains(asked[:na], w) {
@@ -450,7 +523,7 @@ func (ss *showSources) warmEarly() {
 	}
 }
 
-func earlySource(src string) bool { return src == "tvdb" || src == "tmdb" }
+func earlySource(src string) bool { return src == "tvdb" || src == "tmdb" || src == "plex" }
 
 // notEarly: a source warmEarly didn't warm.
 func (ss *showSources) notEarly(src string) bool { return !ss.early || !earlySource(src) }
@@ -474,6 +547,10 @@ func (ss *showSources) titleLazy(src string) warmer {
 		if ss.first.tmdb {
 			return &ss.tmdbText
 		}
+	case "plex":
+		if ss.plexFirst() {
+			return &ss.plexShow
+		}
 	case "ann":
 		return &ss.ann
 	}
@@ -494,6 +571,14 @@ func (ss *showSources) summaryLazy(src string) warmer {
 		return &ss.tmdbText
 	case "mal":
 		return &ss.mal
+	case "plex":
+		if !ss.plexFirst() {
+			if ss.plexSeasonAt == noSeason {
+				return nil
+			}
+			return &ss.plexSeasonList
+		}
+		return &ss.plexShow
 	case "ann":
 		return &ss.ann
 	}
@@ -512,6 +597,10 @@ func (ss *showSources) detailsLazy(src string) warmer {
 		}
 	case "mal":
 		return &ss.mal
+	case "plex":
+		if ss.plexFirst() {
+			return &ss.plexShow
+		}
 	case "ann":
 		return &ss.ann
 	}

@@ -81,7 +81,7 @@ type Ep struct {
 	Date          string
 	Thumb         string
 	Minutes       int
-	Directors     []string // TheTVDB's, else TheMovieDb's (episodeCrew)
+	Directors     []string // TheTVDB's, else TheMovieDb's, else Plex's (episodeCrew)
 	Writers       []string
 
 	titles   map[string]string // source -> its title for this episode
@@ -106,10 +106,11 @@ const (
 	srcTVDB
 	srcTMDB
 	srcShow // a movie's episode takes the show's
+	srcPlex
 )
 
 func (c srcCode) name() string {
-	return [...]string{"", "anidb", "tvdb", "tmdb", "show"}[c]
+	return [...]string{"", "anidb", "tvdb", "tmdb", "show", "plex"}[c]
 }
 
 // epSources is where an episode's values came from (its title's source is
@@ -488,7 +489,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	sources.FillAbsolute(eps)
-	b.tmdbID, b.eps = tmdbID, eps
+	b.tmdbID, b.eps, b.partial = tmdbID, eps, errors.Is(epsErr, sources.ErrIncomplete)
 	episodesFromList(s, b)
 	// What doesn't depend on AniDB's answer starts before it is in, as that
 	// can take seconds (its fair-use gap): TheTVDB's crew records, and
@@ -558,12 +559,13 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 // episode crew are still being fetched, or when a source failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) bool {
 	var wg sync.WaitGroup
-	var tmdbOK, titlesReady, crewReady bool
+	var tmdbOK, titlesReady, plexOK, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
 		tmdbOK = b.loadTMDB(p)
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
+		plexOK = p.tvdbPlexTitles(ctx, s, b)
 		pairs = tmdbSeasonPairs(s, b.tmdbEps, pr)
 		p.pickEpisodeTitles(s)
 		crewReady = p.tvdbEpisodeCrew(s, b, pr)
@@ -573,7 +575,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 	ss.pairTMDB(pairs, b.tmdbEps.posters)
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)
-	return tmdbOK && titlesReady && crewReady && sourcesOK
+	return tmdbOK && titlesReady && plexOK && crewReady && sourcesOK
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular
