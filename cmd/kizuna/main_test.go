@@ -83,7 +83,7 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 	titles.SetForTest(map[int][]anidb.Title{1: {{Type: "main", Text: "A"}}})
 	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
 	cfg := config.Config{Listen: ln.Addr().String(), AllowFrom: []string{"203.0.113.9"}}
-	p := provider.New(cfg, titles, nil, lists, nil, nil, nil, nil)
+	p := provider.New(cfg, titles, nil, lists, provider.Sources{})
 	srv := &http.Server{Handler: p.Handler()}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()

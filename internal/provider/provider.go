@@ -77,7 +77,7 @@ type Provider struct {
 	tmdb         *sources.TMDB
 	mal          *sources.MAL
 	ann          *sources.ANN
-	plex         *sources.Plex // Plex's metadata service; nil = off (SetPlex)
+	plex         *sources.Plex // Plex's metadata service; nil = off
 
 	access   Access            // ALLOW_FROM / ALLOWED_HOSTS
 	reports  *report.Store     // match reports; nil = off
@@ -125,8 +125,18 @@ type build struct {
 	matched bool             // rec has a match request; under p.mu
 }
 
-func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapping.Lists,
-	tvdb *sources.TVDB, tmdb *sources.TMDB, mal *sources.MAL, ann *sources.ANN) *Provider {
+// Sources are the metadata sources a Provider asks besides AniDB. A struct
+// and not one argument each: a new source changes no call site, and tests
+// set only the ones they need. A nil source is off.
+type Sources struct {
+	TVDB *sources.TVDB
+	TMDB *sources.TMDB
+	MAL  *sources.MAL
+	ANN  *sources.ANN
+	Plex *sources.Plex // Plex's metadata service; nil = off
+}
+
+func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapping.Lists, src Sources) *Provider {
 	access, bad := ParseAccess(cfg.AllowFrom, cfg.AllowedHosts)
 	for _, b := range bad {
 		slog.Warn("ignoring a bad access entry", "entry", b,
@@ -137,14 +147,11 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	}
 	loaded := make(chan struct{})
 	close(loaded)
-	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists, tvdb: tvdb, tmdb: tmdb, mal: mal, ann: ann,
+	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists,
+		tvdb: src.TVDB, tmdb: src.TMDB, mal: src.MAL, ann: src.ANN, plex: src.Plex,
 		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
 		ended: make(chan struct{}, 1)}
 }
-
-// SetPlex sets Plex's metadata service as a source (the plex source). Call
-// it before serving.
-func (p *Provider) SetPlex(px *sources.Plex) { p.plex = px }
 
 // Loading marks the lists as still loading for the first time: /health
 // answers "starting", and matches and metadata requests wait for the load

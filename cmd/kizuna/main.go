@@ -125,9 +125,9 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 	if cfg.TVDBKey != "" && cfg.TVDBLegacyKey != "" {
 		slog.Info("TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; the legacy key takes over (with a warning) if TheTVDB rejects it")
 	}
-	p = provider.New(cfg, titles, ad, lists, tvdb,
-		sources.NewTMDB(f, cfg.TMDBKey), sources.NewMAL(f, cfg.MALClientID), sources.NewANN(f))
-	p.SetPlex(sources.NewPlex(f, cfg.PlexToken))
+	p = provider.New(cfg, titles, ad, lists, provider.Sources{TVDB: tvdb,
+		TMDB: sources.NewTMDB(f, cfg.TMDBKey), MAL: sources.NewMAL(f, cfg.MALClientID), ANN: sources.NewANN(f),
+		Plex: sources.NewPlex(f, cfg.PlexToken)})
 	load := func() {
 		loadErr(ctx, "AniDB title list", titles.Load(ctx, f))
 		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources))

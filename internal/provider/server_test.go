@@ -30,7 +30,7 @@ func plexRequest(ctx context.Context, p *Provider, method, path, body string) *h
 
 func TestChildrenArePaged(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	s := &Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}
 	for i := 1; i <= 45; i++ {
 		s.Episodes[1] = append(s.Episodes[1], Ep{Season: 1, Index: i})
@@ -74,7 +74,7 @@ func TestChildrenArePaged(t *testing.T) {
 // A build that panics must answer its callers and leave nothing behind, or
 // every later request for the show would wait for a build that never ends.
 func TestPanickingBuildIsReleased(t *testing.T) {
-	p := New(config.Config{}, nil, nil, nil, nil, nil, nil, nil) // no sources: building panics
+	p := New(config.Config{}, nil, nil, nil, Sources{}) // no sources: building panics
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var logs strings.Builder
@@ -99,7 +99,7 @@ func TestPanickingBuildIsReleased(t *testing.T) {
 // TVDB tags and /tvdb mode find nothing, so Docker must see it unhealthy.
 func TestHealthNeedsMapping(t *testing.T) {
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
-	p := New(config.Config{}, titles, nil, lists, nil, nil, nil, nil)
+	p := New(config.Config{}, titles, nil, lists, Sources{})
 	check := func(wantCode int, wantStatus string, wantMissing ...string) {
 		t.Helper()
 		rec := plexRequest(context.Background(), p, "GET", "/health", "")
@@ -127,7 +127,7 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 	titles.SetForTest(map[int][]anidb.Title{1: {{Type: "main", Text: "A"}}})
 	lists.SetForTest(map[int]mapping.Entry{1: {AID: 1}})
 	dir := t.TempDir()
-	p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, nil, nil, nil, nil)
+	p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, Sources{})
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	done := p.Loading()
 	get := func(ctx context.Context, path string) *httptest.ResponseRecorder {
@@ -167,7 +167,7 @@ func TestRequestsWaitForFirstLoad(t *testing.T) {
 // requests are served until the server stops taking them.
 func TestStopDuringFirstLoad(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	done := p.Loading()
 	get := func() *httptest.ResponseRecorder {
@@ -197,7 +197,7 @@ func TestStopDuringFirstLoad(t *testing.T) {
 func TestModeOff(t *testing.T) {
 	dir := t.TempDir()
 	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil,
-		sources.NewTVDB(fetch.New(dir), "", "", ""), nil, nil, nil)
+		Sources{TVDB: sources.NewTVDB(fetch.New(dir), "", "", "")})
 	p.shows["anidb-1"] = cachedShow{&Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}, time.Now()}
 	get := func(path string) *httptest.ResponseRecorder {
 		return plexRequest(context.Background(), p, "GET", path, "")
@@ -268,7 +268,7 @@ func TestTimedOutShowAnswers503(t *testing.T) {
 		{"GET", "/anidb/library/metadata/anidb-100", ""},
 		{"POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`},
 	} {
-		p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, nil, nil, nil, nil)
+		p := New(config.Config{}, titles, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), lists, Sources{})
 		ctx, giveUp := context.WithCancel(context.Background())
 		release := make(chan struct{})
 		p.buildFn = func(context.Context, string) (*Show, error) {
@@ -302,7 +302,7 @@ func TestTimedOutShowAnswers503(t *testing.T) {
 // is a 404.
 func TestBuildOutOfTime(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
 		<-ctx.Done()
 		return nil, fmt.Errorf("anidb %s unknown", root)
@@ -391,7 +391,7 @@ func TestFailedBuildAnswers(t *testing.T) {
 // isn't kept: the next request builds.
 func TestFailedBuildRemembered(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	builds := 0
 	fail := errors.New("TheTVDB down")
 	p.buildFn = func(context.Context, string) (*Show, error) { builds++; return nil, fail }
@@ -461,7 +461,7 @@ func TestBuildTime(t *testing.T) {
 // and a show's request is passed on with its GUID.
 func TestExtras(t *testing.T) {
 	dir := t.TempDir()
-	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, nil, nil, nil, nil)
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
 	p.buildFn = func(context.Context, string) (*Show, error) {
 		t.Error("the show was built")
 		return nil, errors.New("no build")
