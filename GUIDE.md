@@ -57,22 +57,16 @@ year in the name, such as `(2022)`, or the one Plex sends tells two close movies
 
 ## 📺 Plex as a source
 
-With [`PLEX_TOKEN`](SETTINGS.md#-accounts--keys) set, Kizuna also reads Plex's own metadata service, the one behind
-Plex's built-in *Plex Series* agent, as the source `plex`. By default it comes after the other sources
-([the lists](SETTINGS.md#-sources-per-field)), so it mostly fills logos, backgrounds, cast photos and episode
+Kizuna can also use the metadata Plex's own *Plex Series* agent shows, as the source `plex`. By default it comes
+after the other sources, so it fills what they leave empty: often logos, backgrounds, cast photos and episode
 thumbnails.
 
-- **What it gives:** the show's title, summary, genres, cast (the first 50), directors and writers, studio, content
-  rating, date, poster, background and logo; each season's summary, poster, background and logo; each episode's
-  title, summary, thumbnail, date, runtime, directors and writers. With
-  [`ART_ALL_SOURCES`](SETTINGS.md#-sources-per-field), every picture Plex lists, such as fanart.tv's.
-- **How a show is found:** a series by its TheTVDB id only, so a show without one gets nothing from Plex; its seasons
-  and episodes are TheTVDB's. A movie by its TheMovieDb movie id, else its IMDb id.
-- **Episode lists are read only when they can add something** (One Piece costs about 25 requests):
-  [the rule](SETTINGS.md#episode-directors-and-writers). In `/tvdb`, Plex only gives episode titles and crew: the
-  episodes still come from TheTVDB.
-- **The token** goes only to `metadata.provider.plex.tv`, as a header ([your data](SECURITY.md#-your-data)). A
-  rejected one logs `Plex rejected the request: check PLEX_TOKEN`.
+- **Turn it on:** set [`PLEX_TOKEN`](SETTINGS.md#-accounts--keys). Nothing else is needed.
+- **Change what it fills, or turn it off:** move `plex` up in a source list to prefer it, or take it out
+  ([Sources per field](SETTINGS.md#-sources-per-field)).
+- **A series needs a TheTVDB id** in the [id mapping](README.md#-id-mapping), and a movie a TheMovieDb or IMDb id:
+  a show without one gets nothing from Plex.
+- **`Plex rejected the request: check PLEX_TOKEN`** in the log means the token is wrong or no longer valid.
 
 > [!CAUTION]
 > **Plex doesn't document this service.** Kizuna uses it the way Plex's own agent does, but Plex can change it or

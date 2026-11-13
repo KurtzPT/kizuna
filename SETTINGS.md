@@ -72,7 +72,8 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 
 Each list names the sources to ask, in order, from the ones the field allows: `anidb`, `tvdb`, `tmdb`, `mal`,
 `plex`, `ann`. The first that has a value wins; `none` turns the field off ([how it works](#-how-sources-are-used)).
-`plex` is always last in a default list, or right before `ann`: it only fills what the others leave empty.
+`plex` is always last in a default list, or right before `ann`: by default it only fills what the others leave
+empty.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -88,7 +89,7 @@ Each list names the sources to ask, in order, from the ones the field allows: `a
 | `POSTER_SOURCES` | `tvdb,tmdb,anidb,mal,plex,ann` | Posters |
 | `BACKGROUND_SOURCES` | `tvdb,tmdb,plex` | Backgrounds |
 | `LOGO_SOURCES` | `tvdb,tmdb,plex` | Clear logos |
-| `ART_ALL_SOURCES` | `false` | `true`: images from **every** listed source; the first source's best is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any. `plex` then also offers every picture Plex lists, but its copies of TheTVDB's and TheMovieDb's when that site is set up and in the list |
+| `ART_ALL_SOURCES` | `false` | `true`: images from **every** listed source; the first source's best is the default, the rest can be picked in Plex's *Edit* dialog. `false`: only the first source that has any. With `true`, `plex` adds the pictures only Plex has, such as fanart.tv's |
 | `SEASON_ART_FALLBACK` | `true` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art. `false`: the next source is asked instead ([season art](#season-art)) |
 | `EPISODE_TITLES` | `anidb,tvdb,tmdb,plex` | Episode titles, both modes, from the [paired](MAPPING.md#-how-episodes-are-paired) episode. The first real title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* only beat nothing. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb,plex` | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired episode: per episode and value, the first listed source that has one. `tvdb`, `plex` or `none` |
@@ -176,7 +177,7 @@ flowchart TD
 
 <sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key:
 ¹ none, ² US rating only, ³ backgrounds only, no logos; no season summaries or season backgrounds, and episodes get
-the series' runtime &nbsp;·&nbsp; ⁴ [only when its episode list was read](#episode-directors-and-writers)</sub>
+the series' runtime &nbsp;·&nbsp; ⁴ [not for every show](#episode-directors-and-writers)</sub>
 
 > [!NOTE]
 > **A list where no source is set up leaves its field empty.** For a list in your settings, Kizuna warns at startup
@@ -187,7 +188,7 @@ the series' runtime &nbsp;·&nbsp; ⁴ [only when its episode list was read](#ep
 
 In `/anidb` each AniDB entry is its own show, but TheTVDB and TheMovieDb describe the whole series. So their data
 only goes to the entry that starts the series; the other entries skip them and take the next source in the list.
-Plex follows TheTVDB here, and a movie gets Plex's movie data ([how Plex finds a show](GUIDE.md#-plex-as-a-source)).
+Plex is treated like TheTVDB here.
 
 | `/anidb` show | TheTVDB / TheMovieDb give its… |
 |---|---|
@@ -202,10 +203,9 @@ Plex follows TheTVDB here, and a movie gets Plex's movie data ([how Plex finds a
 ### Episode directors and writers
 
 They have no setting: they come from TheTVDB, else TheMovieDb, each field on its own, in both modes. AniDB has none
-per episode. Plex's fill in what both lack, but only when Plex's episode list was read for the show anyway: when
-`plex` comes before `tvdb` in `EPISODE_TITLES` or `EPISODE_FILL_SOURCES`, TheTVDB isn't set up or its episode list
-failed, or an episode still lacks a real title (or, in `/anidb`, a summary, thumbnail, date or runtime) after the
-sources listed before `plex`.
+per episode. Plex's can fill in what both lack, but not for every show: only when Kizuna needed Plex for that
+show's episodes anyway, because an episode was still missing a title (or, in `/anidb`, a summary, thumbnail, date or
+runtime).
 
 > [!TIP]
 > With a v4 TheTVDB key, Kizuna fetches them for up to 8 seconds while building a show and the rest in the
@@ -261,7 +261,7 @@ If the target still isn't reached, something else is filling the disk, and Kizun
 | AniDB anime | see [AniDB fair use](GUIDE.md#-anidb-fair-use) |
 | TheTVDB · TheMovieDb | 2–7 days; TheMovieDb id lookups 30 days |
 | MyAnimeList | 30 days |
-| Plex | 2–7 days; which Plex show an id is 30 days, "not on Plex" 1 day |
+| Plex | 2–7 days; id lookups 30 days. A show Plex doesn't have yet is looked for again after 1 day |
 | Anime News Network | 7 days |
 | AniDB title list · mapping lists | refreshed daily, every 5 min until the first download succeeds; an unchanged list isn't downloaded again |
 | Built shows, in memory | 1 hour; 2 min when something was missing or the build failed: `complete=false` in the [logs](GUIDE.md#-logs) |
