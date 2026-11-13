@@ -217,6 +217,7 @@ detail](GUIDE.md#-matching-in-detail).
 | [**TheMovieDb**](https://www.themoviedb.org) | more details, artwork and episode titles |
 | [**MyAnimeList**](https://myanimelist.net) | more details and posters |
 | [**Anime News Network**](https://www.animenewsnetwork.com/encyclopedia/) | more details and posters, no key needed |
+| **Plex** ([its metadata service](GUIDE.md#-plex-as-a-source)) | what the others leave empty: logos, backgrounds, cast, episode thumbnails; uses your `PLEX_TOKEN` |
 
 Each field has its own source order, which you can change. **More:** [which keys each mode needs](SETUP.md#-1-get-your-keys) ·
 [what each source can supply](SETTINGS.md#which-source-answers) · [changing the order per field](SETTINGS.md#-sources-per-field).

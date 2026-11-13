@@ -36,6 +36,9 @@ type fakeNet struct {
 
 func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
 	path := r.URL.Hostname() + r.URL.Path
+	if r.Method == http.MethodPost && r.URL.Hostname() == "metadata.provider.plex.tv" {
+		path += plexMatchPath(r) // ".../matches/<type>/<guid>": Plex's service matches by the body
+	}
 	f.mu.Lock()
 	f.hits[path]++
 	f.mu.Unlock()

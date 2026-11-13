@@ -181,7 +181,7 @@ type Candidate struct {
 
 // Span is one row of a build's trace, in ms from the build's start.
 type Span struct {
-	Src   string   `json:"src"` // anidb, tvdb, tmdb, mal, ann, map, kizuna, other
+	Src   string   `json:"src"` // anidb, tvdb, tmdb, mal, plex, ann, map, kizuna, other
 	Label string   `json:"label"`
 	Note  string   `json:"note,omitempty"`
 	Kind  SpanKind `json:"kind"`
@@ -269,7 +269,7 @@ type Episode struct {
 	Writers   []string          `json:"writers,omitempty"`
 	Guids     []string          `json:"guids,omitempty"`
 	// Src: the source of summary, date, thumb, minutes, directors and
-	// writers (anidb, tvdb, tmdb, or show: a movie's episode has the show's
+	// writers (anidb, tvdb, tmdb, plex, or show: a movie's episode has the show's
 	// summary), for those the episode has.
 	Src   map[string]string `json:"src,omitempty"`
 	Issue string            `json:"issue,omitempty"`

@@ -82,6 +82,11 @@ type tvdbBuild struct {
 	tmdbOK         bool
 	crew           map[int]sources.Crew
 	crewPending    bool
+	// partial: TheTVDB's list came back with parts missing.
+	partial bool
+	// plex: Plex's episode list, at each episode's own TheTVDB spot, when
+	// tvdbPlexTitles read it (empty otherwise).
+	plex pairedList
 }
 
 func newTVDBBuild(tvdbID, tmdbID, aid int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
@@ -244,12 +249,30 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 	return pr, ready
 }
 
+// tvdbPlexTitles adds Plex's episode titles to a /tvdb show, when its list
+// can add something (plexListNeeded: in /tvdb only a title counts; the
+// episodes' other values come only from TheTVDB). Plex's episodes are in
+// TheTVDB's aired order: each lands at its own TheTVDB spot (Ep.listed), not
+// TheMovieDb's. They set no TheTVDB episode (Ep.tvdbEp). Returns false when
+// the list failed or came back partial.
+func (p *Provider) tvdbPlexTitles(ctx context.Context, s *Show, b *tvdbBuild) bool {
+	if !p.plexEpisodes(b.tvdbID, false) || !p.plexListNeeded(s, !b.partial, false, func(*Ep) bool { return true }) {
+		return true
+	}
+	x, ok := p.seriesEpisodes(ctx, "plex", b.tvdbID)
+	b.plex = pairedList{x, func(ep *Ep) (spot, bool) { return ep.listed, true }}
+	record := report.RecorderFrom(ctx) != nil
+	s.eachEpisode(func(ep *Ep) { b.plex.title(ep, "plex", record) })
+	return ok
+}
+
 // tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes from
-// its episode list (TheTVDB's) and TheMovieDb's, paired through AniDB like
-// the titles (pr). Returns false while episode crew is still being fetched.
+// its episode list (TheTVDB's), TheMovieDb's, paired through AniDB like the
+// titles (pr), and Plex's when tvdbPlexTitles read it. Returns false while
+// episode crew is still being fetched.
 func (p *Provider) tvdbEpisodeCrew(s *Show, b *tvdbBuild, pr tvdbPairing) bool {
 	tm := pairedList{b.tmdbEps, pr.otherAt} // TheTVDB's list's crew is on the episodes already (episodesFromList)
 	b.crewWG.Wait()
-	applyCrew(s, b.crew, tm)
+	applyCrew(s, b.crew, tm, b.plex)
 	return !b.crewPending
 }

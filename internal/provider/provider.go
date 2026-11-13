@@ -77,6 +77,7 @@ type Provider struct {
 	tmdb         *sources.TMDB
 	mal          *sources.MAL
 	ann          *sources.ANN
+	plex         *sources.Plex // Plex's metadata service; nil = off (SetPlex)
 
 	access   Access            // ALLOW_FROM / ALLOWED_HOSTS
 	reports  *report.Store     // match reports; nil = off
@@ -140,6 +141,10 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
 		ended: make(chan struct{}, 1)}
 }
+
+// SetPlex sets Plex's metadata service as a source (the plex source). Call
+// it before serving.
+func (p *Provider) SetPlex(px *sources.Plex) { p.plex = px }
 
 // Loading marks the lists as still loading for the first time: /health
 // answers "starting", and matches and metadata requests wait for the load

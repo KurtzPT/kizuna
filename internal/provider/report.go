@@ -94,7 +94,7 @@ func errText(err error) string {
 // api4) -> the source it belongs to.
 var keySources = map[string]string{
 	"anidb": "anidb", "tvdb": "tvdb", "thetvdb": "tvdb", "tmdb": "tmdb", "themoviedb": "tmdb",
-	"mal": "mal", "myanimelist": "mal", "ann": "ann", "animenewsnetwork": "ann", "mapping": "map",
+	"mal": "mal", "myanimelist": "mal", "ann": "ann", "animenewsnetwork": "ann", "mapping": "map", "plex": "plex",
 }
 
 // sourceOfKey names the source of a cache key ("tvdb3/1/series.json", by

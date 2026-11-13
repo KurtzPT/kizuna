@@ -1,0 +1,84 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "Director": [
+          {
+            "tag": "Ayaka Tsuji"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "Tomohiro Suzuki"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": 1560000,
+        "guid": "plex://episode/631ccdfdcbff4464978f9d56",
+        "index": 1,
+        "originallyAvailableAt": "2023-09-29",
+        "parentIndex": 1,
+        "ratingKey": "631ccdfdcbff4464978f9d56",
+        "studio": null,
+        "summary": "The world celebrates the Demon King's defeat at the hands of the Hero and his companions. Now that their great adventure is over, what will Frieren the mage do next?",
+        "thumb": "https://image.tmdb.org/t/p/original/7SfqQVmW125ugsktoRVTnRXpAkd.jpg",
+        "title": "The Journey's End",
+        "type": "episode"
+      },
+      {
+        "Director": [
+          {
+            "tag": "Tomoya Kitagawa"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "Tomohiro Suzuki"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": 1560000,
+        "guid": "plex://episode/64f4abd9b81ad553277c6af6",
+        "index": 2,
+        "originallyAvailableAt": "2023-09-29",
+        "parentIndex": 1,
+        "ratingKey": "64f4abd9b81ad553277c6af6",
+        "studio": null,
+        "summary": "Frieren instructs Fern in the use of magic while deciphering a grimoire for Heiter.",
+        "thumb": "https://image.tmdb.org/t/p/original/jVeDv4dZI5KbRQw3eD8RRiojUZ5.jpg",
+        "title": "It Didn't Have to Be Magic...",
+        "type": "episode"
+      },
+      {
+        "Director": [
+          {
+            "tag": "Daiki Harashina"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "Tomohiro Suzuki"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": 1500000,
+        "guid": "plex://episode/64f4abd9b81ad553277c6af5",
+        "index": 3,
+        "originallyAvailableAt": "2023-09-29",
+        "parentIndex": 1,
+        "ratingKey": "64f4abd9b81ad553277c6af5",
+        "studio": null,
+        "summary": "While retracing the path she took on her adventure with her former traveling companions, Frieren confronts an old enemy.",
+        "thumb": "https://image.tmdb.org/t/p/original/5uVpkiIoMRCDaLcAxfG8Gc7VJWo.jpg",
+        "title": "Killing Magic",
+        "type": "episode"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 3,
+    "totalSize": 38
+  }
+}

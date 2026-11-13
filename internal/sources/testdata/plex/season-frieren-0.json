@@ -1,0 +1,54 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "contentRating": "TV-14",
+        "duration": 120000,
+        "guid": "plex://episode/65281ecd652e2431381cbf48",
+        "index": 1,
+        "originallyAvailableAt": "2023-10-11",
+        "parentIndex": 0,
+        "ratingKey": "65281ecd652e2431381cbf48",
+        "studio": null,
+        "summary": "Frieren, Heiter, and Eisen test the spell that causes the user to say whatever they are thinking on Himmel, who begins to wax-poetic about his looks aloud. The three of them agree that it would be unbearable to listen to it long term.",
+        "thumb": "https://image.tmdb.org/t/p/original/jnwgpJIhEse9DbHklTbZcjEubnb.jpg",
+        "title": "OO Magic Episode 1: The Magic of Saying What You Are Thinking",
+        "type": "episode"
+      },
+      {
+        "contentRating": "TV-14",
+        "duration": 120000,
+        "guid": "plex://episode/653a6a1a11f3b701ab95dd75",
+        "index": 2,
+        "originallyAvailableAt": "2023-10-25",
+        "parentIndex": 0,
+        "ratingKey": "653a6a1a11f3b701ab95dd75",
+        "studio": null,
+        "summary": "After using the spell that removes just the alcohol from an alcoholic drink, Frieren, Himmel, and Eisen taste the drink and can't tell the difference. They then urge Heiter to try the drink, but he immediately guesses that the drink isn't alcoholic, to which the party all call him a Corrupt Priest.",
+        "thumb": "https://image.tmdb.org/t/p/original/jl6VEVe4oOg4MRm2bGWZtev2bAN.jpg",
+        "title": "OO Magic Episode 2: The Magic of Removing Only Alcohol From Alcoholic Beverages",
+        "type": "episode"
+      },
+      {
+        "contentRating": "TV-14",
+        "duration": 60000,
+        "guid": "plex://episode/65561e9b9bba33b6ce8b8656",
+        "index": 3,
+        "originallyAvailableAt": "2023-11-15",
+        "parentIndex": 0,
+        "ratingKey": "65561e9b9bba33b6ce8b8656",
+        "studio": null,
+        "summary": "Fern is excited to try the spell because of Frieren's oversleeping habits. She sets the specified time to 6 AM. The next day, Frieren wakes up at the correct time, but the spell is unable to keep her from falling back asleep.",
+        "thumb": "https://image.tmdb.org/t/p/original/e2Z9QZgkREMpvkwFC6lVMs7M17v.jpg",
+        "title": "OO Magic Episode 3: The Magic of Waking Up at a Certain Time in the Morning",
+        "type": "episode"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 3,
+    "totalSize": 3
+  }
+}

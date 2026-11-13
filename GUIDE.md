@@ -8,7 +8,7 @@
 
 [Home](README.md) &nbsp;·&nbsp; [Setup](SETUP.md) &nbsp;·&nbsp; **Guide** &nbsp;·&nbsp; [Settings](SETTINGS.md) &nbsp;·&nbsp; [Mapping](MAPPING.md) &nbsp;·&nbsp; [Migration](MIGRATION.md)
 
-<sub>On this page: [Matching](#-matching-in-detail) · [Movies](#-movies-and-specials) · [Openings](#-openings-and-endings) · [AniDB](#-anidb-fair-use) · [Logs](#-logs) · [Reports](#-match-reports) · [Problems](#-metadata-problems)</sub>
+<sub>On this page: [Matching](#-matching-in-detail) · [Movies](#-movies-and-specials) · [Plex](#-plex-as-a-source) · [Openings](#-openings-and-endings) · [AniDB](#-anidb-fair-use) · [Logs](#-logs) · [Reports](#-match-reports) · [Problems](#-metadata-problems)</sub>
 
 </div>
 
@@ -54,6 +54,29 @@ year in the name, such as `(2022)`, or the one Plex sends tells two close movies
 - **Without AniDB details**, such a show still gets its episodes from TheTVDB's specials.
 - **GUIDs:** a movie (an entry with a TheMovieDb movie id, and no regular TVDB season or no TheMovieDb TV show id)
   gets the movie's `tmdb://` and `imdb://`, not the series' `tvdb://`.
+
+## 📺 Plex as a source
+
+With [`PLEX_TOKEN`](SETTINGS.md#-accounts--keys) set, Kizuna also reads Plex's own metadata service, the one behind
+Plex's built-in *Plex Series* agent, as the source `plex`. It is last in every default list, or right before Anime
+News Network, so it only fills what the other sources leave empty: often logos, backgrounds, cast photos and episode
+thumbnails.
+
+- **What it gives:** the show's title, summary, genres, cast (the first 50), directors and writers, studio, content
+  rating, date, poster, background and logo; each season's summary, poster, background and logo; each episode's
+  title, summary, thumbnail, date, runtime, directors and writers. With
+  [`ART_ALL_SOURCES`](SETTINGS.md#-sources-per-field), every picture Plex lists, such as fanart.tv's.
+- **How a show is found:** a series by its TheTVDB id only, so a show without one gets nothing from Plex; its seasons
+  and episodes are TheTVDB's. A movie by its TheMovieDb movie id, else its IMDb id.
+- **Episode lists are read only when they can add something** (One Piece costs about 25 requests):
+  [the rule](SETTINGS.md#episode-directors-and-writers). In `/tvdb`, Plex only gives episode titles and crew: the
+  episodes still come from TheTVDB.
+- **The token** goes only to `metadata.provider.plex.tv`, as a header ([your data](SECURITY.md#-your-data)). A
+  rejected one logs `Plex rejected the request: check PLEX_TOKEN`.
+
+> [!CAUTION]
+> **Plex doesn't document this service.** Kizuna uses it the way Plex's own agent does, but Plex can change it or
+> turn it off at any time. Then the `plex` source just gives nothing, and the other sources answer as before.
 
 ## 🎵 Openings and endings
 
@@ -193,7 +216,7 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 |---|---|
 | *Plex*: `503` `the show wasn't ready in time` / `the show's sources didn't answer in time` | A slow source (often AniDB's queue). Plex keeps what it has; the next refresh gets the show |
 | *Plex*: `503` `the show can't be built now` | A source is down with nothing cached, or the show needs a key that isn't set (Kizuna logs `show build failed` with the reason). Plex asks again later |
-| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request` | That key is wrong or expired; a user-supported TheTVDB key also needs [`TVDB_PIN`](SETTINGS.md#-accounts--keys). The source is skipped for 10 min; cached data still answers |
+| `TVDB rejected the API key`, `TMDB rejected the request`, `MyAnimeList rejected the request`, `Plex rejected the request` | That key (or `PLEX_TOKEN`) is wrong or expired; a user-supported TheTVDB key also needs [`TVDB_PIN`](SETTINGS.md#-accounts--keys). The source is skipped for 10 min; cached data still answers |
 | `TVDB rejected TVDB_API_KEY: falling back to TVDB_LEGACY_API_KEY` | Fix `TVDB_API_KEY` or `TVDB_PIN` and restart. Until then: no TheTVDB logos, studio or show crew |
 | `TVDB login failed` | TheTVDB didn't answer; not a key problem. Tried again after 30 seconds |
 | `source rejected the request: check its API key / client id` | A source refused a call: check that source's key or client id |

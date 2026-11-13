@@ -86,4 +86,5 @@ Kizuna only connects to:
 |---|---|---|
 | AniDB, TheTVDB, TheMovieDb, MyAnimeList, Anime News Network | to look up the shows in your library | the show's id or title, and that service's own key or client name, never another's |
 | Your Plex server (`PLEX_URL`), only if you set it | to name openings and endings | your `PLEX_TOKEN`, only to that server |
+| Plex's metadata service, `metadata.provider.plex.tv`, only if you set `PLEX_TOKEN` | the `plex` source: to look up the shows in your library | the show's TheTVDB, TheMovieDb or IMDb id, and your `PLEX_TOKEN` as a header, never in an address |
 | GitHub | to download the public id mapping and AniDB title lists | nothing about you or your library |

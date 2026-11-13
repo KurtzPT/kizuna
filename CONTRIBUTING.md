@@ -132,7 +132,7 @@ internal/fetch                  HTTP, disk cache, throttling, free-space cleanup
 internal/logfile                daily log file, old days deleted
 internal/anidb                  offline AniDB title list: search and title-language picking
 internal/mapping                AniDB ⇄ TVDB/TMDB/IMDb/MAL/AniList/Kitsu/ANN ids (Anime-Lists, Fribb)
-internal/sources                AniDB HTTP API (fair use), TheTVDB v4 + v3, TheMovieDb, MAL, ANN
+internal/sources                AniDB HTTP API (fair use), TheTVDB v4 + v3, TheMovieDb, MAL, ANN, Plex's metadata service
 internal/provider               modes, matching, show model, Plex JSON, HTTP routes
 internal/plex                   opening and ending titles, set through Plex's API (PLEX_URL)
 internal/report                 match reports (MATCH_REPORTS): an HTML page per show

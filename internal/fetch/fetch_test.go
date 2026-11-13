@@ -97,6 +97,46 @@ func (n *bodyNet) RoundTrip(r *http.Request) (*http.Response, error) {
 		Header: http.Header{}, Request: r}, nil
 }
 
+// redirectNet answers every request to its first host with a redirect to
+// another host, and records the hosts asked.
+type redirectNet struct {
+	mu    sync.Mutex
+	asked []string
+}
+
+func (n *redirectNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	n.mu.Lock()
+	n.asked = append(n.asked, r.URL.Host)
+	n.mu.Unlock()
+	if r.URL.Host == "api.example" {
+		return &http.Response{StatusCode: http.StatusFound, Body: io.NopCloser(strings.NewReader("")),
+			Header: http.Header{"Location": {"https://elsewhere.example/x"}}, Request: r}, nil
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}, Request: r}, nil
+}
+
+// NoRedirect: a redirect is the request's answer, an error, not followed:
+// Go would carry the request's headers (a token) to the other host. Without
+// it, a redirect is followed as before.
+func TestNoRedirect(t *testing.T) {
+	c := New(t.TempDir())
+	net := &redirectNet{}
+	c.SetTransport(net)
+	r := Request{URL: "https://api.example/x", Headers: map[string]string{"X-Plex-Token": "secret"}, NoRedirect: true}
+	_, err := c.Get(context.Background(), r)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusFound {
+		t.Fatalf("err %v, want the 302 as an error", err)
+	}
+	if strings.Join(net.asked, " ") != "api.example" {
+		t.Fatalf("asked %v, want only the first host", net.asked)
+	}
+	r.NoRedirect = false
+	if data, err := c.Get(context.Background(), r); err != nil || string(data) != "ok" {
+		t.Fatalf("without NoRedirect: %q %v, want the redirect followed", data, err)
+	}
+}
+
 // Before runs once the request's turn comes; an error stops it: nothing is
 // sent, nothing cached, and Done gets that error.
 func TestBeforeStopsRequest(t *testing.T) {

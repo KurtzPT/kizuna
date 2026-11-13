@@ -127,6 +127,7 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 	}
 	p = provider.New(cfg, titles, ad, lists, tvdb,
 		sources.NewTMDB(f, cfg.TMDBKey), sources.NewMAL(f, cfg.MALClientID), sources.NewANN(f))
+	p.SetPlex(sources.NewPlex(f, cfg.PlexToken))
 	load := func() {
 		loadErr(ctx, "AniDB title list", titles.Load(ctx, f))
 		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources))
@@ -243,13 +244,17 @@ func serve(cfg config.Config) error {
 
 // extraTitles returns what renames Plex's opening and ending extras, or nil
 // when PLEX_URL and PLEX_TOKEN aren't both set (a half or bad setup is
-// logged: it would look like the feature doing nothing).
+// logged: it would look like the feature doing nothing). PLEX_TOKEN alone
+// is a setup of its own: the plex source uses it.
 func extraTitles(cfg config.Config) *plex.Renamer {
 	switch {
 	case cfg.PlexURL == "" && cfg.PlexToken == "":
 		return nil
-	case cfg.PlexURL == "" || cfg.PlexToken == "":
-		slog.Warn("PLEX_URL and PLEX_TOKEN are both needed to set the opening and ending titles in Plex: only one is set, so they stay as Plex names them")
+	case cfg.PlexURL == "":
+		slog.Info("PLEX_TOKEN is set without PLEX_URL: the plex source uses it; the opening and ending titles also need PLEX_URL, so they stay as Plex names them")
+		return nil
+	case cfg.PlexToken == "":
+		slog.Warn("PLEX_URL is set without PLEX_TOKEN: setting the opening and ending titles in Plex needs both, so they stay as Plex names them")
 		return nil
 	}
 	if err := plex.CheckURL(cfg.PlexURL); err != nil {
@@ -281,7 +286,7 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 	// The cache cleanup frees at least CACHE_MIN_FREE (fetch.KeepFree raises a
 	// lower target to it): log the target it works with.
 	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
-		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "anidb_client", cfg.AniDBClient != "",
+		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "plex", cfg.PlexToken != "", "anidb_client", cfg.AniDBClient != "",
 		"titles", u(cfg.TitleSources), "summaries", u(cfg.SummarySources), "posters", u(cfg.PosterSources),
 		"backgrounds", u(cfg.BackgroundSources), "logos", u(cfg.LogoSources), "art_all", cfg.ArtAllSources, "season_art_fallback", cfg.SeasonArtFallback,
 		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),

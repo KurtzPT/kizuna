@@ -12,7 +12,8 @@ import (
 	"kizuna/internal/fetch"
 )
 
-// rejectedKeyPause: how long a source's rejected key (HTTP 401/403, or the
+// rejectedKeyPause: how long a source's rejected key (HTTP 401/403 unless
+// only401, or the
 // answer a keyCheck's rejects names) is remembered. A wrong key won't fix
 // itself.
 const rejectedKeyPause = 10 * time.Minute
@@ -27,6 +28,9 @@ type keyCheck struct {
 	// rejects, if set, also counts this answer as a rejected key (one the
 	// source gives with another code than 401/403).
 	rejects func(*fetch.StatusError) bool
+	// only401: a 403 is an ordinary failed request, not a rejected key
+	// (Plex's service: Cloudflare in front of it answers some with a 403).
+	only401 bool
 
 	mu    sync.Mutex
 	until time.Time
@@ -71,7 +75,7 @@ func (k *keyCheck) done(err error) {
 	var se *fetch.StatusError
 	switch {
 	case err == nil || fetch.IsNotFound(err): // 404: the source just has no such entry
-	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden ||
+	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden && !k.only401 ||
 		(k.rejects != nil && k.rejects(se))):
 		k.mu.Lock()
 		first := !time.Now().Before(k.until)

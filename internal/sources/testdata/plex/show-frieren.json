@@ -1,0 +1,211 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "Director": [
+          {
+            "tag": "Keiichiro Saito"
+          },
+          {
+            "tag": "Toru Iwazawa"
+          },
+          {
+            "tag": "Tomoya Kitagawa"
+          },
+          {
+            "tag": "Kento Matsui"
+          },
+          {
+            "tag": "Kota Mori"
+          },
+          {
+            "tag": "Kazumasa Isokawa"
+          },
+          {
+            "tag": "Takahiro Natori"
+          },
+          {
+            "tag": "Nobuhiro Muto"
+          },
+          {
+            "tag": "Yoshiki Kawasaki"
+          },
+          {
+            "tag": "Kouki Fujimoto"
+          },
+          {
+            "tag": "Kentarou Hori"
+          },
+          {
+            "tag": "Keisuke Kojima"
+          },
+          {
+            "tag": "Hayato Kakita"
+          },
+          {
+            "tag": "Youhei Tsuchiya"
+          },
+          {
+            "tag": "Nobuhide Kariya"
+          },
+          {
+            "tag": "Hirotaka Mori"
+          },
+          {
+            "tag": "Taku Kimura"
+          },
+          {
+            "tag": "Shinya Iino"
+          },
+          {
+            "tag": "Fumie Muroi"
+          },
+          {
+            "tag": "Ayaka Tsuji"
+          },
+          {
+            "tag": "Morio Asaka"
+          },
+          {
+            "tag": "Haruka Yutoku"
+          },
+          {
+            "tag": "Kunio Fujii"
+          },
+          {
+            "tag": "Aimi Yamauchi"
+          },
+          {
+            "tag": "Ken Ando"
+          },
+          {
+            "tag": "Daiki Harashina"
+          },
+          {
+            "tag": "Hiroyuki Kobashi"
+          },
+          {
+            "tag": "Lim Ka-hee"
+          },
+          {
+            "tag": "Izumi Seguchi"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Drama"
+          },
+          {
+            "tag": "Animation"
+          },
+          {
+            "tag": "Adventure"
+          },
+          {
+            "tag": "Comedy"
+          },
+          {
+            "tag": "Fantasy"
+          },
+          {
+            "tag": "Sci-Fi & Fantasy"
+          },
+          {
+            "tag": "Anime"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "imdb://tt22248376"
+          },
+          {
+            "id": "tmdb://209867"
+          },
+          {
+            "id": "tvdb://424536"
+          }
+        ],
+        "Image": [
+          {
+            "type": "background",
+            "url": "https://image.tmdb.org/t/p/original/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg"
+          },
+          {
+            "type": "backgroundSquare",
+            "url": "https://metadata-static.plex.tv/3/gracenote/3eaecefd50ae10af21a81a0276232e35.jpg"
+          },
+          {
+            "type": "banner",
+            "url": "https://artworks.thetvdb.com/banners/v4/series/424536/banners/651dd688bd4d5.jpg"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "clearLogoWide",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "coverArt",
+            "url": "https://metadata-static.plex.tv/1/gracenote/155a34024ae1ad7e312fb37b3864a363.jpg"
+          },
+          {
+            "type": "coverPoster",
+            "url": "https://image.tmdb.org/t/p/original/dqZENchTd7lp5zht7BdlqM7RBhD.jpg"
+          },
+          {
+            "type": "coverSquare",
+            "url": "https://metadata-static.plex.tv/5/gracenote/55cf296beac32f53abeedd8775bb21fa.jpg"
+          }
+        ],
+        "Role": [
+          {
+            "order": 1,
+            "role": "Frieren (voice)",
+            "tag": "Atsumi Tanezaki",
+            "thumb": "https://metadata-static.plex.tv/b/people/ba0810651155042dcb736b1cdb079d04.jpg"
+          },
+          {
+            "order": 2,
+            "role": "Fern (voice)",
+            "tag": "Kana Ichinose",
+            "thumb": "https://metadata-static.plex.tv/a/people/a726d53d4ffb50c8b36476294e1f8056.jpg"
+          },
+          {
+            "order": 3,
+            "role": "Stark (voice)",
+            "tag": "Chiaki Kobayashi",
+            "thumb": "https://metadata-static.plex.tv/2/people/269c0e7df9d3d7016c9dbaa70c1882f9.jpg"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "Tomohiro Suzuki"
+          },
+          {
+            "tag": "Kanehito Yamada"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": 1500000,
+        "guid": "plex://show/631ccdfccbff4464978f9d53",
+        "index": null,
+        "originallyAvailableAt": "2023-09-29",
+        "parentIndex": null,
+        "ratingKey": "631ccdfccbff4464978f9d53",
+        "studio": "Madhouse",
+        "summary": "Elf mage Frieren and her fellow adventurers have defeated the Demon King and brought peace to the land. But Frieren will long outlive the rest of her former party. How will she come to understand what life means to the people around her?",
+        "thumb": "https://image.tmdb.org/t/p/original/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+        "title": "Frieren: Beyond Journey's End",
+        "type": "show"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 1,
+    "totalSize": 1
+  }
+}

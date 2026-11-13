@@ -83,6 +83,10 @@ type Request struct {
 	// throttled host it waits behind every foreground request; a foreground
 	// caller that joins its download moves it up.
 	Background bool
+	// NoRedirect: a redirect answer is the request's error (a StatusError),
+	// not followed. For a request with a secret in Headers: Go would carry
+	// it to whatever host the redirect names.
+	NoRedirect bool
 }
 
 func New(cacheDir string) *Client {
@@ -364,7 +368,13 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	if tag != "" {
 		req.Header.Set("If-None-Match", tag)
 	}
-	resp, err := c.http.Do(req)
+	client := c.http
+	if r.NoRedirect {
+		noFollow := *c.http // same transport and timeout
+		noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &noFollow
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) { // its message repeats the whole URL, secrets included
