@@ -58,8 +58,8 @@ year in the name, such as `(2022)`, or the one Plex sends tells two close movies
 ## 📺 Plex as a source
 
 With [`PLEX_TOKEN`](SETTINGS.md#-accounts--keys) set, Kizuna also reads Plex's own metadata service, the one behind
-Plex's built-in *Plex Series* agent, as the source `plex`. It is last in every default list, or right before Anime
-News Network, so it only fills what the other sources leave empty: often logos, backgrounds, cast photos and episode
+Plex's built-in *Plex Series* agent, as the source `plex`. By default it comes after the other sources
+([the lists](SETTINGS.md#-sources-per-field)), so it mostly fills logos, backgrounds, cast photos and episode
 thumbnails.
 
 - **What it gives:** the show's title, summary, genres, cast (the first 50), directors and writers, studio, content

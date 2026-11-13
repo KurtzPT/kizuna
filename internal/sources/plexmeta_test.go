@@ -326,6 +326,9 @@ func TestPlexRejectedToken(t *testing.T) {
 			if code != 401 && (named != 0 || sent != 5) {
 				t.Errorf("%d lines name PLEX_TOKEN, %d requests: want 0 and 5\n%s", named, sent, logs)
 			}
+			if code != 401 && strings.Contains(logs.String(), "API key") {
+				t.Errorf("a %d is logged as a rejected key\n%s", code, logs)
+			}
 		})
 	}
 }
@@ -375,9 +378,26 @@ func TestPlexPagesWithoutTotal(t *testing.T) {
 func TestPlexNoRedirect(t *testing.T) {
 	answers := frieren()
 	answers["POST 2 tvdb://424536"] = "302 "
+	answers["POST 2 tvdb://2"] = "match-frieren.json" // matches: its reads are redirected
+	for _, path := range []string{"", "/children", "/images"} {
+		answers["GET /library/metadata/"+frierenShow+path] = "302 "
+	}
 	p, n, _ := newPlexTest(t, answers)
-	if _, err := p.Show(context.Background(), PlexSeries(424536)); err == nil {
-		t.Error("no error")
+	ctx := context.Background()
+	if _, err := p.Show(ctx, PlexSeries(424536)); err == nil {
+		t.Error("match: no error")
+	}
+	if _, err := p.Show(ctx, PlexSeries(2)); err == nil {
+		t.Error("show: no error")
+	}
+	if _, err := p.Episodes(ctx, PlexSeries(2)); err == nil {
+		t.Error("seasons: no error")
+	}
+	if _, err := p.Images(ctx, PlexSeries(2)); err == nil {
+		t.Error("images: no error")
+	}
+	if got := len(n.requests()); got != 5 {
+		t.Errorf("%d requests, want 5", got)
 	}
 	for _, a := range n.requests() {
 		if !strings.HasPrefix(a.url, plexAPI) {
@@ -432,6 +452,68 @@ func TestPlexSeasonsAndEpisodes(t *testing.T) {
 	}
 	if c := n.count("GET", frierenS1+"/children"); c != 2 {
 		t.Errorf("season 1 asked %d times, want 2 pages", c)
+	}
+}
+
+// An empty page before the totalSize Plex gave is a list cut short: the
+// list is incomplete, not silently shorter.
+func TestPlexEpisodesCutShort(t *testing.T) {
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenS1+"/children"] = `200 {"MediaContainer":{"totalSize":300,"Metadata":[{"index":1,"title":"E1"}]}}`
+	answers["GET /library/metadata/"+frierenS1+"/children@1"] = `200 {"MediaContainer":{"totalSize":300,"Metadata":[]}}`
+	p, _, _ := newPlexTest(t, answers)
+	eps, err := p.Episodes(context.Background(), PlexSeries(424536))
+	if !errors.Is(err, ErrIncomplete) || len(eps) != 1+3 {
+		t.Errorf("%d episodes, err %v; want 4 and incomplete", len(eps), err)
+	}
+}
+
+// Keys are matched exactly: one that differs from a key Kizuna reads only in
+// case, known or new, is left out, whatever it holds.
+func TestPlexKeysMatchedExactly(t *testing.T) {
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenShow] = `200 {"MediaContainer":{"TotalSize":"x","metadata":7,"Metadata":[{
+		"title":"Frieren","Title":[{"tag":"x"}],"SUMMARY":{},"studio":"Madhouse","Studio":[{"tag":"y"}],"Index":"one",
+		"Genre":[{"tag":"Fantasy","Tag":[1]}],"genre":"x",
+		"Role":[{"tag":"A","Role":{},"role":"B","Order":"x"}],"Image":[{"type":"coverPoster","Type":1,"url":"https://x/p.jpg","URL":[]}]}]}}`
+	p, _, _ := newPlexTest(t, answers)
+	s, err := p.Show(context.Background(), PlexSeries(424536))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := s.Details
+	if s.Title != "Frieren" || d.Studio != "Madhouse" || !slices.Equal(d.Genres, []string{"Fantasy"}) ||
+		len(d.Cast) != 1 || d.Cast[0].Role != "B" || !slices.Equal(s.Art.Posters, []string{"https://x/p.jpg"}) {
+		t.Errorf("title %q studio %q genres %v cast %v posters %v", s.Title, d.Studio, d.Genres, d.Cast, s.Art.Posters)
+	}
+}
+
+// A key Kizuna reads that holds another kind of value still fails the
+// answer: it isn't dropped silently.
+func TestPlexWrongKindFails(t *testing.T) {
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenShow] = `200 {"MediaContainer":{"Metadata":[{"title":"Frieren","index":"one"}]}}`
+	p, _, _ := newPlexTest(t, answers)
+	if _, err := p.Show(context.Background(), PlexSeries(424536)); err == nil {
+		t.Error("no error")
+	}
+}
+
+// A season list with more seasons than came in its one page is incomplete:
+// the seasons that came, and their episodes, are still given.
+func TestPlexSeasonListCutShort(t *testing.T) {
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenShow+"/children"] = `200 {"MediaContainer":{"totalSize":201,"Metadata":[
+		{"ratingKey":"` + frierenS1 + `","index":1,"summary":"S1"}]}}`
+	p, _, _ := newPlexTest(t, answers)
+	ctx := context.Background()
+	seasons, err := p.Seasons(ctx, PlexSeries(424536))
+	if !errors.Is(err, ErrIncomplete) || len(seasons) != 1 || seasons[0].Summary != "S1" {
+		t.Errorf("seasons %v, err %v; want season 1 and incomplete", seasons, err)
+	}
+	eps, err := p.Episodes(ctx, PlexSeries(424536))
+	if !errors.Is(err, ErrIncomplete) || len(eps) != 3 {
+		t.Errorf("%d episodes, err %v; want season 1's 3 and incomplete", len(eps), err)
 	}
 }
 

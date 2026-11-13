@@ -461,26 +461,30 @@ func (ss *showSources) plexSeasonOf(n int) sources.PlexSeason {
 // that site is set up and in the kind's list: the same pictures at the same
 // addresses, plus TheMovieDb posters in languages Kizuna leaves out on
 // purpose. What stays is what only Plex has (fanart.tv, Gracenote, IMDb).
+// The lists are made once: every kind and target asks for them.
 func (ss *showSources) plexArt() sources.Art {
-	a := ss.plexShow.get().Art
 	if !ss.plexImages.fetches() {
-		return a
+		return ss.plexShow.get().Art
 	}
-	im := ss.plexImages.get()
-	only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
-		out := slices.Clone(own) // the lazy's own list stays as it is
-		order := k.order(ss)
-		for _, x := range pics {
-			if x.Source == "tvdb" && ss.p.tvdb.Enabled() && slices.Contains(order, "tvdb") ||
-				x.Source == "tmdb" && ss.p.tmdb.Enabled() && slices.Contains(order, "tmdb") {
-				continue
+	ss.plexAllOnce.Do(func() {
+		a, im := ss.plexShow.get().Art, ss.plexImages.get()
+		only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
+			out := slices.Clone(own) // the lazy's own list stays as it is
+			order := k.order(ss)
+			skipTVDB := ss.p.tvdb.Enabled() && slices.Contains(order, "tvdb")
+			skipTMDB := ss.p.tmdb.Enabled() && slices.Contains(order, "tmdb")
+			for _, x := range pics {
+				if x.Source == "tvdb" && skipTVDB || x.Source == "tmdb" && skipTMDB {
+					continue
+				}
+				out = append(out, x.URL)
 			}
-			out = append(out, x.URL)
+			return out
 		}
-		return out
-	}
-	return sources.Art{Posters: only(a.Posters, im.Posters, posterArt), Backgrounds: only(a.Backgrounds, im.Backgrounds, backgroundArt),
-		Logos: a.Logos}
+		ss.plexAll = sources.Art{Posters: only(a.Posters, im.Posters, posterArt),
+			Backgrounds: only(a.Backgrounds, im.Backgrounds, backgroundArt), Logos: a.Logos}
+	})
+	return ss.plexAll
 }
 
 // plexSeasons: the seasons Plex gets for a show (seasonItem): those with

@@ -87,6 +87,9 @@ type Request struct {
 	// not followed. For a request with a secret in Headers: Go would carry
 	// it to whatever host the redirect names.
 	NoRedirect bool
+	// PlainForbidden: a 403 is logged as an ordinary failed request, not as
+	// a rejected key (a host behind a proxy that answers 403 itself).
+	PlainForbidden bool
 }
 
 func New(cacheDir string) *Client {
@@ -333,7 +336,7 @@ func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 		slog.Debug("http", attrs...)
 	case r.Quiet || (errors.As(err, &se) && se.Code == http.StatusNotFound):
 		slog.Debug("http failed", append(attrs, "err", err)...) // 404: the source just has no such entry
-	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden):
+	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden && !r.PlainForbidden):
 		slog.Error("source rejected the request: check its API key / client id", append(attrs, "err", err)...)
 	default:
 		slog.Warn("source request failed", append(attrs, "err", err)...)

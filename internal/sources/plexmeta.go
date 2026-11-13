@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"kizuna/internal/fetch"
@@ -118,69 +117,101 @@ type PlexImages struct {
 	Posters, Backgrounds []PlexPicture
 }
 
-// plexContainer is an answer: a MediaContainer. Go's JSON matches keys
-// regardless of case, so keys that differ from a field's only in case
-// ("Studio" next to "studio") need fields of their own, or they would land in
-// the wrong one and fail the decode.
+// plexContainer is an answer: a MediaContainer.
 type plexContainer struct {
-	MediaContainer struct {
-		Offset    int           `json:"offset"`
-		Size      int           `json:"size"`
-		TotalSize int           `json:"totalSize"`
-		Metadata  []plexItem    `json:"Metadata"`
-		Thumb     []plexPicture `json:"Thumb"` // /images: posters
-		Art       []plexPicture `json:"Art"`   // /images: backgrounds
-		ArtURL    any           `json:"art"`   // not used (see above)
-		ThumbURL  any           `json:"thumb"` // not used
-	} `json:"MediaContainer"`
+	MediaContainer plexMedia `json:"MediaContainer"`
+}
+
+// exactKeys decodes the keys of a JSON object that fields names, each into
+// the pointer it gives, and leaves the others out. Plex's answers have keys
+// that differ only in case ("Studio", a list, next to "studio", a string),
+// and Go's JSON matches a struct's keys regardless of case: the list would
+// land in the string and fail the decode, for every such pair Plex has or
+// adds. A map's keys are matched exactly.
+func exactKeys(data []byte, fields map[string]any) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for key, to := range fields {
+		if v, ok := raw[key]; ok {
+			if err := json.Unmarshal(v, to); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+		}
+	}
+	return nil
+}
+
+type plexMedia struct {
+	TotalSize int
+	Metadata  []plexItem
+	Thumb     []plexPicture // /images: posters
+	Art       []plexPicture // /images: backgrounds
+}
+
+func (m *plexMedia) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{"totalSize": &m.TotalSize, "Metadata": &m.Metadata, "Thumb": &m.Thumb, "Art": &m.Art})
 }
 
 type plexItem struct {
-	RatingKey   string `json:"ratingKey"`
-	Title       string `json:"title"`
-	Summary     string `json:"summary"`
-	Index       int    `json:"index"`
-	ParentIndex int    `json:"parentIndex"`
-	Thumb       string `json:"thumb"`
-	Date        string `json:"originallyAvailableAt"`
-	Duration    int    `json:"duration"` // milliseconds
-	Studio      string `json:"studio"`
-	Rating      string `json:"contentRating"`
+	RatingKey   string
+	Title       string
+	Summary     string
+	Index       int
+	ParentIndex int
+	Thumb       string
+	Date        string // originallyAvailableAt
+	Duration    int    // milliseconds
+	Studio      string
+	Rating      string // contentRating
 	Genre       []plexTag
 	Director    []plexTag
 	Writer      []plexTag
 	Role        []plexRole
 	Image       []plexImage
+}
 
-	// Keys that differ from the fields above only in case: not used.
-	GUID         any `json:"guid"`
-	GUIDs        any `json:"Guid"`
-	StudioTags   any `json:"Studio"`
-	SummaryList  any `json:"Summary"`
-	RatingNumber any `json:"rating"`
-	Ratings      any `json:"Rating"`
-	ContentTags  any `json:"ContentRating"`
+func (it *plexItem) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{
+		"ratingKey": &it.RatingKey, "title": &it.Title, "summary": &it.Summary, "index": &it.Index,
+		"parentIndex": &it.ParentIndex, "thumb": &it.Thumb, "originallyAvailableAt": &it.Date, "duration": &it.Duration,
+		"studio": &it.Studio, "contentRating": &it.Rating, "Genre": &it.Genre, "Director": &it.Director,
+		"Writer": &it.Writer, "Role": &it.Role, "Image": &it.Image,
+	})
 }
 
 type plexTag struct {
-	Tag string `json:"tag"`
+	Tag string
+}
+
+func (t *plexTag) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{"tag": &t.Tag})
 }
 
 type plexRole struct {
-	Tag   string `json:"tag"`
-	Role  string `json:"role"`
-	Thumb string `json:"thumb"`
-	Order int    `json:"order"`
+	Tag, Role, Thumb string
+	Order            int
+}
+
+func (r *plexRole) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{"tag": &r.Tag, "role": &r.Role, "thumb": &r.Thumb, "order": &r.Order})
 }
 
 type plexImage struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
+	Type, URL string
+}
+
+func (im *plexImage) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{"type": &im.Type, "url": &im.URL})
 }
 
 type plexPicture struct {
-	Key    string `json:"key"`
-	Source string `json:"source"`
+	Key, Source string
+}
+
+func (x *plexPicture) UnmarshalJSON(data []byte) error {
+	return exactKeys(data, map[string]any{"key": &x.Key, "source": &x.Source})
 }
 
 // get reads one answer from the service, in English.
@@ -191,6 +222,7 @@ func (p *Plex) get(ctx context.Context, r fetch.Request, out *plexContainer) err
 	h := map[string]string{"X-Plex-Token": p.token, "X-Plex-Language": "en-US", "Accept": "application/json"}
 	maps.Copy(h, r.Headers)
 	r.Headers, r.NoRedirect = h, true // a redirect would carry the token to another host
+	r.PlainForbidden = true           // a 403 is Cloudflare's: not the token (as in NewPlex)
 	return p.keys.getJSON(ctx, p.f, r, out)
 }
 
@@ -352,7 +384,9 @@ func (p *Plex) Images(ctx context.Context, r PlexRef) (PlexImages, error) {
 	return PlexImages{Posters: pictures(c.MediaContainer.Thumb), Backgrounds: pictures(c.MediaContainer.Art)}, nil
 }
 
-// seasonItems reads a series' season list, in one answer (a movie has none).
+// seasonItems reads a series' season list, in one answer (a movie has
+// none). It isn't paged: no show has more seasons than a page holds. If one
+// ever does, the seasons that came are returned with ErrIncomplete.
 func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 	if r.Movie {
 		return nil, nil
@@ -361,39 +395,55 @@ func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 	if id == "" {
 		return nil, err
 	}
+	c, err := p.children(ctx, id, 0)
+	m := c.MediaContainer
+	if err == nil && m.TotalSize > len(m.Metadata) {
+		err = fmt.Errorf("%w: plex %s: %d of %d seasons", ErrIncomplete, r, len(m.Metadata), m.TotalSize)
+	}
+	return m.Metadata, err
+}
+
+// children reads one page of an item's children (a show's seasons, a
+// season's episodes), from the one numbered start, plexPage at once.
+func (p *Plex) children(ctx context.Context, id string, start int) (plexContainer, error) {
+	key := "plex/children-" + id + ".json"
+	h := map[string]string{"X-Plex-Container-Size": strconv.Itoa(plexPage)}
+	if start > 0 {
+		key = "plex/children-" + id + "-" + strconv.Itoa(start) + ".json"
+		h["X-Plex-Container-Start"] = strconv.Itoa(start)
+	}
 	var c plexContainer
-	err = p.get(ctx, fetch.Request{URL: plexAPI + "/library/metadata/" + id + "/children", Key: "plex/children-" + id + ".json",
-		TTL: 2 * 24 * time.Hour, Headers: map[string]string{"X-Plex-Container-Size": strconv.Itoa(plexPage)}}, &c)
-	return c.MediaContainer.Metadata, err
+	err := p.get(ctx, fetch.Request{URL: plexAPI + "/library/metadata/" + id + "/children", Key: key, TTL: 2 * 24 * time.Hour,
+		Headers: h}, &c)
+	return c, err
 }
 
 // Seasons returns each season's summary and pictures (Specials is 0), from
 // the season list: one request for every season.
 func (p *Plex) Seasons(ctx context.Context, r PlexRef) ([]PlexSeason, error) {
 	items, err := p.seasonItems(ctx, r)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrIncomplete) {
 		return nil, err
 	}
 	out := make([]PlexSeason, 0, len(items))
 	for _, it := range items {
 		out = append(out, PlexSeason{Number: it.Index, Summary: it.Summary, Art: plexArt(it.Image)})
 	}
-	return out, nil
+	return out, err
 }
 
 // Episodes returns every episode of a series, in TheTVDB's aired order (the
 // one Plex sends without an episodeOrder): each season's /children, 200 a
-// page (seasons read in parallel). Not /grandchildren, which sends at most
-// 20 a page. Like the other sources' lists, a season that failed makes the
-// list ErrIncomplete.
+// page. Not /grandchildren, which sends at most 20 a page. The seasons are
+// read one after the other: the host's throttle spaces the requests anyway.
+// Like the other sources' lists, a season that failed makes the list
+// ErrIncomplete.
 func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
-	seasons, err := p.seasonItems(ctx, r)
-	if err != nil {
-		return nil, err
+	seasons, cut := p.seasonItems(ctx, r)
+	if cut != nil && !errors.Is(cut, ErrIncomplete) {
+		return nil, cut
 	}
 	var (
-		mu     sync.Mutex
-		wg     sync.WaitGroup
 		out    []Episode
 		failed []int
 		last   error
@@ -404,40 +454,33 @@ func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
 			failed, last = append(failed, s.Index), fmt.Errorf("season %d: bad id %q", s.Index, s.RatingKey)
 			continue
 		}
-		wg.Go(func() {
-			eps, err := p.seasonEpisodes(ctx, id, s.Index)
-			mu.Lock()
-			defer mu.Unlock()
-			out = append(out, eps...)
-			if err != nil && !fetch.IsNotFound(err) {
-				failed, last = append(failed, s.Index), err
-			}
-		})
+		eps, err := p.seasonEpisodes(ctx, id, s.Index)
+		out = append(out, eps...)
+		if err != nil && !fetch.IsNotFound(err) {
+			failed, last = append(failed, s.Index), err
+		}
 	}
-	wg.Wait()
 	sortEpisodes(out)
 	if len(failed) > 0 {
-		sort.Ints(failed)
 		return out, fmt.Errorf("%w: plex %s seasons %v: %v", ErrIncomplete, r, failed, last)
+	}
+	if cut != nil {
+		return out, cut
 	}
 	return out, nil
 }
 
 // seasonEpisodes reads one season's episodes, page by page, until it has
-// the totalSize Plex gives (a full page without one: the next page too).
+// the totalSize Plex gives (a full page without one: the next page too). An
+// empty page before that is an error: the list was cut short.
 func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Episode, error) {
 	var out []Episode
 	for page, start := 0, 0; ; page++ {
 		if page == plexMaxPages {
 			return out, fmt.Errorf("season %d: more than %d pages", season, plexMaxPages)
 		}
-		key := "plex/children-" + id + ".json"
-		if start > 0 {
-			key = "plex/children-" + id + "-" + strconv.Itoa(start) + ".json"
-		}
-		var c plexContainer
-		if err := p.get(ctx, fetch.Request{URL: plexAPI + "/library/metadata/" + id + "/children", Key: key, TTL: 2 * 24 * time.Hour,
-			Headers: map[string]string{"X-Plex-Container-Start": strconv.Itoa(start), "X-Plex-Container-Size": strconv.Itoa(plexPage)}}, &c); err != nil {
+		c, err := p.children(ctx, id, start)
+		if err != nil {
 			return out, err
 		}
 		m := c.MediaContainer
@@ -445,8 +488,11 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 			out = append(out, it.episode(season))
 		}
 		start += len(m.Metadata)
-		if len(m.Metadata) == 0 || m.TotalSize > 0 && start >= m.TotalSize || m.TotalSize == 0 && len(m.Metadata) < plexPage {
+		if m.TotalSize > 0 && start >= m.TotalSize || m.TotalSize == 0 && len(m.Metadata) < plexPage {
 			return out, nil
+		}
+		if len(m.Metadata) == 0 {
+			return out, fmt.Errorf("season %d: %d of %d episodes", season, start, m.TotalSize)
 		}
 	}
 }

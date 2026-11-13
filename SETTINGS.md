@@ -187,8 +187,7 @@ the series' runtime &nbsp;·&nbsp; ⁴ [only when its episode list was read](#ep
 
 In `/anidb` each AniDB entry is its own show, but TheTVDB and TheMovieDb describe the whole series. So their data
 only goes to the entry that starts the series; the other entries skip them and take the next source in the list.
-Plex follows TheTVDB here: it finds a series by its TheTVDB id, and its seasons are TheTVDB's. A movie is asked for
-as a movie, by its TheMovieDb id, else its IMDb id, and gets Plex's movie data.
+Plex follows TheTVDB here, and a movie gets Plex's movie data ([how Plex finds a show](GUIDE.md#-plex-as-a-source)).
 
 | `/anidb` show | TheTVDB / TheMovieDb give its… |
 |---|---|
@@ -205,8 +204,8 @@ as a movie, by its TheMovieDb id, else its IMDb id, and gets Plex's movie data.
 They have no setting: they come from TheTVDB, else TheMovieDb, each field on its own, in both modes. AniDB has none
 per episode. Plex's fill in what both lack, but only when Plex's episode list was read for the show anyway: when
 `plex` comes before `tvdb` in `EPISODE_TITLES` or `EPISODE_FILL_SOURCES`, TheTVDB isn't set up or its episode list
-failed, or an episode still
-lacks a real title (or, in `/anidb`, a summary, thumbnail, date or runtime) after the sources listed before `plex`.
+failed, or an episode still lacks a real title (or, in `/anidb`, a summary, thumbnail, date or runtime) after the
+sources listed before `plex`.
 
 > [!TIP]
 > With a v4 TheTVDB key, Kizuna fetches them for up to 8 seconds while building a show and the rest in the
