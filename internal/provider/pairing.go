@@ -107,8 +107,8 @@ func (l pairedList) title(ep *Ep, src string, record bool) (sources.Episode, boo
 }
 
 // seriesEpisodes returns a TVDB, TMDB or Plex series' episodes (Plex's by
-// the TheTVDB id), absolute numbers
-// filled in (an empty index when the list can't be had). complete is false
+// the TheTVDB id), absolute numbers filled in (an empty index when the list
+// can't be had). complete is false
 // when the list failed or came back partial, so the show is rebuilt soon; a
 // series the source doesn't have (404) counts as complete.
 func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x episodeIndex, complete bool) {

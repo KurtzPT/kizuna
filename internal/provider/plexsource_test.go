@@ -134,6 +134,10 @@ func TestPlexShowFields(t *testing.T) {
 	if c := plexAsked(net, "/images"); c != 0 {
 		t.Errorf("/images asked %d times without ART_ALL_SOURCES", c)
 	}
+	// Every source was asked through the same client: the token went to Plex's service only.
+	if len(net.tokenElsewhere) > 0 {
+		t.Errorf("X-Plex-Token sent to %v", net.tokenElsewhere)
+	}
 }
 
 // A later entry gets the summary of the Plex season it sits in, none of

@@ -32,10 +32,17 @@ type fakeNet struct {
 	mu     sync.Mutex
 	answer func(path string, q map[string][]string) (int, string)
 	hits   map[string]int
+	// tokenElsewhere: hosts other than Plex's service that got X-Plex-Token.
+	tokenElsewhere []string
 }
 
 func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
 	path := r.URL.Hostname() + r.URL.Path
+	if r.Header.Get("X-Plex-Token") != "" && r.URL.Hostname() != "metadata.provider.plex.tv" {
+		f.mu.Lock()
+		f.tokenElsewhere = append(f.tokenElsewhere, r.URL.Hostname())
+		f.mu.Unlock()
+	}
 	if r.Method == http.MethodPost && r.URL.Hostname() == "metadata.provider.plex.tv" {
 		path += plexMatchPath(r) // ".../matches/<type>/<guid>": Plex's service matches by the body
 	}

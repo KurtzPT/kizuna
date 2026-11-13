@@ -12,10 +12,9 @@ import (
 	"kizuna/internal/fetch"
 )
 
-// rejectedKeyPause: how long a source's rejected key (HTTP 401/403 unless
-// only401, or the
-// answer a keyCheck's rejects names) is remembered. A wrong key won't fix
-// itself.
+// rejectedKeyPause: how long a source's rejected key (HTTP 401, 403 unless
+// only401, or the answer a keyCheck's rejects names) is remembered. A wrong
+// key won't fix itself.
 const rejectedKeyPause = 10 * time.Minute
 
 // keyCheck remembers that a source rejected its key, so a wrong key costs
@@ -75,7 +74,7 @@ func (k *keyCheck) done(err error) {
 	var se *fetch.StatusError
 	switch {
 	case err == nil || fetch.IsNotFound(err): // 404: the source just has no such entry
-	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden && !k.only401 ||
+	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || (se.Code == http.StatusForbidden && !k.only401) ||
 		(k.rejects != nil && k.rejects(se))):
 		k.mu.Lock()
 		first := !time.Now().Before(k.until)

@@ -330,6 +330,47 @@ func TestPlexRejectedToken(t *testing.T) {
 	}
 }
 
+// A 401 on a read (the match was fine) is a rejected token too: one line
+// naming PLEX_TOKEN, and the next calls send nothing.
+func TestPlexRejectedTokenOnRead(t *testing.T) {
+	logs := captureLogs(t)
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenShow] = `401 {"Error":{"message":"You must provide a token!"}}`
+	p, n, _ := newPlexTest(t, answers)
+	ctx := context.Background()
+	for range 2 {
+		if _, err := p.Show(ctx, PlexSeries(424536)); err == nil {
+			t.Error("no error")
+		}
+	}
+	if _, err := p.Show(ctx, PlexMovie(372058)); err == nil {
+		t.Error("movie: no error")
+	}
+	if named, sent := strings.Count(logs.String(), "PLEX_TOKEN"), len(n.requests()); named != 1 || sent != 2 {
+		t.Errorf("%d lines name PLEX_TOKEN, %d requests: want 1 and 2 (the match, the read)\n%s", named, sent, logs)
+	}
+}
+
+// Without a totalSize, a full page means there may be more: the next page
+// is read too, until a short one.
+func TestPlexPagesWithoutTotal(t *testing.T) {
+	page := func(start, n int) string {
+		var items []string
+		for i := start; i < start+n; i++ {
+			items = append(items, fmt.Sprintf(`{"index":%d,"title":"E%d"}`, i, i))
+		}
+		return `200 {"MediaContainer":{"Metadata":[` + strings.Join(items, ",") + `]}}`
+	}
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenS1+"/children"] = page(1, 200)
+	answers["GET /library/metadata/"+frierenS1+"/children@200"] = page(201, 5)
+	p, _, _ := newPlexTest(t, answers)
+	eps, err := p.Episodes(context.Background(), PlexSeries(424536))
+	if err != nil || len(eps) != 205+3 {
+		t.Errorf("%d episodes, err %v; want 205 in season 1, 3 specials", len(eps), err)
+	}
+}
+
 // No request to Plex's service follows a redirect: the token would go along.
 func TestPlexNoRedirect(t *testing.T) {
 	answers := frieren()

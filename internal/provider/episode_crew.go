@@ -8,10 +8,10 @@ import (
 
 // episodeCrew sets each episode's directors and writers: TheTVDB's, else
 // TheMovieDb's, else Plex's (per field; Plex's only when its list was read
-// for the build: px is empty otherwise). The episodes already carry what TheTVDB's list
-// has (Ep.Directors, Ep.Writers) and the TheTVDB episode they are paired
-// with (Ep.tvdbEp), set where they were paired, so TheTVDB's list isn't
-// looked up again here. A TheTVDB v4 list has no crew: it's in one record
+// for the build: px is empty otherwise). The episodes already carry what
+// TheTVDB's list has (Ep.Directors, Ep.Writers) and the TheTVDB episode
+// they are paired with (Ep.tvdbEp), set where they were paired, so
+// TheTVDB's list isn't looked up again here. A TheTVDB v4 list has no crew: it's in one record
 // per episode (EpisodeCrew). Returns false while some of those are still
 // being fetched.
 func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm, px pairedList) bool {

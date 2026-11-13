@@ -292,10 +292,11 @@ func (it plexItem) details() Details {
 		}
 	}
 	// "TV-14" is a US rating; another country's comes as "de/16".
-	if country, rating, ok := strings.Cut(strings.TrimSpace(it.Rating), "/"); ok {
-		d.addRating(strings.ToUpper(strings.TrimSpace(country)), strings.TrimSpace(rating))
+	rating := strings.TrimSpace(it.Rating)
+	if country, r, ok := strings.Cut(rating, "/"); ok {
+		d.addRating(strings.ToUpper(strings.TrimSpace(country)), strings.TrimSpace(r))
 	} else {
-		d.addRating("US", country)
+		d.addRating("US", rating)
 	}
 	return d
 }
@@ -400,6 +401,7 @@ func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
 	for _, s := range seasons {
 		id := plexID(s.RatingKey)
 		if id == "" {
+			failed, last = append(failed, s.Index), fmt.Errorf("season %d: bad id %q", s.Index, s.RatingKey)
 			continue
 		}
 		wg.Go(func() {
@@ -421,10 +423,14 @@ func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
 	return out, nil
 }
 
-// seasonEpisodes reads one season's episodes, page by page.
+// seasonEpisodes reads one season's episodes, page by page, until it has
+// the totalSize Plex gives (a full page without one: the next page too).
 func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Episode, error) {
 	var out []Episode
-	for page, start := 0, 0; page < plexMaxPages; page++ {
+	for page, start := 0, 0; ; page++ {
+		if page == plexMaxPages {
+			return out, fmt.Errorf("season %d: more than %d pages", season, plexMaxPages)
+		}
 		key := "plex/children-" + id + ".json"
 		if start > 0 {
 			key = "plex/children-" + id + "-" + strconv.Itoa(start) + ".json"
@@ -439,11 +445,10 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 			out = append(out, it.episode(season))
 		}
 		start += len(m.Metadata)
-		if len(m.Metadata) == 0 || start >= m.TotalSize {
-			break
+		if len(m.Metadata) == 0 || m.TotalSize > 0 && start >= m.TotalSize || m.TotalSize == 0 && len(m.Metadata) < plexPage {
+			return out, nil
 		}
 	}
-	return out, nil
 }
 
 // episode: an episode item of the season numbered season.

@@ -150,8 +150,8 @@ func Load() Config {
 // Usable reports whether a source has what it needs to answer: AniDB a
 // client name, TheTVDB a v4 or legacy key, TheMovieDb a key, MyAnimeList a
 // client ID, Plex's metadata service a token. Anime News Network needs
-// nothing. Each source list uses the
-// first usable source that has a value; the others are skipped.
+// nothing. Each source list uses the first usable source that has a value;
+// the others are skipped.
 func (c Config) Usable(source string) bool {
 	switch source {
 	case "anidb":

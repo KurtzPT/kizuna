@@ -54,7 +54,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 | `TVDB_LEGACY_API_KEY` | – | A legacy TheTVDB key, for its older v3 API. Used when `TVDB_API_KEY` is empty or rejected |
 | `TMDB_API_KEY` | – | TheMovieDb v3 key: artwork, logos, details, episode titles and crew |
 | `MAL_CLIENT_ID` | – | MyAnimeList API v2 Client ID |
-| `PLEX_TOKEN` | – | A Plex token: turns on the `plex` source, [Plex's own metadata service](GUIDE.md#-plex-as-a-source), and with `PLEX_URL` the [opening and ending titles](#-opening-and-ending-titles) |
+| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner ([where it goes](SECURITY.md#-your-data)): turns on the `plex` source, [Plex's own metadata service](GUIDE.md#-plex-as-a-source), and with `PLEX_URL` the [opening and ending titles](#-opening-and-ending-titles) |
 
 ### 🎯 Matching & titles
 
@@ -101,7 +101,7 @@ Both are needed for Kizuna to give Plex's opening and ending extras readable tit
 | Variable | Default | What it does |
 |---|---|---|
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. Nothing after the port: no path, no `?…` |
-| `PLEX_TOKEN` | – | A [Plex token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) of the server's owner ([where it goes](SECURITY.md#-your-data)) |
+| `PLEX_TOKEN` | – | See [Accounts & keys](#-accounts--keys) |
 
 ### 📝 Logging
 
@@ -204,7 +204,8 @@ as a movie, by its TheMovieDb id, else its IMDb id, and gets Plex's movie data.
 
 They have no setting: they come from TheTVDB, else TheMovieDb, each field on its own, in both modes. AniDB has none
 per episode. Plex's fill in what both lack, but only when Plex's episode list was read for the show anyway: when
-`plex` comes before `tvdb` in `EPISODE_TITLES` or `EPISODE_FILL_SOURCES`, TheTVDB isn't set up, or an episode still
+`plex` comes before `tvdb` in `EPISODE_TITLES` or `EPISODE_FILL_SOURCES`, TheTVDB isn't set up or its episode list
+failed, or an episode still
 lacks a real title (or, in `/anidb`, a summary, thumbnail, date or runtime) after the sources listed before `plex`.
 
 > [!TIP]
