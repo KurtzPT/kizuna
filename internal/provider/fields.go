@@ -43,15 +43,15 @@ type showSources struct {
 
 	// Plex's metadata service: plexRef is what it is asked for (a series by
 	// its TheTVDB id, a movie by its TheMovieDb or IMDb id); plexShow its
-	// title, summary, details and pictures (one request), plexSeasons each
+	// title, summary, details and pictures (one request), plexSeasonList each
 	// season's summary and pictures (one request), plexImages every
-	// picture it lists (ART_ALL_SOURCES only). plexSeason: the season a later
+	// picture it lists (ART_ALL_SOURCES only). plexSeasonAt: the season a later
 	// entry sits in on TheTVDB, for its summary (noSeason = none).
-	plexRef     sources.PlexRef
-	plexShow    lazy[sources.PlexShow]
-	plexSeasons lazy[[]sources.PlexSeason]
-	plexImages  lazy[sources.PlexImages]
-	plexSeason  int
+	plexRef        sources.PlexRef
+	plexShow       lazy[sources.PlexShow]
+	plexSeasonList lazy[[]sources.PlexSeason]
+	plexImages     lazy[sources.PlexImages]
+	plexSeasonAt   int
 	// plexAll: plexArt's answer with ART_ALL_SOURCES, worked out once.
 	plexAllOnce sync.Once
 	plexAll     sources.Art
@@ -116,7 +116,7 @@ func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry,
 		}
 		return p.tmdb.SeasonArt(ctx, tmdb, n)
 	}
-	ss.plexSeason = noSeason
+	ss.plexSeasonAt = noSeason
 	if p.plex.Enabled() { // the closures only when used: they allocate
 		switch {
 		case movie:
@@ -124,7 +124,7 @@ func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry,
 		case tvdb > 0:
 			ss.setPlex(ctx, sources.PlexSeries(tvdb))
 			if n, ok := mappedSeason(entry.TVDB); ok && !first.tvdb {
-				ss.plexSeason = n
+				ss.plexSeasonAt = n
 			}
 		}
 	}
@@ -139,10 +139,10 @@ func (ss *showSources) setPlex(ctx context.Context, r sources.PlexRef) {
 		return
 	}
 	ss.plexRef = r
-	ss.plexShow, ss.plexSeasons, ss.plexImages = lazy[sources.PlexShow]{}, lazy[[]sources.PlexSeason]{}, lazy[sources.PlexImages]{}
+	ss.plexShow, ss.plexSeasonList, ss.plexImages = lazy[sources.PlexShow]{}, lazy[[]sources.PlexSeason]{}, lazy[sources.PlexImages]{}
 	ss.plexShow.from(1, true, func() (sources.PlexShow, error) { return p.plex.Show(ctx, r) })
 	if !r.Movie {
-		ss.plexSeasons.from(1, true, func() ([]sources.PlexSeason, error) { return p.plex.Seasons(ctx, r) })
+		ss.plexSeasonList.from(1, true, func() ([]sources.PlexSeason, error) { return p.plex.Seasons(ctx, r) })
 	}
 	if p.cfg.ArtAllSources {
 		ss.plexImages.from(1, true, func() (sources.PlexImages, error) { return p.plex.Images(ctx, r) })
@@ -210,7 +210,7 @@ func (ss *showSources) failed() []string {
 		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
 		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"tvdb season", &ss.tvdbSeason},
 		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann}, {"plex", &ss.plexShow},
-		{"plex seasons", &ss.plexSeasons}, {"plex images", &ss.plexImages},
+		{"plex seasons", &ss.plexSeasonList}, {"plex images", &ss.plexImages},
 	} {
 		if l.lazy.failed() {
 			out = append(out, l.name)
@@ -268,7 +268,7 @@ func (ss *showSources) summary(src string) string {
 		return ss.mal.get().Synopsis
 	case "plex":
 		if !ss.plexFirst() {
-			return ss.plexSeasonOf(ss.plexSeason).Summary
+			return ss.plexSeasonOf(ss.plexSeasonAt).Summary
 		}
 		return ss.plexShow.get().Summary
 	case "ann":
@@ -572,10 +572,10 @@ func (ss *showSources) summaryLazy(src string) warmer {
 		return &ss.mal
 	case "plex":
 		if !ss.plexFirst() {
-			if ss.plexSeason == noSeason {
+			if ss.plexSeasonAt == noSeason {
 				return nil
 			}
-			return &ss.plexSeasons
+			return &ss.plexSeasonList
 		}
 		return &ss.plexShow
 	case "ann":

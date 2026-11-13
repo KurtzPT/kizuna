@@ -256,7 +256,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 // TheMovieDb's. They set no TheTVDB episode (Ep.tvdbEp). Returns false when
 // the list failed or came back partial.
 func (p *Provider) tvdbPlexTitles(ctx context.Context, s *Show, b *tvdbBuild) bool {
-	if !p.plexEpisodes(b.tvdbID, false) || !p.plexListNeeded(s, !b.partial, false, func(*Ep) bool { return true }) {
+	if !p.plexEpisodesListed(b.tvdbID, false) || !p.plexListNeeded(s, !b.partial, false, func(*Ep) bool { return true }) {
 		return true
 	}
 	x, ok := p.seriesEpisodes(ctx, "plex", b.tvdbID)

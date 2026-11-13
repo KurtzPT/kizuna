@@ -179,7 +179,7 @@ func (ss *showSources) seasonKind(src string, k artKind) bool {
 	case "tmdb":
 		return k == posterArt && !ss.movie
 	case "plex":
-		return ss.plexSeasons.fetches()
+		return ss.plexSeasonList.fetches()
 	}
 	return false
 }
@@ -448,7 +448,7 @@ func (ss *showSources) plexSeasonOf(n int) sources.PlexSeason {
 	if n == noSeason {
 		return sources.PlexSeason{}
 	}
-	for _, s := range ss.plexSeasons.get() {
+	for _, s := range ss.plexSeasonList.get() {
 		if s.Number == n {
 			return s
 		}
