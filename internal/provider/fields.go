@@ -419,7 +419,7 @@ func (ss *showSources) fill(s *Show) {
 		photos = castPhotos(s.Roles, ss.plexShow.get().People)
 	}
 	note("cast", src)
-	ss.recordCast(cfg.CastSources, src, photos, len(s.Roles))
+	ss.recordCast(cfg.CastSources, src, s.Roles, photos)
 	d, src = ss.pickDetails(cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" })
 	s.Studio = d.Studio
 	note("studio", src)
@@ -546,9 +546,9 @@ func (ss *showSources) warm() {
 // One that can't apply (not the entry that starts the series on the site,
 // no id, not set up) isn't asked for: fill wouldn't read it. With
 // CAST_PHOTOS_FROM_PLEX, Plex's show too, whatever the lists say: its cast
-// gives the photos. /anidb calls this after setAniDB, which may change what
-// Plex is asked for (a movie by its IMDb id); /tvdb before, and there
-// setAniDB never changes it.
+// gives the photos. /anidb must call this after setAniDB, because AniDB's
+// answer can change which Plex item is meant (a movie by its IMDb id).
+// /tvdb can call it first: there AniDB never changes it.
 func (ss *showSources) siteFields(w *warmSet) {
 	cfg := ss.p.cfg
 	if cfg.CastPhotosFromPlex {

@@ -158,13 +158,19 @@ func castNet(anidbAnswer string, plex map[string]string) *fakeNet {
 }
 
 // noPlexLists takes plex out of every source list: Plex is then asked
-// nothing for a field.
-func noPlexLists(p *Provider) {
+// nothing for a field. It checks with Listed, which knows every list: a
+// list added to Config later and missed here fails the test instead of
+// leaving plex in it.
+func noPlexLists(t *testing.T, p *Provider) {
+	t.Helper()
 	c := &p.cfg
 	for _, l := range []*[]string{&c.TitleSources, &c.SummarySources, &c.PosterSources, &c.BackgroundSources, &c.LogoSources,
 		&c.EpisodeFillSources, &c.EpisodeCrewSources, &c.EpisodeTitles, &c.GenreSources, &c.CastSources, &c.StudioSources,
 		&c.CrewSources, &c.RatingSources, &c.DateSources} {
 		*l = slices.DeleteFunc(slices.Clone(*l), func(s string) bool { return s == "plex" })
+	}
+	if c.Listed("plex") {
+		t.Fatal("a source list still names plex: add it to noPlexLists")
 	}
 }
 
@@ -191,7 +197,7 @@ func TestCastPhotosBuild(t *testing.T) {
 			net := castNet(castXML, nil)
 			p := newTestProvider(t, net)
 			withPlex(t, p, net)
-			noPlexLists(p)
+			noPlexLists(t, p)
 			p.cfg.CastPhotosFromPlex = on
 			s, err := p.buildShow(context.Background(), root)
 			if err != nil {
@@ -221,7 +227,7 @@ func TestCastPhotosEarlyInTVDB(t *testing.T) {
 	net := castNet(castXML, nil)
 	p := newTestProvider(t, net)
 	withPlex(t, p, net)
-	noPlexLists(p)
+	noPlexLists(t, p)
 	p.cfg.CastPhotosFromPlex = true
 	entry := mapping.Entry{AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}}
 	ss := p.newSources(context.Background(), 100, entry, 500, 77, false, firstEntry{true, true})
@@ -252,7 +258,7 @@ func TestCastPhotosPlexFails(t *testing.T) {
 			net := castNet(c.anidb, c.plex)
 			p := newTestProvider(t, net)
 			withPlex(t, p, net)
-			noPlexLists(p)
+			noPlexLists(t, p)
 			p.cfg.CastPhotosFromPlex = true
 			s, err := p.buildShow(context.Background(), root)
 			if err != nil {
@@ -301,7 +307,7 @@ func TestCastPhotosNoTVDBID(t *testing.T) {
 	net := castNet(castXML, nil)
 	p := newTestProvider(t, net)
 	withPlex(t, p, net)
-	noPlexLists(p)
+	noPlexLists(t, p)
 	p.cfg.CastPhotosFromPlex = true
 	entry := mapping.Entry{AID: 100, TMDB: mapping.Placement{ID: 77}}
 	ctx := context.Background()
@@ -341,7 +347,7 @@ func TestCastPhotosLaterEntry(t *testing.T) {
 	}
 	p := newTestProvider(t, net)
 	withPlex(t, p, net)
-	noPlexLists(p)
+	noPlexLists(t, p)
 	p.cfg.CastPhotosFromPlex = true
 	p.cfg.StudioSources = []string{"plex"}
 	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}},
@@ -366,25 +372,35 @@ func TestCastPhotosLaterEntry(t *testing.T) {
 }
 
 // The match report's Cast field ends the used source's text with the
-// count of Plex photos, 0 too; without the swap, no count.
+// count of Plex photos, 0 too; without the swap, no count. With the count,
+// the text describes the cast once its repeats are dropped, so both numbers
+// count the same people.
 func TestCastPhotosReport(t *testing.T) {
 	defaultLists(t)
 	const cast = "3: Yamadera Kouichi as Spike, Ishizuka Unshou as Jet, Hayashibara Megumi as Faye"
+	// castXML with Spike's row twice: AniDB's cast has 4 rows, Plex gets 3.
+	repeated := strings.Replace(castXML, "<character type=\"secondary cast in\"><name>Jet</name>",
+		"<character type=\"main character in\"><name>Spike</name><seiyuu>Yamadera Kouichi</seiyuu></character>\n"+
+			"<character type=\"secondary cast in\"><name>Jet</name>", 1)
 	for _, c := range []struct {
-		name string
-		on   bool
-		plex map[string]string
-		want string
+		name  string
+		anidb string
+		on    bool
+		plex  map[string]string
+		want  string
 	}{
-		{"swapped", true, nil, cast + " · photos from Plex: 1 of 3"},
-		{"none paired", true, map[string]string{plexItemPath: `200 {"MediaContainer":{"Metadata":[{"title":"Plex Name"}]}}`},
+		{"swapped", castXML, true, nil, cast + " · photos from Plex: 1 of 3"},
+		{"none paired", castXML, true, map[string]string{plexItemPath: `200 {"MediaContainer":{"Metadata":[{"title":"Plex Name"}]}}`},
 			cast + " · photos from Plex: 0 of 3"},
-		{"off", false, nil, cast},
+		{"repeated row", repeated, true, nil, cast + " · photos from Plex: 1 of 3"},
+		{"off", castXML, false, nil, cast},
+		{"off, repeated row", repeated, false, nil,
+			"4: Yamadera Kouichi as Spike, Yamadera Kouichi as Spike, Ishizuka Unshou as Jet, …"},
 	} {
-		net := castNet(castXML, c.plex)
+		net := castNet(c.anidb, c.plex)
 		p := newTestProvider(t, net)
 		withPlex(t, p, net)
-		noPlexLists(p)
+		noPlexLists(t, p)
 		p.cfg.CastPhotosFromPlex = c.on
 		store, dir, serve := reportsOn(t, p)
 		serve("GET", "/tvdb/library/metadata/tvdb-500", "")

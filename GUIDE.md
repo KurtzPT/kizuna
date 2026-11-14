@@ -66,7 +66,7 @@ thumbnails.
   ([Sources per field](SETTINGS.md#-sources-per-field)).
 - **Plex's cast photos with another source's cast:** set
   [`CAST_PHOTOS_FROM_PLEX=true`](SETTINGS.md#-sources-per-field) to keep the cast `CAST_SOURCES` picks and take each
-  person's photo from Plex, which sizes and crops them for its own screens.
+  person's photo from Plex.
 - **A series needs a TheTVDB id** in the [id mapping](README.md#-id-mapping), and a movie a TheMovieDb or IMDb id:
   a show without one gets nothing from Plex.
 - **`Plex rejected the request: check PLEX_TOKEN`** in the log means the token is wrong or no longer valid.
