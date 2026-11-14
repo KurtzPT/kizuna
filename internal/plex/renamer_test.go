@@ -3,12 +3,21 @@ package plex
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
+	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -78,7 +87,7 @@ func (c *clock) add(d time.Duration) {
 // moves with clock.add. Without Run, a test does the looks with work.
 func renamer(plex http.RoundTripper) (*Renamer, *clock) {
 	c := &clock{t: time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)}
-	r := New("http://plex:32400/", "secret")
+	r := New("http://plex:32400/", "secret", "")
 	r.client.Transport = plex
 	r.now = c.now
 	r.after = func(time.Duration) <-chan time.Time { panic("a test without Run waits for nothing") }
@@ -248,9 +257,131 @@ func TestTokenStaysWithPlex(t *testing.T) {
 	}
 	sameCalls(t, plex.calls, []string{findAll})
 
-	tr, ok := New("http://plex:32400", "secret").client.Transport.(*http.Transport)
-	if !ok || tr.Proxy != nil {
-		t.Errorf("transport %T, want an http.Transport without a proxy", New("http://plex:32400", "secret").client.Transport)
+	if tr := transport(t, New("http://plex:32400", "secret", "")); tr.TLSClientConfig != nil {
+		t.Errorf("no PLEX_TLS_NAME: TLS config %+v, want Go's default", tr.TLSClientConfig)
+	}
+	tr := transport(t, New("https://192.168.1.10:32400", "secret", "plex.test"))
+	if c := tr.TLSClientConfig; c == nil || c.ServerName != "plex.test" || c.MinVersion != tls.VersionTLS12 {
+		t.Errorf("PLEX_TLS_NAME=plex.test: TLS config %+v", c)
+	}
+}
+
+// transport is the Renamer's transport. It must use no proxy and check the
+// certificate, whatever else a test changed in it.
+func transport(t *testing.T, r *Renamer) *http.Transport {
+	t.Helper()
+	tr, ok := r.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport %T, want an http.Transport", r.client.Transport)
+	}
+	if tr.Proxy != nil || tr.TLSClientConfig != nil && tr.TLSClientConfig.InsecureSkipVerify {
+		t.Errorf("transport with a proxy or without the certificate check")
+	}
+	return tr
+}
+
+// selfSigned is a certificate valid for the DNS name plex.test only, not for
+// 127.0.0.1: httptest's own certificate holds that IP and would hide a check
+// against the address.
+func selfSigned(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "plex.test"},
+		DNSNames:              []string{"plex.test"},
+		NotBefore:             time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:              time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}
+}
+
+// PLEX_TLS_NAME is the name the certificate is checked against, while the
+// call goes to the address in PLEX_URL. A certificate that isn't valid for
+// the name stops the call before the token is sent, and counts as Plex not
+// answering. Only a wrong name is blamed on PLEX_TLS_NAME: a certificate
+// nobody vouches for fails with Go's own text.
+func TestTLSName(t *testing.T) {
+	logs(t)
+	cert := selfSigned(t)
+	var (
+		mu     sync.Mutex
+		names  []string // the handshake's server name, per request
+		tokens []string
+	)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		names = append(names, req.TLS.ServerName)
+		tokens = append(tokens, req.Header.Get("X-Plex-Token"))
+		mu.Unlock()
+		fmt.Fprint(w, container())
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0) // the failed handshakes are expected
+	srv.StartTLS()
+	defer srv.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(cert.Leaf)
+
+	for _, c := range []struct {
+		name    string
+		unknown bool // the test's root isn't trusted
+		ok      bool
+		want    string // in the error
+	}{
+		{"plex.test", false, true, ""},
+		{"", false, false, "GET /library/all: Plex's certificate isn't valid for the address in PLEX_URL (check PLEX_TLS_NAME): x509: cannot validate certificate for 127.0.0.1"},
+		{"other.test", false, false, "GET /library/all: Plex's certificate isn't valid for other.test (check PLEX_TLS_NAME): x509: certificate is valid for plex.test, not other.test"},
+		{"plex.test", true, false, "GET /library/all: tls: failed to verify certificate: x509: certificate signed by unknown authority"},
+	} {
+		mu.Lock()
+		names, tokens = nil, nil
+		mu.Unlock()
+		r := New(srv.URL, "secret", c.name)
+		tr := transport(t, r)
+		if tr.TLSClientConfig == nil {
+			// Only the test's root: the call must fail on the name, not on
+			// an unknown authority.
+			tr.TLSClientConfig = &tls.Config{}
+		}
+		tr.TLSClientConfig.RootCAs = roots
+		if c.unknown {
+			tr.TLSClientConfig.RootCAs = x509.NewCertPool()
+		}
+		_, err := r.rename(bg, guid, nil)
+		transport(t, r)
+		tr.CloseIdleConnections()
+		mu.Lock()
+		gotNames, gotTokens := names, tokens
+		mu.Unlock()
+		if c.ok {
+			if err != nil || !slices.Equal(gotNames, []string{"plex.test"}) || !slices.Equal(gotTokens, []string{"secret"}) {
+				t.Errorf("name %q: err %v, server names %q, tokens %q; want one call with plex.test and the token", c.name, err, gotNames, gotTokens)
+			}
+			continue
+		}
+		_, verify := errors.AsType[*tls.CertificateVerificationError](err)
+		_, name := errors.AsType[x509.HostnameError](err) // the name, not an unknown authority
+		if err == nil || !verify || name == c.unknown || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "secret") ||
+			strings.Contains(err.Error(), "PLEX_TLS_NAME") == c.unknown || !noAnswer(err) || r.failures != 1 || len(gotTokens) != 0 {
+			t.Errorf("name %q: err %v, %d failures, tokens %q; want %q, a failure without an answer, and no request",
+				c.name, err, r.failures, gotTokens, c.want)
+		}
 	}
 }
 
@@ -583,6 +714,29 @@ func TestCheckURL(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "hunter2") {
 			t.Errorf("CheckURL(%q) = %v, want an error with %q", bad, err, want)
 		}
+	}
+}
+
+// PLEX_TLS_NAME is one exact host name, for an https:// PLEX_URL. The
+// messages never repeat PLEX_URL.
+func TestCheckTLSName(t *testing.T) {
+	const base = "https://hunter2@192.168.1.10:32400"
+	for _, ok := range []string{"plex.example.com", "192-168-1-10.abc.plex.direct", "plex"} {
+		if err := CheckTLSName(ok, base); err != nil {
+			t.Errorf("CheckTLSName(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"https://plex.example.com", "plex.example.com:32400", "*.plex.direct", "192.168.1.10",
+		"fd00::1", "a b", "a..b", ".plex", "plex.", "plex/web", ""} {
+		err := CheckTLSName(bad, base)
+		if err == nil || !strings.Contains(err.Error(), "one host name") || strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("CheckTLSName(%q) = %v, want an error naming the form", bad, err)
+		}
+	}
+	err := CheckTLSName("plex.example.com", "http://hunter2@192.168.1.10:32400")
+	if err == nil || !strings.Contains(err.Error(), "PLEX_TLS_NAME is set but PLEX_URL doesn't start with https://") ||
+		strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("http:// PLEX_URL: %v", err)
 	}
 }
 

@@ -202,7 +202,7 @@ from Kizuna's [log](#-logs) unless marked *Plex*.
 | `/tvdb` show has no episodes | `show build failed` with `TheTVDB has no episodes for this show`: use `/anidb` for it |
 | Episodes in the wrong season | Plex's scanner sets seasons from file names and `.plexmatch` hints, not Kizuna: see [MIGRATION.md](MIGRATION.md)'s script |
 | Episodes paired with the wrong TVDB episode | [Fix the mapping](MAPPING.md) |
-| Openings and endings keep Plex's titles, such as `OP1` | Check the startup warning about `PLEX_URL` / `PLEX_TOKEN`, or `can't set the opening and ending titles in Plex` / `Plex doesn't answer`. Then *Refresh Metadata* ([readable titles](#readable-titles)) |
+| Openings and endings keep Plex's titles, such as `OP1` | Check the startup warning about `PLEX_URL` / `PLEX_TOKEN` / `PLEX_TLS_NAME`, or `can't set the opening and ending titles in Plex` / `Plex doesn't answer`. `Plex's certificate isn't valid for …` means an `https://` `PLEX_URL` whose host isn't in the certificate: set [`PLEX_TLS_NAME`](SETTINGS.md#-opening-and-ending-titles) to the certificate's name. Then *Refresh Metadata* ([readable titles](#readable-titles)) |
 
 ### Sources and keys
 
