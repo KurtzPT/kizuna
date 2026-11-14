@@ -73,7 +73,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 Each list names the sources to ask, in order, from the ones the field allows: `anidb`, `tvdb`, `tmdb`, `mal`,
 `plex`, `ann`. The first that has a value wins; `none` turns the field off ([how it works](#-how-sources-are-used)).
 A source you list in none of these settings is not asked at all, even with its key set. The exceptions are AniDB,
-and TheTVDB in `/tvdb`: Kizuna needs them to find and pair a show's episodes.
+and TheTVDB in `/tvdb` and for a show that is specials only: Kizuna needs them to find and pair a show's episodes.
 `plex` is always last in a default list, or right before `ann`: by default it only fills what the others leave
 empty.
 

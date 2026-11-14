@@ -320,6 +320,7 @@ func TestPlexEpisodeCrewTVDBPending(t *testing.T) {
 		withPlex(t, p, net)
 		p.cfg.EpisodeCrewSources = c.order
 		restore := sources.SetCrewBudgetForTest(0) // every record goes to the background: pending
+		t.Cleanup(restore)                         // also when the build panics
 		s, err := p.buildShow(context.Background(), c.root)
 		restore()
 		if err != nil {

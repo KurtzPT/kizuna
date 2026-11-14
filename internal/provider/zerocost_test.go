@@ -20,6 +20,7 @@ import (
 // fetches now and then cost one more. Take the highest count of a few
 // hundred runs (-count).
 func TestReportsOffAllocs(t *testing.T) {
+	defaultLists(t)
 	if raceEnabled {
 		t.Skip("allocation counts are off under the race detector")
 	}

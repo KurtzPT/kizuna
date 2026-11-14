@@ -555,7 +555,7 @@ func (ss *showSources) siteFields(w *warmSet) {
 	}
 }
 
-// warmSet is warm's jobs: one per lazy value.
+// warmSet is warm's jobs: one per lazy value added, then warmArt's.
 type warmSet struct {
 	jobs  []func()
 	asked [12]warmer // the lazies added so far

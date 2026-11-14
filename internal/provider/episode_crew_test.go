@@ -108,6 +108,7 @@ func TestEpisodeCrewWithoutTVDB(t *testing.T) {
 			p.cfg.EpisodeCrewSources = c.order
 			// Every record would go to the background, pending, if one were asked.
 			restore := sources.SetCrewBudgetForTest(0)
+			t.Cleanup(restore) // also when the build panics
 			s, err := p.buildShow(context.Background(), root)
 			restore()
 			if err != nil {
@@ -248,6 +249,7 @@ func TestTMDBNotListedNotAsked(t *testing.T) {
 // POSTER_SOURCES, /tvdb fetches it and /anidb doesn't; listed only in
 // EPISODE_CREW_SOURCES, both fetch it and take its crew, not its titles.
 func TestTMDBEpisodeListWhenListed(t *testing.T) {
+	defaultLists(t)
 	for _, c := range []struct {
 		name    string
 		set     func(p *Provider)
@@ -287,6 +289,7 @@ func TestTMDBEpisodeListWhenListed(t *testing.T) {
 // for the series' other entries: only when that list is fetched or AniDB's
 // episode titles are listed. With neither, entry 200 is not asked for.
 func TestTVDBPairingOnlyForTMDBList(t *testing.T) {
+	defaultLists(t)
 	for _, c := range []struct {
 		name   string
 		set    func(p *Provider)
@@ -366,6 +369,7 @@ func TestAniDBTVDBListWhenListed(t *testing.T) {
 // season 1 both fields, only season 2's and the special's. With tvdb first
 // (the default), every paired episode's, as before. Both modes.
 func TestTVDBCrewRecordsOnlyForGaps(t *testing.T) {
+	defaultLists(t)
 	for _, c := range []struct {
 		order []string
 		wants map[string][]int // records asked, by root
