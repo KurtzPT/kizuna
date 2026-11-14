@@ -62,6 +62,11 @@ type Config struct {
 	// AniDB's own, then the first listed source with one. tvdb, plex.
 	// (Titles follow EpisodeTitles.)
 	EpisodeFillSources []string
+	// EpisodeCrewSources: where each episode's directors and writers come
+	// from, in both modes: per episode and field, the first listed source
+	// that has it. Only this list decides it (not CrewSources). tvdb, tmdb,
+	// plex.
+	EpisodeCrewSources []string
 	// EpisodeTitles: where episode titles come from, in both modes (first
 	// real title wins). anidb (per EpisodeLangs), tvdb, tmdb, plex.
 	EpisodeTitles []string
@@ -128,6 +133,7 @@ func Load() Config {
 		BackgroundSources:  sourceList("BACKGROUND_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
 		LogoSources:        sourceList("LOGO_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
 		EpisodeFillSources: sourceList("EPISODE_FILL_SOURCES", "tvdb,plex", "tvdb", "plex"),
+		EpisodeCrewSources: sourceList("EPISODE_CREW_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
 		GenreSources:       sourceList("GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
 		CastSources:        sourceList("CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
 		StudioSources:      sourceList("STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
@@ -244,22 +250,43 @@ func (c Config) LogModes() {
 var sourceKeys = map[string]string{"anidb": "ANIDB_CLIENT", "tvdb": "TVDB_API_KEY", "tmdb": "TMDB_API_KEY", "mal": "MAL_CLIENT_ID",
 	"plex": "PLEX_TOKEN"}
 
+// sourceSetting is one source setting and its list.
+type sourceSetting struct {
+	name string
+	list []string
+}
+
+// sourceLists: every source setting, in the order of the settings table.
+// An array: Listed runs at every show build and must not allocate.
+func (c Config) sourceLists() [14]sourceSetting {
+	return [...]sourceSetting{
+		{"TITLE_SOURCES", c.TitleSources}, {"SUMMARY_SOURCES", c.SummarySources}, {"POSTER_SOURCES", c.PosterSources},
+		{"BACKGROUND_SOURCES", c.BackgroundSources}, {"LOGO_SOURCES", c.LogoSources},
+		{"EPISODE_FILL_SOURCES", c.EpisodeFillSources}, {"EPISODE_CREW_SOURCES", c.EpisodeCrewSources},
+		{"EPISODE_TITLES", c.EpisodeTitles},
+		{"GENRE_SOURCES", c.GenreSources}, {"CAST_SOURCES", c.CastSources}, {"STUDIO_SOURCES", c.StudioSources},
+		{"CREW_SOURCES", c.CrewSources}, {"RATING_SOURCES", c.RatingSources}, {"DATE_SOURCES", c.DateSources},
+	}
+}
+
+// Listed reports whether some source setting names source. A source no
+// setting names is not asked for anything, even with its key set.
+func (c Config) Listed(source string) bool {
+	for _, f := range c.sourceLists() {
+		if slices.Contains(f.list, source) {
+			return true
+		}
+	}
+	return false
+}
+
 // emptyFields: the source lists that name sources, none of them usable
 // ("none" turns a list off on purpose and isn't reported). set are the ones
 // set in the environment or the settings file, defaults the ones left at
 // their default, and keys the settings that would make the defaults' sources
 // usable.
 func (c Config) emptyFields() (set, defaults, keys []string) {
-	for _, f := range []struct {
-		name string
-		list []string
-	}{
-		{"TITLE_SOURCES", c.TitleSources}, {"SUMMARY_SOURCES", c.SummarySources}, {"POSTER_SOURCES", c.PosterSources},
-		{"BACKGROUND_SOURCES", c.BackgroundSources}, {"LOGO_SOURCES", c.LogoSources},
-		{"EPISODE_FILL_SOURCES", c.EpisodeFillSources}, {"EPISODE_TITLES", c.EpisodeTitles},
-		{"GENRE_SOURCES", c.GenreSources}, {"CAST_SOURCES", c.CastSources}, {"STUDIO_SOURCES", c.StudioSources},
-		{"CREW_SOURCES", c.CrewSources}, {"RATING_SOURCES", c.RatingSources}, {"DATE_SOURCES", c.DateSources},
-	} {
+	for _, f := range c.sourceLists() {
 		if len(f.list) == 0 || len(c.UsableOf(f.list)) > 0 {
 			continue
 		}

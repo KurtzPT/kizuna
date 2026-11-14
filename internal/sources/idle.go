@@ -1,5 +1,7 @@
 package sources
 
+import "time"
+
 // Hooks for tests that must not overlap a source's background work: an
 // allocation count or a check of what a background fetch cached.
 
@@ -21,4 +23,14 @@ func (c *AniDB) WaitIdle() {
 	if c != nil {
 		c.working.Wait()
 	}
+}
+
+// SetCrewBudgetForTest sets how long a show build fetches TheTVDB's episode
+// records itself (crewBudget), for tests in other packages: 0 leaves every
+// record not cached yet to the background, so the build's crew is pending.
+// It returns a func that restores the old budget. Not for parallel tests.
+func SetCrewBudgetForTest(d time.Duration) (restore func()) {
+	old := crewBudget
+	crewBudget = d
+	return func() { crewBudget = old }
 }

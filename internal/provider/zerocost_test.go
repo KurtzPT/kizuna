@@ -10,18 +10,24 @@ import (
 // With the match reports off, their hooks must cost nothing: a request
 // allocates no more than it did before the reports existed. The budgets
 // were those counts (Go 1.27), lowered since by changes that saved
-// allocations. A Go upgrade may move them: then run this test under the new
-// Go on the commit that last set the budgets (git log -L on the budget
-// lines below finds it) and take its counts; never raise a budget to fit a
-// change. Everything is cached (a download's timers vary) and the GC is off
-// (it empties the sync.Pools): the counts are steady.
+// allocations, and raised only where the maintainer agreed a change needs
+// more (the builds: TheTVDB's and TheMovieDb's show values fetched ahead),
+// to the measured counts and no higher. A Go upgrade may move them: then run
+// this test under the new Go on the commit that last set the budgets (git
+// log -L on the budget lines below finds it) and take its counts. Everything
+// is cached (a download's timers vary) and the GC is off (it empties the
+// sync.Pools): the counts are steady, except that a build's parallel
+// fetches now and then cost one more. Take the highest count of a few
+// hundred runs (-count).
 func TestReportsOffAllocs(t *testing.T) {
+	defaultLists(t)
 	if raceEnabled {
 		t.Skip("allocation counts are off under the race detector")
 	}
 	p := newTestProvider(t, &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 		switch path {
-		case "api4.thetvdb.com/v4/series/500/extended", "api4.thetvdb.com/v4/series/500/artworks":
+		case "api4.thetvdb.com/v4/series/500/extended", "api4.thetvdb.com/v4/series/500/artworks",
+			"api4.thetvdb.com/v4/series/500/translations/eng": // the series text, fetched ahead with the defaults
 			return 200, `{"data":{}}` // cached, unlike a 404: no download, no throttle wait
 		}
 		return testSeries(path, q)
@@ -43,13 +49,13 @@ func TestReportsOffAllocs(t *testing.T) {
 	}{
 		{"show from memory", 135, show},
 		{"match", 180, func() { serve("POST", "/tvdb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`) }},
-		{"show build", 496, func() {
+		{"show build", 538, func() {
 			p.mu.Lock()
 			clear(p.shows)
 			p.mu.Unlock()
 			show()
 		}},
-		{"anidb show build", 471, func() {
+		{"anidb show build", 515, func() {
 			p.mu.Lock()
 			clear(p.shows)
 			p.mu.Unlock()

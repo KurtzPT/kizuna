@@ -9,16 +9,19 @@ import (
 
 	"kizuna/internal/mapping"
 	"kizuna/internal/report"
+	"kizuna/internal/sources"
 )
 
 // episodeLists: an /anidb show's TheTVDB, TheMovieDb and Plex episode
 // lists, each fetched once, on first use (empty, without a fetch, for a site
-// without the show or not set up). Plex's is found by the TheTVDB id: its
-// episodes are in TheTVDB's order.
+// without the show, not set up, or that no episode setting lists:
+// tvdbEpisodesListed, tmdbEpisodesListed). Plex's is found by the TheTVDB
+// id: its episodes are in TheTVDB's order.
 type episodeLists struct {
 	tvdb, tmdb, plex func() (episodeIndex, bool) // plex nil: not to be read (plexEpisodesListed)
-	// plexEarly: Plex's list is the main one (TheTVDB isn't set up), so it
-	// starts with the others.
+	// plexEarly: Plex's list is the main one for titles or fill values
+	// (TheTVDB's isn't fetched), so it is read anyway and starts with the
+	// others. Not for crew alone: that read waits for a gap.
 	plexEarly bool
 }
 
@@ -31,12 +34,34 @@ func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) episod
 			return p.seriesEpisodes(ctx, src, id)
 		})
 	}
-	l := episodeLists{tvdb: list("tvdb", entry.TVDB.ID, p.tvdb.Enabled()), tmdb: list("tmdb", entry.TMDB.ID, p.tmdb.Enabled())}
+	tvdbOn := p.tvdbEpisodesListed(entry)
+	l := episodeLists{tvdb: list("tvdb", entry.TVDB.ID, tvdbOn), tmdb: list("tmdb", entry.TMDB.ID, p.tmdbEpisodesListed(false))}
 	if p.plexEpisodesListed(entry.TVDB.ID, true) { // the closure only when used: it allocates
 		l.plex = list("plex", entry.TVDB.ID, true)
-		l.plexEarly = !p.tvdb.Enabled()
+		l.plexEarly = !tvdbOn && (slices.Contains(p.cfg.EpisodeTitles, "plex") || slices.Contains(p.cfg.EpisodeFillSources, "plex"))
 	}
 	return l
+}
+
+// tvdbEpisodesListed: an /anidb show's TheTVDB episode list is fetched:
+// TheTVDB is set up, and an episode setting lists tvdb (EPISODE_TITLES,
+// EPISODE_FILL_SOURCES, EPISODE_CREW_SOURCES), or the entry is special-only
+// (its episodes are TheTVDB's specials). Otherwise nothing would be taken
+// from it: Plex's list is then the main one, as without TheTVDB.
+func (p *Provider) tvdbEpisodesListed(entry mapping.Entry) bool {
+	cfg := p.cfg
+	return p.tvdb.Enabled() && (entry.SpecialOnly() || slices.Contains(cfg.EpisodeTitles, "tvdb") ||
+		slices.Contains(cfg.EpisodeFillSources, "tvdb") || slices.Contains(cfg.EpisodeCrewSources, "tvdb"))
+}
+
+// tmdbEpisodesListed: TheMovieDb's episode list is fetched: TheMovieDb is
+// set up, and a setting asks the list for something: its titles
+// (EPISODE_TITLES), its crew (EPISODE_CREW_SOURCES), or in /tvdb (tvdbMode)
+// the season posters that come with it (POSTER_SOURCES, pairTMDB).
+func (p *Provider) tmdbEpisodesListed(tvdbMode bool) bool {
+	cfg := p.cfg
+	return p.tmdb.Enabled() && (slices.Contains(cfg.EpisodeTitles, "tmdb") || slices.Contains(cfg.EpisodeCrewSources, "tmdb") ||
+		tvdbMode && slices.Contains(cfg.PosterSources, "tmdb"))
 }
 
 // start fetches the lists, in wg: Plex's only when it is the main one.
@@ -49,11 +74,11 @@ func (l episodeLists) start(wg *sync.WaitGroup) {
 }
 
 // plexEpisodesListed: Plex's episode list may be read for a series (by its
-// TheTVDB id): Plex is set up, and listed in EPISODE_TITLES or (fill, in
-// /anidb) EPISODE_FILL_SOURCES.
+// TheTVDB id): Plex is set up, and listed in EPISODE_TITLES,
+// EPISODE_CREW_SOURCES or (fill, in /anidb) EPISODE_FILL_SOURCES.
 func (p *Provider) plexEpisodesListed(tvdb int, fill bool) bool {
 	return tvdb > 0 && p.plex.Enabled() && (slices.Contains(p.cfg.EpisodeTitles, "plex") ||
-		fill && slices.Contains(p.cfg.EpisodeFillSources, "plex"))
+		slices.Contains(p.cfg.EpisodeCrewSources, "plex") || fill && slices.Contains(p.cfg.EpisodeFillSources, "plex"))
 }
 
 // before: a and b are both in order, a first.
@@ -67,7 +92,8 @@ func before(order []string, a, b string) bool {
 // EPISODE_TITLES or (fill) EPISODE_FILL_SOURCES; TheTVDB's list isn't there
 // (tvdbOK false: not set up, or it failed); or an episode Plex has a place
 // for (onList) still has a gap after every source listed before plex: no
-// real title, or (fill) no summary, picture, date or runtime.
+// real title, or (fill) no summary, picture, date or runtime. Episode crew
+// decides on its own, later (plexCrewNeeded).
 func (p *Provider) plexListNeeded(s *Show, tvdbOK, fill bool, onList func(*Ep) bool) bool {
 	titles, fills := p.cfg.EpisodeTitles, p.cfg.EpisodeFillSources
 	if !fill {
@@ -134,16 +160,17 @@ func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 }
 
 // fillEpisodes pairs an /anidb show's episodes with its TVDB (and TMDB, and
-// Plex) series (lists). TheTVDB and Plex give the thumbnail, which AniDB
+// Plex) series (lists; each only when a setting takes something from it).
+// TheTVDB and Plex give the thumbnail, which AniDB
 // never has, plus the summary, air date and runtime where AniDB has none, in
 // EPISODE_FILL_SOURCES' order. All give a title for EPISODE_TITLES, and
-// directors and writers (AniDB has none per episode). Plex's list is read
-// only when it can add something (plexListNeeded). Returns false when a list
-// it needed failed or came back partial, or episode crew is still being
-// fetched.
+// directors and writers in EPISODE_CREW_SOURCES' order (episodeCrew; AniDB
+// has none per episode). Plex's list is read only when it can add something
+// (plexListNeeded, plexCrewNeeded). Returns false when a list it needed
+// failed or came back partial, or episode crew is still being fetched.
 func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists episodeLists) bool {
-	wantTVDB := p.tvdb.Enabled() && entry.TVDB.ID > 0
-	wantTMDB := p.tmdb.Enabled() && entry.TMDB.ID > 0
+	wantTVDB := p.tvdbEpisodesListed(entry) && entry.TVDB.ID > 0
+	wantTMDB := p.tmdbEpisodesListed(false) && entry.TMDB.ID > 0
 	wantPlex := lists.plex != nil
 	if !wantTVDB && !wantTMDB && !wantPlex {
 		return true
@@ -177,8 +204,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 		}
 		if e, ok := tvList.title(ep, "tvdb", record); ok {
 			paired++
-			ep.Directors, ep.Writers, ep.tvdbEp = e.Directors, e.Writers, e.ID // episodeCrew completes them
-			ep.src.directors, ep.src.writers = srcTVDB, srcTVDB
+			ep.Directors, ep.Writers, ep.tvdbEp = e.Directors, e.Writers, e.ID // TheTVDB's, for episodeCrew to place in the order
 		}
 	})
 	// EPISODE_FILL_SOURCES in order: each fills what is still blank. Plex's
@@ -211,7 +237,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			"exceptions", len(entry.TVDB.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
 			"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB, "paired_plex", px.paired)
 	}
-	crewOK := p.episodeCrew(ctx, s, tmList, px.list)
+	crewOK := p.episodeCrew(ctx, s, tmList, &px)
 	return tvOK && tmOK && !px.failed && crewOK
 }
 
@@ -222,35 +248,56 @@ type plexFill struct {
 	tvdb   pairedList                  // Plex's list is placed by its spots: its order is TheTVDB's
 	tvdbOK bool                        // TheTVDB's list is there (plexListNeeded)
 	record bool                        // pairs are for the match report only
-	asked  bool
-	list   pairedList // empty until read
-	failed bool       // the read failed or came back partial
-	paired int        // episodes it gave a title
+	asked  bool                        // read decided, for titles and fill values
+	got    bool                        // the list was read
+	list   pairedList                  // empty until read
+	failed bool                        // the read failed or came back partial
+	paired int                         // episodes it gave a title
 }
 
 // read reads the list the first time it is called, if it can add something
 // to what the sources before it filled (plexListNeeded), and gives its
-// titles. Later calls do nothing: the list is read at most once.
+// titles. Later calls do nothing: the decision is made once.
 func (px *plexFill) read(p *Provider, s *Show) {
 	if px.get == nil || px.asked {
 		return
 	}
 	px.asked = true
-	at := px.tvdb.at
-	onTVDB := func(ep *Ep) bool {
-		_, ok := at(ep)
-		return ok
-	}
-	if !p.plexListNeeded(s, px.tvdbOK, true, onTVDB) {
+	if !p.plexListNeeded(s, px.tvdbOK, true, px.onList) {
 		return
 	}
-	x, ok := px.get()
-	px.list, px.failed = pairedList{x, at}, !ok
+	px.fetch()
 	eachAniDBEpisode(s, func(ep *Ep) {
 		if _, ok := px.list.title(ep, "plex", px.record); ok {
 			px.paired++
 		}
 	})
+}
+
+// readCrew reads the list for episode crew when read didn't and an episode
+// has a crew gap Plex may fill (plexCrewNeeded; crew, tm and pending as
+// there). It gives no titles and no fill values: those were decided before.
+func (px *plexFill) readCrew(p *Provider, s *Show, crew map[int]sources.Crew, tm pairedList, pending bool) {
+	if px.get == nil || px.got || !p.plexCrewNeeded(s, crew, tm, pending, px.onList) {
+		return
+	}
+	px.fetch()
+}
+
+// fetch reads the list, once (the titles' read and the crew's share it).
+func (px *plexFill) fetch() {
+	if px.got {
+		return
+	}
+	px.got = true
+	x, ok := px.get()
+	px.list, px.failed = pairedList{x, px.tvdb.at}, !ok
+}
+
+// onList: Plex's list has a place for ep (its order is TheTVDB's).
+func (px *plexFill) onList(ep *Ep) bool {
+	_, ok := px.tvdb.at(ep)
+	return ok
 }
 
 // eachAniDBEpisode: an /anidb show's regular episodes, then its specials:

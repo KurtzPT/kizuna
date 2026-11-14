@@ -186,9 +186,11 @@ func TestBuildAniDBShow(t *testing.T) {
 	}
 }
 
-// Episode directors and writers: TheTVDB's (v4: one record per episode),
-// else TheMovieDb's, per field, in both modes.
+// Episode directors and writers in the default EPISODE_CREW_SOURCES order:
+// TheTVDB's (v4: one record per episode), else TheMovieDb's, per field, in
+// both modes (Plex off).
 func TestEpisodeCrew(t *testing.T) {
+	defaultLists(t)
 	net := &fakeNet{answer: testSeries}
 	p := newTestProvider(t, net)
 	type want struct {

@@ -238,6 +238,7 @@ type seasonFetch struct {
 	once sync.Once
 	art  sources.Art
 	err  error
+	read bool // asked for since the last unread (seasonsFailed); under seasonMu
 }
 
 // seasonArt returns a TheTVDB, TheMovieDb or Plex season's art, fetched
@@ -272,19 +273,21 @@ func (ss *showSources) seasonArt(src string, n int) sources.Art {
 		ss.seasonArts = append(ss.seasonArts, &seasonFetch{src: src, n: n})
 	}
 	f := ss.seasonArts[i]
+	f.read = true
 	ss.seasonMu.Unlock()
 	f.once.Do(func() { f.art, f.err = ss.seasonArtOf(src, n, sid) })
 	return f.art
 }
 
-// seasonsFailed names the season art fetches that failed (not with a 404),
-// sorted. Call it only after the fetches are done.
+// seasonsFailed names the season art fetches that failed (not with a 404)
+// and were read since the last unread, sorted. Call it only after the
+// fetches are done.
 func (ss *showSources) seasonsFailed() []string {
 	ss.seasonMu.Lock()
 	defer ss.seasonMu.Unlock()
 	var out []string
 	for _, f := range ss.seasonArts {
-		if f.err != nil && !fetch.IsNotFound(f.err) {
+		if f.read && f.err != nil && !fetch.IsNotFound(f.err) {
 			out = append(out, fmt.Sprintf("%s season %d art", f.src, f.n))
 		}
 	}
@@ -375,15 +378,18 @@ func sourceOf(counts []sourceCount, i int) string {
 	return ""
 }
 
-// warmArt adds jobs that fetch, in parallel, the art each target will ask
-// for first: each kind's first source that is asked (artAsked; every listed
-// one in "all" mode), of the sources take takes. One job per distinct target
-// and source. settled: setAniDB has run (see artAsked).
+// warmArt adds jobs that fetch, in parallel, the art each target may ask
+// for: TheTVDB's and TheMovieDb's wherever the kind's order lists them
+// (fetched ahead, as warm says), and of the others each kind's first source
+// that is asked (artAsked; every listed one in "all" mode), of the sources
+// take takes. One job per source and distinct art on it: targets that are
+// the same season there (TheMovieDb's series art for every Plex season of a
+// /tvdb show) share one. settled: setAniDB has run (see artAsked).
 func (ss *showSources) warmArt(jobs []func(), take func(src string) bool, settled bool) []func() {
 	all := ss.p.cfg.ArtAllSources
-	asks := func(k artKind, src string) bool { // the kind's order asks src first (or at all)
+	asks := func(k artKind, src string) bool { // the kind's order asks src (first, unless fetched ahead)
 		order := k.order(ss)
-		if all {
+		if all || siteSource(src) && ss.artAsked(src, k, settled) {
 			return slices.Contains(order, src)
 		}
 		for _, o := range order {
@@ -393,30 +399,48 @@ func (ss *showSources) warmArt(jobs []func(), take func(src string) bool, settle
 		}
 		return false
 	}
-	add := func(t artTarget) {
-		for _, src := range [...]string{"tvdb", "tmdb", "plex", "anidb", "mal", "ann"} {
-			if take(src) && (asks(posterArt, src) || asks(backgroundArt, src) || asks(logoArt, src)) {
-				jobs = append(jobs, func() {
-					for _, k := range artKinds {
-						if asks(k, src) {
-							ss.artParts(src, k, t)
-						}
-					}
-				})
+	// done: a target before seasons[i] (the show, then the seasons before
+	// it; i < 0: the show itself) gets the same art from src as t.
+	done := func(src string, t artTarget, i int) bool {
+		if i < 0 {
+			return false
+		}
+		if ss.show.sameOn(src, t) {
+			return true
+		}
+		for _, o := range ss.seasons[:i] {
+			if o.t.sameOn(src, t) {
+				return true
 			}
 		}
+		return false
 	}
-	add(ss.show)
+	add := func(t artTarget, i int) {
+		for _, src := range [...]string{"tvdb", "tmdb", "plex", "anidb", "mal", "ann"} {
+			if !take(src) || done(src, t, i) || !asks(posterArt, src) && !asks(backgroundArt, src) && !asks(logoArt, src) {
+				continue
+			}
+			jobs = append(jobs, func() {
+				for _, k := range artKinds {
+					if asks(k, src) {
+						ss.artParts(src, k, t)
+					}
+				}
+			})
+		}
+	}
+	add(ss.show, -1)
 	for i, s := range ss.seasons {
-		seen := s.t == ss.show
-		for _, o := range ss.seasons[:i] {
-			seen = seen || o.t == s.t
-		}
-		if !seen {
-			add(s.t)
-		}
+		add(s.t, i)
 	}
 	return jobs
+}
+
+// sameOn: t and o get the same images from src: the same season there,
+// and for season 1 the same order (artParts).
+func (t artTarget) sameOn(src string, o artTarget) bool {
+	n := t.on(src)
+	return n == o.on(src) && (n != 1 || t.seriesFirst(src) == o.seriesFirst(src))
 }
 
 // artAsked: pickArt stops at src for images of kind k (all mode aside): it
@@ -466,8 +490,10 @@ func (ss *showSources) plexArt() sources.Art {
 	if !ss.plexImages.fetches() {
 		return ss.plexShow.get().Art
 	}
+	// Read at every call, not only in the once: when warm made the lists,
+	// fill's reads must still count (failed).
+	a, im := ss.plexShow.get().Art, ss.plexImages.get()
 	ss.plexAllArtOnce.Do(func() {
-		a, im := ss.plexShow.get().Art, ss.plexImages.get()
 		only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
 			out := slices.Clone(own) // the lazy's own list stays as it is
 			order := k.order(ss)

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
@@ -16,8 +17,10 @@ import (
 )
 
 // showSources gives each online source's show-level data for one show.
-// Every source is fetched at most once and only when a setting reaches it,
-// so a fallback costs nothing while the sources before it have a value.
+// Every source is fetched at most once and only for a setting that lists
+// it. TheTVDB's and TheMovieDb's values are fetched ahead wherever a setting
+// lists them (a few small requests); the others only when the sources
+// before them have no value, so such a fallback costs nothing.
 type showSources struct {
 	p     *Provider
 	aid   int
@@ -76,8 +79,8 @@ type showSources struct {
 
 	rec *report.Recorder // match report of the build; nil = none
 
-	// early: warmEarly started TheTVDB's and TheMovieDb's art (in earlyWG),
-	// so warm leaves them out.
+	// early: warmEarly started TheTVDB's and TheMovieDb's show fields and
+	// art, and Plex's art (in earlyWG), so warm leaves them out.
 	early   bool
 	earlyWG sync.WaitGroup
 }
@@ -157,8 +160,8 @@ func (ss *showSources) plexFirst() bool { return ss.plexRef.Movie || ss.first.tv
 
 // setAniDB sets AniDB's details (nil = none) and the ANN and MAL entries
 // they link to (else the mapping's), once per build. A /tvdb build sets them
-// once AniDB has answered: only after that may the sources be asked anything
-// but art (warmEarly).
+// once AniDB has answered: before that, only what doesn't depend on its
+// answer is asked (warmEarly: TheTVDB's and TheMovieDb's values, Plex's art).
 func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entry mapping.Entry) {
 	p := ss.p
 	ss.a = a
@@ -200,24 +203,42 @@ func mappedSeason(pl mapping.Placement) (int, bool) {
 	return pl.Season, pl.Mapped && pl.Season > 0
 }
 
-// failed names the sources fill fetched that failed. A source that doesn't
-// have the show (404) or isn't configured hasn't failed.
+// failed names the sources fill and fillSeasons read that failed. A source
+// that doesn't have the show (404) or isn't configured hasn't failed, nor
+// has one only fetched ahead (warm: TheTVDB's and TheMovieDb's) whose value
+// no field reached: nothing is missing without it, so the show is not
+// rebuilt for it.
 func (ss *showSources) failed() []string {
 	var out []string
-	for _, l := range []struct {
+	ss.eachLazy(func(name string, l lazyState) {
+		if l.failed() {
+			out = append(out, name)
+		}
+	})
+	return append(out, ss.seasonsFailed()...)
+}
+
+// lazyState is what failed and unread ask of a lazy value, whatever its
+// type.
+type lazyState interface {
+	failed() bool
+	unread()
+}
+
+// eachLazy calls f with each lazy value and its name. An array: failed runs
+// at every build, with the reports off too.
+func (ss *showSources) eachLazy(f func(name string, l lazyState)) {
+	for _, l := range [...]struct {
 		name string
-		lazy interface{ failed() bool }
+		lazy lazyState
 	}{
 		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
 		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"tvdb season", &ss.tvdbSeason},
 		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann}, {"plex", &ss.plexShow},
 		{"plex seasons", &ss.plexSeasonList}, {"plex images", &ss.plexImages},
 	} {
-		if l.lazy.failed() {
-			out = append(out, l.name)
-		}
+		f(l.name, l.lazy)
 	}
-	return append(out, ss.seasonsFailed()...)
 }
 
 // title: TVDB and TMDB TV names are the series' ("One Piece" for Film Red),
@@ -452,36 +473,33 @@ func (ss *showSources) finish(s *Show) bool {
 	return false
 }
 
-// warm fetches, in parallel, everything fill will ask for whatever the
-// answers: per field, the first source in its order that needs a fetch,
-// past the sources whose answer is at hand and empty (AniDB's without
-// details, TheTVDB's details for a later entry...), which fill passes over
-// too (later fallbacks are fetched only when reached); and the artwork used,
-// the Plex seasons' too (every listed source in "all" mode, otherwise each
-// image type's first source that can fetch: warmArt). Each source is warmed
-// once. The lazy values make fill's and fillSeasons' own calls free
-// afterwards.
+// warm fetches, in parallel, everything fill may ask for. TheTVDB's and
+// TheMovieDb's values wherever a field lists them (siteFields, and their
+// art in warmArt): a few small requests, fetched without waiting to see
+// whether the sources before them have the field. Of the others (Plex,
+// MAL, ANN), per field, the first in its order that needs a fetch, past the
+// sources whose answer is at hand and empty (AniDB's without details...),
+// which fill passes over too: they are slower or stricter services, asked
+// later only when fill reaches them. The artwork likewise (warmArt), the
+// Plex seasons' too. Each value is warmed once. The lazy values make fill's
+// and fillSeasons' own calls free afterwards. What warm read doesn't count
+// as read (unread): failed tells only what fill and fillSeasons read, so a
+// value fetched ahead that no field needed can't fail the show.
 func (ss *showSources) warm() {
 	cfg := ss.p.cfg
-	var jobs []func()
-	var asked [12]warmer // the lazies warmed so far: one job each
-	na := 0
-	add := func(w warmer) {
-		if w == nil || slices.Contains(asked[:na], w) {
-			return
-		}
-		if na < len(asked) {
-			asked[na] = w
-			na++
-		}
-		jobs = append(jobs, w.warm)
+	var w warmSet
+	if !ss.early { // else warmEarly started them
+		ss.siteFields(&w)
 	}
 	// first: the first source of order that would be fetched, unless a
-	// source before it has the field at hand.
+	// source before it has the field at hand. TheTVDB's and TheMovieDb's
+	// are siteFields' already.
 	first := func(order []string, of func(string) warmer, has func(string) bool) {
 		for _, src := range order {
-			if w := of(src); w != nil && w.fetches() {
-				add(w)
+			if l := of(src); l != nil && l.fetches() {
+				if !siteSource(src) {
+					w.add(l)
+				}
 				return
 			}
 			if has(src) {
@@ -504,26 +522,86 @@ func (ss *showSources) warm() {
 	} {
 		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
-	jobs = ss.warmArt(jobs, ss.notEarly, true)
+	w.jobs = ss.warmArt(w.jobs, ss.notEarly, true)
 	var wg sync.WaitGroup
-	for _, job := range jobs {
+	for _, job := range w.jobs {
 		wg.Go(job)
 	}
 	wg.Wait()
 	ss.earlyWG.Wait()
+	ss.unread()
 }
 
-// warmEarly starts warming the art of the sources that don't depend on
-// AniDB's details, TheTVDB's and TheMovieDb's, before those are in
-// (setAniDB). Set the targets first; warm waits for it.
+// siteFields adds TheTVDB's and TheMovieDb's values that some field lists
+// them for: title, summary (for a later entry, its season's) and details.
+// One that can't apply (not the entry that starts the series on the site,
+// no id, not set up) isn't asked for: fill wouldn't read it.
+func (ss *showSources) siteFields(w *warmSet) {
+	cfg := ss.p.cfg
+	for _, src := range [...]string{"tvdb", "tmdb"} {
+		if slices.Contains(cfg.TitleSources, src) {
+			w.add(ss.titleLazy(src))
+		}
+		if slices.Contains(cfg.SummarySources, src) {
+			w.add(ss.summaryLazy(src))
+		}
+		for _, order := range [...][]string{cfg.GenreSources, cfg.CastSources, cfg.StudioSources, cfg.CrewSources,
+			cfg.RatingSources, cfg.DateSources} {
+			if slices.Contains(order, src) {
+				w.add(ss.detailsLazy(src))
+				break
+			}
+		}
+	}
+}
+
+// warmSet is warm's jobs: one per lazy value added, then warmArt's.
+type warmSet struct {
+	jobs  []func()
+	asked [12]warmer // the lazies added so far
+	n     int
+}
+
+// add adds l's job, unless l is nil, fetches nothing or was added already.
+func (w *warmSet) add(l warmer) {
+	if l == nil || !l.fetches() || slices.Contains(w.asked[:w.n], l) {
+		return
+	}
+	if w.n < len(w.asked) {
+		w.asked[w.n] = l
+		w.n++
+	}
+	w.jobs = append(w.jobs, l.warm)
+}
+
+// unread forgets which values were read so far: after warm, failed counts
+// only what fill and fillSeasons read.
+func (ss *showSources) unread() {
+	ss.eachLazy(func(_ string, l lazyState) { l.unread() })
+	ss.seasonMu.Lock()
+	for _, f := range ss.seasonArts {
+		f.read = false
+	}
+	ss.seasonMu.Unlock()
+}
+
+// warmEarly starts warming what doesn't depend on AniDB's details, before
+// those are in (setAniDB): TheTVDB's and TheMovieDb's show fields and art,
+// and Plex's art. Set the targets first; warm waits for it.
 func (ss *showSources) warmEarly() {
 	ss.early = true
-	for _, job := range ss.warmArt(nil, earlySource, false) {
+	var w warmSet
+	ss.siteFields(&w)
+	for _, job := range ss.warmArt(w.jobs, earlySource, false) {
 		ss.earlyWG.Go(job)
 	}
 }
 
-func earlySource(src string) bool { return src == "tvdb" || src == "tmdb" || src == "plex" }
+func earlySource(src string) bool { return siteSource(src) || src == "plex" }
+
+// siteSource: TheTVDB or TheMovieDb, whose values are fetched ahead
+// wherever a setting lists them (warm).
+func siteSource(src string) bool { return src == "tvdb" || src == "tmdb" }
 
 // notEarly: a source warmEarly didn't warm.
 func (ss *showSources) notEarly(src string) bool { return !ss.early || !earlySource(src) }
@@ -675,9 +753,11 @@ type lazy[T any] struct {
 	f    func() (T, error)
 	v    T
 	err  error
+	read atomic.Bool // get was called since the last unread (failed)
 }
 
 func (l *lazy[T]) get() T {
+	l.read.Store(true)
 	l.once.Do(func() {
 		if l.f != nil {
 			l.v, l.err = l.f()
@@ -697,9 +777,11 @@ func (l *lazy[T]) from(id int, on bool, f func() (T, error)) {
 	}
 }
 
-// failed: f ran and failed, other than with a 404. Call it only after the
-// get calls are done.
-func (l *lazy[T]) failed() bool { return l.err != nil && !fetch.IsNotFound(l.err) }
+// failed: f ran and failed, other than with a 404, and the value was read
+// since the last unread. Call it only after the get calls are done.
+func (l *lazy[T]) failed() bool { return l.read.Load() && l.err != nil && !fetch.IsNotFound(l.err) }
+
+func (l *lazy[T]) unread() { l.read.Store(false) }
 
 // uniqueCast drops repeated cast entries (same person, same character, as
 // sources sometimes list them twice), keeping the first one's place and the
