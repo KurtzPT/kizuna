@@ -535,12 +535,41 @@ func TestPlexDetails(t *testing.T) {
 	for i := 60; i > 0; i-- {
 		roles = append(roles, plexRole{Tag: fmt.Sprintf("Actor %d", i), Order: i})
 	}
-	d := plexItem{Role: roles, Rating: "de/16"}.details()
+	d, _ := plexItem{Role: roles, Rating: "de/16"}.details()
 	if len(d.Cast) != 50 || d.Cast[0].Name != "Actor 1" || d.Cast[49].Name != "Actor 50" {
 		t.Errorf("%d cast, first %+v", len(d.Cast), d.Cast[0])
 	}
 	if d.Ratings["DE"] != "16" || len(d.Ratings) != 1 || d.Rating([]string{"DE"}) != "de/16" {
 		t.Errorf("ratings %v", d.Ratings)
+	}
+}
+
+// PlexShow's people are every role Plex lists, past the 50 the cast keeps,
+// in Plex's order; the cast is still cut to 50, and an append to it leaves
+// the people alone.
+func TestPlexShowPeople(t *testing.T) {
+	var roles []string
+	for i := 60; i > 0; i-- {
+		roles = append(roles, fmt.Sprintf(`{"tag":"Actor %d","thumb":"https://plex/%d.jpg","order":%d}`, i, i, i))
+	}
+	roles = append(roles, `{"tag":" ","order":0}`) // no name: in neither list
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenShow] = `200 {"MediaContainer":{"Metadata":[{"title":"Frieren","Role":[` +
+		strings.Join(roles, ",") + `]}]}}`
+	p, _, _ := newPlexTest(t, answers)
+	s, err := p.Show(context.Background(), PlexSeries(424536))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.People) != 60 || s.People[0].Name != "Actor 1" || s.People[59] != (Person{"Actor 60", "", "https://plex/60.jpg"}) {
+		t.Errorf("%d people, first %+v, last %+v", len(s.People), s.People[0], s.People[len(s.People)-1])
+	}
+	if len(s.Details.Cast) != 50 || s.Details.Cast[49].Name != "Actor 50" {
+		t.Errorf("%d cast, want 50", len(s.Details.Cast))
+	}
+	grown := append(s.Details.Cast, Person{Name: "Added"})
+	if len(grown) != 51 || s.People[50].Name != "Actor 51" {
+		t.Errorf("an append to the cast changed the people: %+v", s.People[50])
 	}
 }
 

@@ -90,7 +90,7 @@ func FuzzParsePlex(f *testing.F) {
 			return
 		}
 		for _, it := range c.MediaContainer.Metadata {
-			d := it.details()
+			d, _ := it.details()
 			if len(d.Cast) > plexCast {
 				t.Errorf("%d cast", len(d.Cast))
 			}

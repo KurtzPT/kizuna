@@ -108,10 +108,14 @@ type Config struct {
 	// PlexURL is an https:// address the certificate doesn't hold (an IP, a
 	// Docker service name). Empty = the host in PlexURL.
 	PlexTLSName string
+	// CastPhotosFromPlex: each cast member's photo comes from Plex's own
+	// cast for the show, when Plex has that person with one. The cast itself
+	// still follows CastSources. Needs PlexToken: without it, false.
+	CastPhotosFromPlex bool
 }
 
 func Load() Config {
-	return Config{
+	c := Config{
 		Listen:             listenAddr(),
 		AllowFrom:          list(env("ALLOW_FROM", "private")),
 		AllowedHosts:       list(env("ALLOWED_HOSTS", "")),
@@ -156,6 +160,19 @@ func Load() Config {
 		PlexToken:          env("PLEX_TOKEN", ""),
 		PlexTLSName:        env("PLEX_TLS_NAME", ""),
 	}
+	c.CastPhotosFromPlex = castPhotosFromPlex(c.PlexToken)
+	return c
+}
+
+// castPhotosFromPlex reads CAST_PHOTOS_FROM_PLEX. Plex is asked only with
+// the user's token: on without one, it warns and counts as off.
+func castPhotosFromPlex(token string) bool {
+	on := flag("CAST_PHOTOS_FROM_PLEX", false)
+	if on && token == "" {
+		slog.Warn("CAST_PHOTOS_FROM_PLEX is on without PLEX_TOKEN: the cast keeps its sources' photos", "setting", "CAST_PHOTOS_FROM_PLEX")
+		return false
+	}
+	return on
 }
 
 // Usable reports whether a source has what it needs to answer: AniDB a
