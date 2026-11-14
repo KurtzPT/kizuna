@@ -612,20 +612,20 @@ func joinShort(list []string, n int) string {
 	return strings.Join(list, ", ")
 }
 
-// recordCast records the Cast field. photos is how many of the of people
+// recordCast records the Cast field. photos is how many of the total people
 // (the cast once its repeats are dropped) got Plex's photo; -1 = the swap
 // didn't run. The count goes at the end of the used source's text. The
-// function is made only here, past the reports-off return, with photos and
-// of never assigned after it: made in fill, it would move a variable to the
-// heap, an allocation every build.
-func (ss *showSources) recordCast(order []string, used string, photos, of int) {
+// function that gives the text is made only here, past the reports-off
+// return, with photos and total never assigned after it: made in fill, it
+// would move a variable to the heap, an allocation every build.
+func (ss *showSources) recordCast(order []string, used string, photos, total int) {
 	if ss.rec == nil {
 		return
 	}
 	ss.recordField("Cast", order, used, func(src string) string {
 		text := describeCast(ss.details(src).Cast)
 		if src == used && photos >= 0 {
-			text += fmt.Sprintf(" · photos from Plex: %d of %d", photos, of)
+			text += fmt.Sprintf(" · photos from Plex: %d of %d", photos, total)
 		}
 		return text
 	})

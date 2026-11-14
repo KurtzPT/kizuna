@@ -877,7 +877,10 @@ func nameKey(name string) string {
 		if plain, ok := nameAccents[r]; ok {
 			r = plain
 		}
-		if r == ' ' || unicode.IsLetter(r) {
+		switch {
+		case unicode.IsSpace(r): // a tab or a no-break space splits words too
+			b.WriteByte(' ')
+		case unicode.IsLetter(r):
 			b.WriteRune(r)
 		}
 	}

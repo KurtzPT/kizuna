@@ -90,7 +90,7 @@ func TestNameKey(t *testing.T) {
 		{"Rina Satô", "Rina Sato"},
 		{"Shōko Tsuda", "Showko Tsuda"},
 		{"Kōsuke Toriumi", "Kohsuke Toriumi"},
-		{"Kobayashi  Yuu", "Kobayashi Yu", " yu KOBAYASHI "},
+		{"Kobayashi  Yuu", "Kobayashi Yu", " yu KOBAYASHI ", "Kobayashi Yuu", "Yuu	Kobayashi"}, // any space splits words
 	} {
 		for _, name := range pair[1:] {
 			if a, b := nameKey(pair[0]), nameKey(name); a != b || a == "" {
@@ -276,7 +276,7 @@ func TestCastPhotosPlexFails(t *testing.T) {
 // Plex's show is asked once.
 func TestCastPhotosCastFromPlex(t *testing.T) {
 	defaultLists(t)
-	net := castNet(castXML, map[string]string{plexItemPath: "200 " + plexCastItem})
+	net := castNet(castXML, nil)
 	p := newTestProvider(t, net)
 	withPlex(t, p, net)
 	p.cfg.CastSources = []string{"plex"}
@@ -329,7 +329,9 @@ func TestCastPhotosLaterEntry(t *testing.T) {
 	second := strings.Replace(secondXML, "<episodes>", `<titles><title type="main" xml:lang="x-jat">Kizuna Test 2</title></titles><characters>
 <character type="main character in"><name>Spike</name><seiyuu picture="yamadera.jpg">Yamadera Kouichi</seiyuu></character>
 </characters><episodes>`, 1)
-	net := castNet(anidbXML, map[string]string{plexItemPath: "200 " + plexCastItem})
+	// A studio on Plex's show: the entry must not get it.
+	net := castNet(anidbXML, map[string]string{plexItemPath: "200 " +
+		strings.Replace(plexCastItem, `"title":"Plex Name"`, `"title":"Plex Name","studio":"Plex Studio"`, 1)})
 	inner := net.answer
 	net.answer = func(path string, q map[string][]string) (int, string) {
 		if path == "api.anidb.net/httpapi" && q["aid"][0] == "200" {
