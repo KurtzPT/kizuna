@@ -71,7 +71,7 @@ Each list names the sources to ask, in order: `anidb`, `tvdb`, `tmdb`, `mal`, `p
 field allows. The first that has a value wins; `none` turns the field off ([more](#-how-sources-are-used)).
 
 - **A source you list nowhere is not asked at all,** even with its key set. The exceptions are AniDB and TheTVDB,
-  where Kizuna needs them to find a show's episodes.
+  where Kizuna needs them to find a show's episodes, and Plex with `CAST_PHOTOS_FROM_PLEX`.
 - **`plex` is last in the default lists,** so by default it only fills what the others leave empty.
 
 | Variable | Default | What it does |
@@ -80,6 +80,7 @@ field allows. The first that has a value wins; `none` turns the field off ([more
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Summary |
 | `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Genres |
 | `CAST_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | Voice actors with their characters. ANN: Japanese cast, no photos |
+| `CAST_PHOTOS_FROM_PLEX` | `false` | `true`: each person's photo comes from Plex's own cast for the show, sized and cropped for Plex. The cast itself still comes from `CAST_SOURCES`; people Plex doesn't have keep their own photo. Needs `PLEX_TOKEN`. A first scan takes about half a second longer per show, even with `plex` in no list. Shows already in Plex get the new photos when you refresh their metadata |
 | `CREW_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | The show's directors and writers. Episodes have [their own list](#episode-directors-and-writers) |
 | `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Studio |
 | `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | First aired or release date |

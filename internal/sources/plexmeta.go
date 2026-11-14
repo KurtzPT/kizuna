@@ -97,6 +97,10 @@ type PlexShow struct {
 	Title, Summary string
 	Details        Details
 	Art            Art
+	// People: every person Plex lists for it, in Plex's order. Details.Cast
+	// is its first plexCast; CAST_PHOTOS_FROM_PLEX looks people up in all of
+	// it.
+	People []Person
 }
 
 // PlexSeason is one season of a Plex show.
@@ -302,26 +306,29 @@ func (p *Plex) Show(ctx context.Context, r PlexRef) (PlexShow, error) {
 	if err != nil {
 		return PlexShow{}, err
 	}
-	return PlexShow{Title: it.Title, Summary: it.Summary, Details: it.details(), Art: plexArt(it.Image)}, nil
+	d, people := it.details()
+	return PlexShow{Title: it.Title, Summary: it.Summary, Details: d, Art: plexArt(it.Image), People: people}, nil
 }
 
 // plexCast: how much of the cast is kept, as from TheMovieDb.
 const plexCast = 50
 
-// details: the item's genres, people, studio, content rating and date.
-func (it plexItem) details() Details {
-	d := Details{Studio: strings.TrimSpace(it.Studio), Date: it.Date, Genres: tags(it.Genre),
+// details: the item's genres, people, studio, content rating and date, and
+// every person with a name in Plex's order (people). The cast is people's
+// first plexCast, one list: its capacity stops there too, so an append to
+// the cast can't write over the people after it.
+func (it plexItem) details() (d Details, people []Person) {
+	d = Details{Studio: strings.TrimSpace(it.Studio), Date: it.Date, Genres: tags(it.Genre),
 		Directors: tags(it.Director), Writers: tags(it.Writer)}
 	roles := append([]plexRole(nil), it.Role...)
 	sort.SliceStable(roles, func(i, j int) bool { return roles[i].Order < roles[j].Order })
 	for _, r := range roles {
-		if len(d.Cast) == plexCast {
-			break
-		}
 		if name := strings.TrimSpace(r.Tag); name != "" {
-			d.Cast = append(d.Cast, Person{Name: name, Role: strings.TrimSpace(r.Role), Photo: r.Thumb})
+			people = append(people, Person{Name: name, Role: strings.TrimSpace(r.Role), Photo: r.Thumb})
 		}
 	}
+	n := min(len(people), plexCast)
+	d.Cast = people[:n:n]
 	// "TV-14" is a US rating; another country's comes as "de/16".
 	rating := strings.TrimSpace(it.Rating)
 	if country, r, ok := strings.Cut(rating, "/"); ok {
@@ -329,7 +336,7 @@ func (it plexItem) details() Details {
 	} else {
 		d.addRating("US", rating)
 	}
-	return d
+	return d, people
 }
 
 func tags(t []plexTag) []string {

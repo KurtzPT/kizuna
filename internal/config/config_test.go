@@ -295,6 +295,39 @@ func TestPlexTLSName(t *testing.T) {
 	}
 }
 
+// CAST_PHOTOS_FROM_PLEX is off by default and on with true. On without
+// PLEX_TOKEN it warns once and counts as off.
+func TestCastPhotosFromPlex(t *testing.T) {
+	for _, c := range []struct {
+		value, token string
+		want, warns  bool
+	}{
+		{"", "token", false, false},
+		{"true", "token", true, false},
+		{"false", "token", false, false},
+		{"", "", false, false},
+		{"false", "", false, false},
+		{"true", "", false, true},
+	} {
+		t.Setenv("CAST_PHOTOS_FROM_PLEX", c.value)
+		t.Setenv("PLEX_TOKEN", c.token)
+		var got bool
+		log := warnings(t, func() { got = Load().CastPhotosFromPlex })
+		if got != c.want {
+			t.Errorf("CAST_PHOTOS_FROM_PLEX=%q PLEX_TOKEN=%q: %v, want %v", c.value, c.token, got, c.want)
+		}
+		if n := strings.Count(log, "setting=CAST_PHOTOS_FROM_PLEX"); n != map[bool]int{false: 0, true: 1}[c.warns] {
+			t.Errorf("CAST_PHOTOS_FROM_PLEX=%q PLEX_TOKEN=%q: %d warnings, want %v (log %q)", c.value, c.token, n, c.warns, log)
+		}
+		if c.warns && !strings.Contains(log, "without PLEX_TOKEN") {
+			t.Errorf("the warning doesn't name PLEX_TOKEN: %q", log)
+		}
+	}
+	if !wasRead("CAST_PHOTOS_FROM_PLEX") {
+		t.Error("CAST_PHOTOS_FROM_PLEX not marked read: the settings file would call it unknown")
+	}
+}
+
 // EPISODE_CREW_SOURCES: an order of tvdb, tmdb and plex; "none" turns
 // episode crew off, a source it doesn't allow is dropped with a warning,
 // and a list with none left uses the default.

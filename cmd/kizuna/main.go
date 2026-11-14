@@ -298,7 +298,7 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "plex", cfg.PlexToken != "", "anidb_client", cfg.AniDBClient != "",
 		"titles", u(cfg.TitleSources), "summaries", u(cfg.SummarySources), "posters", u(cfg.PosterSources),
 		"backgrounds", u(cfg.BackgroundSources), "logos", u(cfg.LogoSources), "art_all", cfg.ArtAllSources, "season_art_fallback", cfg.SeasonArtFallback,
-		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
+		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "cast_photos_from_plex", cfg.CastPhotosFromPlex, "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
 		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", u(cfg.DateSources),
 		"episode_fill", u(cfg.EpisodeFillSources), "episode_crew", u(cfg.EpisodeCrewSources), "episode_titles", u(cfg.EpisodeTitles), "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", max(cfg.CacheFreeTarget, cfg.CacheMinFree)>>20,
 		"match_reports", cfg.MatchReports, "extra_titles", extraTitles)

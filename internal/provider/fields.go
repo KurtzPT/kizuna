@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
 
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
@@ -409,8 +410,16 @@ func (ss *showSources) fill(s *Show) {
 	detail("Genres", cfg.GenreSources, src, func(d sources.Details) string { return strings.Join(d.Genres, ", ") })
 	d, src = ss.pickDetails(cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 })
 	s.Roles = uniqueCast(d.Cast)
+	// CAST_PHOTOS_FROM_PLEX: Plex's photos for the people it has. Plex's
+	// show is read only for a cast of another source, so without one a Plex
+	// that failed leaves the show complete. Read directly, not through
+	// details: the photos apply to later entries too (plexFirst).
+	photos := -1 // the swap didn't run
+	if cfg.CastPhotosFromPlex && len(s.Roles) > 0 && src != "plex" && ss.plexShow.fetches() {
+		photos = castPhotos(s.Roles, ss.plexShow.get().People)
+	}
 	note("cast", src)
-	detail("Cast", cfg.CastSources, src, func(d sources.Details) string { return describeCast(d.Cast) })
+	ss.recordCast(cfg.CastSources, src, s.Roles, photos)
 	d, src = ss.pickDetails(cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" })
 	s.Studio = d.Studio
 	note("studio", src)
@@ -535,9 +544,16 @@ func (ss *showSources) warm() {
 // siteFields adds TheTVDB's and TheMovieDb's values that some field lists
 // them for: title, summary (for a later entry, its season's) and details.
 // One that can't apply (not the entry that starts the series on the site,
-// no id, not set up) isn't asked for: fill wouldn't read it.
+// no id, not set up) isn't asked for: fill wouldn't read it. With
+// CAST_PHOTOS_FROM_PLEX, Plex's show too, whatever the lists say: its cast
+// gives the photos. /anidb must call this after setAniDB, because AniDB's
+// answer can change which Plex item is meant (a movie by its IMDb id).
+// /tvdb can call it first: there AniDB never changes it.
 func (ss *showSources) siteFields(w *warmSet) {
 	cfg := ss.p.cfg
+	if cfg.CastPhotosFromPlex {
+		w.add(&ss.plexShow) // nothing to ask (no id, no token): add skips it
+	}
 	for _, src := range [...]string{"tvdb", "tmdb"} {
 		if slices.Contains(cfg.TitleSources, src) {
 			w.add(ss.titleLazy(src))
@@ -802,4 +818,77 @@ func uniqueCast(cast []sources.Person) []sources.Person {
 		out = append(out, p)
 	}
 	return out
+}
+
+// castPhotos gives each person of cast the photo Plex has for them (plex:
+// Plex's people for the show), paired by nameKey, and returns how many it
+// gave. Name, character and order stay. A person Plex doesn't have, or has
+// without a photo, keeps their own. Two Plex people with one key and
+// different photos give none: which one is meant can't be told. The same
+// person twice, on either side, is no conflict: an actor with two
+// characters gets the photo on both rows.
+func castPhotos(cast, plex []sources.Person) int {
+	photo := map[string]string{} // key -> photo; "" = different photos
+	for _, p := range plex {
+		if p.Photo == "" {
+			continue
+		}
+		k := nameKey(p.Name)
+		if k == "" {
+			continue
+		}
+		if have, ok := photo[k]; ok && have != p.Photo {
+			photo[k] = ""
+			continue
+		}
+		photo[k] = p.Photo
+	}
+	n := 0
+	for i := range cast {
+		if k := nameKey(cast[i].Name); k != "" && photo[k] != "" {
+			cast[i].Photo = photo[k]
+			n++
+		}
+	}
+	return n
+}
+
+// nameAccents: the accented vowels romanised Japanese names use, without
+// their accent. A fixed table: the standard library can't take accents off,
+// and Kizuna has no dependencies.
+var nameAccents = map[rune]rune{
+	'ā': 'a', 'â': 'a', 'á': 'a', 'ī': 'i', 'î': 'i', 'í': 'i', 'ū': 'u', 'û': 'u', 'ú': 'u',
+	'ē': 'e', 'ê': 'e', 'é': 'e', 'è': 'e', 'ō': 'o', 'ô': 'o', 'ó': 'o',
+}
+
+// nameFolds: the spellings of one long vowel, folded one after another, each
+// over the whole name. Not in one pass (strings.NewReplacer): that turns
+// "kouhei" into "kohei" but "kohei" into "koei", and the two must pair.
+var nameFolds = [...][2]string{{"ou", "o"}, {"oo", "o"}, {"oh", "o"}, {"ow", "o"}, {"uu", "u"}}
+
+// nameKey is what castPhotos pairs a name by: lower-cased, accents off, only
+// letters and spaces, long vowels folded, words sorted. The sources spell
+// one person differently ("Yamadera Kouichi", "Koichi Yamadera", "Kōichi
+// Yamadera"); a key that close is exact, never fuzzy: nearly the same name
+// is often someone else. "" never pairs.
+func nameKey(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if plain, ok := nameAccents[r]; ok {
+			r = plain
+		}
+		switch {
+		case unicode.IsSpace(r): // a tab or a no-break space splits words too
+			b.WriteByte(' ')
+		case unicode.IsLetter(r):
+			b.WriteRune(r)
+		}
+	}
+	s := b.String()
+	for _, f := range nameFolds {
+		s = strings.ReplaceAll(s, f[0], f[1])
+	}
+	words := strings.Fields(s)
+	slices.Sort(words)
+	return strings.Join(words, " ")
 }
