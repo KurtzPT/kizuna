@@ -75,7 +75,9 @@ func pd(d sources.Details, _ string) sources.Details { return d }
 
 // Without AniDB details, the fallbacks fill will reach are fetched at once,
 // not one after another: each fetch here only returns once the other one has
-// started. With details, AniDB has the fields: no fallback is fetched.
+// started. With details, AniDB has the fields, and TheTVDB's and
+// TheMovieDb's values are fetched ahead all the same (listed: warm), still
+// at once.
 func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
 	cfg := config.Config{SummarySources: []string{"anidb", "tvdb"}, GenreSources: []string{"anidb", "tmdb"},
 		DateSources: []string{"anidb", "tvdb", "tmdb"}}
@@ -114,8 +116,11 @@ func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
 		Genres: []string{"AniDB"}})
 	s = &Show{}
 	ss.fill(s)
-	if got := asked(); len(got) != 0 || s.Summary != "From AniDB." {
-		t.Errorf("with AniDB details: fetched %v (summary %q), want nothing", got, s.Summary)
+	got := asked()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"tmdb", "tvdb"}) || s.Summary != "From AniDB." || !slices.Equal(s.Genres, []string{"AniDB"}) {
+		t.Errorf("with AniDB details: fetched %v, summary %q, genres %v; want both fetched ahead, AniDB's fields",
+			got, s.Summary, s.Genres)
 	}
 }
 

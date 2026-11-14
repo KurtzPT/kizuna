@@ -81,7 +81,7 @@ type Ep struct {
 	Date          string
 	Thumb         string
 	Minutes       int
-	Directors     []string // TheTVDB's, else TheMovieDb's, else Plex's (episodeCrew)
+	Directors     []string // per EPISODE_CREW_SOURCES (applyCrew)
 	Writers       []string
 
 	titles   map[string]string // source -> its title for this episode
@@ -492,8 +492,9 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	b.tmdbID, b.eps, b.partial = tmdbID, eps, errors.Is(epsErr, sources.ErrIncomplete)
 	episodesFromList(s, b)
 	// What doesn't depend on AniDB's answer starts before it is in, as that
-	// can take seconds (its fair-use gap): TheTVDB's crew records, and
-	// TheTVDB's and TheMovieDb's art (TheMovieDb's episode list is on its way).
+	// can take seconds (its fair-use gap): TheTVDB's crew records (with tvdb
+	// first in EPISODE_CREW_SOURCES), and TheTVDB's and TheMovieDb's show
+	// fields and art (TheMovieDb's episode list is on its way).
 	b.start(ctx, p)
 	ss := p.newSources(ctx, aid, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
@@ -522,10 +523,11 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 }
 
 // tmdbShowOf returns, once, a /tvdb show's TMDB show: from the mapping, else
-// looked up on TMDB.
+// looked up on TMDB. Not looked up when no setting lists tmdb: nothing would
+// be asked of the show (its tmdb:// GUID then comes from the mapping alone).
 func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Entry) func() (int, error) {
 	return sync.OnceValues(func() (int, error) {
-		if entry.TMDB.ID == 0 && p.tmdb.Enabled() {
+		if entry.TMDB.ID == 0 && p.tmdb.Enabled() && p.cfg.Listed("tmdb") {
 			return p.tmdb.TVFromTVDB(ctx, tvdbID)
 		}
 		return entry.TMDB.ID, nil
@@ -534,13 +536,14 @@ func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Ent
 
 // episodesFromList adds the episode list's episodes to s, at their season
 // and absolute number (specials at their number), with the list's title
-// and crew (tvdbEpisodeCrew completes it, with applyCrew).
+// and crew (TheTVDB's, which applyCrew places in EPISODE_CREW_SOURCES'
+// order).
 func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
 			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers,
 			listed: spot{e.Season, e.Number}, tvdbEp: e.ID,
-			src: epSources{summary: srcTVDB, date: srcTVDB, thumb: srcTVDB, minutes: srcTVDB, directors: srcTVDB, writers: srcTVDB}}
+			src: epSources{summary: srcTVDB, date: srcTVDB, thumb: srcTVDB, minutes: srcTVDB}}
 		if e.Season == 0 {
 			ep.Index = e.Number
 		}
@@ -555,8 +558,9 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 // enrichTVDB adds the episode titles and crew and the show-level fields (ss:
 // the show's sources, its targets set). They touch different parts of s, so
 // both are fetched at once. TheMovieDb's episode list is fetched once, for
-// the titles and the crew. Returns false while other AniDB entries or
-// episode crew are still being fetched, or when a source failed.
+// the titles, the crew and the season posters, when a setting asks it for
+// one of them (tvdbBuild.tmdbOn). Returns false while other AniDB entries
+// or episode crew are still being fetched, or when a source failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) bool {
 	var wg sync.WaitGroup
 	var tmdbOK, titlesReady, plexOK, crewReady bool
@@ -568,7 +572,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 		plexOK = p.tvdbPlexTitles(ctx, s, b)
 		pairs = tmdbSeasonPairs(s, b.tmdbEps, pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.tvdbEpisodeCrew(s, b, pr)
+		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()

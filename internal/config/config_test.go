@@ -182,7 +182,7 @@ func TestModes(t *testing.T) {
 
 // sourceSettings are the source lists emptyFields checks.
 var sourceSettings = []string{"TITLE_SOURCES", "SUMMARY_SOURCES", "POSTER_SOURCES", "BACKGROUND_SOURCES", "LOGO_SOURCES",
-	"EPISODE_FILL_SOURCES", "EPISODE_TITLES", "GENRE_SOURCES", "CAST_SOURCES", "STUDIO_SOURCES", "CREW_SOURCES",
+	"EPISODE_FILL_SOURCES", "EPISODE_CREW_SOURCES", "EPISODE_TITLES", "GENRE_SOURCES", "CAST_SOURCES", "STUDIO_SOURCES", "CREW_SOURCES",
 	"RATING_SOURCES", "DATE_SOURCES"}
 
 // Lists keep their order; sources without a key are skipped, ANN always
@@ -224,7 +224,7 @@ func TestLogModesDefaultListsNoWarning(t *testing.T) {
 		t.Errorf("warning for lists left at their default: %q", log)
 	}
 	want := `level=INFO msg="these fields stay empty: their default sources need a key" ` +
-		`settings="[BACKGROUND_SOURCES LOGO_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`
+		`settings="[BACKGROUND_SOURCES LOGO_SOURCES EPISODE_FILL_SOURCES EPISODE_CREW_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`
 	if strings.Count(log, "these fields stay empty") != 1 || !strings.Contains(log, want) {
 		t.Errorf("no %q (once) in %q", want, log)
 	}
@@ -234,7 +234,7 @@ func TestLogModesDefaultListsNoWarning(t *testing.T) {
 	if !strings.Contains(log, `level=WARN msg="no usable source in these lists`) || !strings.Contains(log, "settings=[LOGO_SOURCES]") {
 		t.Errorf("LOGO_SOURCES set without a TMDB key: no warning naming it in %q", log)
 	}
-	if !strings.Contains(log, `settings="[BACKGROUND_SOURCES EPISODE_FILL_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`) {
+	if !strings.Contains(log, `settings="[BACKGROUND_SOURCES EPISODE_FILL_SOURCES EPISODE_CREW_SOURCES]" keys="[TVDB_API_KEY TMDB_API_KEY PLEX_TOKEN]"`) {
 		t.Errorf("the defaults' info line: %q", log)
 	}
 }
@@ -255,6 +255,7 @@ func TestPlexSource(t *testing.T) {
 		{"BACKGROUND_SOURCES", "tvdb,tmdb,plex", c.BackgroundSources},
 		{"LOGO_SOURCES", "tvdb,tmdb,plex", c.LogoSources},
 		{"EPISODE_FILL_SOURCES", "tvdb,plex", c.EpisodeFillSources},
+		{"EPISODE_CREW_SOURCES", "tvdb,tmdb,plex", c.EpisodeCrewSources},
 		{"EPISODE_TITLES", "anidb,tvdb,tmdb,plex", c.EpisodeTitles},
 		{"GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", c.GenreSources},
 		{"CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", c.CastSources},
@@ -279,5 +280,53 @@ func TestPlexSource(t *testing.T) {
 	c = Load()
 	if !c.Usable("plex") || !slices.Equal(c.UsableOf(c.LogoSources), []string{"plex"}) {
 		t.Errorf("with PLEX_TOKEN: usable %v", c.UsableOf(c.LogoSources))
+	}
+}
+
+// EPISODE_CREW_SOURCES: an order of tvdb, tmdb and plex; "none" turns
+// episode crew off, a source it doesn't allow is dropped with a warning,
+// and a list with none left uses the default.
+func TestEpisodeCrewSources(t *testing.T) {
+	for _, c := range []struct {
+		value, want string
+		warns       bool
+	}{
+		{"", "tvdb,tmdb,plex", false},
+		{"tmdb,tvdb", "tmdb,tvdb", false},
+		{"PLEX", "plex", false},
+		{"none", "", false},
+		{"anidb,tmdb", "tmdb", true},
+		{"mal", "tvdb,tmdb,plex", true},
+	} {
+		t.Setenv("EPISODE_CREW_SOURCES", c.value)
+		var got []string
+		log := warnings(t, func() { got = Load().EpisodeCrewSources })
+		if strings.Join(got, ",") != c.want {
+			t.Errorf("EPISODE_CREW_SOURCES=%q: %v, want %q", c.value, got, c.want)
+		}
+		if warned := strings.Contains(log, "setting=EPISODE_CREW_SOURCES"); warned != c.warns {
+			t.Errorf("EPISODE_CREW_SOURCES=%q: warned %v, want %v (log %q)", c.value, warned, c.warns, log)
+		}
+	}
+}
+
+// Listed: some source setting names the source, whichever one it is.
+func TestListed(t *testing.T) {
+	for _, name := range sourceSettings {
+		t.Setenv(name, "")
+	}
+	if c := Load(); !c.Listed("tmdb") || c.Listed("tvbd") {
+		t.Errorf("default lists: tmdb listed %v, tvbd listed %v; want true, false", c.Listed("tmdb"), c.Listed("tvbd"))
+	}
+	for _, name := range sourceSettings {
+		t.Setenv(name, "none")
+	}
+	for _, name := range sourceSettings { // tvdb: every list allows it
+		t.Setenv(name, "tvdb")
+		c := Load()
+		if !c.Listed("tvdb") || c.Listed("tmdb") {
+			t.Errorf("only %s=tvdb: tvdb listed %v, tmdb listed %v; want true, false", name, c.Listed("tvdb"), c.Listed("tmdb"))
+		}
+		t.Setenv(name, "none")
 	}
 }

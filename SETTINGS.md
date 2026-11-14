@@ -72,6 +72,8 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 
 Each list names the sources to ask, in order, from the ones the field allows: `anidb`, `tvdb`, `tmdb`, `mal`,
 `plex`, `ann`. The first that has a value wins; `none` turns the field off ([how it works](#-how-sources-are-used)).
+A source you list in none of these settings is not asked at all, even with its key set. The exceptions are AniDB,
+and TheTVDB in `/tvdb`: Kizuna needs them to find and pair a show's episodes.
 `plex` is always last in a default list, or right before `ann`: by default it only fills what the others leave
 empty.
 
@@ -93,6 +95,7 @@ empty.
 | `SEASON_ART_FALLBACK` | `true` | A TheTVDB or TheMovieDb season without art of a kind gives that site's series art. `false`: the next source is asked instead ([season art](#season-art)) |
 | `EPISODE_TITLES` | `anidb,tvdb,tmdb,plex` | Episode titles, both modes, from the [paired](MAPPING.md#-how-episodes-are-paired) episode. The first real title wins: placeholders such as *Episode 12*, *Ep. 5*, *TBA* or *TBD* only beat nothing. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb,plex` | `/anidb`: episode thumbnails, plus summaries, dates and runtimes AniDB lacks, from the paired episode: per episode and value, the first listed source that has one. `tvdb`, `plex` or `none` |
+| `EPISODE_CREW_SOURCES` | `tvdb,tmdb,plex` | Episode directors and writers, both modes, from the paired episode: per episode, the first listed source with directors gives them, and the first with writers gives those ([episode crew](#episode-directors-and-writers)). `tvdb`, `tmdb`, `plex` or `none` |
 
 ### 🎵 Opening and ending titles
 
@@ -148,8 +151,9 @@ Each refused client or name is logged once every 10 minutes, with the setting to
 
 ### Which source answers
 
-For each field, Kizuna asks the sources in its list's order. A source without its key is skipped, and a later source
-is only downloaded when the ones before it have nothing.
+For each field, Kizuna asks the sources in its list's order. A source without its key is skipped. TheTVDB and
+TheMovieDb, wherever they are listed, are downloaded at once, a few small requests; any other later source is only
+downloaded when the ones before it have nothing. The first that has a value wins either way.
 
 ```mermaid
 flowchart TD
@@ -173,11 +177,11 @@ flowchart TD
 | Episode list, `/tvdb` | | ⭐ only | | | | |
 | Episode titles | ⭐ | ✅ | ✅ | | ✅ | |
 | Episode thumbnails, `/anidb` | | ⭐ | | | ✅ | |
-| Episode directors, writers | | ⭐ | ✅ | | ✅⁴ | |
+| Episode directors, writers | | ⭐ | ✅ | | ✅ | |
 
 <sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used, first or as a fallback &nbsp;·&nbsp; with a legacy TheTVDB key:
 ¹ none, ² US rating only, ³ backgrounds only, no logos; no season summaries or season backgrounds, and episodes get
-the series' runtime &nbsp;·&nbsp; ⁴ [not for every show](#episode-directors-and-writers)</sub>
+the series' runtime</sub>
 
 > [!NOTE]
 > **A list where no source is set up leaves its field empty.** For a list in your settings, Kizuna warns at startup
@@ -202,14 +206,19 @@ Plex is treated like TheTVDB here.
 
 ### Episode directors and writers
 
-They have no setting: they come from TheTVDB, else TheMovieDb, each field on its own, in both modes. AniDB has none
-per episode. Plex's can fill in what both lack, but not for every show: only when Kizuna needed Plex for that
-show's episodes anyway, because an episode was still missing a title (or, in `/anidb`, a summary, thumbnail, date or
-runtime).
+`EPISODE_CREW_SOURCES` alone decides where they come from, in both modes: by default TheTVDB, else TheMovieDb,
+else Plex. Directors and writers are picked on their own, so an episode can get its directors from TheTVDB and its
+writers from TheMovieDb. AniDB has none per episode.
+
+- **Only the sources in this list give episode crew.** One you leave out gives none, even if `CREW_SOURCES` or
+  `EPISODE_TITLES` lists it, and one you list gives its crew even if no other setting names it.
+- **Put a source first to prefer it:** `tmdb,tvdb` takes TheMovieDb's directors and writers wherever it has them.
+- **`none`** leaves every episode without directors and writers.
 
 > [!TIP]
 > With a v4 TheTVDB key, Kizuna fetches them for up to 8 seconds while building a show and the rest in the
-> background. On a long show's first scan some episodes may lack them: refresh the show a few minutes later.
+> background. On a long show's first scan some episodes may lack them: refresh the show a few minutes later. A list
+> without `tvdb` skips that wait.
 
 ### Image languages
 
