@@ -225,7 +225,9 @@ func TestDrainWaitsForBuilds(t *testing.T) {
 // The opening and ending titles need PLEX_URL and PLEX_TOKEN, both and
 // usable: anything less is off, with a warning that never shows the token.
 // PLEX_TOKEN alone is a valid setup (the plex source uses it): one info
-// line says the titles need PLEX_URL too.
+// line says the titles need PLEX_URL too. PLEX_TLS_NAME needs an https://
+// PLEX_URL and one host name; without PLEX_URL or PLEX_TOKEN it changes
+// nothing in what is logged.
 func TestExtraTitles(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
@@ -233,24 +235,32 @@ func TestExtraTitles(t *testing.T) {
 	defer slog.SetDefault(old)
 
 	for _, c := range []struct {
-		url, token string
-		on         bool
-		log        string // the level logged, "" = nothing
+		url, token, name string
+		on               bool
+		log              string // the level logged, "" = nothing
 	}{
-		{"", "", false, ""},
-		{"http://plex:32400", "s3cret", true, ""},
-		{"http://plex:32400", "", false, "WARN"},
-		{"", "s3cret", false, "INFO"},
-		{"plex:32400", "s3cret", false, "WARN"},
-		{"http://plex:32400/web", "s3cret", false, "WARN"},
-		{"http://user:s3cret@plex:32400", "s3cret", false, "WARN"},
+		{"", "", "", false, ""},
+		{"http://plex:32400", "s3cret", "", true, ""},
+		{"http://plex:32400", "", "", false, "WARN"},
+		{"", "s3cret", "", false, "INFO"},
+		{"plex:32400", "s3cret", "", false, "WARN"},
+		{"http://plex:32400/web", "s3cret", "", false, "WARN"},
+		{"http://user:s3cret@plex:32400", "s3cret", "", false, "WARN"},
+		{"https://192.168.1.20:32400", "s3cret", "plex.example.com", true, ""},
+		{"http://192.168.1.20:32400", "s3cret", "plex.example.com", false, "WARN"},
+		{"https://192.168.1.20:32400", "s3cret", "https://plex.example.com", false, "WARN"},
+		{"https://192.168.1.20:32400", "s3cret", "192.168.1.20", false, "WARN"},
+		{"https://s3cret@192.168.1.20:32400", "s3cret", "plex.example.com", false, "WARN"}, // PLEX_URL's own warning, once
+		{"", "", "plex.example.com", false, ""},
+		{"", "s3cret", "plex.example.com", false, "INFO"},
+		{"https://192.168.1.20:32400", "", "plex.example.com", false, "WARN"},
 	} {
 		logs.Reset()
-		r := extraTitles(config.Config{PlexURL: c.url, PlexToken: c.token})
+		r := extraTitles(config.Config{PlexURL: c.url, PlexToken: c.token, PlexTLSName: c.name})
 		lines := strings.Count(logs.String(), "\n")
-		if (r != nil) != c.on || strings.Contains(logs.String(), "s3cret") || c.log == "" && lines != 0 ||
-			c.log != "" && (lines != 1 || !strings.Contains(logs.String(), "level="+c.log)) {
-			t.Errorf("PLEX_URL=%q PLEX_TOKEN=%q: on=%v, log %q", c.url, c.token, r != nil, logs.String())
+		if (r != nil) != c.on || strings.Contains(logs.String(), "s3cret") || strings.Contains(logs.String(), "192.168.1.20:32400") ||
+			c.log == "" && lines != 0 || c.log != "" && (lines != 1 || !strings.Contains(logs.String(), "level="+c.log)) {
+			t.Errorf("PLEX_URL=%q PLEX_TOKEN=%q PLEX_TLS_NAME=%q: on=%v, log %q", c.url, c.token, c.name, r != nil, logs.String())
 		}
 	}
 }

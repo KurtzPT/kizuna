@@ -283,6 +283,18 @@ func TestPlexSource(t *testing.T) {
 	}
 }
 
+// PLEX_TLS_NAME is read, so the settings file doesn't report it as unknown.
+func TestPlexTLSName(t *testing.T) {
+	t.Setenv("PLEX_TLS_NAME", " plex.example.com ")
+	if got := Load().PlexTLSName; got != "plex.example.com" || !wasRead("PLEX_TLS_NAME") {
+		t.Errorf("PlexTLSName = %q, read %v", got, wasRead("PLEX_TLS_NAME"))
+	}
+	unset(t, "PLEX_TLS_NAME")
+	if got := Load().PlexTLSName; got != "" {
+		t.Errorf("unset: PlexTLSName = %q", got)
+	}
+}
+
 // EPISODE_CREW_SOURCES: an order of tvdb, tmdb and plex; "none" turns
 // episode crew off, a source it doesn't allow is dropped with a warning,
 // and a list with none left uses the default.

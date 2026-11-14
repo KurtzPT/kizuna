@@ -1,18 +1,24 @@
 package plex
 
 import (
+	"cmp"
 	"container/list"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Plex sets an extra's title back to the name it reads from the file ("OP1")
@@ -37,6 +43,7 @@ const (
 // the work.
 type Renamer struct {
 	base, token string
+	tlsName     string // PLEX_TLS_NAME, for the certificate error; "" = the host in base
 	client      *http.Client
 	now         func() time.Time                     // time.Now; tests set the time by hand
 	after       func(time.Duration) <-chan time.Time // time.After; tests end the wait themselves
@@ -63,15 +70,23 @@ type waiting struct {
 type show struct{ key, title string }
 
 // New returns a Renamer for the Plex server at base ("http://plex:32400")
-// with an account token. Nothing happens until Run is called.
-func New(base, token string) *Renamer {
-	return &Renamer{base: strings.TrimRight(base, "/"), token: token,
+// with an account token. tlsName, when set, is the name Plex's certificate
+// is checked against instead of the host in base (see CheckTLSName).
+// Nothing happens until Run is called.
+func New(base, token, tlsName string) *Renamer {
+	tr := &http.Transport{Proxy: nil, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
+		IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}
+	if tlsName != "" {
+		// Plex picks its certificate by this name, and the check stays on:
+		// a server without a valid certificate for it gets no token.
+		tr.TLSClientConfig = &tls.Config{ServerName: tlsName, MinVersion: tls.VersionTLS12}
+	}
+	return &Renamer{base: strings.TrimRight(base, "/"), token: token, tlsName: tlsName,
 		client: &http.Client{
 			Timeout: callTimeout,
 			// No proxy (HTTP_PROXY) and no redirects: the token must reach
 			// the server at PLEX_URL and nothing else.
-			Transport: &http.Transport{Proxy: nil, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
-				IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second},
+			Transport:     tr,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		now: time.Now, after: time.After, wake: make(chan struct{}, 1),
@@ -91,6 +106,23 @@ func CheckURL(base string) error {
 		return errors.New("it must be the server's address alone, without a path after the port: use the form http://192.168.1.10:32400")
 	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.HasSuffix(base, "#"):
 		return errors.New("it must be the server's address alone, without a ? or # part: use the form http://192.168.1.10:32400")
+	}
+	return nil
+}
+
+// CheckTLSName says what is wrong with a PLEX_TLS_NAME for the PLEX_URL base
+// (nil = nothing). The name must be one exact host name: the certificate is
+// checked against it as it is. Like CheckURL, the messages never repeat base.
+func CheckTLSName(name, base string) error {
+	_, notIP := netip.ParseAddr(name)
+	if notIP == nil || strings.ContainsAny(name, "/:*") || strings.ContainsFunc(name, unicode.IsSpace) ||
+		slices.Contains(strings.Split(name, "."), "") {
+		return errors.New("it must be one host name alone, such as plex.example.com or 192-168-1-10.<hash>.plex.direct: no https://, port, path, IP address or *")
+	}
+	if u, err := url.Parse(base); err != nil || u.Scheme != "https" {
+		// Over http:// there is no certificate to check, and the user who
+		// asked for a check would send the token in plain text.
+		return errors.New("PLEX_TLS_NAME is set but PLEX_URL doesn't start with https://: use an https:// address, or leave PLEX_TLS_NAME empty")
 	}
 	return nil
 }
@@ -375,7 +407,7 @@ func (r *Renamer) do(ctx context.Context, method, path string, a *answer) error 
 		if ctx.Err() == nil { // not when Kizuna is stopping
 			r.count(false)
 		}
-		return &callError{call: call, err: err}
+		return &callError{call: call, err: err, tlsName: r.tlsName}
 	}
 	defer func() {
 		// A connection is used again only when its answer was read to the end.
@@ -409,9 +441,10 @@ func (r *Renamer) count(answered bool) {
 // A callError is a call Plex didn't answer (err), or answered with a status
 // other than 200.
 type callError struct {
-	call   string // "GET /library/all"
-	status int
-	err    error
+	call    string // "GET /library/all"
+	status  int
+	err     error
+	tlsName string // PLEX_TLS_NAME, named when the certificate fails
 }
 
 func (e *callError) Error() string {
@@ -420,6 +453,13 @@ func (e *callError) Error() string {
 		return fmt.Sprintf("plex: %s: status %d: Plex refused the token (check PLEX_TOKEN)", e.call, e.status)
 	case e.status != 0:
 		return fmt.Sprintf("plex: %s: status %d", e.call, e.status)
+	}
+	if cause, ok := errors.AsType[x509.HostnameError](e.err); ok {
+		// Go's text names the certificate's names, which is what
+		// PLEX_TLS_NAME must be, but not the setting. Only a wrong name
+		// gets this: an expired or unknown certificate keeps Go's text.
+		name := cmp.Or(e.tlsName, "the address in PLEX_URL")
+		return fmt.Sprintf("plex: %s: Plex's certificate isn't valid for %s (check PLEX_TLS_NAME): %v", e.call, name, cause)
 	}
 	return fmt.Sprintf("plex: %s: %v", e.call, e.err)
 }

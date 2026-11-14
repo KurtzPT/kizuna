@@ -245,7 +245,10 @@ func serve(cfg config.Config) error {
 // extraTitles returns what renames Plex's opening and ending extras, or nil
 // when PLEX_URL and PLEX_TOKEN aren't both set (a half or bad setup is
 // logged: it would look like the feature doing nothing). PLEX_TOKEN alone
-// is a setup of its own: the plex source uses it.
+// is a setup of its own: the plex source uses it. A PLEX_TLS_NAME that can't
+// be used turns the titles off too: going on without it would fail on every
+// call, or send the token over plain http to a user who asked for a
+// certificate check.
 func extraTitles(cfg config.Config) *plex.Renamer {
 	switch {
 	case cfg.PlexURL == "" && cfg.PlexToken == "":
@@ -261,7 +264,13 @@ func extraTitles(cfg config.Config) *plex.Renamer {
 		slog.Warn("PLEX_URL can't be used, so the opening and ending titles stay as Plex names them", "why", err)
 		return nil
 	}
-	return plex.New(cfg.PlexURL, cfg.PlexToken)
+	if cfg.PlexTLSName != "" {
+		if err := plex.CheckTLSName(cfg.PlexTLSName, cfg.PlexURL); err != nil {
+			slog.Warn("PLEX_TLS_NAME can't be used, so the opening and ending titles stay as Plex names them", "why", err)
+			return nil
+		}
+	}
+	return plex.New(cfg.PlexURL, cfg.PlexToken, cfg.PlexTLSName)
 }
 
 // drain stops the server within timeout in all: it waits for the requests

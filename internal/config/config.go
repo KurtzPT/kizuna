@@ -104,6 +104,10 @@ type Config struct {
 	// get readable titles through Plex's API (internal/plex). The token
 	// alone makes the plex source usable (Plex's metadata service).
 	PlexURL, PlexToken string
+	// PlexTLSName is the name Plex's certificate is checked against when
+	// PlexURL is an https:// address the certificate doesn't hold (an IP, a
+	// Docker service name). Empty = the host in PlexURL.
+	PlexTLSName string
 }
 
 func Load() Config {
@@ -150,6 +154,7 @@ func Load() Config {
 		MatchReports:       flag("MATCH_REPORTS", false),
 		PlexURL:            env("PLEX_URL", ""),
 		PlexToken:          env("PLEX_TOKEN", ""),
+		PlexTLSName:        env("PLEX_TLS_NAME", ""),
 	}
 }
 
