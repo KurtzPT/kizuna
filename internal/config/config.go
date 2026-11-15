@@ -46,7 +46,7 @@ type Config struct {
 
 	// Source order per field: the first source that has a value wins, the
 	// rest are fallbacks in order. Each comment lists the allowed sources in
-	// their default order (see Load).
+	// their default order (see sourceLists).
 	TitleSources      []string // anidb, tvdb, tmdb, plex, ann
 	SummarySources    []string // anidb, tvdb, tmdb, mal, plex, ann
 	PosterSources     []string // tvdb, tmdb, anidb, mal, plex, ann
@@ -132,32 +132,19 @@ func Load() Config {
 		OriginalTitleLangs: langList("ORIGINAL_TITLE_LANGS", "ja"),
 		EpisodeLangs:       lowerList(env("EPISODE_LANGS", "en,x-jat")),
 		MinScore:           num("MIN_SCORE", 80, 0, 100),
-
-		// plex is last in a default list, or right before ann, which stays last.
-		TitleSources:       sourceList("TITLE_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
-		SummarySources:     sourceList("SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
-		PosterSources:      sourceList("POSTER_SOURCES", "tvdb,tmdb,anidb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
-		BackgroundSources:  sourceList("BACKGROUND_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
-		LogoSources:        sourceList("LOGO_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
-		EpisodeFillSources: sourceList("EPISODE_FILL_SOURCES", "tvdb,plex", "tvdb", "plex"),
-		EpisodeCrewSources: sourceList("EPISODE_CREW_SOURCES", "tvdb,tmdb,plex", "tvdb", "tmdb", "plex"),
-		GenreSources:       sourceList("GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
-		CastSources:        sourceList("CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
-		StudioSources:      sourceList("STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
-		CrewSources:        sourceList("CREW_SOURCES", "anidb,tvdb,tmdb,plex,ann", "anidb", "tvdb", "tmdb", "plex", "ann"),
-		RatingSources:      sourceList("RATING_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
 		RatingCountries:    upperList(env("RATING_COUNTRY", "US")),
-		DateSources:        sourceList("DATE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", "anidb", "tvdb", "tmdb", "mal", "plex", "ann"),
 		ArtAllSources:      flag("ART_ALL_SOURCES", false),
 		SeasonArtFallback:  flag("SEASON_ART_FALLBACK", true),
 		AutoDefault:        oneOf("AUTO_DEFAULT", "anidb", "tvdb"),
-		EpisodeTitles:      sourceList("EPISODE_TITLES", "anidb,tvdb,tmdb,plex", "anidb", "tvdb", "tmdb", "plex"),
 		CacheMinFree:       size("CACHE_MIN_FREE", 1<<30),
 		CacheFreeTarget:    size("CACHE_FREE_TARGET", 2<<30),
 		MatchReports:       flag("MATCH_REPORTS", false),
 		PlexURL:            env("PLEX_URL", ""),
 		PlexToken:          env("PLEX_TOKEN", ""),
 		PlexTLSName:        env("PLEX_TLS_NAME", ""),
+	}
+	for _, s := range c.sourceLists() {
+		*s.list = sourceList(s.name, s.def, list(s.def)...) // a list allows the sources its default names
 	}
 	c.CastPhotosFromPlex = plexPhotos("CAST_PHOTOS_FROM_PLEX", c.PlexToken, "the cast keeps its sources' photos")
 	c.CrewPhotosFromPlex = plexPhotos("CREW_PHOTOS_FROM_PLEX", c.PlexToken, "the episode crew keeps its sources' photos")
@@ -273,22 +260,34 @@ func (c Config) LogModes() {
 var sourceKeys = map[string]string{"anidb": "ANIDB_CLIENT", "tvdb": "TVDB_API_KEY", "tmdb": "TMDB_API_KEY", "mal": "MAL_CLIENT_ID",
 	"plex": "PLEX_TOKEN"}
 
-// sourceSetting is one source setting and its list.
+// sourceSetting is one source setting: its name, its default, which also
+// names every source it allows, and the Config field Load stores it in.
 type sourceSetting struct {
-	name string
-	list []string
+	name, def string
+	list      *[]string
 }
 
-// sourceLists: every source setting, in the order of the settings table.
-// An array: Listed runs at every show build and must not allocate.
-func (c Config) sourceLists() [14]sourceSetting {
+// sourceLists: every source setting, in the order of the settings table. A
+// new list is one row here, its Config field and its key in the ready line
+// (cmd/kizuna). plex is last in a default list, or right before
+// ann, which stays last. An array of pointers into c: Listed runs at every
+// show build and must not allocate.
+func (c *Config) sourceLists() [14]sourceSetting {
 	return [...]sourceSetting{
-		{"TITLE_SOURCES", c.TitleSources}, {"SUMMARY_SOURCES", c.SummarySources}, {"POSTER_SOURCES", c.PosterSources},
-		{"BACKGROUND_SOURCES", c.BackgroundSources}, {"LOGO_SOURCES", c.LogoSources},
-		{"EPISODE_FILL_SOURCES", c.EpisodeFillSources}, {"EPISODE_CREW_SOURCES", c.EpisodeCrewSources},
-		{"EPISODE_TITLES", c.EpisodeTitles},
-		{"GENRE_SOURCES", c.GenreSources}, {"CAST_SOURCES", c.CastSources}, {"STUDIO_SOURCES", c.StudioSources},
-		{"CREW_SOURCES", c.CrewSources}, {"RATING_SOURCES", c.RatingSources}, {"DATE_SOURCES", c.DateSources},
+		{"TITLE_SOURCES", "anidb,tvdb,tmdb,plex,ann", &c.TitleSources},
+		{"SUMMARY_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", &c.SummarySources},
+		{"POSTER_SOURCES", "tvdb,tmdb,anidb,mal,plex,ann", &c.PosterSources},
+		{"BACKGROUND_SOURCES", "tvdb,tmdb,plex", &c.BackgroundSources},
+		{"LOGO_SOURCES", "tvdb,tmdb,plex", &c.LogoSources},
+		{"EPISODE_FILL_SOURCES", "tvdb,plex", &c.EpisodeFillSources},
+		{"EPISODE_CREW_SOURCES", "tvdb,tmdb,plex", &c.EpisodeCrewSources},
+		{"EPISODE_TITLES", "anidb,tvdb,tmdb,plex", &c.EpisodeTitles},
+		{"GENRE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", &c.GenreSources},
+		{"CAST_SOURCES", "anidb,tvdb,tmdb,plex,ann", &c.CastSources},
+		{"STUDIO_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", &c.StudioSources},
+		{"CREW_SOURCES", "anidb,tvdb,tmdb,plex,ann", &c.CrewSources},
+		{"RATING_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", &c.RatingSources},
+		{"DATE_SOURCES", "anidb,tvdb,tmdb,mal,plex,ann", &c.DateSources},
 	}
 }
 
@@ -296,7 +295,7 @@ func (c Config) sourceLists() [14]sourceSetting {
 // setting names is not asked for anything, even with its key set.
 func (c Config) Listed(source string) bool {
 	for _, f := range c.sourceLists() {
-		if slices.Contains(f.list, source) {
+		if slices.Contains(*f.list, source) {
 			return true
 		}
 	}
@@ -310,7 +309,7 @@ func (c Config) Listed(source string) bool {
 // usable.
 func (c Config) emptyFields() (set, defaults, keys []string) {
 	for _, f := range c.sourceLists() {
-		if len(f.list) == 0 || len(c.UsableOf(f.list)) > 0 {
+		if len(*f.list) == 0 || len(c.UsableOf(*f.list)) > 0 {
 			continue
 		}
 		if isSet(f.name) {
@@ -318,7 +317,7 @@ func (c Config) emptyFields() (set, defaults, keys []string) {
 			continue
 		}
 		defaults = append(defaults, f.name)
-		for _, s := range f.list {
+		for _, s := range *f.list {
 			if k := sourceKeys[s]; k != "" && !slices.Contains(keys, k) {
 				keys = append(keys, k)
 			}

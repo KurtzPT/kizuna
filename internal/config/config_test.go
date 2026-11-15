@@ -352,6 +352,71 @@ func TestEpisodeCrewSources(t *testing.T) {
 	}
 }
 
+// Each source list allows exactly the sources its default names: one of
+// them alone is kept without a warning, any other source is dropped with
+// one. Every row stores into its own field, and the rows are the lists the
+// other tests know.
+func TestSourceListsAllowTheirDefault(t *testing.T) {
+	unset(t, sourceSettings...)
+	var c Config
+	rows := c.sourceLists()
+	var names []string
+	fields := map[*[]string]string{}
+	for _, r := range rows {
+		names = append(names, r.name)
+		if other, ok := fields[r.list]; ok {
+			t.Errorf("%s and %s store into the same field", other, r.name)
+		}
+		fields[r.list] = r.name
+	}
+	if !slices.Equal(names, sourceSettings) {
+		t.Errorf("rows %v, want %v", names, sourceSettings)
+	}
+	for i, r := range rows {
+		loaded := Load()
+		def := *loaded.sourceLists()[i].list
+		if strings.Join(def, ",") != r.def {
+			t.Errorf("%s: unset gives %v, want the default %q", r.name, def, r.def)
+		}
+		for _, src := range []string{"anidb", "tvdb", "tmdb", "mal", "plex", "ann"} {
+			t.Setenv(r.name, src)
+			var got []string
+			log := warnings(t, func() {
+				loaded := Load()
+				got = *loaded.sourceLists()[i].list
+			})
+			allowed := slices.Contains(def, src)
+			if warned := strings.Contains(log, "setting="+r.name+" "); warned == allowed {
+				t.Errorf("%s=%s: warned %v, want %v (log %q)", r.name, src, warned, !allowed, log)
+			}
+			if allowed && !slices.Equal(got, []string{src}) {
+				t.Errorf("%s=%s: %v, want [%s]", r.name, src, got, src)
+			}
+			if !allowed && !slices.Equal(got, def) {
+				t.Errorf("%s=%s: %v, want the default %v", r.name, src, got, def)
+			}
+		}
+		t.Setenv(r.name, "")
+	}
+}
+
+// The warning for a dropped source names the allowed sources in the
+// default's order (POSTER_SOURCES: tvdb first, as in its default).
+func TestUnsupportedSourceWarning(t *testing.T) {
+	t.Setenv("POSTER_SOURCES", "anidb,foo")
+	log := warnings(t, func() { Load() })
+	want := ` level=WARN msg="ignoring unsupported source" setting=POSTER_SOURCES source=foo allowed=tvdb,tmdb,anidb,mal,plex,ann` + "\n"
+	if !strings.Contains(log, want) {
+		t.Errorf("no %q in %q", want, log)
+	}
+	t.Setenv("TITLE_SOURCES", "mal")
+	log = warnings(t, func() { Load() })
+	want = ` level=WARN msg="ignoring unsupported source" setting=TITLE_SOURCES source=mal allowed=anidb,tvdb,tmdb,plex,ann` + "\n"
+	if !strings.Contains(log, want) {
+		t.Errorf("no %q in %q", want, log)
+	}
+}
+
 // Listed: some source setting names the source, whichever one it is.
 func TestListed(t *testing.T) {
 	for _, name := range sourceSettings {

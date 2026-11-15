@@ -207,6 +207,50 @@ func TestReadyLineWithoutTitles(t *testing.T) {
 	}
 }
 
+// fixedListener is a listener whose address doesn't change between runs.
+type fixedListener struct{ net.Listener }
+
+func (fixedListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 32600} }
+
+// The ready line, whole, for settings read by config.Load: the same keys in
+// the same order, each list as it works (sources without a key skipped).
+func TestReadyLineSettings(t *testing.T) {
+	for k, v := range map[string]string{
+		"ALLOW_FROM": "private,10.1.0.0/16", "ALLOWED_HOSTS": "kizuna.lan", "PLEX_TOKEN": "token",
+		"ANIDB_CLIENT": "client", "TVDB_API_KEY": "", "TVDB_LEGACY_API_KEY": "", "TMDB_API_KEY": "key", "MAL_CLIENT_ID": "",
+		"TITLE_SOURCES": "none", "SUMMARY_SOURCES": "", "POSTER_SOURCES": "mal,tmdb,anidb", "BACKGROUND_SOURCES": "",
+		"LOGO_SOURCES": "plex", "EPISODE_FILL_SOURCES": "", "EPISODE_CREW_SOURCES": "plex,tvdb", "EPISODE_TITLES": "",
+		"GENRE_SOURCES": "", "CAST_SOURCES": "tvdb,plex,ann", "STUDIO_SOURCES": "", "CREW_SOURCES": "", "RATING_SOURCES": "",
+		"DATE_SOURCES": "ann,anidb", "ART_ALL_SOURCES": "true", "SEASON_ART_FALLBACK": "", "CAST_PHOTOS_FROM_PLEX": "true", "CREW_PHOTOS_FROM_PLEX": "",
+		"RATING_COUNTRY": "de,us", "AUTO_DEFAULT": "tvdb", "CACHE_MIN_FREE": "3GB", "CACHE_FREE_TARGET": "2GB", "MATCH_REPORTS": "true",
+	} {
+		t.Setenv(k, v)
+	}
+	cfg := config.Load()
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.TimeKey || a.Key == "startup" {
+			return slog.Attr{}
+		}
+		return a
+	}})))
+	defer slog.SetDefault(old)
+
+	logReady(cfg, fixedListener{}, nil, time.Now(), true, true)
+	want := "level=INFO msg=ready version=" + provider.Version + " listen=127.0.0.1:32600 allow_from=\"[private 10.1.0.0/16]\" " +
+		"allowed_hosts=[kizuna.lan] tvdb=off tmdb=true mal=false plex=true anidb_client=true " +
+		"titles=[] summaries=\"[anidb tmdb plex ann]\" posters=\"[tmdb anidb]\" backgrounds=\"[tmdb plex]\" logos=[plex] " +
+		"art_all=true season_art_fallback=true genres=\"[anidb tmdb plex ann]\" cast=\"[plex ann]\" cast_photos_from_plex=true " +
+		"studio=\"[anidb tmdb plex ann]\" crew=\"[anidb tmdb plex ann]\" rating=\"[anidb tmdb plex ann]\" rating_country=\"[DE US]\" " +
+		"date=\"[ann anidb]\" episode_fill=[plex] episode_crew=[plex] crew_photos_from_plex=false " +
+		"episode_titles=\"[anidb tmdb plex]\" auto_default=tvdb cache_min_free_mb=3072 cache_free_target_mb=3072 " +
+		"match_reports=true extra_titles=true\n"
+	if got := logs.String(); got != want {
+		t.Errorf("ready line\n got %q\nwant %q", got, want)
+	}
+}
+
 // ownAddress returns one of this machine's non-loopback IPv4 addresses.
 func ownAddress(t *testing.T) netip.Addr {
 	t.Helper()
