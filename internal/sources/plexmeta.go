@@ -242,6 +242,13 @@ func plexID(s string) string {
 	return ""
 }
 
+// plexMatchTTL: how long Plex's match is kept; an empty one (Plex doesn't
+// have the show yet) is asked again once it is plexMatchNoneTTL old.
+const (
+	plexMatchTTL     = 30 * 24 * time.Hour
+	plexMatchNoneTTL = 24 * time.Hour
+)
+
 // match finds Plex's id for r: "" when Plex doesn't have it. The answer is
 // kept 30 days; an empty one is asked again once it is a day old, so a new
 // show gets Plex's fields soon after Plex adds it.
@@ -265,12 +272,17 @@ func (p *Plex) match(ctx context.Context, r PlexRef) (string, error) {
 		return "", err
 	}
 	req := fetch.Request{URL: plexAPI + "/library/metadata/matches", Method: http.MethodPost, Body: body,
-		Key: "plex/match-" + kind + "-" + strings.Replace(r.guid, "://", "-", 1) + ".json", TTL: 30 * 24 * time.Hour}
+		Key: "plex/match-" + kind + "-" + strings.Replace(r.guid, "://", "-", 1) + ".json", TTL: plexMatchTTL}
 	var c plexContainer
 	err = p.get(ctx, req, &c)
-	if err == nil && len(c.MediaContainer.Metadata) == 0 {
-		req.TTL = 24 * time.Hour // the cached copy answers while it is younger
-		err = p.get(ctx, req, &c)
+	if err == nil && len(c.MediaContainer.Metadata) == 0 && askNoneAgain(p.f, req.Key, plexMatchNoneTTL, plexMatchTTL) {
+		// A failed re-ask (the copy pruned in between) keeps the empty
+		// answer: it is still Plex's, and the show stays complete.
+		req.TTL = plexMatchNoneTTL
+		var again plexContainer
+		if p.get(ctx, req, &again) == nil {
+			c = again
+		}
 	}
 	if err != nil {
 		if fetch.IsNotFound(err) {
@@ -407,7 +419,9 @@ func (p *Plex) Images(ctx context.Context, r PlexRef) (PlexImages, error) {
 
 // seasonItems reads a series' season list, in one answer (a movie has
 // none). It isn't paged: no show has more seasons than a page holds. If one
-// ever does, the seasons that came are returned with ErrIncomplete.
+// ever does, the seasons that came are returned with ErrIncomplete. An empty
+// list whose totalSize says there are seasons is refused (cutShort), like an
+// episode page: kept, every rebuild for 2 days would read it again.
 func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 	if r.Movie {
 		return nil, nil
@@ -416,7 +430,7 @@ func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 	if id == "" {
 		return nil, err
 	}
-	c, err := p.children(ctx, id, 0, nil)
+	c, err := p.children(ctx, id, 0, cutShort(id, 0))
 	m := c.MediaContainer
 	if err == nil && m.TotalSize > len(m.Metadata) {
 		err = fmt.Errorf("%w: plex %s: %d of %d seasons", ErrIncomplete, r, len(m.Metadata), m.TotalSize)
@@ -455,12 +469,13 @@ func (s *plexPageSize) UnmarshalJSON(data []byte) error {
 	return err
 }
 
-// cutShort refuses an episode page that has no items while its totalSize
-// says there are more from start on: Plex cut the list short. Kept, it would
-// answer every rebuild for the page's 2 days, and the list would stay
-// incomplete with no request to Plex. Refused, nothing is written and the
-// next build asks again. An empty page with nothing after it (a season
-// without episodes, the page past the last one) is kept like any other.
+// cutShort refuses a page (of a season's episodes, or a show's season list)
+// that has no items while its totalSize says there are more from start on:
+// Plex cut the list short. Kept, it would answer every rebuild for the
+// page's 2 days, and the list would stay incomplete with no request to Plex.
+// Refused, nothing is written and the next build asks again. An empty page
+// with nothing after it (a season without episodes, the page past the last
+// one) is kept like any other.
 func cutShort(id string, start int) func([]byte) error {
 	return func(data []byte) error {
 		var c struct {
@@ -470,7 +485,7 @@ func cutShort(id string, start int) func([]byte) error {
 			return nil // not a page at all: the decode after this reports it
 		}
 		if m := c.MediaContainer; m.items == 0 && m.total > start {
-			return fmt.Errorf("list cut short: no episodes of %s from %d of %d", id, start, m.total)
+			return fmt.Errorf("list cut short: no items of %s from %d of %d", id, start, m.total)
 		}
 		return nil
 	}

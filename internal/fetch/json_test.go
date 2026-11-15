@@ -210,6 +210,12 @@ func (l *lockedBuffer) Write(p []byte) (int, error) {
 	return l.b.Write(p)
 }
 
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // count says how many times msg was logged.
 func (l *lockedBuffer) count(msg string) int {
 	l.mu.Lock()

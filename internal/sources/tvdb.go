@@ -274,6 +274,7 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 // every outcome is recorded (a pause, a rejected key, the switch to the
 // legacy key; the next call then logs in with it). done is t.loggingIn.
 func (t *TVDB) renew(legacy bool, done chan struct{}) {
+	defer t.renewPanicked(done)
 	ctx, cancel := context.WithTimeout(context.Background(), tvdbRenewTimeout)
 	defer cancel()
 	token, err := t.requestToken(ctx, legacy)
@@ -282,6 +283,26 @@ func (t *TVDB) renew(legacy bool, done chan struct{}) {
 	t.loggingIn = nil
 	close(done)
 	t.loginDone(context.Background(), legacy, token, err) // a timeout counts as a failed login
+}
+
+// renewPanicked, deferred by renew, logs a panic the renewal ended with:
+// nobody waits for it to raise the panic on. One before the outcome was
+// recorded counts as a failed login: the login under way ends (every later
+// login would wait for it), the old token stays in use, and the next
+// renewal waits for the login pause.
+func (t *TVDB) renewPanicked(done chan struct{}) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	logPanic("tvdb: token renewal panicked", r)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.loggingIn == done {
+		t.loggingIn = nil
+		close(done)
+		t.loginErr, t.loginRetry = fmt.Errorf("%w: the renewal panicked: %v", errTVDBLogin, r), time.Now().Add(tvdbLoginPause)
+	}
 }
 
 // tvdbRenewTimeout bounds a background renewal, like a request's HTTP timeout.

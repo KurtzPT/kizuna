@@ -284,12 +284,25 @@ func (c *AniDB) prefetchWorker() {
 		aid := c.pending[0]
 		c.pending = c.pending[1:]
 		c.mu.Unlock()
-		if _, err := c.anime(context.Background(), aid, true); err != nil {
-			slog.Debug("anidb: background fetch skipped", "aid", aid, "why", err)
+		c.prefetch(aid)
+	}
+}
+
+// prefetch fetches one entry for prefetchWorker. Nobody waits for it to
+// raise a panic on, so a panic is logged and ends only this entry: it
+// leaves the queue all the same (a later Prefetch may queue it again), and
+// the worker goes on with the next one.
+func (c *AniDB) prefetch(aid int) {
+	defer func() {
+		if r := recover(); r != nil {
+			logPanic("anidb: background fetch panicked", r, "aid", aid)
 		}
 		c.mu.Lock()
 		delete(c.queued, aid)
 		c.mu.Unlock()
+	}()
+	if _, err := c.anime(context.Background(), aid, true); err != nil {
+		slog.Debug("anidb: background fetch skipped", "aid", aid, "why", err)
 	}
 }
 
