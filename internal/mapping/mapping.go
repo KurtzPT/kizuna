@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -61,6 +62,9 @@ func (l *Lists) get() *snapshot {
 	}
 	return empty
 }
+
+// customFile is the user's own corrections, in the data folder.
+const customFile = "anime-list-custom.xml"
 
 // listSource is one mapping list: how it is downloaded and parsed.
 type listSource struct {
@@ -126,7 +130,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	if err := ctx.Err(); err != nil { // stopping: fetch may still answer with cached copies
 		return err
 	}
-	custom, customErr := os.ReadFile(filepath.Join(dataDir, "anime-list-custom.xml"))
+	custom, customErr := os.ReadFile(filepath.Join(dataDir, customFile))
 	if customErr == nil {
 		fmt.Fprintf(h, "custom:%d:", len(custom))
 		h.Write(custom)
@@ -181,13 +185,20 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	switch {
 	case customErr == nil:
 		var err error
-		if extra, err = parseAnimeListsFile(custom, "anime-list-custom.xml"); err != nil {
+		switch extra, err = parseAnimeListsFile(custom, customFile); {
+		case errors.Is(err, io.EOF):
+			// The file ends before any element: empty, blanks, a BOM, only
+			// <?xml?> or a comment (one just created, or emptied to turn the
+			// corrections off). That is no entries, not broken XML; a document
+			// cut off inside an element is a syntax error instead.
+			extra = nil
+		case err != nil:
 			extra = l.get().custom
-			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", len(extra), err))
+			errs = append(errs, fmt.Errorf("%s ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", customFile, len(extra), err))
 		}
 	case !errors.Is(customErr, fs.ErrNotExist):
 		extra = l.get().custom
-		errs = append(errs, fmt.Errorf("anime-list-custom.xml unreadable, keeping the %d entries of its last good version: %w", len(extra), customErr))
+		errs = append(errs, fmt.Errorf("%s unreadable, keeping the %d entries of its last good version: %w", customFile, len(extra), customErr))
 	}
 	for aid, e := range extra {
 		entries[aid] = e

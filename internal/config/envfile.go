@@ -27,12 +27,39 @@ const envFileVar = "KIZUNA_CONFIG"
 // EnvFile is what LoadEnvFile did, for the startup log. It never holds
 // values: the file has API keys.
 type EnvFile struct {
-	Path       string   // the file read; "" = none
-	NotFound   string   // the default file looked for, when it isn't there
-	Keys       []string // settings taken from the file
-	Overridden []string // in the file, but the environment sets them (the environment wins)
-	Ignored    []string // names that aren't all upper case: never set, on any OS
-	Problems   []string // lines that were skipped, and why
+	Path       string       // the file read; "" = none
+	NotFound   string       // the default file looked for, when it isn't there
+	Keys       []string     // settings taken from the file
+	Overridden []string     // in the file, but the environment sets them (the environment wins)
+	Ignored    []string     // names that aren't all upper case: never set, on any OS
+	Problems   []envProblem // lines that were skipped, and why
+}
+
+// envProblem is a skipped line. A line that isn't NAME=value may hold a key
+// (a YAML-style "TMDB_API_KEY: abc"), so the log gets its number, not its
+// text: guess, the name the line seems to start with, is shown only when it
+// is a setting Kizuna knows.
+type envProblem struct {
+	line  int
+	name  string // a valid setting name from the line, always shown
+	guess string // shown only when Kizuna knows the setting
+	why   string
+}
+
+// text is the problem as logged. known says whether a guessed name is a
+// setting Kizuna reads, so it is safe to show.
+func (p envProblem) text(known func(string) bool) string {
+	name := p.name
+	if name == "" && p.guess != "" && known(p.guess) {
+		name = p.guess
+	}
+	switch {
+	case p.line == 0:
+		return p.why
+	case name == "":
+		return fmt.Sprintf("line %d: %s", p.line, p.why)
+	}
+	return fmt.Sprintf("line %d: %s: %s", p.line, name, p.why)
 }
 
 // LoadEnvFile reads the settings file (KIZUNA_CONFIG, else
@@ -73,7 +100,7 @@ func LoadEnvFile() (EnvFile, error) {
 			continue
 		}
 		if err := os.Setenv(s.key, s.value); err != nil {
-			f.Problems = append(f.Problems, fmt.Sprintf("line %d: %s: %v", s.line, s.key, err))
+			f.Problems = append(f.Problems, envProblem{line: s.line, name: s.key, why: err.Error()})
 			continue
 		}
 		f.Keys = append(f.Keys, s.key)
@@ -94,16 +121,22 @@ func (f EnvFile) Log() {
 	}
 	slog.Info("settings file", "path", f.Path, "settings", len(f.Keys), "overridden_by_environment", f.Overridden)
 	for _, p := range f.Problems {
-		slog.Warn("settings file: skipped a line", "path", f.Path, "problem", p)
+		slog.Warn("settings file: skipped a line", "path", f.Path, "problem", p.text(knownSetting))
 	}
 	for _, k := range slices.Concat(f.Keys, f.Overridden) {
-		if !wasRead(k) && !slices.Contains(externalVars, k) && !slices.Contains(retiredVars, k) {
+		if !knownSetting(k) {
 			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "setting", k)
 		}
 	}
 	for _, k := range f.Ignored {
 		slog.Warn("settings file: unknown setting (names must be upper case); ignoring it", "path", f.Path, "setting", k)
 	}
+}
+
+// knownSetting reports whether Kizuna reads a setting of this name (or once
+// did). Call it after Load.
+func knownSetting(k string) bool {
+	return wasRead(k) || slices.Contains(externalVars, k) || slices.Contains(retiredVars, k)
 }
 
 // externalVars are read outside Load: TZ by SetTimeZone (and the Go runtime).
@@ -167,7 +200,7 @@ var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // common cases: blank lines and # comments are skipped, "export " is allowed,
 // values may be in single or double quotes (taken literally, no escapes),
 // and an unquoted value ends at " #". A later line for the same key wins.
-func parseEnvFile(data []byte) (out []envSetting, problems []string) {
+func parseEnvFile(data []byte) (out []envSetting, problems []envProblem) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")) // BOM from Windows editors
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(nil, 1<<20)
@@ -181,27 +214,44 @@ func parseEnvFile(data []byte) (out []envSetting, problems []string) {
 		key = strings.TrimSpace(key)
 		switch {
 		case !ok:
-			problems = append(problems, fmt.Sprintf("line %d: no '=' (want KEY=value)", n))
+			problems = append(problems, envProblem{line: n, guess: leadingName(line), why: "no '=' (want KEY=value)"})
 			continue
 		case !envKey.MatchString(key):
-			problems = append(problems, fmt.Sprintf("line %d: %q is not a setting name", n, key))
+			problems = append(problems, envProblem{line: n, guess: leadingName(key),
+				why: "no setting name before '=' (want KEY=value; a name has only letters, digits and _)"})
 			continue
 		case key == envFileVar:
-			problems = append(problems, fmt.Sprintf("line %d: %s only works in the environment", n, envFileVar))
+			problems = append(problems, envProblem{line: n, name: envFileVar, why: "only works in the environment"})
 			continue
 		}
 		value, err := envValue(raw)
 		if err != nil {
-			problems = append(problems, fmt.Sprintf("line %d: %s: %v", n, key, err))
+			problems = append(problems, envProblem{line: n, name: key, why: err.Error()})
 			continue
 		}
 		out = slices.DeleteFunc(out, func(s envSetting) bool { return s.key == key })
 		out = append(out, envSetting{key: key, value: value, line: n})
 	}
 	if err := sc.Err(); err != nil {
-		problems = append(problems, "stopped reading: "+err.Error())
+		problems = append(problems, envProblem{why: "stopped reading: " + err.Error()})
 	}
 	return out, problems
+}
+
+var upperName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// leadingName is the setting name a broken line seems to start with: the
+// text before the first ':', space or tab, when it is written like one (A-Z,
+// 0-9, _). "" otherwise. The caller still shows it only for a setting Kizuna
+// knows.
+func leadingName(s string) string {
+	if i := strings.IndexAny(s, ": \t"); i >= 0 {
+		s = s[:i]
+	}
+	if upperName.MatchString(s) {
+		return s
+	}
+	return ""
 }
 
 // envValue reads the text after "=". An unquoted value ends at a # that

@@ -2,6 +2,8 @@
 //
 //	kizuna         run the provider (settings: env vars and the settings file, see SETTINGS.md)
 //	kizuna health  exit 0 when the running provider is ready (else 1, saying why on stderr)
+//
+// Any other argument prints the usage and exits 2; -h prints it and exits 0.
 package main
 
 import (
@@ -19,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +39,12 @@ import (
 )
 
 func main() {
+	// Before anything else: a typo must not start the server, nor create
+	// the data folder's logs.
+	healthCheck, exit, stop := command(os.Args[1:], os.Stdout, os.Stderr)
+	if stop {
+		os.Exit(exit)
+	}
 	// The settings file goes into the environment first, so every setting
 	// below can come from it. Its problems are logged once logging is set.
 	envFile, envErr := config.LoadEnvFile()
@@ -51,7 +60,6 @@ func main() {
 	default:
 		bad = v
 	}
-	healthCheck := len(os.Args) > 1 && os.Args[1] == "health" // Docker healthcheck (the image has no curl)
 
 	// Logs go to standard output (docker logs) and, for the server, to
 	// <DATA_DIR>/logs/kizuna.log: one file per day, older days renamed
@@ -116,6 +124,33 @@ func main() {
 		slog.Error("can't run: " + err.Error())
 		os.Exit(1)
 	}
+}
+
+// usage is what kizuna -h prints, and what a wrong argument gets.
+const usage = `usage: kizuna [health]
+  kizuna         run the provider (settings: see SETTINGS.md)
+  kizuna health  exit 0 when the running provider is ready, else 1
+`
+
+// command reads kizuna's arguments: none runs the provider, "health" the
+// Docker health check (the image has no curl). -h, -help, --help or help
+// print the usage (exit 0). Anything else prints the usage to stderr with
+// exit 2, the usual code for a wrong command line. stop says main should
+// exit with that code. The argument isn't echoed: it could be anything
+// pasted, a key included.
+func command(args []string, stdout, stderr io.Writer) (healthCheck bool, exit int, stop bool) {
+	switch {
+	case len(args) == 0:
+		return false, 0, false
+	case len(args) > 1:
+	case args[0] == "health":
+		return true, 0, false
+	case slices.Contains([]string{"-h", "-help", "--help", "help"}, args[0]):
+		_, _ = io.WriteString(stdout, usage)
+		return false, 0, true
+	}
+	_, _ = io.WriteString(stderr, "kizuna: unknown argument\n"+usage)
+	return false, 2, true
 }
 
 // setup creates every source. keepLoaded loads the two lists matching
@@ -255,13 +290,21 @@ func serve(cfg config.Config) error {
 // extraTitles returns what renames Plex's opening and ending extras, or nil
 // when PLEX_URL and PLEX_TOKEN aren't both set (a half or bad setup is
 // logged: it would look like the feature doing nothing). PLEX_TOKEN alone
-// is a setup of its own: the plex source uses it. A PLEX_TLS_NAME that can't
-// be used turns the titles off too: going on without it would fail on every
-// call, or send the token over plain http to a user who asked for a
-// certificate check.
+// is a setup of its own: the plex source uses it, so that is an info line.
+// PLEX_TLS_NAME is only for the titles: without PLEX_URL it does nothing,
+// which is a warning (without PLEX_TOKEN, PLEX_URL's warning covers it).
+// A PLEX_TLS_NAME that can't be used turns the titles off too: going on
+// without it would fail on every call, or send the token over plain http to
+// a user who asked for a certificate check.
 func extraTitles(cfg config.Config) *plex.Renamer {
-	switch {
+	switch tlsName := cfg.PlexTLSName != ""; {
 	case cfg.PlexURL == "" && cfg.PlexToken == "":
+		if tlsName {
+			slog.Warn("PLEX_TLS_NAME is set without PLEX_URL and PLEX_TOKEN: setting the opening and ending titles in Plex needs both, so PLEX_TLS_NAME is ignored")
+		}
+		return nil
+	case cfg.PlexURL == "" && tlsName:
+		slog.Warn("PLEX_TOKEN and PLEX_TLS_NAME are set without PLEX_URL: the plex source uses the token; setting the opening and ending titles in Plex also needs PLEX_URL, so PLEX_TLS_NAME is ignored and they stay as Plex names them")
 		return nil
 	case cfg.PlexURL == "":
 		slog.Info("PLEX_TOKEN is set without PLEX_URL: the plex source uses it; the opening and ending titles also need PLEX_URL, so they stay as Plex names them")
