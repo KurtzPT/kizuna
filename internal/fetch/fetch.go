@@ -476,6 +476,10 @@ func (c *Client) store(key string, data []byte) bool {
 	return true
 }
 
+// Rename moves from to to, replacing a file there, the way WriteFile does:
+// on Windows it waits out a short sharing violation.
+func Rename(from, to string) error { return rename(from, to) }
+
 // WriteFile replaces path with data atomically: a reader (or the next start,
 // after a crash or with a full disk) sees the old file or the new one, never
 // half of it. The data goes to path+".tmp" in the same folder first, which
