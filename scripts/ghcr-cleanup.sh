@@ -56,7 +56,7 @@ manifest() {
     printf '%s' "$MANIFESTS_JSON" | "$JQ" -c --arg d "$digest" '.[$d] // {}'
     return
   fi
-  curl -fsS -H "Authorization: Bearer $registry_token" \
+  curl -fsS --max-time 60 -H "Authorization: Bearer $registry_token" \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
     "https://ghcr.io/v2/$image/manifests/$digest"
 }
@@ -91,7 +91,7 @@ by_tag=$(printf '%s' "$versions" | "$JQ" -c '
 
 # one registry token for every manifest lookup (-e: no token stops here)
 if [ -z "${MANIFESTS_JSON:-}" ]; then
-  registry_token=$(curl -fsS "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
+  registry_token=$(curl -fsS --max-time 60 "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
     echo "::error::no registry token for $image: stopping (nothing deleted)" >&2
     exit 1
   }
