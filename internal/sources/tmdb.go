@@ -38,14 +38,39 @@ func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Durati
 	return t.keys.getJSON(ctx, t.f, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
 }
 
+// findTTL: how long TMDB's answer for a TVDB id is kept. An empty one (the
+// show isn't linked on TMDB yet) is asked again once it is findNoneTTL old,
+// as Plex's match is, so a new show gets TMDB's fields soon after it is linked.
+const (
+	findTTL     = 30 * 24 * time.Hour
+	findNoneTTL = 24 * time.Hour
+)
+
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).
 func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
-	var r struct {
+	type found struct {
 		TV []struct {
 			ID int `json:"id"`
 		} `json:"tv_results"`
 	}
-	err := t.get(ctx, fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb), 30*24*time.Hour, &r)
+	var r found
+	path, query, key := fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb)
+	err := t.get(ctx, path, query, key, findTTL, &r)
+	if err == nil && len(r.TV) == 0 {
+		// Only when the cache answered: a copy findTTL old or more was just
+		// asked for (and answers stale when that failed), so asking again
+		// would only repeat the request.
+		if at, ok := t.f.CachedAt(key); ok {
+			if age := time.Since(at); age >= findNoneTTL && age < findTTL {
+				// A failed re-ask (the copy pruned in between) keeps the empty
+				// answer: it is still TMDB's, and the show stays complete.
+				var again found
+				if t.get(ctx, path, query, key, findNoneTTL, &again) == nil {
+					r = again
+				}
+			}
+		}
+	}
 	if len(r.TV) == 0 {
 		return 0, err
 	}

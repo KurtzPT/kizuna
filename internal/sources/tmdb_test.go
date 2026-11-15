@@ -2,8 +2,14 @@ package sources
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kizuna/internal/fetch"
 )
@@ -108,4 +114,113 @@ func TestTMDBMovieTextFromDetails(t *testing.T) {
 	if len(n.asked) != 1 {
 		t.Errorf("asked %v, want only the details request", n.asked)
 	}
+}
+
+// findTest is a TMDB client whose find answers come from n, with helpers
+// to age a cached find answer and to check what TVFromTVDB gives.
+type findTest struct {
+	t   *testing.T
+	tm  *TMDB
+	n   *tvdbNet
+	dir string
+}
+
+func newFindTest(t *testing.T, answers map[string]string) *findTest {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: answers}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	f.ThrottleAll(0)
+	return &findTest{t, tm, n, dir}
+}
+
+func findURL(tvdb int) string {
+	return fmt.Sprintf("api.themoviedb.org/3/find/%d?api_key=key&external_source=tvdb_id", tvdb)
+}
+
+func (ft *findTest) answer(tvdb int, body string) {
+	ft.n.mu.Lock()
+	ft.n.answers[findURL(tvdb)] = body
+	ft.n.mu.Unlock()
+}
+
+func (ft *findTest) age(tvdb int, d time.Duration) {
+	ft.t.Helper()
+	at := time.Now().Add(-d)
+	if err := os.Chtimes(ft.path(tvdb), at, at); err != nil {
+		ft.t.Fatal(err)
+	}
+}
+
+func (ft *findTest) path(tvdb int) string {
+	return filepath.Join(ft.dir, "tmdb", fmt.Sprintf("find-tvdb-%d.json", tvdb))
+}
+
+// find checks TVFromTVDB gives want and no error (the show stays complete),
+// and that find has been asked asked times in all.
+func (ft *findTest) find(tvdb, want, asked int, why string) {
+	ft.t.Helper()
+	if id, err := ft.tm.TVFromTVDB(context.Background(), tvdb); id != want || err != nil {
+		ft.t.Fatalf("%s: %d %v, want %d and no error", why, id, err, want)
+	}
+	if c := ft.n.count(findURL(tvdb)); c != asked {
+		ft.t.Fatalf("%s: asked %d times in all, want %d", why, c, asked)
+	}
+}
+
+// TMDB's find for a TVDB id: an empty answer (the show isn't linked on TMDB
+// yet) is asked again once it is a day old; the id TMDB gives then is used
+// and kept 30 days. An empty copy past 30 days that answers stale for a
+// failed request isn't asked for twice.
+func TestTMDBFindNoneAskedAgainAfterADay(t *testing.T) {
+	ft := newFindTest(t, map[string]string{findURL(1): `{"tv_results":[]}`, findURL(2): `{"tv_results":[]}`})
+	ft.find(1, 0, 1, "empty answer")
+	ft.find(1, 0, 1, "empty answer, cached")
+	ft.age(1, 25*time.Hour)
+	ft.find(1, 0, 2, "empty answer a day old")
+	ft.answer(1, `{"tv_results":[{"id":77}]}`) // linked on TMDB since
+	ft.age(1, 25*time.Hour)
+	ft.find(1, 77, 3, "linked since")
+	ft.age(1, 25*time.Hour)
+	ft.find(1, 77, 3, "found id a day old (kept 30 days)")
+
+	ft.find(2, 0, 1, "empty answer")
+	ft.answer(2, `500 {}`)
+	ft.age(2, 31*24*time.Hour)
+	ft.find(2, 0, 2, "empty answer past 30 days, TMDB down (the stale copy answers, asked once)")
+}
+
+// A re-ask of a day-old empty answer that fails leaves the empty answer and
+// no error: TMDB said it has no such show, so the show stays complete.
+func TestTMDBFindNoneReaskFailing(t *testing.T) {
+	ft := newFindTest(t, map[string]string{findURL(1): `{"tv_results":[]}`})
+	ft.find(1, 0, 1, "empty answer")
+	ft.answer(1, `500 {}`)
+	ft.age(1, 25*time.Hour)
+	ft.find(1, 0, 2, "TMDB down (the copy answers stale)")
+
+	ft.tm.keys.err, ft.tm.keys.until = errors.New("rejected"), time.Now().Add(time.Hour)
+	ft.age(1, 25*time.Hour)
+	ft.find(1, 0, 2, "key rejected lately (no request)")
+	ft.tm.keys.err, ft.tm.keys.until = nil, time.Time{}
+
+	// The copy goes (the cache cleanup) between the two reads: the download
+	// fails with no copy to answer for it. Test code removing its own file.
+	ft.age(1, 25*time.Hour)
+	ft.tm.f.SetTransport(pruneThenFail{ft, ft.path(1)})
+	ft.find(1, 0, 3, "copy pruned, TMDB down")
+}
+
+// pruneThenFail removes a cache file, then answers as the fake does.
+type pruneThenFail struct {
+	ft   *findTest
+	path string
+}
+
+func (p pruneThenFail) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := os.Remove(p.path); err != nil {
+		p.ft.t.Error(err)
+	}
+	return p.ft.n.RoundTrip(r)
 }
