@@ -468,6 +468,98 @@ func TestPlexEpisodesCutShort(t *testing.T) {
 	}
 }
 
+// A page that shows the list was cut short isn't cached: the next call asks
+// Plex for it again, and gets the whole list once Plex sends it. Cached, it
+// would answer for 2 days and the list would stay incomplete.
+func TestPlexCutShortPageNotCached(t *testing.T) {
+	s1 := "GET /library/metadata/" + frierenS1 + "/children"
+	answers := frieren()
+	answers[s1] = `200 {"MediaContainer":{"totalSize":3,"Metadata":[{"index":1,"title":"E1"}]}}`
+	answers[s1+"@1"] = `200 {"MediaContainer":{"totalSize":3,"Metadata":[]}}`
+	p, n, dir := newPlexTest(t, answers)
+	ctx := context.Background()
+	eps, err := p.Episodes(ctx, PlexSeries(424536))
+	if !errors.Is(err, ErrIncomplete) || len(eps) != 1+3 {
+		t.Fatalf("%d episodes, err %v; want 4 and incomplete", len(eps), err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plex", "children-"+frierenS1+"-1.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the cut-short page is in the cache (stat: %v)", err)
+	}
+	// Plex is whole again.
+	answers[s1+"@1"] = `200 {"MediaContainer":{"totalSize":3,"Metadata":[{"index":2,"title":"E2"},{"index":3,"title":"E3"}]}}`
+	eps, err = p.Episodes(ctx, PlexSeries(424536))
+	if err != nil || len(eps) != 3+3 || eps[2].Title != "E3" {
+		t.Errorf("%d episodes, err %v; want all 6 and no error", len(eps), err)
+	}
+	if c := n.count("GET", frierenS1+"/children"); c != 3 {
+		t.Errorf("season 1 asked %d times, want 3: its first page once, its second page again", c)
+	}
+	// The whole page is cached like any other.
+	if _, err = p.Episodes(ctx, PlexSeries(424536)); err != nil {
+		t.Error(err)
+	}
+	if c := n.count("GET", frierenS1+"/children"); c != 3 {
+		t.Errorf("season 1 asked %d times after a whole answer, want still 3", c)
+	}
+}
+
+// An empty page with nothing after it is an answer like any other, and is
+// cached: a season without episodes, and the page after the last full one.
+func TestPlexEmptyPageCached(t *testing.T) {
+	var items []string
+	for i := 1; i <= plexPage; i++ {
+		items = append(items, fmt.Sprintf(`{"index":%d,"title":"E%d"}`, i, i))
+	}
+	answers := frieren()
+	answers["GET /library/metadata/"+frierenS0+"/children"] = `200 {"MediaContainer":{"totalSize":0,"Metadata":[]}}`
+	answers["GET /library/metadata/"+frierenS1+"/children"] = `200 {"MediaContainer":{"Metadata":[` + strings.Join(items, ",") + `]}}`
+	answers["GET /library/metadata/"+frierenS1+"/children@200"] = `200 {"MediaContainer":{"Metadata":[]}}`
+	p, n, _ := newPlexTest(t, answers)
+	ctx := context.Background()
+	for call := 1; call <= 2; call++ {
+		eps, err := p.Episodes(ctx, PlexSeries(424536))
+		if err != nil || len(eps) != plexPage {
+			t.Errorf("call %d: %d episodes, err %v; want %d and no error", call, len(eps), err, plexPage)
+		}
+		// The match, the season list, season 0's page and season 1's two.
+		if got := len(n.requests()); got != 5 {
+			t.Errorf("call %d: %d requests so far, want 5 (the second call is all from the cache)", call, got)
+		}
+	}
+}
+
+// A cut-short page is a failed download: when an older copy of that page is
+// in the cache, expired, it answers, and the list is the one known before.
+func TestPlexCutShortPageOlderCopy(t *testing.T) {
+	s1 := "GET /library/metadata/" + frierenS1 + "/children"
+	whole := `200 {"MediaContainer":{"totalSize":3,"Metadata":[{"index":2,"title":"E2"},{"index":3,"title":"E3"}]}}`
+	answers := frieren()
+	answers[s1] = `200 {"MediaContainer":{"totalSize":3,"Metadata":[{"index":1,"title":"E1"}]}}`
+	answers[s1+"@1"] = whole
+	p, n, dir := newPlexTest(t, answers)
+	ctx := context.Background()
+	if eps, err := p.Episodes(ctx, PlexSeries(424536)); err != nil || len(eps) != 3+3 {
+		t.Fatalf("%d episodes, err %v", len(eps), err)
+	}
+	// The second page's copy expires, and Plex now cuts the list short.
+	file := filepath.Join(dir, "plex", "children-"+frierenS1+"-1.json")
+	old := time.Now().Add(-3 * 24 * time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	answers[s1+"@1"] = `200 {"MediaContainer":{"totalSize":3,"Metadata":[]}}`
+	eps, err := p.Episodes(ctx, PlexSeries(424536))
+	if err != nil || len(eps) != 3+3 || eps[2].Title != "E3" {
+		t.Errorf("%d episodes, err %v; want the 6 of the older copy and no error", len(eps), err)
+	}
+	if c := n.count("GET", frierenS1+"/children"); c != 3 {
+		t.Errorf("season 1 asked %d times, want 3: the expired page was asked for again", c)
+	}
+	if data, err := os.ReadFile(file); err != nil || string(data) != strings.TrimPrefix(whole, "200 ") {
+		t.Errorf("the older copy was replaced: %s (%v)", data, err)
+	}
+}
+
 // Keys are matched exactly: one that differs from a key Kizuna reads only in
 // case, known or new, is left out, whatever it holds.
 func TestPlexKeysMatchedExactly(t *testing.T) {

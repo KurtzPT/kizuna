@@ -416,7 +416,7 @@ func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 	if id == "" {
 		return nil, err
 	}
-	c, err := p.children(ctx, id, 0)
+	c, err := p.children(ctx, id, 0, nil)
 	m := c.MediaContainer
 	if err == nil && m.TotalSize > len(m.Metadata) {
 		err = fmt.Errorf("%w: plex %s: %d of %d seasons", ErrIncomplete, r, len(m.Metadata), m.TotalSize)
@@ -426,7 +426,8 @@ func (p *Plex) seasonItems(ctx context.Context, r PlexRef) ([]plexItem, error) {
 
 // children reads one page of an item's children (a show's seasons, a
 // season's episodes), from the one numbered start, plexPage at once.
-func (p *Plex) children(ctx context.Context, id string, start int) (plexContainer, error) {
+// validate, if set, refuses an answer that must not be kept.
+func (p *Plex) children(ctx context.Context, id string, start int, validate func([]byte) error) (plexContainer, error) {
 	key := "plex/children-" + id + ".json"
 	h := map[string]string{"X-Plex-Container-Size": strconv.Itoa(plexPage)}
 	if start > 0 {
@@ -435,8 +436,44 @@ func (p *Plex) children(ctx context.Context, id string, start int) (plexContaine
 	}
 	var c plexContainer
 	err := p.get(ctx, fetch.Request{URL: plexAPI + "/library/metadata/" + id + "/children", Key: key, TTL: 2 * 24 * time.Hour,
-		Headers: h}, &c)
+		Headers: h, Validate: validate}, &c)
 	return c, err
+}
+
+// plexPageSize is what tells whether a page was cut short: its totalSize and
+// how many items it holds. The items aren't decoded.
+type plexPageSize struct {
+	total, items int
+}
+
+func (s *plexPageSize) UnmarshalJSON(data []byte) error {
+	var items []json.RawMessage
+	err := exactKeys(data, map[string]any{"totalSize": &s.total, "Metadata": &items})
+	if items != nil { // a second key that only differs in case mustn't empty the count
+		s.items = len(items)
+	}
+	return err
+}
+
+// cutShort refuses an episode page that has no items while its totalSize
+// says there are more from start on: Plex cut the list short. Kept, it would
+// answer every rebuild for the page's 2 days, and the list would stay
+// incomplete with no request to Plex. Refused, nothing is written and the
+// next build asks again. An empty page with nothing after it (a season
+// without episodes, the page past the last one) is kept like any other.
+func cutShort(id string, start int) func([]byte) error {
+	return func(data []byte) error {
+		var c struct {
+			MediaContainer plexPageSize `json:"MediaContainer"`
+		}
+		if err := json.Unmarshal(data, &c); err != nil {
+			return nil // not a page at all: the decode after this reports it
+		}
+		if m := c.MediaContainer; m.items == 0 && m.total > start {
+			return fmt.Errorf("list cut short: no episodes of %s from %d of %d", id, start, m.total)
+		}
+		return nil
+	}
 }
 
 // Seasons returns each season's summary and pictures (Specials is 0), from
@@ -493,14 +530,17 @@ func (p *Plex) Episodes(ctx context.Context, r PlexRef) ([]Episode, error) {
 
 // seasonEpisodes reads one season's episodes, page by page, until it has
 // the totalSize Plex gives (a full page without one: the next page too). An
-// empty page before that is an error: the list was cut short.
+// empty page before that is an error: the list was cut short. Such a page is
+// not cached (cutShort), so the next build asks Plex for it again. When an
+// older copy of the page is in the cache, that copy answers instead, like
+// for any failed download, and the reading goes on from it.
 func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Episode, error) {
 	var out []Episode
 	for page, start := 0, 0; ; page++ {
 		if page == plexMaxPages {
 			return out, fmt.Errorf("season %d: more than %d pages", season, plexMaxPages)
 		}
-		c, err := p.children(ctx, id, start)
+		c, err := p.children(ctx, id, start, cutShort(id, start))
 		if err != nil {
 			return out, err
 		}
@@ -512,7 +552,7 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 		if m.TotalSize > 0 && start >= m.TotalSize || m.TotalSize == 0 && len(m.Metadata) < plexPage {
 			return out, nil
 		}
-		if len(m.Metadata) == 0 {
+		if len(m.Metadata) == 0 { // only a copy cached before such pages were refused
 			return out, fmt.Errorf("season %d: %d of %d episodes", season, start, m.TotalSize)
 		}
 	}
