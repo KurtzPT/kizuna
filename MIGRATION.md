@@ -43,7 +43,7 @@ untouched, and Plex sees the same paths.
 
 - **Unsupported numbering:** an `[anidb2-…]`, `[tvdb2-…]`, `[tvdb4-…]`… tag still finds the right show, but Kizuna
   numbers episodes its own way. The script warns about each such folder, and plans it like `[anidb-…]` or
-  `[tvdb3-…]`. `[tmdb-…]` and `[imdb-…]` folders are planned only in `-m auto`, through Kizuna.
+  `[tvdb3-…]`. `[tmdb-…]` and `[imdb-…]` folders get the mode's rules; in `-m auto`, the ones [Kizuna picks](#auto-rules).
 - **Openings and endings** named `NCOP1`, `ED2`… stay [extras](#openings-and-endings): no hints.
 - **Left out on purpose:** HAMA's collections, online theme songs and rating badges. Local `theme.mp3` files still
   work through *Plex Local Media* ([setup step 3](SETUP.md#-3-register-kizuna-in-plex)).

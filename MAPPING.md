@@ -275,7 +275,7 @@ details:
 
 | Log line | Tells you |
 |---|---|
-| `anime-list-custom.xml ignored` | the file has an XML error: none of its entries are used until it is fixed |
+| `anime-list-custom.xml ignored` | the file has an XML error: after a restart, none of its entries are used until it is fixed |
 | `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` only: how many AniDB episodes the entry's TVDB pairs and `start…end` ranges cover (use case 5 has 18; open ranges aren't counted) and how many were paired with TheTVDB |
 | `episode titles: source used … anidb=24 tvdb=0` | both modes: where each episode title came from |
 
