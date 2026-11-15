@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,6 +103,7 @@ func TestRunFlushesAtShutdown(t *testing.T) {
 
 // oldShowData is how writeShow made a show page's data before it kept the
 // builds as saved JSON: everything decoded, changed and encoded again.
+// A change meant to alter what writeShow writes must update or delete it.
 func oldShowData(prev []byte, key string, builds []Build, heads []ShowHead, requests []Request) ([]byte, error) {
 	var doc ShowDoc
 	if prev != nil {
@@ -248,6 +250,17 @@ func TestShowFileIsShowDoc(t *testing.T) {
 			t.Fatalf("ShowDoc.%s is not set in the test", v.Type().Field(i).Name)
 		}
 	}
+	// The same fields by name and tag, so one added to showFile alone (an
+	// omitempty one the round trip below wouldn't show) fails too.
+	fields := func(typ reflect.Type) (out []string) {
+		for i := range typ.NumField() {
+			out = append(out, typ.Field(i).Name+" "+string(typ.Field(i).Tag))
+		}
+		return out
+	}
+	if d, f := fields(reflect.TypeFor[ShowDoc]()), fields(reflect.TypeFor[showFile]()); !slices.Equal(d, f) {
+		t.Errorf("showFile fields %q, ShowDoc fields %q", f, d)
+	}
 	want, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
@@ -301,4 +314,118 @@ func TestRequestsFlushAllocs(t *testing.T) {
 	if allocs > 3000 {
 		t.Errorf("%.0f allocations for one request on a long show's page, want at most 3000", allocs)
 	}
+}
+
+// writeSaved puts a show page's saved data in place, as an earlier version
+// or a hand edit left it.
+func writeSaved(t *testing.T, dir, key, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "data", key+".json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// clean: the saved data decodes into a ShowDoc without an error and is what
+// encoding that doc gives, so nothing of the bad build is left.
+func clean(t *testing.T, dir, key string) ShowDoc {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "data", key+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc ShowDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("saved data doesn't read back (%v):\n%s", err, data)
+	}
+	if again, _ := json.Marshal(doc); !bytes.Equal(again, data) {
+		t.Fatalf("saved data isn't as encoding gives it:\n%s\nwant\n%s", data, again)
+	}
+	return doc
+}
+
+// savedBuildJSON is a saved build; values gives its tookMs and complete.
+func savedBuildJSON(id string, start time.Time, values, extra string) string {
+	return `{"id":"` + id + `","root":"anidb-1","mode":"anidb","start":"` + start.UTC().Format(time.RFC3339) +
+		`",` + values + `,"trace":null,"epsTotal":0` + extra + `}`
+}
+
+const (
+	goodValues = `"tookMs":1,"complete":true`
+	episodes   = `,"episodes":[{"s":1,"e":1,"title":"x"}]`
+)
+
+// A build saved with a value of the wrong type (a hand edit, or a field
+// whose type changed without a new schema) doesn't stop its page: what
+// decodes is written again, as when the whole page was decoded, and the
+// page takes requests and new builds as before. Second in the list and
+// still holding its episodes, it is caught where it loses them.
+func TestBadSavedBuildHeals(t *testing.T) {
+	for name, bad := range map[string]string{
+		"a head value":  `"tookMs":1,"complete":"yes"`,
+		"another value": `"tookMs":"slow","complete":true`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, _ := Open(dir, "test")
+			newest := time.Now().Add(-time.Hour)
+			builds := savedBuildJSON("a", newest, goodValues, "") + "," + savedBuildJSON("b", newest.Add(-time.Hour), bad, episodes)
+			writeSaved(t, dir, "anidb-1", `{"schema":3,"key":"anidb-1","title":"T","builds":[`+builds+`],"requests":[]}`)
+			var logs strings.Builder
+			defer captureLogs(&logs)()
+			s.AddRequest(Request{Key: "anidb-1", Time: time.Now(), URL: "/a", Status: 200})
+			s.Flush()
+			if doc := clean(t, dir, "anidb-1"); len(doc.Builds) != 2 || doc.Builds[1].ID != "b" || doc.Builds[1].Episodes != nil || len(doc.Requests) != 1 {
+				t.Fatalf("after a request: %d builds, %d requests", len(doc.Builds), len(doc.Requests))
+			}
+			s.AddBuild("anidb-1", finished("anidb-1"))
+			s.Flush()
+			if doc := clean(t, dir, "anidb-1"); len(doc.Builds) != 3 || len(s.pending) != 0 {
+				t.Errorf("after a build: %d builds, %d pending", len(doc.Builds), len(s.pending))
+			}
+			if n := strings.Count(logs.String(), "level=WARN"); n != 1 {
+				t.Errorf("%d warnings, want the one for the bad build:\n%s", n, logs.String())
+			}
+		})
+	}
+}
+
+// The newest build saved with a bad value is written again once, with one
+// warning; the next write finds nothing to say.
+func TestBadNewestBuildWarnsOnce(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir, "test")
+	writeSaved(t, dir, "anidb-1", `{"schema":3,"key":"anidb-1","title":"T","builds":[`+
+		savedBuildJSON("a", time.Now().Add(-time.Hour), `"tookMs":1,"complete":"yes"`, episodes)+`],"requests":[]}`)
+	var logs strings.Builder
+	defer captureLogs(&logs)()
+	s.AddRequest(Request{Key: "anidb-1", Time: time.Now(), URL: "/a", Status: 200})
+	s.Flush()
+	if doc := clean(t, dir, "anidb-1"); len(doc.Builds) != 1 || len(doc.Builds[0].Episodes) != 1 {
+		t.Fatalf("builds %+v, want the build with its episodes", doc.Builds)
+	}
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 {
+		t.Errorf("%d warnings on the first write, want 1:\n%s", n, logs.String())
+	}
+	logs.Reset()
+	s.AddRequest(Request{Key: "anidb-1", Time: time.Now(), URL: "/b", Status: 200})
+	s.Flush()
+	if logs.Len() != 0 {
+		t.Errorf("the next write logged:\n%s", logs.String())
+	}
+}
+
+// A null in the saved builds is the zero build, as decoding into []Build
+// made it, so the page's script gets an object.
+func TestNullSavedBuild(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir, "test")
+	writeSaved(t, dir, "anidb-1", `{"schema":3,"key":"anidb-1","title":"T","builds":[null],"requests":[]}`)
+	s.AddRequest(Request{Key: "anidb-1", Time: time.Now(), URL: "/a", Status: 200})
+	s.Flush()
+	data, _ := os.ReadFile(filepath.Join(dir, "data", "anidb-1.json"))
+	zero, _ := json.Marshal(Build{})
+	if !bytes.Contains(data, []byte(`"builds":[`+string(zero)+`]`)) {
+		t.Errorf("saved data %s, want the zero build in place of null", data)
+	}
+	clean(t, dir, "anidb-1")
 }

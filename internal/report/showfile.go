@@ -1,7 +1,10 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"slices"
 	"time"
 )
@@ -52,10 +55,46 @@ func newSavedBuild(b Build) (savedBuild, error) {
 	return sb, err
 }
 
+// UnmarshalJSON keeps a build's bytes as they are when its head reads
+// back. One that doesn't (a hand-edited file, a field whose type changed)
+// or a null is written again from what decodes, as decoding the whole page
+// used to do: kept as it was, it would fail at every later write.
 func (b *savedBuild) UnmarshalJSON(data []byte) error {
-	b.raw = slices.Clone(data) // the decoder may reuse data once this returns
-	b.buildHead = buildHead{}
-	return json.Unmarshal(data, &b.buildHead)
+	*b = savedBuild{}
+	if !bytes.Equal(data, []byte("null")) { // null: the zero build, as a []Build gave
+		err := json.Unmarshal(data, &b.buildHead)
+		if err == nil {
+			b.raw = slices.Clone(data) // the decoder may reuse data once this returns
+			return nil
+		}
+		if !partial(err) {
+			return err
+		}
+		slog.Warn("reports: a saved build has values that don't read back; they are dropped", "build", b.ID, "err", err)
+	}
+	full, err := decodeBuild(data)
+	if err != nil {
+		return err
+	}
+	*b, err = newSavedBuild(full)
+	return err
+}
+
+// decodeBuild decodes a saved build, keeping what decodes when some values
+// have the wrong type.
+func decodeBuild(data []byte) (Build, error) {
+	var full Build
+	if err := json.Unmarshal(data, &full); err != nil && !partial(err) {
+		return Build{}, err
+	}
+	return full, nil
+}
+
+// partial: Unmarshal kept what decoded and skipped values of the wrong
+// type. Only broken JSON leaves nothing.
+func partial(err error) bool {
+	var syntax *json.SyntaxError
+	return err != nil && !errors.As(err, &syntax)
 }
 
 // MarshalJSON gives the build back as it was saved. json.Marshal still
@@ -68,8 +107,12 @@ func (b *savedBuild) lean() error {
 	if len(b.Episodes) == 0 && len(b.Art) == 0 {
 		return nil
 	}
+	// A value of the wrong type outside the head is found only here: it is
+	// dropped, as it was when the whole page was decoded.
 	var full Build
-	if err := json.Unmarshal(b.raw, &full); err != nil {
+	if err := json.Unmarshal(b.raw, &full); partial(err) {
+		slog.Warn("reports: a saved build has values that don't read back; they are dropped", "build", b.ID, "err", err)
+	} else if err != nil {
 		return err
 	}
 	full.Episodes, full.Art = nil, nil
