@@ -57,7 +57,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 
 | Variable | Default | What it does |
 |---|---|---|
-| `MIN_SCORE` | `80` | Lowest title-search score, 0–100, for an automatic match. Plex's *Fix Match* list ignores it |
+| `MIN_SCORE` | `80` | Lowest title-search score, 0–100, for a match. Plex's *Fix Match* list ignores it |
 | `AUTO_DEFAULT` | `anidb` | `anidb` or `tvdb`: the rules `/auto` uses for a show without an AniDB or TVDB tag. If that mode isn't set up, the other is used |
 | `TITLE_LANGS` | `main,x-jat,en` | Show title language order. `main` is AniDB's main title; the rest are AniDB language codes: `x-jat` (romaji), `en`, `ja`, `de`… |
 | `TITLE_OFFICIAL_ONLY` | `false` | `true`: only AniDB's main and official titles are used, never synonyms |

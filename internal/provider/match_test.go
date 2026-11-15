@@ -45,9 +45,9 @@ func TestMatchIncludeChildren(t *testing.T) {
 	}
 }
 
-// A manual match (Plex's Fix Match) lists the show the GUID or an id tag
-// names first, then the typed title's search results, each show once and
-// at most 10. An automatic match keeps the id match alone. A strict tag
+// A manual show match (Plex's Fix Match list) lists the show the GUID or an
+// id tag names first, then the typed title's search results, each show once
+// and at most 10. An automatic match keeps the id match alone. A strict tag
 // whose mode is off still gives no id match, but the title results are
 // listed.
 func TestManualMatchListsTitleResults(t *testing.T) {

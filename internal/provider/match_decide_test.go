@@ -242,6 +242,43 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+// MIN_SCORE holds for every match but Plex's Fix Match list of a show: a
+// manual season or episode match is one answer, like an automatic one.
+func TestManualMatchMinScore(t *testing.T) {
+	l, titles := onePiece()
+	const query = "One Piece Film"
+	results := titles.Search(query, 0, 20)
+	if len(results) == 0 || results[0].Score <= 0 || results[0].Score >= 100 {
+		t.Fatalf("title search for %q: %+v, want a best score between 0 and 100", query, results)
+	}
+	best := results[0].Score
+	above := matcher{lists: l, titles: titles, minScore: best + 1, anidbOn: true} // every result is below it
+	at := matcher{lists: l, titles: titles, minScore: best, anidbOn: true}
+	cases := []struct {
+		name  string
+		m     matcher
+		r     MatchRequest
+		cands int // how many candidates
+		kind  searchKind
+	}{
+		{"show, below", above, MatchRequest{Type: 2, Title: query}, 0, searchBelowMin},
+		{"Fix Match list, below", above, MatchRequest{Type: 2, Title: query, Manual: 1}, min(len(results), 10), searchFound},
+		{"manual season, below", above, MatchRequest{Type: 3, ParentTitle: query, Manual: 1}, 0, searchBelowMin},
+		{"manual episode, below", above, MatchRequest{Type: 4, GrandparentTitle: query, Manual: 1}, 0, searchBelowMin},
+		{"manual season, at", at, MatchRequest{Type: 3, ParentTitle: query, Manual: 1}, 1, searchFound},
+		{"manual episode, at", at, MatchRequest{Type: 4, GrandparentTitle: query, Manual: 1}, 1, searchFound},
+	}
+	for _, c := range cases {
+		d := c.m.decide(Modes["anidb"], c.r, false)
+		if len(d.cands) != c.cands || d.search.kind != c.kind {
+			t.Errorf("%s: %d candidates, search %+v; want %d, kind %d", c.name, len(d.cands), d.search, c.cands, c.kind)
+		}
+		if len(d.cands) > 0 && d.cands[0].score != best {
+			t.Errorf("%s: first candidate %+v, want score %d", c.name, d.cands[0], best)
+		}
+	}
+}
+
 // The provider logs a decision's warning, with the words and fields it
 // always had, once per key every 10 minutes.
 func TestDecideLogsWarning(t *testing.T) {

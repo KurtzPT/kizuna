@@ -55,8 +55,8 @@ type candidate struct {
 //  2. a GUID Plex already has
 //  3. AniDB title search
 //
-// A manual match (Plex's Fix Match) lists the id match first, then the
-// title search results for the typed title.
+// A manual show match (Plex's Fix Match list) lists the id match first, then
+// the title search results for the typed title.
 //
 // err is the show build's error when the best candidate couldn't be built
 // (then items is empty): only a show that doesn't exist (noShow) is "no
@@ -73,7 +73,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	rq := report.RequestFrom(ctx) // nil with the reports off
 	if len(cands) == 0 {
 		slog.Info("match: nothing found", append(attrs, "how", how)...)
-		if m != nil && r.Manual != 1 {
+		if m != nil { // m is nil for a Fix Match list, which is on no page
 			key := p.reports.Unmatched(*m)
 			if rq != nil {
 				rq.Key = key
@@ -110,9 +110,10 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		if rq != nil && p.noPage(root, err) {
 			// An id tag or GUID named a show that can't be found, and Plex
 			// got "no match": the title's unmatched page says why, as for any
-			// other title without a match. A manual match has none.
+			// other title without a match. A manual season or episode match
+			// too; a Fix Match list never gets here.
 			rq.Key = ""
-			if m != nil && r.Manual != 1 {
+			if m != nil {
 				m.How += "; " + noShowWhy(root, err)
 				m.Root, m.Score = "", 0
 				rq.Key = p.reports.Unmatched(*m)

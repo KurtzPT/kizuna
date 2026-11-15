@@ -77,6 +77,41 @@ func TestFixMatchListOnNoPage(t *testing.T) {
 	}
 }
 
+// A manual season or episode match whose best title result is below
+// MIN_SCORE gets the title's unmatched page, like an automatic one. A show's
+// Fix Match list for the same title is still on no page.
+func TestManualMatchBelowMinScoreUnmatchedPage(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: knownOnly})
+	p.cfg.MinScore = 100 // "Kizuna Tes" scores below it
+	store, dir, serve := reportsOn(t, p)
+	const title = "Kizuna Tes"
+	for _, body := range []string{
+		`{"type":2,"title":"` + title + `","manual":1}`, // Fix Match list
+		`{"type":3,"parentTitle":"` + title + `","index":1,"manual":1}`,
+		`{"type":4,"grandparentTitle":"` + title + `","parentIndex":1,"index":1,"manual":1}`,
+	} {
+		if code := serve("POST", "/anidb/library/metadata/matches", body); code != 200 {
+			t.Errorf("match %s: HTTP %d, want 200", body, code)
+		}
+	}
+	store.Flush()
+	key := report.UnmatchedKey(title)
+	if pages, listed := reportPages(t, dir); !slices.Equal(pages, []string{key}) || !slices.Equal(listed, []string{key}) {
+		t.Fatalf("pages %v, index %v; want only %s", pages, listed, key)
+	}
+	var un report.UnmatchedDoc
+	readJSON(t, filepath.Join(dir, "data", key+".json"), &un)
+	if !un.Match.Manual || un.Match.By.Search != report.SearchLow || len(un.Match.Candidates) == 0 || len(un.Requests) == 0 {
+		t.Errorf("unmatched page: match %+v, %d requests; want a manual match below MIN_SCORE, with candidates and its requests",
+			un.Match, len(un.Requests))
+	}
+	for _, rq := range un.Requests {
+		if rq.Answer != (report.Answer{Kind: report.AnswerNoMatch}) || !strings.Contains(rq.Note, "below MIN_SCORE 100") {
+			t.Errorf("request %+v: want no match, below MIN_SCORE 100", rq)
+		}
+	}
+}
+
 // A key of a show that doesn't exist answers 404 and leaves no page and no
 // index row, however often it is asked for. An id tag naming such a show is
 // a title without a match: it gets an unmatched page that says so.
