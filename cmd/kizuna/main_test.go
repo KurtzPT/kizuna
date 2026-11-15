@@ -108,14 +108,14 @@ func TestHealthCheckWithListenIPAndNarrowAllowFrom(t *testing.T) {
 func TestKeepFreshStopping(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := false
-	keepFresh(ctx, cancel, func() (bool, []string) { return true, nil }, func() { done = true })
+	keepFresh(ctx, cancel, func() (bool, []string) { return true, nil }, func(bool) { done = true })
 	if done {
 		t.Error("load cancelled by stopping, but firstDone ran")
 	}
 
 	ctx, cancel = context.WithCancel(context.Background())
 	loads := 0
-	keepFresh(ctx, func() { loads++ }, func() (bool, []string) { return true, nil }, func() { done = true; cancel() })
+	keepFresh(ctx, func() { loads++ }, func() (bool, []string) { return true, nil }, func(bool) { done = true; cancel() })
 	if !done || loads != 1 {
 		t.Errorf("firstDone %v after %d loads, want it after 1", done, loads)
 	}
@@ -144,7 +144,7 @@ func TestKeepFreshRetriesMissingList(t *testing.T) {
 			cancel() // stop after the first wait is chosen
 			return nil
 		}
-		keepFresh(ctx, func() {}, func() (bool, []string) { return c.titles, c.missing }, func() {})
+		keepFresh(ctx, func() {}, func() (bool, []string) { return c.titles, c.missing }, func(bool) {})
 		cancel()
 		if len(waits) != 1 || waits[0] != c.want {
 			t.Errorf("titles %v, missing %v: waits %v, want [%v]", c.titles, c.missing, waits, c.want)
@@ -164,6 +164,46 @@ func TestLoadErrQuietWhenStopping(t *testing.T) {
 	loadErr(ctx, "stopping", context.Canceled)
 	if log := buf.String(); !strings.Contains(log, "running") || strings.Contains(log, "stopping") {
 		t.Errorf("log %q: want only the error before stopping", log)
+	}
+}
+
+// firstDone hears whether the first load got the title list, so the line
+// it logs can say so.
+func TestKeepFreshTellsFirstDoneTheTitles(t *testing.T) {
+	for _, titles := range []bool{true, false} {
+		ctx, cancel := context.WithCancel(context.Background())
+		var got []bool
+		keepFresh(ctx, func() {}, func() (bool, []string) { return titles, nil }, func(b bool) { got = append(got, b); cancel() })
+		cancel()
+		if len(got) != 1 || got[0] != titles {
+			t.Errorf("titles loaded %v: firstDone got %v, want [%v]", titles, got, titles)
+		}
+	}
+}
+
+// Without the title list nothing matches by name, so the settings line is
+// a warning saying so and when it's retried, not "ready".
+func TestReadyLineWithoutTitles(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(old)
+
+	logReady(config.Config{}, ln, nil, time.Now(), false, true)
+	if line := logs.String(); !strings.Contains(line, " level=INFO msg=ready ") {
+		t.Errorf("titles loaded: logged %q, want an INFO ready line", line)
+	}
+	logs.Reset()
+	logReady(config.Config{}, ln, nil, time.Now(), false, false)
+	line := logs.String()
+	if strings.Contains(line, "msg=ready") || !strings.Contains(line, "level=WARN") ||
+		!strings.Contains(line, "title list") || !strings.Contains(line, retryMissing.String()) || !strings.Contains(line, "version=") {
+		t.Errorf("titles missing: logged %q, want a WARN naming the title list and the retry, with the settings", line)
 	}
 }
 
