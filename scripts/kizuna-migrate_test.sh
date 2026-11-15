@@ -57,6 +57,9 @@ bytes() { od -An -c "$1" | tr -d ' \n'; }
 
 # --- name parsing --------------------------------------------------------------
 
+# A name without spaces once its tags are gone uses underscores for them, and
+# is read like the same name with spaces, also when spaces are left around the
+# tags.
 while IFS='|' read -r name want; do
 	check "absolute_number \"$name\"" "$(absolute_number "$name")" "$want"
 done <<'EOF'
@@ -71,6 +74,13 @@ Tails Ep 13 - Christmas Special|13
 Tails Episode 7 - Preview|7
 Tails E08 Trailer|8
 Tails 07 - The Last Special|0
+[Grp]_Show_-_05v2_[1080p]|5
+[Grp]_Show_Ep_12|12
+Show_S01E05|0
+Show_Name|0
+[Grp] Show_-_02 [1080p]|2
+[Grp] Show_-_02v2 [1080p] [ABCD1234]|2
+My Show_-_03|0
 EOF
 
 while IFS='|' read -r name want; do
@@ -87,6 +97,7 @@ Show - Ending 2a|ed 2 a Ending 2a
 [Group] Show - ncop2 [1080p]|op 2 - ncop2
 Show - 05|
 Show - S01E01|
+[Grp]_Show_-_NCOP1_[1080p]|op 1 - NCOP1
 EOF
 
 # the same answer whatever the machine's locale: Japanese titles are matched
@@ -131,11 +142,58 @@ Tails Ep 13 - Christmas Special|0
 Tails Episode 7 - Preview|0
 Tails E08 Trailer|0
 Tails 07 - The Last Special|1
+[Grp]_Show_-_SP1_[1080p]|1
+Show_PV2|202
+Show_Name|0
+Show_S01E05_Special|0
+[Grp] Show_-_SP1 [1080p]|1
+[Grp] Show_-_PV2 [1080p]|202
 EOF
-# A numbered episode is no special, whatever its title ends in. The last name
-# is the form the script can't tell apart: a number before the dash is part of
-# many titles ("Show 2 - Special", "Mob Psycho 100 - OVA"), so it stays a
-# special, and the user renames it or hints it by hand.
+# A numbered episode is no special, whatever its title ends in. "Tails 07 -
+# The Last Special" is the form the script can't tell apart: a number before
+# the dash is part of many titles ("Show 2 - Special", "Mob Psycho 100 -
+# OVA"), so it stays a special, and the user renames it or hints it by hand.
+
+# number_like NAME SEASON: a name with what may be an episode number is never
+# reported as having none. In a season folder any digit counts.
+while IFS='|' read -r name season want; do
+	got=no
+	if number_like "$name" "$season"; then got=yes; fi
+	check "number_like \"$name\" \"$season\"" "$got" "$want"
+done <<'EOF'
+Show 01 - Title||yes
+Show - 1x01||yes
+Show.01.Title.1080p||yes
+[Grp]_Show_01_[1080p]||yes
+Show Part A||no
+Show - Recap||no
+Show 2016 Recap||no
+Show 1920x1080 Recap||no
+Show Recap [01]||no
+Show01 Title|1|yes
+Show01 Title||no
+Making Of|0|no
+EOF
+
+while IFS='|' read -r name want; do
+	got=no
+	if plex_extra "$name"; then got=yes; fi
+	check "plex_extra \"$name\"" "$got" "$want"
+done <<'EOF'
+Movie (2016)-trailer|yes
+Movie (2016)-Trailer|yes
+Show-behindthescenes|yes
+Show-deleted|yes
+Show-featurette|yes
+Show-interview|yes
+Show-scene|yes
+Show-short|yes
+Show-other|yes
+Movie (2016) - Trailer|no
+Movie (2016) - Other|no
+Show - 05|no
+Movie (2016)-trailers|no
+EOF
 
 while IFS='|' read -r name want; do
 	check "plex_credit \"$name\"" "$(plex_credit "$name")" "$want"
@@ -385,6 +443,80 @@ check "numbered: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
 check "numbered: openings and endings are still reported" "$(grep -c '^WARNING: .*opening/ending extras' <<<"$out")" "2"
 check_contains "numbered: summary" "$out" "1 .plexmatch files to write, 6 hints in all, 0 files already have a hint, 2 warnings"
 
+# a movie next to its trailer or creditless ending gets the movie's hint: only
+# the videos that are no special, trailer, opening or ending count. Two of
+# those get none, as the script can't know which is the movie, and are
+# reported unless they have a hint of their own.
+lib=$WORK/movies
+mkdir -p "$lib/Alone [anidb-2]" "$lib/Blu [anidb-3]" "$lib/Eps [anidb-4]" "$lib/Sxe [anidb-5]" "$lib/Two [anidb-6]" \
+	"$lib/Under [anidb-7]"
+for f in "Alone [anidb-2]/Alone (2016)" "Alone [anidb-2]/Alone (2016) - PV1" "Blu [anidb-3]/Blu (2016) [BD]" \
+	"Blu [anidb-3]/Blu (2016) - NCED [BD]" "Eps [anidb-4]/Eps - 01" "Eps [anidb-4]/Eps - Recap" "Eps [anidb-4]/Eps Talk" \
+	"Sxe [anidb-5]/Sxe_S01E05" "Two [anidb-6]/Two Part A" "Two [anidb-6]/Two Part B" "Two [anidb-6]/Two - Trailer" \
+	"Under [anidb-7]/[Grp]_Under_-_01_[1080p]" "Under [anidb-7]/[Grp]_Under_-_02_[1080p]" \
+	"Under [anidb-7]/[Grp]_Under_-_SP1_[1080p]"; do
+	: >"$lib/$f.mkv"
+done
+printf 'ep: S00E09: Eps Talk.mkv\n' >"$lib/Eps [anidb-4]/.plexmatch"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "movies: exit" "$?" "0"
+check "movies: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
+	"  + ep: S00E201: Alone (2016) - PV1.mkv
+  + ep: S01E01: Alone (2016).mkv
+  + ep: S01E01: Blu (2016) [BD].mkv
+  + ep: S00E201: Two - Trailer.mkv
+  + ep: S00E01: [Grp]_Under_-_SP1_[1080p].mkv"
+# no_number DIR FILE: the warning for a video without a number that is no lone movie
+no_number() {
+	printf '%s' "WARNING: $lib/$1/$2: no episode number found, and the folder has other episodes or movies, so it isn't hinted as a lone movie. If Plex's scanner skips it, rename it with its number, or add its hint by hand (ep: S01E01: $2 for a movie)"
+}
+check "movies: an unnumbered video next to episodes is reported" "$(grep -F 'Eps - Recap' <<<"$out")" \
+	"$(no_number "Eps [anidb-4]" "Eps - Recap.mkv")"
+check "movies: two unnumbered videos are reported" "$(grep -F 'Two Part' <<<"$out")" \
+	"$(no_number "Two [anidb-6]" "Two Part A.mkv")"$'\n'"$(no_number "Two [anidb-6]" "Two Part B.mkv")"
+check "movies: one with a hint of its own is not" "$(grep -c 'Eps Talk' <<<"$out")" "0"
+check "movies: a name Plex reads a season and episode in is no movie" "$(grep -c 'Sxe_S01E05' <<<"$out")" "0"
+check "movies: underscore episodes are read, not reported" "$(grep -cE 'Under_-_0[12]' <<<"$out")" "0"
+check_contains "movies: summary" "$out" "4 .plexmatch files to write, 5 hints in all, 1 files already have a hint, 4 warnings"
+
+# Only a video with nothing that may be its number is reported: shows of
+# episodes numbered in a way Plex reads stay silent. Underscore names with
+# spaces left around their tags are read too, and a file with Plex's -trailer
+# suffix is an extra, so the movie next to it still gets its hint. An episode
+# or a lone video with such an ending is reported instead.
+lib=$WORK/unnumbered
+for f in "Spaced [anidb-8]/[Grp] Spaced_-_01 [1080p]" "Spaced [anidb-8]/[Grp] Spaced_-_02 [1080p]" \
+	"Spaced [anidb-8]/[Grp] Spaced_-_SP1 [1080p]" "Titled [anidb-9]/Titled 01 - Title" \
+	"Titled [anidb-9]/Titled 02 - Other" "Cross [anidb-10]/Cross - 1x01" "Cross [anidb-10]/Cross - 1x02" \
+	"Dots [anidb-11]/Dots.01.Title.1080p" "Dots [anidb-11]/Dots.02.Other.1080p" \
+	"Seasons [anidb-12]/Season 01/Seasons 01 Title" "Seasons [anidb-12]/Season 01/Seasons 02 Title" \
+	"Seasons [anidb-12]/Specials/Making Of" "Film [anidb-13]/Film (2016)" "Film [anidb-13]/Film (2016)-trailer" \
+	"Love [anidb-14]/Love - 01" "Love [anidb-14]/Love - 02 - Love-scene" "Sig [anidb-15]/Sig - S01E02" \
+	"Sig [anidb-15]/Sig - S01E03 - Significant-Other" "Lone [anidb-16]/Lone-Short"; do
+	mkdir -p "$lib/${f%/*}"
+	: >"$lib/$f.mkv"
+done
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "unnumbered: exit" "$?" "0"
+check "unnumbered: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
+	"  + ep: S01E01: Film (2016).mkv
+  + ep: S00E01: [Grp] Spaced_-_SP1 [1080p].mkv"
+check "unnumbered: only the file without anything like a number is reported, with its season" \
+	"$(grep '^WARNING: .*no episode number found' <<<"$out")" \
+	"WARNING: $lib/Seasons [anidb-12]/Specials/Making Of.mkv: no episode number found, and the folder has other episodes or movies, so it isn't hinted as a lone movie. If Plex's scanner skips it, rename it with its number, or add its hint by hand (ep: S00Exx: Specials/Making Of.mkv)"
+# extra_name DIR FILE SUFFIX: the warning for an episode or lone video Plex makes an extra by its ending
+extra_name() {
+	printf '%s' "WARNING: $lib/$1/$2: Plex's scanner makes it an extra, not an episode or a movie: its name ends in \"$3\". Rename it without that"
+}
+check "unnumbered: a numbered episode with an extra's ending is reported" "$(grep -F 'Love-scene' <<<"$out")" \
+	"$(extra_name "Love [anidb-14]" "Love - 02 - Love-scene.mkv" -scene)"
+check "unnumbered: an SxxEyy episode with an extra's ending is reported" "$(grep -F 'Significant-Other' <<<"$out")" \
+	"$(extra_name "Sig [anidb-15]" "Sig - S01E03 - Significant-Other.mkv" -Other)"
+check "unnumbered: a lone video with an extra's ending is reported" "$(grep -F 'Lone-Short' <<<"$out")" \
+	"$(extra_name "Lone [anidb-16]" "Lone-Short.mkv" -Short)"
+check "unnumbered: a trailer next to its movie is not" "$(grep -c 'Film (2016)-trailer' <<<"$out")" "0"
+check_contains "unnumbered: summary" "$out" "2 .plexmatch files to write, 2 hints in all, 0 files already have a hint, 4 warnings"
+
 # a show folder named Extras: its .plexmatch is read like any other show's
 mkdir -p "$WORK/extras/Extras"
 : >"$WORK/extras/Extras/Extras - SP1.mkv"
@@ -631,6 +763,26 @@ if ((have_jq)); then
 	out=$(bash "$SCRIPT" -m tvdb -u "$NO_KIZUNA" "$lib" 2>&1)
 	check "tvdb, Kizuna unreachable: exit" "$?" "1"
 	check_contains "tvdb, Kizuna unreachable: says so" "$out" "error: Kizuna is not ready at $NO_KIZUNA"
+
+	# tvdb rules: the movie's hint next to a trailer and a -featurette extra
+	# (left out, no warning) too; an episode with an extra's ending is reported; an unnumbered video
+	# that is no lone movie is reported as before; underscore names are read
+	lib=$WORK/tvdb-movies
+	mkdir -p "$lib/Film [tvdb3-200]" "$lib/Loose [tvdb3-200]"
+	for f in "Film [tvdb3-200]/Film (2016)" "Film [tvdb3-200]/Film (2016) - PV" "Film [tvdb3-200]/Film (2016)-featurette" \
+		"Loose [tvdb3-200]/Loose - 01" "Loose [tvdb3-200]/Loose - 033 - Love-scene" \
+		"Loose [tvdb3-200]/Loose Recap" "Loose [tvdb3-200]/[Grp]_Loose_-_05_[1080p]"; do
+		: >"$lib/$f.mkv"
+	done
+	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
+	check "tvdb movies: exit" "$?" "0"
+	check "tvdb movies: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
+		"  + ep: S01E01: Film (2016).mkv
+  + ep: S02E05: [Grp]_Loose_-_05_[1080p].mkv"
+	check "tvdb movies: the warnings" "$(grep '^WARNING' <<<"$out")" \
+		"WARNING: $lib/Film [tvdb3-200]/Film (2016) - PV.mkv: special file - add its TVDB number by hand (ep: S00Exx: Film (2016) - PV.mkv)
+WARNING: $lib/Loose [tvdb3-200]/Loose - 033 - Love-scene.mkv: Plex's scanner makes it an extra, not an episode or a movie: its name ends in \"-scene\". Rename it without that
+WARNING: $lib/Loose [tvdb3-200]/Loose Recap.mkv: no episode number found"
 
 	# auto mode: rules per folder, by tag or from Kizuna's /auto match
 	lib=$WORK/auto

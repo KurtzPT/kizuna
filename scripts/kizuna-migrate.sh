@@ -17,11 +17,14 @@
 #                in small letters (op1) is no extra. Each is only reported,
 #                with AniDB's own number (S00E101..., from Kizuna when it's
 #                reachable) for whoever renames the file and hints it by hand
-#                a folder's only video without a number -> ep: S01E01 (a movie)
+#                a movie, the only video without a number once specials,
+#                trailers, openings and endings are left out -> ep: S01E01
 #   tvdb rules   absolute "Show - 033.mkv"             -> ep: S02E33: Show - 033.mkv
 #                plain HAMA [tvdb-N] folders (seasons counted from 1 each):
 #                "Show - S02E01.mkv" / "Season 02/Show - 01.mkv" -> ep: S02E26: ...
 #                (plus the movie rule; special files are only reported)
+#   both rules   a file with one of Plex's extra suffixes ("Movie-trailer.mkv")
+#                is left out, like the extras/ folders
 #   auto mode    per show, the rules Kizuna's /auto provider picks for it: the
 #                first id tag decides when it's [anidbN-N] (anidb) or [tvdbN-N]
 #                (tvdb); other tags and untagged folders follow Kizuna's
@@ -74,10 +77,17 @@ trim() {
 
 # --- name parsing ------------------------------------------------------------
 
-# strip_tags removes [..], (..) and {..} groups and trims spaces.
+# strip_tags removes [..], (..) and {..} groups and trims spaces. What is
+# left without any space is a name that uses underscores for them, and is
+# read like the same name with spaces: "[Grp]_Show_-_SP1_[1080p]" and
+# "[Grp] Show_-_SP1 [1080p]" like "Show - SP1". Plex takes an underscore for
+# a space too. The spaces around the tags are trimmed before that check, so
+# they don't count.
 strip_tags() {
 	local s=$1 re='\[[^]]*\]|\([^)]*\)|\{[^}]*\}'
 	while [[ $s =~ $re ]]; do s=${s/"${BASH_REMATCH[0]}"/}; done
+	s=${s#"${s%%[![:space:]]*}"} s=${s%"${s##*[![:space:]]}"}
+	if [[ $s != *[[:space:]]* ]]; then s=${s//_/ }; fi
 	trim "$s"
 }
 
@@ -109,6 +119,13 @@ PLEX_CREDIT_RE='(^|[^[:alnum:]])((NC|(Creditless|Clean)[ ._])?(OP|ED|Opening|End
 # A name it matches is an episode, and Plex doesn't look for an opening or
 # ending in it. Wider than SXE: no word boundaries, "S01.E05", "s01 05".
 PLEX_SXE_RE='s[0-9]+[._ ]*e[0-9]+|s[0-9]{2}[-._ ]+[0-9]+'
+# Plex's suffixes for a local extra next to the video ("Movie (2016)-trailer"):
+# Plex makes the file an extra, never an episode or the movie
+PLEX_EXTRA_RE='-(behindthescenes|deleted|featurette|interview|scene|short|trailer|other)$'
+# what may be an episode number in a name the script reads none in: "1x01",
+# or a word of 1 to 3 digits ("Show 01 - Title", "Show.01.Title.1080p").
+# Plex's scanner reads some of these, so a file with one isn't reported.
+NUMBER_LIKE_RE='(^|[^[:alnum:]])([0-9]{1,2}x[0-9]{1,3}|[0-9]{1,3})([^[:alnum:]]|$)'
 # a spelled-out word and its number, as plex_credit prints them: "NCOpening 1"
 SHORT_CREDIT_RE='^(NC)?(OP|ED)[ ._]([0-9].*)$'
 # AniDB credit titles: "Opening 1a", "Opening 1 (b)", "Ending", "Ending 2: Song",
@@ -217,6 +234,36 @@ credit_title() {
 plex_numbered() {
 	shopt -s nocasematch
 	if [[ $1 =~ $PLEX_SXE_RE ]]; then
+		shopt -u nocasematch
+		return 0
+	fi
+	shopt -u nocasematch
+	return 1
+}
+
+# number_like says whether file name $1 (without its extension), one the
+# script reads no number in, still has what may be one: NUMBER_LIKE_RE, or
+# any digit in a season folder ($2, its season, is set), where Plex reads a
+# bare number too. Such a file isn't reported: a wrong warning on every
+# episode of a show is worse than a missed one.
+number_like() {
+	local core
+	core=$(strip_tags "$1")
+	if [[ -n $2 && $core == *[0-9]* ]]; then return 0; fi
+	shopt -s nocasematch
+	if [[ $core =~ $NUMBER_LIKE_RE ]]; then
+		shopt -u nocasematch
+		return 0
+	fi
+	shopt -u nocasematch
+	return 1
+}
+
+# plex_extra says whether Plex makes file name $1 (without its extension) a
+# local extra by its suffix: "Movie (2016)-trailer", "Show-featurette".
+plex_extra() {
+	shopt -s nocasematch
+	if [[ $1 =~ $PLEX_EXTRA_RE ]]; then
 		shopt -u nocasematch
 		return 0
 	fi
@@ -713,9 +760,27 @@ hint() {
 	PLAN_REL+=("$1") PLAN_VAL+=("$2")
 }
 
+# main_videos prints how many of the videos ($@) are no special, trailer,
+# opening, ending or other extra: a show's episodes, or its movie. It stops
+# at 2.
+main_videos() {
+	local v stem n=0
+	for v in "$@"; do
+		stem=${v##*/} stem=${stem%.*}
+		if plex_extra "$stem" && ! plex_numbered "$stem" && (($(absolute_number "$stem") == 0)); then
+			continue # an extra, unless it is meant as an episode (plan_show reports it)
+		fi
+		if ! plex_numbered "$stem" && [[ -n $(credit_of "$stem") ]]; then continue; fi
+		if (($(special_number "$stem") > 0)); then continue; fi
+		n=$((n + 1))
+		if ((n > 1)); then break; fi
+	done
+	echo "$n"
+}
+
 plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
-	local relative=0 se rs re pk pe numbered ctext
+	local relative=0 se rs re pk pe numbered ctext mains="" byhand
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
 	for sub in "$dir"/*/; do
 		sub=$(basename "$sub")
@@ -776,6 +841,13 @@ plan_show() {
 		if [[ $rd == . ]]; then rd=""; fi
 		ds=""
 		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); fi # a subfolder's season, if it has one
+		if plex_extra "$stem"; then # an extra to Plex, like those in extras/
+			# reported when it is meant as an episode or the movie
+			if ((${#videos[@]} == 1)) || plex_numbered "$stem" || (($(absolute_number "$stem") > 0)); then
+				warn "$v: Plex's scanner makes it an extra, not an episode or a movie: its name ends in \"-${stem##*-}\". Rename it without that"
+			fi
+			continue
+		fi
 
 		# what Plex makes of the name by itself: an episode (a season and
 		# episode in it), an opening/ending extra, a file it leaves out, or none
@@ -822,13 +894,27 @@ plan_show() {
 			warn "$v: Plex's scanner leaves it out of the library: its name contains the whole word \"$pe\". Rename it without that"
 		fi
 		abs=$(absolute_number "$stem")
-		shopt -s nocasematch
-		if ((abs == 0 && ${#videos[@]} == 1)) && [[ ! $stem =~ $SXE ]]; then # a movie: one file, no number
-			shopt -u nocasematch
-			hint "$rel" "S01E01"
-			continue
+		if ((abs == 0 && !numbered)); then # no number in it, for the script or for Plex
+			# counted once per show, and only for a show with such a file
+			if [[ -z $mains ]]; then mains=$(main_videos "${videos[@]}"); fi
+			if ((mains == 1)); then # a movie: next to it only specials, trailers, openings and endings
+				hint "$rel" "S01E01"
+				continue
+			fi
+			if [[ $rules != tvdb ]]; then # tvdb rules report it below
+				if [[ -n ${USER_EP[$rel]:-} ]]; then
+					KEPT=$((KEPT + 1)) # numbered by a hint of its own
+				elif [[ -z $pk ]] && ! number_like "$stem" "$ds"; then # pk: reported above
+					if [[ -n $ds ]]; then # in a season folder: no movie
+						printf -v byhand 'ep: S%02dExx: %s' "$ds" "$rel"
+					else
+						byhand="ep: S01E01: $rel for a movie"
+					fi
+					warn "$v: no episode number found, and the folder has other episodes or movies, so it isn't hinted as a lone movie. If Plex's scanner skips it, rename it with its number, or add its hint by hand ($byhand)"
+				fi
+				continue
+			fi
 		fi
-		shopt -u nocasematch
 		# plain HAMA tvdb: S02E01 is the 1st episode of TVDB season 2 -> its absolute number
 		if [[ $rules == tvdb ]] && ((relative)) && se=$(season_episode "$stem" "$ds") && [[ -n $se ]]; then
 			read -r rs re <<<"$se"
