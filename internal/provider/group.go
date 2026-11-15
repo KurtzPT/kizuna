@@ -26,9 +26,8 @@ type goroutinePanic struct {
 	stack []byte
 }
 
-// Go runs f in a goroutine of its own. A method call and not a closure
-// around f: it allocates what sync.WaitGroup.Go does (the budgets of
-// TestReportsOffAllocs).
+// Go runs f in a goroutine of its own. It allocates what sync.WaitGroup.Go
+// does (the budgets of TestReportsOffAllocs).
 func (g *group) Go(f func()) {
 	g.wg.Add(1)
 	go g.run(f)
@@ -52,6 +51,21 @@ func (g *group) keepPanic() {
 		p = &goroutinePanic{r, debug.Stack()}
 	}
 	g.first.CompareAndSwap(nil, p)
+}
+
+// keepStack, deferred in a function whose result several goroutines share (a
+// sync.OnceValue), sends its panic on with the stack it had here. The once
+// panics with the same value for every later caller, so whichever group is
+// waited last, the build's log shows where the panic started.
+func keepStack() {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if _, ok := r.(*goroutinePanic); !ok {
+		r = &goroutinePanic{r, debug.Stack()}
+	}
+	panic(r)
 }
 
 // Wait waits for every goroutine started so far, then panics with the first

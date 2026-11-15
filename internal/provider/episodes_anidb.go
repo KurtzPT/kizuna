@@ -27,6 +27,7 @@ type episodeLists struct {
 func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) episodeLists {
 	list := func(src string, id int, on bool) func() (episodeIndex, bool) {
 		return sync.OnceValues(func() (episodeIndex, bool) {
+			defer keepStack()
 			if !on || id <= 0 {
 				return episodeIndex{}, true
 			}

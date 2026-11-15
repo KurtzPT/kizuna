@@ -539,6 +539,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 // be asked of the show (its tmdb:// GUID then comes from the mapping alone).
 func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Entry) func() (int, error) {
 	return sync.OnceValues(func() (int, error) {
+		defer keepStack()
 		if entry.TMDB.ID == 0 && p.tmdb.Enabled() && p.cfg.Listed("tmdb") {
 			return p.tmdb.TVFromTVDB(ctx, tvdbID)
 		}

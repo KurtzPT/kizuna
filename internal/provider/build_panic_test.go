@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"kizuna/internal/fetch"
@@ -42,6 +43,29 @@ func TestGroupWaitPanicsWithTheGoroutinesPanic(t *testing.T) {
 
 func panicsInGroup() { panic("boom") }
 
+// A function goroutines share through a sync.OnceValue panics again for
+// every later caller, from the once itself: keepStack makes each of them
+// carry the stack of the run that panicked, whichever group is waited last.
+func TestKeepStackThroughAOnce(t *testing.T) {
+	once := sync.OnceValue(func() int {
+		defer keepStack()
+		panicsInGroup()
+		return 0
+	})
+	for _, caller := range []string{"first", "later"} {
+		var g group
+		g.Go(func() { once() })
+		var p *goroutinePanic
+		func() {
+			defer func() { p, _ = recover().(*goroutinePanic) }()
+			g.Wait()
+		}()
+		if p == nil || p.value != "boom" || !strings.Contains(string(p.stack), "panicsInGroup") {
+			t.Errorf("%s caller: got %+v, want the panic with the stack of the run that panicked", caller, p)
+		}
+	}
+}
+
 // A panic in a goroutine a build starts (a show value fetched ahead, an
 // episode list, the episode fill) must end as that build's failure, like a
 // panic on the build's own goroutine (TestPanickingBuildIsReleased): a
@@ -80,6 +104,7 @@ func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 				if rec := plexRequest(plain, p, "GET", c.path, ""); rec.Code != 200 {
 					t.Fatalf("first build: HTTP %d %s", rec.Code, rec.Body)
 				}
+				p.tvdb.WaitIdle() // the crew records are cached: the read below is the build's, not a download's
 				forget()
 			}
 			var logs strings.Builder
@@ -90,7 +115,7 @@ func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 					panic("boom: " + e.Key)
 				}
 			})
-			// The second request is answered by the failed build, not a new one.
+			// Asked twice: the second request must get its answer too, not hang.
 			for range 2 {
 				rec := plexRequest(panicking, p, "GET", c.path, "")
 				if rec.Code != 503 || !strings.Contains(rec.Body.String(), "build panicked: boom: "+c.key) {

@@ -338,8 +338,8 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		cancel()
 		if r := recover(); r != nil { // never leave waiters (and later requests) hanging on a dead build
 			stack := debug.Stack()
-			if p, ok := r.(*goroutinePanic); ok { // of a goroutine the build started (group)
-				r, stack = p.value, p.stack
+			if gp, ok := r.(*goroutinePanic); ok { // of a goroutine the build started (group)
+				r, stack = gp.value, gp.stack
 			}
 			b.show, b.err = nil, fmt.Errorf("build panicked: %v", r)
 			slog.Error("show build panicked", "root", root, "err", r, "stack", string(stack))

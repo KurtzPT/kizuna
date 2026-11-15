@@ -129,7 +129,10 @@ func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() 
 // wait waits for them.
 func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 	if p.plexEpisodesListed(b.tvdbID, false) { // the closure only when used: it allocates
-		b.plexRead = sync.OnceValue(func() bool { return b.readPlex(ctx, p) })
+		b.plexRead = sync.OnceValue(func() bool {
+			defer keepStack()
+			return b.readPlex(ctx, p)
+		})
 		if p.plexCrewRead(b.tvdbID) {
 			b.crewWG.Go(func() { b.plexRead() })
 		}
