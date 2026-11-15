@@ -181,6 +181,12 @@ func (p *Provider) Stop() {
 	})
 }
 
+// Flush writes what the provider keeps on disk and hasn't written yet: the
+// crew photos replaced in the last few seconds (crewSaveDelay). Call it at
+// shutdown, after WaitBuilds: the builds it waited for may have replaced
+// some. Without it the file keeps the older photos until the next build.
+func (p *Provider) Flush() { p.crewMemory.flush() }
+
 // WaitBuilds waits until no show build is running, or until ctx is done
 // (then false). A build outlives requests that give up on it, and queues
 // its match report when it ends: the shutdown waits for it, within its

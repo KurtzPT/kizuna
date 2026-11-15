@@ -170,8 +170,23 @@ func parseTitles(data []byte) (map[int][]Title, error) {
 	if len(dump.Anime) == 0 {
 		return nil, errors.New("no anime in the title dump")
 	}
+	// Each title's type and language come out of the XML as strings of
+	// their own: a few dozen values over some 100k titles. One shared copy
+	// of each saves about 4 MB for as long as the list is loaded.
+	shared := map[string]string{}
+	intern := func(s string) string {
+		if c, ok := shared[s]; ok {
+			return c
+		}
+		shared[s] = s
+		return s
+	}
 	byAID := make(map[int][]Title, len(dump.Anime))
 	for _, a := range dump.Anime {
+		for i := range a.Titles {
+			t := &a.Titles[i]
+			t.Type, t.Lang = intern(t.Type), intern(t.Lang)
+		}
 		byAID[a.AID] = a.Titles
 	}
 	return byAID, nil
