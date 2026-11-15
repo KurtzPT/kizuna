@@ -55,7 +55,7 @@ untouched, and Plex sees the same paths.
 
 ## 🧪 Before you start
 
-> [!CAUTION]
+> [!WARNING]
 > The script handles the common anime library layouts, **not every library**. A misread file name gives a wrong hint,
 > and a wrong hint puts the wrong title on an episode. Read the whole dry run before applying anything.
 
@@ -65,11 +65,8 @@ untouched, and Plex sees the same paths.
 - [ ] **Try a test library** first: two or three show folders copied into their own Plex library, through step 4.
 - [ ] **Save watched states elsewhere** if you depend on them, e.g. sync to Trakt.
 
-> [!WARNING]
-> **Watched states may not survive.** File paths stay the same, but every item's ID changes, e.g.
-> `com.plexapp.agents.hama://anidb-23` → `tv.plex.agents.custom.kizuna.anidb://show/anidb-23`. Kizuna recognises
-> HAMA's `anidb` and `tvdb` IDs when matching, but whether Plex carries watched states across hasn't been verified. Check the test
-> library.
+**Watched states may not survive.** Your files stay where they are, but Plex sees every show as a new item, and
+whether it carries watched states across hasn't been verified. Check the test library.
 
 ---
 
@@ -261,8 +258,7 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
      ep: S02E26: Attack on Titan - 26.mkv
 ```
 
-- **Seasons** come from Kizuna, through the same calls Plex makes, so Kizuna needs a
-  [TheTVDB key](SETTINGS.md#-accounts--keys).
+- **Seasons** come from Kizuna, which needs a [TheTVDB key](SETTINGS.md#-accounts--keys).
 - **Left alone:** files with `SxxEyy` in the name or in a `Season NN` folder.
 - **Episode numbers** are read from ` - 033`, `E33`, `Ep 33`, `Episode 33`, or a number ending the name; `[…]`,
   `(…)` and `{…}` groups don't count. A file with none is reported.
@@ -340,9 +336,9 @@ kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] [-a] LIBRARY
 | `-u` | Kizuna's address. `tvdb` needs Kizuna there, `auto` for every folder but `[anidb-N]` ones, `anidb` for opening and ending numbers | `$KIZUNA_URL`, else `http://localhost:32600` |
 | `-a` | write the plan | off: dry run |
 
-- **It only writes `.plexmatch` files** in show folders, keeping your lines, line endings and permissions. Each is
-  written as `.plexmatch.kizuna-tmp` and moved over the old one, so an interrupted run leaves the old file whole. A
-  `.plexmatch` that is a symlink is never written: the script lists its hints for you to add.
+- **It only writes `.plexmatch` files** in show folders, keeping your lines, line endings and permissions. An
+  interrupted run leaves the old file whole. A `.plexmatch` that is a symlink is never written: the script lists
+  its hints for you to add.
 - **Every folder in `LIBRARY` is a show**, hidden ones skipped; videos loose in `LIBRARY` itself are ignored. It
   reads every video up to 6 levels below, except in `extras/` and hidden subfolders, and follows symlinks as Plex
   does. Videos are `mkv`, `mp4`, `avi`, `m4v`, `ts`, `m2ts`, `wmv`, `mov`, `webm`, `ogm`, `flv` and `mpg` files.

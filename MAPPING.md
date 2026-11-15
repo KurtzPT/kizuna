@@ -17,8 +17,7 @@
 Kizuna learns which AniDB entry is which TVDB series, season and episode from the
 [Anime-Lists](https://github.com/Anime-Lists/anime-lists) and [Fribb](https://github.com/Fribb/anime-lists) lists
 ([id mapping](README.md#-id-mapping)). When they're wrong or incomplete, write your own correction in
-**`anime-list-custom.xml`** in the data folder. Your entries win over both lists, and are used even while neither
-list could be downloaded.
+**`anime-list-custom.xml`** in the data folder. Your entries win over both lists.
 
 | A correction changes | How |
 |---|---|
@@ -44,14 +43,10 @@ list could be downloaded.
 |---|---|
 | `anidbid` | the AniDB entry, from its page: `anidb.net/anime/1234` |
 | `tvdbid` | the TVDB series id, from its page at thetvdb.com. Anything else, such as `movie`, `OVA` or `unknown`, or left out: no TVDB series |
-| `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` is TheTVDB's absolute order, `0` its specials |
+| `defaulttvdbseason` | the TVDB season the entry's episodes are in; `a` is TheTVDB's absolute order, `0` its specials. **Always set it when `tvdbid` is a number:** left out, it counts as `0`, so the entry becomes specials only and is its own show in every mode |
 | `episodeoffset` | AniDB episode 1 is TVDB episode 1 + offset in that season. Default `0`. Episodes that land at 0 or below get no pair |
 | `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show (one number) · TheMovieDb movie · IMDb id, `tt…` |
 | `tmdbseason` · `tmdboffset` | the same as `defaulttvdbseason` · `episodeoffset`, for the `tmdbtv` show, whose seasons often differ from TheTVDB's. Without `tmdbseason`, `tmdboffset` is ignored, TheMovieDb is paired at the TVDB season and number in `/anidb` and by absolute number in `/tvdb`, and the entry never [starts](#-how-episodes-are-paired) the TheMovieDb show |
-
-> [!IMPORTANT]
-> **Always set `defaulttvdbseason` when `tvdbid` is a number.** Left out, it counts as `0`: the entry becomes
-> specials only, so it is its own show in every mode.
 
 > [!WARNING]
 > **An entry replaces that AniDB id's whole entry from both lists**, including the MyAnimeList, AniList, Kitsu and
@@ -98,13 +93,12 @@ flowchart TD
     O -- no --> D["✅ defaulttvdbseason<br/>+ episodeoffset<br/><i>regular episodes; specials:<br/>see pairing rule 3</i>"]
 ```
 
-> [!NOTE]
-> **The same AniDB episode in two `<mapping>`s of one entry:** a real episode beats "none", in either order.
-> `;1-0;` under `tvdbseason="0"` plus `;1-26;` under `tvdbseason="1"` says "special 1 isn't a TVDB special, it is
-> S01E26". Two *different* episodes is a mistake: Kizuna uses the first and logs `an AniDB episode is paired with two
-> different episodes`, naming the file and the entry.
+**The same AniDB episode in two `<mapping>`s of one entry:** a real episode beats "none", in either order.
+`;1-0;` under `tvdbseason="0"` plus `;1-26;` under `tvdbseason="1"` says "special 1 isn't a TVDB special, it is
+S01E26". Two *different* episodes is a mistake: Kizuna uses the first and logs `an AniDB episode is paired with two
+different episodes`, naming the file and the entry.
 
-> [!CAUTION]
+> [!WARNING]
 > **Ignored without a message:** an `<anime>` without a numeric `anidbid`, a pair with AniDB episode 0, and a range
 > with `end` but no `start`, `end` before `start`, or 5000 episodes or more. Check the result in the log
 > ([checking a correction](#-checking-a-correction)).
@@ -275,14 +269,13 @@ details:
 
 ## ✅ Checking a correction
 
-1. **Restart Kizuna**, e.g. `docker restart kizuna`. The file is also re-read on the daily mapping refresh, but shows
-   Kizuna built in the last hour keep the old pairing until a restart.
+1. **Restart Kizuna**, e.g. `docker restart kizuna`.
 2. In Plex, run **Refresh Metadata** on the show.
 3. With [`LOG_LEVEL=debug`](SETTINGS.md#-logging), find the show's lines:
 
 | Log line | Tells you |
 |---|---|
-| `anime-list-custom.xml ignored` | the file doesn't parse: an XML error. A restart starts without its entries; the daily refresh keeps those of its last good version |
+| `anime-list-custom.xml ignored` | the file has an XML error: none of its entries are used until it is fixed |
 | `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` only: how many AniDB episodes the entry's TVDB pairs and `start…end` ranges cover (use case 5 has 18; open ranges aren't counted) and how many were paired with TheTVDB |
 | `episode titles: source used … anidb=24 tvdb=0` | both modes: where each episode title came from |
 
@@ -323,10 +316,9 @@ that isn't specials only. It also supplies the `/tvdb` show details. TheMovieDb 
   number.
 - **`/tvdb`**: through AniDB. An episode's place on the list gives its AniDB episode, and the mapping gives that
   episode's place on the other site. Two entries on the same TVDB episode: the lower AniDB id wins. An episode
-  without an AniDB counterpart, or whose AniDB entry isn't cached yet, is paired by absolute number, a special by
-  its number in season 0. An episode whose AniDB entry the mapping puts on another TheMovieDb show gets no
-  TheMovieDb title or crew.
+  without an AniDB counterpart is paired by absolute number, a special by its number in season 0. An episode
+  whose AniDB entry the mapping puts on another TheMovieDb show gets no TheMovieDb title or crew.
 
-> [!NOTE]
-> In `/tvdb` a show spans several AniDB entries. Uncached ones are fetched in the background
-> ([within AniDB's limits](GUIDE.md#-anidb-fair-use)), so their titles appear on a later refresh.
+> [!TIP]
+> In `/tvdb` a show spans several AniDB entries, and AniDB [answers slowly](GUIDE.md#-anidb-fair-use): if some
+> episode titles are missing after the first scan, refresh the show later.

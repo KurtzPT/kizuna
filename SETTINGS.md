@@ -70,9 +70,7 @@ Where to get each key: [SETUP step 1](SETUP.md#-1-get-your-keys). A key left emp
 Each list names the sources to ask, in order: `anidb`, `tvdb`, `tmdb`, `mal`, `plex`, `ann`, from the ones the
 field allows. The first that has a value wins; `none` turns the field off ([more](#-how-sources-are-used)).
 
-- **A source you list nowhere is not asked at all,** even with its key set. The exceptions are AniDB and TheTVDB,
-  where Kizuna needs them to find a show's episodes, and Plex with `CAST_PHOTOS_FROM_PLEX` or
-  `CREW_PHOTOS_FROM_PLEX`.
+- **A source you list nowhere gives nothing,** even with its key set.
 - **`plex` is last in the default lists,** so by default it only fills what the others leave empty.
 
 | Variable | Default | What it does |
@@ -81,7 +79,7 @@ field allows. The first that has a value wins; `none` turns the field off ([more
 | `SUMMARY_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Summary |
 | `GENRE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Genres |
 | `CAST_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | Voice actors with their characters. ANN: Japanese cast, no photos |
-| `CAST_PHOTOS_FROM_PLEX` | `false` | `true`: each person's photo comes from Plex's own cast for the show, sized and cropped for Plex. The cast itself still comes from `CAST_SOURCES`; people Plex doesn't have keep their own photo. Needs `PLEX_TOKEN`. A first scan takes about half a second longer per show, even with `plex` in no list. Shows already in Plex get the new photos when you refresh their metadata |
+| `CAST_PHOTOS_FROM_PLEX` | `false` | `true`: each person's photo comes from Plex's own cast for the show, sized and cropped for Plex. The cast itself still comes from `CAST_SOURCES`; people Plex doesn't have keep their own photo. Needs `PLEX_TOKEN`. Shows already in Plex get the new photos when you refresh their metadata |
 | `CREW_SOURCES` | `anidb,tvdb,tmdb,plex,ann` | The show's directors and writers. Episodes have [their own list](#episode-directors-and-writers) |
 | `STUDIO_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | Studio |
 | `DATE_SOURCES` | `anidb,tvdb,tmdb,mal,plex,ann` | First aired or release date |
@@ -95,7 +93,7 @@ field allows. The first that has a value wins; `none` turns the field off ([more
 | `EPISODE_TITLES` | `anidb,tvdb,tmdb,plex` | Episode titles. A real title beats a placeholder such as *Episode 12* or *TBA*. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb,plex` | `/anidb` only: episode thumbnails, plus the summaries, dates and runtimes AniDB lacks. `tvdb`, `plex` or `none` |
 | `EPISODE_CREW_SOURCES` | `tvdb,tmdb,plex` | [Episode directors, writers and producers](#episode-directors-and-writers), with their photos. `tvdb`, `tmdb`, `plex` or `none` |
-| `CREW_PHOTOS_FROM_PLEX` | `false` | `true`: an episode's directors, writers and producers get Plex's photo of them first, when Plex has one; a person Plex has no photo of gets one from `EPISODE_CREW_SOURCES`. The people themselves still come from `EPISODE_CREW_SOURCES`. Needs `PLEX_TOKEN`, and does nothing with `EPISODE_CREW_SOURCES=none`. A first scan takes a little longer per show, even with `plex` in no list. Shows already in Plex get the new photos when you refresh their metadata |
+| `CREW_PHOTOS_FROM_PLEX` | `false` | `true`: an episode's directors, writers and producers get Plex's photo of them first, when Plex has one; a person Plex has no photo of gets one from `EPISODE_CREW_SOURCES`. The people themselves still come from `EPISODE_CREW_SOURCES`. Needs `PLEX_TOKEN`, and does nothing with `EPISODE_CREW_SOURCES=none`. Shows already in Plex get the new photos when you refresh their metadata |
 
 ### 🎵 Opening and ending titles
 
@@ -105,7 +103,7 @@ of `OP1` ([how it works](GUIDE.md#readable-titles)).
 | Variable | Default | What it does |
 |---|---|---|
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. `https://` works too. Nothing after the port |
-| `PLEX_TLS_NAME` | – | Only for an `https://` `PLEX_URL` whose host isn't in Plex's certificate, such as an IP (needed when Plex's *Secure connections* is *Required*): the one host name the certificate is checked against, such as `plex.example.com` or `192-168-1-10.<hash>.plex.direct`. No `https://`, port or `*`. Kizuna still connects to `PLEX_URL`, and a server without a valid certificate for the name gets no token |
+| `PLEX_TLS_NAME` | – | Only for an `https://` `PLEX_URL` whose host isn't in Plex's certificate, such as an IP (needed when Plex's *Secure connections* is *Required*): the one host name the certificate is checked against, such as `plex.example.com` or `192-168-1-10.<hash>.plex.direct`. No `https://`, port or `*` |
 | `PLEX_TOKEN` | – | See [Accounts & keys](#-accounts--keys) |
 
 With Docker, an `extra_hosts` line that points the certificate's name at the server's IP does the same without
@@ -208,9 +206,8 @@ another. Producers come from TheTVDB (with a v4 key) and Plex, at most 5 per epi
 
 **Photos.** Each person gets a photo from the first listed source that has one of them, from any episode of the
 series: a director TheTVDB names can get TheMovieDb's photo. With
-[`CREW_PHOTOS_FROM_PLEX=true`](#-sources-per-field), Plex's photo comes first. Kizuna remembers every photo it
-sends, for every show: a person keeps their photo on shows whose sources have none, and Plex never loses one because
-a later show sent the name without it. The photos are kept in `crew-photos.json` in the data folder.
+[`CREW_PHOTOS_FROM_PLEX=true`](#-sources-per-field), Plex's photo comes first. A person keeps their photo on
+every show, also on shows whose sources have none of them.
 
 > [!TIP]
 > With a v4 TheTVDB key, some episodes of a long show may lack them after its first scan: refresh the show a few
@@ -245,28 +242,22 @@ before the next source. A [match report](GUIDE.md#-match-reports) shows what cam
 
 ## 🧹 Cache cleanup
 
-The cache has no size limit of its own. When free space drops below `CACHE_MIN_FREE`, Kizuna deletes cache files
-until `CACHE_FREE_TARGET` is free, in this order:
+Kizuna keeps what the sources answer, so a change on a site reaches Plex a while later:
 
-1. **TheTVDB, TheMovieDb, MyAnimeList, Plex, ANN:** oldest first. Quick to download again.
-2. **AniDB anime:** oldest first. Slow to get back: AniDB allows 200 a day.
-
-The AniDB title list and the mapping lists are never deleted. If the target still isn't reached, something else is
-filling the disk, and Kizuna logs a warning.
-
-`crew-photos.json` in the data folder is not cache: the cleanup never deletes it. It holds the
-[episode crew photos](#episode-directors-and-writers) Kizuna has sent; delete it yourself to start over.
-
-| Cached | For |
+| Source | A change there shows in Plex after at most |
 |---|---|
-| AniDB anime | see [AniDB fair use](GUIDE.md#-anidb-fair-use) |
-| TheTVDB · TheMovieDb · Plex | 2–7 days |
+| AniDB | 6 to 180 days ([AniDB fair use](GUIDE.md#-anidb-fair-use)) |
+| TheTVDB · TheMovieDb · Plex · Anime News Network | 7 days |
 | MyAnimeList | 30 days |
-| Anime News Network | 7 days |
-| AniDB title list · mapping lists | refreshed daily |
+| AniDB's title list · the mapping lists | 1 day |
+
+The cache has no size limit of its own. When free space drops below `CACHE_MIN_FREE`, Kizuna deletes the oldest
+cached answers until `CACHE_FREE_TARGET` is free, AniDB's last: they are the slowest to get back. If that isn't
+enough, something else is filling the disk, and Kizuna logs a warning.
 
 > [!TIP]
-> When a source is down, Kizuna answers from its old cached copy: old data beats none.
+> **Want to start the [episode crew photos](#episode-directors-and-writers) over?** Delete `crew-photos.json` in
+> the data folder. The cleanup never touches it.
 
 ## ⚠️ When a value is wrong
 

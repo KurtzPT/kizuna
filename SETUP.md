@@ -111,8 +111,8 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 | Answer | Means |
 |---|---|
 | `"status":"ok"` | ✅ ready |
-| `"status":"starting"` | loading its lists: seconds, longer on the first start. Stuck there: the AniDB title list didn't download (no network?); it retries every 5 min |
-| `"status":"degraded"` | the id mapping lists didn't download (GitHub unreachable?); it retries every 5 min |
+| `"status":"starting"` | starting up: wait a few seconds, longer on the first start. Stuck there: check that Kizuna has internet access |
+| `"status":"degraded"` | the id mapping lists didn't download: check that Kizuna can reach GitHub |
 | `403` | Kizuna refused the caller: see [access](SETTINGS.md#%EF%B8%8F-access) |
 | no answer | wrong address, a firewall, or Kizuna [didn't start](#kizuna-doesnt-start) |
 
@@ -125,10 +125,9 @@ From the machine that runs Plex, open `http://<kizuna-host>:32600/health`:
 - **Edit `kizuna.env`, then restart the container.** [SETTINGS.md](SETTINGS.md) explains every setting.
 - **Keep the file private:** it holds your keys and maybe your Plex token. Only Kizuna's user needs to read it.
 
-> [!NOTE]
-> **Container variables win over the file**, even when empty: `environment:` in `compose.yml`, `-e` with
-> `docker run`, a variable in the Unraid template, where Unraid always sets `TZ`. Handy for a quick test, such as
-> `LOG_LEVEL=debug`.
+> [!TIP]
+> **For a quick test, set a variable on the container**, such as `LOG_LEVEL=debug`: `environment:` in
+> `compose.yml`, `-e` with `docker run`, a variable in the Unraid template. It wins over the file, even when empty.
 
 ## 🔌 3. Register Kizuna in Plex
 
@@ -156,12 +155,8 @@ In Plex Web, open **Settings → Metadata Agents**.
 
 ## 📚 4. Point a library at it
 
-> [!CAUTION]
+> [!WARNING]
 > **Changing an existing library's agent makes Plex re-match every show.** Back up the Plex database first.
-
-> [!IMPORTANT]
-> Only the **Plex TV Series** scanner works with the new providers. Legacy scanners, such as Absolute Series Scanner,
-> don't.
 
 1. **Titles and artwork the way you want them?** Change them in `kizuna.env` ([SETTINGS.md](SETTINGS.md)) and restart
    Kizuna *now*: changing them after the first scan means refreshing every show again.
@@ -169,14 +164,13 @@ In Plex Web, open **Settings → Metadata Agents**.
 
    | Field | Value |
    |---|---|
-   | **Scanner** | `Plex TV Series` |
+   | **Scanner** | `Plex TV Series`: the only one that works. Legacy scanners, such as Absolute Series Scanner, don't |
    | **Agent** | the agent from step 3 |
 
 3. Save, then run **Scan Library Files** and **Refresh All Metadata**.
 
-> [!WARNING]
-> A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
-> shows fill in on later refreshes.
+A large library takes **several days** to get all its AniDB details ([AniDB's limits](GUIDE.md#-anidb-fair-use)):
+shows fill in on later refreshes.
 
 ---
 

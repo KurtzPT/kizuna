@@ -10,7 +10,6 @@
 into one Plex provider.
 
 ![Plex Media Server 1.43+](https://img.shields.io/badge/Plex_Media_Server-1.43%2B-e5a00d?style=flat-square&logo=plex&logoColor=white)
-![Go](https://img.shields.io/badge/Go-stdlib_only-00add8?style=flat-square&logo=go&logoColor=white)
 ![Docker image](https://img.shields.io/badge/Docker-~10_MB-2496ed?style=flat-square&logo=docker&logoColor=white)
 ![amd64 · arm64](https://img.shields.io/badge/arch-amd64_·_arm64-555?style=flat-square)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
@@ -39,8 +38,8 @@ Kizuna is a **custom metadata provider**: the new kind of Plex agent, running as
 | 🔀 **Per-field sources** | Pick the source order for titles, summaries, posters, cast… separately |
 | 🖼️ **Your files win**\* | `poster.jpg`, `fanart.jpg`, `theme.mp3` next to your files override every online source |
 | 📊 **Match reports** | An optional [page per show](#-match-reports) that says how it was matched and where each value came from |
-| 🤝 **Plays fair** | Every source is [rate-limited and cached](#-fair-use), so your IP stays welcome |
-| 🪶 **Tiny** | One static Go binary, standard library only, a ~10 MB image |
+| 🤝 **Plays fair** | Kizuna keeps to every source's [usage rules](#-fair-use), so your IP stays welcome |
+| 🪶 **Small** | A ~10 MB Docker image, for amd64 and arm64 |
 
 <sub>\* Done by *Plex Local Media*, Plex's own provider, when you add it to the agent next to Kizuna (optional,
 [setup](SETUP.md#-3-register-kizuna-in-plex)).</sub>
@@ -134,7 +133,7 @@ flowchart LR
 | `P` parodies | `S00E301` … |
 | `O` other | `S00E401` … |
 
-> [!NOTE]
+> [!TIP]
 > Openings and endings don't have to be specials. Named `OP1`, `NCED2`…, Plex makes them **extras** of the show
 > instead, and Kizuna can give them readable titles such as *Opening 1*
 > ([openings and endings](GUIDE.md#-openings-and-endings)).
@@ -193,7 +192,7 @@ The first piece of evidence that names a show wins:
 |---|---|---|
 | 1 | **An id tag** in the folder or file name | `[anidb-69]` `[tvdb-81797]` `[tmdb-37854]` `[imdb-tt0388629]` `[mal-21]` `[anilist-21]` `[kitsu-12]` `[ann-13]`, or the same in `{…}` |
 | 2 | **The GUID Plex already has** from another agent | `com.plexapp.agents.thetvdb://81797`, a HAMA `anidb-69` GUID, `imdb://tt0388629` |
-| 3 | **AniDB title search** in the offline title list (~1 ms, no API call) | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
+| 3 | **AniDB title search** | `Hunter x Hunter` + year 2011 → *Hunter x Hunter (2011)*, not the 1999 series |
 
 - **Fix Match** in Plex lists the show the tag or GUID names first, then the results for the title you type, so a
   wrong match can be changed without unmatching first.
@@ -222,8 +221,8 @@ Each field has its own source order, which you can change. **More:** [which keys
 
 ### 🔗 Id mapping
 
-Two community lists connect AniDB to every other site. Both are downloaded daily; when they disagree, the first list
-in [`MAPPING_SOURCES`](SETTINGS.md#-matching--titles) wins:
+Two community lists connect AniDB to every other site. When they disagree, the first list in
+[`MAPPING_SOURCES`](SETTINGS.md#-matching--titles) wins:
 
 | List | Adds |
 |---|---|
@@ -243,9 +242,8 @@ the mapping is what to [fix](MAPPING.md). [How pairing works](MAPPING.md#-how-ep
 
 ### 🤝 Fair use
 
-Each source's API has usage rules, and Kizuna keeps to them: it paces its requests to every source and caches the
-answers for days. No setting turns this off. AniDB is the strictest, so a large library takes several days to fill
-in: [AniDB's limits](GUIDE.md#-anidb-fair-use).
+Each source has usage rules, and Kizuna keeps to them: no setting turns this off. AniDB is the strictest, so a
+large library takes several days to fill in: [AniDB's limits](GUIDE.md#-anidb-fair-use).
 
 ---
 
