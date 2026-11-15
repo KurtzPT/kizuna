@@ -70,7 +70,8 @@ Each list names the sources to ask, in order: `anidb`, `tvdb`, `tmdb`, `mal`, `p
 field allows. The first that has a value wins; `none` turns the field off ([more](#-how-sources-are-used)).
 
 - **A source you list nowhere gives nothing,** even with its key set.
-- **`plex` is last in the default lists,** so by default it only fills what the others leave empty.
+- **In the default lists `plex` comes after every source but `ann`,** so by default it only fills what those leave
+  empty.
 
 | Variable | Default | What it does |
 |---|---|---|

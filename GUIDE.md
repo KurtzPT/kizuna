@@ -161,7 +161,8 @@ A show's page covers its last 5 refreshes:
 | **Plex requests** | the last 50 requests about the show |
 
 - A title that matched nothing gets `unmatched-<title>-<hash>.html`, with the closest candidates and how to fix it.
-  It goes once the title matches, or after 30 days without a request for it.
+  It goes once the title matches, with or without an id tag, or after 30 days without a request for it. A *Fix
+  Match* leaves it.
 - A show's page goes after 90 days without a request for the show, and comes back at its next refresh.
 - Delete the `reports/` folder to start over. Turning reports off leaves it as it is.
 
