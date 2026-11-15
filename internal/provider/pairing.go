@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
 	"kizuna/internal/sources"
 )
@@ -108,13 +107,12 @@ func (l pairedList) title(ep *Ep, src string, record bool) (sources.Episode, boo
 
 // seriesEpisodes returns a TVDB, TMDB or Plex series' episodes (Plex's by
 // the TheTVDB id), absolute numbers filled in (an empty index when the list
-// can't be had). complete is false
-// when the list failed or came back partial, so the show is rebuilt soon; a
-// series the source doesn't have (404) counts as complete.
-func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x episodeIndex, complete bool) {
+// can't be had). err is why the list failed or came back partial, so the
+// show is rebuilt soon (lazy.failed); a series the source doesn't have (404)
+// counts as complete.
+func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x episodeIndex, err error) {
 	var eps []sources.Episode
 	var posters map[int][]string
-	var err error
 	switch src {
 	case "tvdb":
 		eps, err = p.tvdb.Episodes(ctx, id)
@@ -129,7 +127,7 @@ func (p *Provider) seriesEpisodes(ctx context.Context, src string, id int) (x ep
 	sources.FillAbsolute(eps)
 	x = indexEpisodes(eps)
 	x.posters = posters
-	return x, err == nil || fetch.IsNotFound(err)
+	return x, err
 }
 
 // spotOn returns where an AniDB episode (season 1 regular, 0 = S special)

@@ -470,7 +470,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	tmdbShow := p.tmdbShowOf(ctx, tvdbID, entry)
 	b := newTVDBBuild(tvdbID, 0, aid, nil, nil)
 	b.startTMDB(ctx, p, tmdbShow) // while TheTVDB's episode list downloads
-	defer b.wait()                // a failed build too: nothing it started outlives it
+	defer b.started.Wait()        // a failed build too: nothing it started outlives it
 
 	var wg group
 	defer wg.Wait() // a failed build too: AniDB's answer is cached for the next
@@ -580,18 +580,18 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 	var tmdbOK, titlesReady, plexOK, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
-		tmdbOK = b.loadTMDB(p)
+		tmdbOK = b.loadTMDB()
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
 		plexOK = p.tvdbPlexTitles(ctx, s, b)
-		pairs = tmdbSeasonPairs(s, b.tmdbEps, pr)
+		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(), pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.tvdbEpisodeCrew(ctx, s, b, pr)
+		crewReady = p.episodeCrew(ctx, s, pairedList{b.tmdbEps.get(), pr.otherAt}, &b.plex, &b.crew, &b.photos)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
 	p.finishCrew(s, ss, &b.photos) // the fields and the episodes are in
-	ss.pairTMDB(pairs, b.tmdbEps.posters)
+	ss.pairTMDB(pairs, b.tmdbEps.get().posters)
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)
 	return tmdbOK && titlesReady && plexOK && crewReady && sourcesOK

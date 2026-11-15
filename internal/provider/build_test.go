@@ -1483,6 +1483,45 @@ func TestCachedMovieSkipsEarlyLists(t *testing.T) {
 	}
 }
 
+// An /anidb build fetches its episode lists ahead while AniDB is asked; when
+// AniDB's answer is a movie, nothing reads them. The build still waits for
+// them (none outlives it), and one that failed doesn't count: the show is
+// complete.
+func TestUnreadEarlyListWaitedNotCounted(t *testing.T) {
+	var once sync.Once
+	anidbAsked := make(chan struct{})
+	var mu sync.Mutex
+	listAnswered := false
+	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+		switch path {
+		case "api.anidb.net/httpapi":
+			once.Do(func() { close(anidbAsked) })
+			return 200, movieXML(100, "Kizuna Test", "The movie.", 90, "2010-05-01")
+		case tvdbEpisodes:
+			<-anidbAsked // still on its way when AniDB answers
+			mu.Lock()
+			listAnswered = true
+			mu.Unlock()
+			return 500, `{}`
+		}
+		return testSeries(path, q)
+	}}
+	p := newTestProvider(t, net) // its entry has TheTVDB's and TheMovieDb's TV ids, as for a series
+	s, err := p.buildShow(context.Background(), "anidb-100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	answered := listAnswered
+	mu.Unlock()
+	if !answered || !s.Complete {
+		t.Errorf("TheTVDB's list answered before the build ended %v, complete %v; want both", answered, s.Complete)
+	}
+	if ep := s.Episode(1, 1); ep == nil || ep.Thumb != "" || ep.tvdbEp != 0 {
+		t.Errorf("S01E01 %+v, want the movie, not paired with TheTVDB's list", ep)
+	}
+}
+
 // specialEpisodes guesses a special-only entry's episodes without AniDB's
 // details: one for a movie, up to the next entry's spot for an OVA (one
 // without a next entry), at most maxSpecialEpisodes, raised by an exception

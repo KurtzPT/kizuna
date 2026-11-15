@@ -764,8 +764,8 @@ func countsText(counts []sourceCount) string {
 	return b.String()
 }
 
-// lazy computes f once, on first use; safe for concurrent callers. Without
-// f it gives the zero value.
+// lazy computes f once, on first use, or ahead in a build's group (start);
+// safe for concurrent callers. Without f it gives the zero value.
 type lazy[T any] struct {
 	once sync.Once
 	f    func() (T, error)
@@ -773,17 +773,46 @@ type lazy[T any] struct {
 	err  error
 	read atomic.Bool // get was called since the last unread (failed)
 	ran  atomic.Bool // f ran: v is set (done)
+	// panicked: the panic f ended with. Every later caller panics with it
+	// too: f may have run on another goroutine than the one reading (start).
+	panicked *goroutinePanic
 }
 
 func (l *lazy[T]) get() T {
 	l.read.Store(true)
+	l.fetch()
+	return l.v
+}
+
+// fetch runs f, once, without counting as a read.
+func (l *lazy[T]) fetch() {
 	l.once.Do(func() {
 		if l.f != nil {
+			defer l.keepPanic()
 			l.v, l.err = l.f()
 			l.ran.Store(true)
 		}
 	})
-	return l.v
+	if l.panicked != nil {
+		panic(l.panicked)
+	}
+}
+
+// keepPanic, deferred in f's run, keeps its panic, with the stack it had
+// there, for fetch to panic with on every caller.
+func (l *lazy[T]) keepPanic() {
+	if r := recover(); r != nil {
+		l.panicked = asGoroutinePanic(r)
+		panic(l.panicked)
+	}
+}
+
+// start fetches the value ahead, in g, before anything reads it: a fetch
+// alone isn't a read (failed). Nothing to fetch: nothing starts.
+func (l *lazy[T]) start(g *group) {
+	if l.f != nil {
+		g.goFetch(l)
+	}
 }
 
 // done gives the value only when get has fetched it already: it never

@@ -35,24 +35,29 @@ func (p *Provider) plexCrewRead(tvdb int) bool {
 	return tvdb > 0 && p.plex.Enabled() && len(order) > 0 && (p.cfg.CrewPhotosFromPlex || slices.Contains(order, "plex"))
 }
 
-// episodeCrew sets an /anidb show's episode crew from TheTVDB, TheMovieDb's
-// list (tm) and Plex's (px, read here for crew when its read for titles or
-// fill values didn't happen), and adds their photos to cp. Returns false
-// while TheTVDB's records are still being fetched, or when one's request
-// failed (TVDB.EpisodeCrew's pending).
-func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *plexFill, cp *crewPhotos) bool {
-	if len(p.cfg.EpisodeCrewSources) == 0 {
-		applyCrew(s, nil, nil, tm, px.list) // takes TheTVDB's list's crew off: no crew at all
-		return true
-	}
-	if px.get != nil && px.crew {
-		px.fetch()
+// episodeCrew sets a show's episode directors, writers and producers in one
+// pass over EPISODE_CREW_SOURCES (applyCrew places them; with none, it takes
+// TheTVDB's list's crew off), and adds their photos to cp: TheTVDB's list's
+// crew (on the episodes already) and its records (records, fetched ahead:
+// /tvdb with tvdb first; nil or without f, asked here for the episodes with
+// a gap: tvdbCrew), TheMovieDb's list (tm) and Plex's (px, read here for crew
+// when its read for titles or fill values didn't happen: plexCrewRead).
+// Returns false while TheTVDB's records are still being fetched, or when a
+// record's request (TVDB.EpisodeCrew's pending) or Plex's list failed.
+func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *plexEpisodes, records *lazy[crewRecords], cp *crewPhotos) bool {
+	plexOK := true
+	if px.crew {
+		plexOK = px.read()
 	}
 	crew, pending := p.walkCrew(cp, tm, px.list, func(prior []string) (map[int]sources.Crew, bool) {
+		if records != nil && records.fetches() {
+			r := records.get()
+			return r.crew, r.pending
+		}
 		return p.tvdbCrew(ctx, s, prior, cp, tm, px.list)
 	})
 	applyCrew(s, p.cfg.EpisodeCrewSources, crew, tm, px.list)
-	return !pending
+	return !pending && plexOK
 }
 
 // walkCrew walks EPISODE_CREW_SOURCES once, adding each source's photos to
@@ -291,28 +296,16 @@ func (p *Provider) finishCrew(s *Show, ss *showSources, cp *crewPhotos) {
 		return
 	}
 	plexFirst := p.cfg.CrewPhotosFromPlex
-	for _, src := range order {
-		switch src {
-		case "tvdb":
-			if d, ok := ss.tvdbDetails.done(); ok {
-				cp.add(srcTVDB, d.CrewPhotos)
-			}
-		case "tmdb":
-			if d, ok := ss.tmdbDetails.done(); ok {
-				cp.add(srcTMDB, d.CrewPhotos)
-			}
-		case "plex":
-			if !plexFirst {
-				if sh, ok := ss.plexShow.done(); ok {
-					cp.add(srcPlex, sh.Details.CrewPhotos)
-				}
-			}
-		}
+	// Each source's photos go in its own map: the order of these adds
+	// changes nothing.
+	if d, ok := ss.tvdbDetails.done(); ok && slices.Contains(order, "tvdb") {
+		cp.add(srcTVDB, d.CrewPhotos)
 	}
-	if plexFirst {
-		if sh, ok := ss.plexShow.done(); ok {
-			cp.add(srcPlex, sh.Details.CrewPhotos)
-		}
+	if d, ok := ss.tmdbDetails.done(); ok && slices.Contains(order, "tmdb") {
+		cp.add(srcTMDB, d.CrewPhotos)
+	}
+	if sh, ok := ss.plexShow.done(); ok && (plexFirst || slices.Contains(order, "plex")) {
+		cp.add(srcPlex, sh.Details.CrewPhotos)
 	}
 	s.crew = map[string]crewRef{}
 	changed := false
