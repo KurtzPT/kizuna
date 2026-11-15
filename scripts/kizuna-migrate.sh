@@ -485,6 +485,10 @@ match_body() {
 		 + (if $m == 1 then {manual: 1} else {} end)'
 }
 
+# A whole number in Kizuna's answer, for jq. Anything else in a number's place
+# (a string, a fraction) is not Kizuna's, and the entry is left out.
+JQ_WHOLE='def whole: type == "number" and . == floor;'
+
 declare -A SEASON_OF # absolute episode -> season, for the current show
 declare -A ABS_OF    # "season N" -> absolute number of the season's Nth episode, for the current show
 SHOW_KEY=""          # its Kizuna rating key
@@ -501,10 +505,14 @@ load_seasons() {
 	[[ -n $key ]] || return 1
 	lines=$(curl -fsS --max-time 60 -H 'X-Plex-Container-Size: 100000' \
 		"$URL/$MODE/library/metadata/$key/grandchildren" |
-		jq -r '[.MediaContainer.Metadata[]? | select(.parentIndex > 0)] | sort_by(.parentIndex)[] | "\(.index) \(.parentIndex)"' | tr -d '\r') ||
+		jq -r "$JQ_WHOLE"'
+			[.MediaContainer.Metadata[]? | select((.index | whole) and (.parentIndex | whole) and .parentIndex > 0)]
+			| sort_by(.parentIndex)[] | "\(.index | floor) \(.parentIndex | floor)"' | tr -d '\r') ||
 		return 1
 	while read -r abs season; do
-		[[ -n $abs ]] || continue
+		# bash evaluates a value used as a number, so only digits get that far:
+		# what answers at $URL may not be Kizuna
+		[[ $abs =~ ^[0-9]+$ && $season =~ ^[0-9]+$ ]] || continue
 		if [[ -z ${SEASON_OF[$abs]:-} ]]; then SEASON_OF[$abs]=$season; fi
 		nth[$season]=$((${nth[$season]:-0} + 1)) # Kizuna lists each season's episodes in order
 		ABS_OF["$season ${nth[$season]}"]=$abs
@@ -559,7 +567,9 @@ fetch_credits() {
 		return 0
 	[[ $key == anidb-* ]] || return 0
 	curl -fsS --max-time 120 -H 'X-Plex-Container-Size: 100000' "$URL/$MODE/library/metadata/$key-s0/children" |
-		jq -r '.MediaContainer.Metadata[]? | select(.index > 100 and .index < 200) | "\(.index)\t\(.title)"' |
+		jq -r "$JQ_WHOLE"'
+			.MediaContainer.Metadata[]? | select((.index | whole) and .index > 100 and .index < 200)
+			| "\(.index | floor)\t\(.title)"' |
 		tr -d '\r' || return 0
 }
 
@@ -573,7 +583,9 @@ load_credits() {
 	CREDIT_AT=() CREDITS_FOR=$1 CREDITS_UNREAD=0
 	((KIZUNA)) || return 0
 	while IFS=$'\t' read -r index title; do
-		[[ $index =~ ^[0-9]+$ ]] || continue
+		# 101 to 199 only: a title with a line break in it starts a line of its
+		# own here, and its start is no number of Kizuna's
+		[[ $index =~ ^1[0-9][0-9]$ && $index != 100 ]] || continue
 		kind=op
 		if ((index > 150)); then kind="ed"; fi
 		if read -r num letter < <(credit_title "$title"); then

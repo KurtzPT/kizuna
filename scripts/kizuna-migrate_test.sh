@@ -479,6 +479,10 @@ curl() {
 		*'[anidb-3]'*) key=anidb-3 ;;
 		*'[anidb-4]'*) key=anidb-4 ;;
 		*'[anidb-5]'*) key=anidb-5 ;;
+		*'[anidb-6]'*) key=anidb-6 ;;
+		*'[tvdb3-901]'*) key=tvdb-901 ;;
+		*'[tvdb3-902]'*) key=tvdb-902 ;;
+		*'[tvdb-903]'*) key=tvdb-903 ;;
 		esac
 		if [[ -n $key ]]; then
 			printf '{"MediaContainer":{"size":1,"Metadata":[{"type":"show","ratingKey":"%s"}]}}' "$key"
@@ -509,6 +513,27 @@ curl() {
 	# an ending AniDB has no title for: Kizuna's placeholder, not a title to read
 	"$FAKE"/anidb/library/metadata/anidb-5-s0/children)
 		printf '{"MediaContainer":{"Metadata":[%s]}}' '{"index":101,"title":"Opening 1"},{"index":151,"title":"Episode 151"}'
+		;;
+	# Answers that are not Kizuna's: text where a number belongs. Bash runs the
+	# $(...) in such a text when it uses the text as a number, which would
+	# leave a file named marker in the folder the script runs in.
+	"$FAKE"/tvdb/library/metadata/tvdb-901/grandchildren) # a season that is a text
+		printf '{"MediaContainer":{"Metadata":[%s]}}' \
+			'{"index":5,"parentIndex":"BASH_VERSINFO[$(echo>marker)0]"},{"index":6,"parentIndex":2}'
+		;;
+	"$FAKE"/tvdb/library/metadata/tvdb-902/grandchildren) # an episode number that is a text
+		printf '{"MediaContainer":{"Metadata":[%s]}}' \
+			'{"index":"5 BASH_VERSINFO[$(echo>marker)0]+","parentIndex":2},{"index":6,"parentIndex":2}'
+		;;
+	"$FAKE"/tvdb/library/metadata/tvdb-903/grandchildren) # season 2: a text and a fraction
+		printf '{"MediaContainer":{"Metadata":[%s]}}' \
+			'{"index":1,"parentIndex":1},{"index":"9x","parentIndex":2},{"index":7.5,"parentIndex":2}'
+		;;
+	# a number that is a text, and a title with a line break that reads as a
+	# line of its own ("08<TAB>Opening 1")
+	"$FAKE"/anidb/library/metadata/anidb-6-s0/children)
+		printf '{"MediaContainer":{"Metadata":[%s]}}' \
+			'{"index":"BASH_VERSINFO[$(echo>marker)0]","title":"Opening 3"},{"index":101,"title":"Song\n08\tOpening 1"},{"index":152,"title":"Ending 2"}'
 		;;
 	*) return 7 ;; # "couldn't connect"
 	esac
@@ -631,6 +656,74 @@ if ((have_jq)); then
 	check "credit langs: a placeholder title isn't unreadable" "$(number_of "Placeholder - ED2")" \
 		"an ep: hint for the new name, with its Kizuna number (S00E101...; ED2: not among this show's AniDB openings/endings), $by_hand_end"
 	check "credit langs: never 'run with -u'" "$(grep -c 'run with -u' <<<"$out")" "0"
+
+	# What answers at -u may not be Kizuna. Text where a number belongs is left
+	# out: no command in it runs (no marker file), and its line plans no hint.
+	# Each case runs in a folder of its own, where the marker would land.
+	# marker_in DIR: "marker" when a command from an answer ran there
+	marker_in() { if [[ -e $1/marker ]]; then echo marker; fi; }
+
+	t=$(mktemp -d "$WORK/hostile-season.XXXXXX")
+	mkdir -p "$t/lib/Abs [tvdb3-901]"
+	: >"$t/lib/Abs [tvdb3-901]/Abs - 05.mkv"
+	: >"$t/lib/Abs [tvdb3-901]/Abs - 06.mkv"
+	out=$(cd "$t" && bash "$SCRIPT" -m tvdb -u "$FAKE" lib 2>&1)
+	check "hostile season, dry run: exit" "$?" "0"
+	check "hostile season, dry run: no command ran" "$(marker_in "$t")" ""
+	check_contains "hostile season, dry run: its episode is unknown" "$out" "Abs - 05.mkv: absolute episode 5 not in tvdb-901"
+	check_contains "hostile season, dry run: a good line still counts" "$out" "+ ep: S02E06: Abs - 06.mkv"
+	check_contains "hostile season, dry run: summary" "$out" "1 .plexmatch files to write, 1 hints in all"
+	out=$(cd "$t" && bash "$SCRIPT" -m tvdb -u "$FAKE" -a lib 2>&1)
+	check "hostile season, apply: exit" "$?" "0"
+	check "hostile season, apply: no command ran" "$(marker_in "$t")" ""
+	check "hostile season, apply: only the good line's hint written" "$(bytes "$t/lib/Abs [tvdb3-901]/.plexmatch")" \
+		'ep:S02E06:Abs-06.mkv\n'
+
+	t=$(mktemp -d "$WORK/hostile-index.XXXXXX")
+	mkdir -p "$t/lib/Abs [tvdb3-902]"
+	: >"$t/lib/Abs [tvdb3-902]/Abs - 05.mkv"
+	: >"$t/lib/Abs [tvdb3-902]/Abs - 06.mkv"
+	out=$(cd "$t" && bash "$SCRIPT" -m tvdb -u "$FAKE" lib 2>&1)
+	check "hostile episode number, dry run: exit" "$?" "0"
+	check "hostile episode number, dry run: no command ran" "$(marker_in "$t")" ""
+	check "hostile episode number, dry run: no hint from its line" "$(grep -c '+ ep: .*Abs - 05.mkv' <<<"$out")" "0"
+	check_contains "hostile episode number, dry run: its episode is unknown" "$out" "Abs - 05.mkv: absolute episode 5 not in tvdb-902"
+	check_contains "hostile episode number, dry run: a good line still counts" "$out" "+ ep: S02E06: Abs - 06.mkv"
+	out=$(cd "$t" && bash "$SCRIPT" -m tvdb -u "$FAKE" -a lib 2>&1)
+	check "hostile episode number, apply: exit" "$?" "0"
+	check "hostile episode number, apply: no command ran" "$(marker_in "$t")" ""
+	check "hostile episode number, apply: only the good line's hint written" "$(bytes "$t/lib/Abs [tvdb3-902]/.plexmatch")" \
+		'ep:S02E06:Abs-06.mkv\n'
+
+	# a plain [tvdb-N] folder takes the season's Nth episode number from the
+	# answer: one that is no whole number is no episode
+	t=$(mktemp -d "$WORK/hostile-nth.XXXXXX")
+	mkdir -p "$t/lib/Rel [tvdb-903]"
+	: >"$t/lib/Rel [tvdb-903]/Rel - S02E01.mkv"
+	: >"$t/lib/Rel [tvdb-903]/Rel - S02E02.mkv"
+	out=$(cd "$t" && bash "$SCRIPT" -m tvdb -u "$FAKE" lib 2>&1)
+	check "episode numbers that are no whole numbers: exit" "$?" "0"
+	check "episode numbers that are no whole numbers: no hint" "$(grep -c '^  + ' <<<"$out")" "0"
+	check_contains "episode numbers that are no whole numbers: a text" "$out" \
+		"Rel - S02E01.mkv: S02E01: TheTVDB's season 2 of tvdb-903 has no episode 1"
+	check_contains "episode numbers that are no whole numbers: a fraction" "$out" \
+		"Rel - S02E02.mkv: S02E02: TheTVDB's season 2 of tvdb-903 has no episode 2"
+	check "episode numbers that are no whole numbers: nothing bash complains about" "$(grep -c 'invalid number' <<<"$out")" "0"
+
+	t=$(mktemp -d "$WORK/hostile-credits.XXXXXX")
+	mkdir -p "$t/lib/Inj [anidb-6]"
+	for f in OP1 OP3 ED2; do : >"$t/lib/Inj [anidb-6]/Inj - $f.mkv"; done
+	out=$(cd "$t" && bash "$SCRIPT" -u "$FAKE" lib 2>&1)
+	check "hostile credits: exit" "$?" "0"
+	check "hostile credits: no command ran" "$(marker_in "$t")" ""
+	check "hostile credits: nothing bash complains about" "$(grep -c 'value too great for base\|invalid' <<<"$out")" "0"
+	unlisted="not among the ones whose Kizuna titles the script can read; $langs_fix"
+	check "hostile credits: a line made by a title's line break is no credit" "$(number_of "Inj - OP1")" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP1: $unlisted), $by_hand_end"
+	check "hostile credits: a number that is a text is no credit" "$(number_of "Inj - OP3")" \
+		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP3: $unlisted), $by_hand_end"
+	check "hostile credits: a good line still counts" "$(number_of "Inj - ED2")" \
+		"\"ep: S00E152: <new name>\" $by_hand_end (S00E152 is Kizuna's number for it)"
 else
 	echo "SKIP fake-Kizuna checks (tvdb, auto and anidb with Kizuna): jq not found (install jq, or set JQ=gojq)"
 fi
