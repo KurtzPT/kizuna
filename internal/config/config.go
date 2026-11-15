@@ -42,7 +42,7 @@ type Config struct {
 	TitleOfficialOnly  bool
 	OriginalTitleLangs []string // originalTitle priority (official titles only); none = no original title
 	EpisodeLangs       []string // episode title priority
-	MinScore           int      // lowest title-search score accepted automatically (0-100)
+	MinScore           int      // lowest title-search score for a match (0-100); a Fix Match list ignores it
 
 	// Source order per field: the first source that has a value wins, the
 	// rest are fallbacks in order. Each comment lists the allowed sources in

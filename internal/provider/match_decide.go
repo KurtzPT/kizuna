@@ -254,17 +254,18 @@ func (d decision) namedBy(kind idKind, src string, b byName) decision {
 }
 
 // bySearch is decide's second step, the AniDB title search: the best match
-// when the id gave none, or for a manual match up to 10 results (MIN_SCORE
-// not applied), in a Fix Match list after the id match. An id match or a tag
-// rule outside that list is final: no search.
+// when the id gave none, or for a Fix Match list up to 10 results (MIN_SCORE
+// not applied) after the id match. An id match or a tag rule outside that
+// list is final: no search. A manual season or episode match is one answer:
+// MIN_SCORE holds, as for an automatic one.
 func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) decision {
-	if !r.fixMatchList() && (len(d.cands) > 0 || d.id.stops()) {
+	list := r.fixMatchList()
+	if !list && (len(d.cands) > 0 || d.id.stops()) {
 		return d
 	}
 	debug := debugOn(context.Background())
-	manual := r.Manual == 1
 	limit := 1
-	if manual {
+	if list {
 		limit = 10
 	}
 	out := d.cands // the id match, if any, stays first
@@ -291,7 +292,7 @@ func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) deci
 		if len(out) >= limit {
 			break
 		}
-		if !manual && res.Score < m.minScore {
+		if !list && res.Score < m.minScore {
 			if debug {
 				slog.Debug("match: below MIN_SCORE", "aid", res.AID, "score", res.Score, "min", m.minScore)
 			}
