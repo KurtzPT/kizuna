@@ -42,18 +42,26 @@ func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Durati
 	if !t.Enabled() {
 		return fmt.Errorf("tmdb: no api key")
 	}
-	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
-	return t.keys.getJSON(ctx, t.f, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
+	return t.keys.getJSON(ctx, t.f, t.request(path, query, key, ttl), out)
 }
 
 // tmdbShared is t.get for a value its callers share and only read, kept
 // in m. Its twin is get: see there.
 func tmdbShared[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T], path, query, key string, ttl time.Duration) (*T, error) {
+	return tmdbSharedAs(ctx, t, m, t.request(path, query, key, ttl))
+}
+
+// tmdbSharedAs is tmdbShared for a request the caller built with t.request.
+func tmdbSharedAs[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T], r fetch.Request) (*T, error) {
 	if !t.Enabled() {
 		return nil, fmt.Errorf("tmdb: no api key")
 	}
-	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
-	return sharedJSON(ctx, t.keys, t.f, m, fetch.Request{URL: url, Key: key, TTL: ttl})
+	return sharedJSON(ctx, t.keys, t.f, m, r)
+}
+
+// request is the request get and tmdbShared send for path.
+func (t *TMDB) request(path, query, key string, ttl time.Duration) fetch.Request {
+	return fetch.Request{URL: fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query), Key: key, TTL: ttl}
 }
 
 // findTTL: how long TMDB's answer for a TVDB id is kept. An empty one (the
@@ -352,8 +360,13 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 // decoded once per file and shared (TMDB.seasons): read it, don't change it.
 func (t *TMDB) season(ctx context.Context, id, season int) (*tmdbSeasonFile, error) {
 	key := fmt.Sprintf("tmdb/tv-%d-s%d-images.json", id, season) // files from before the images had none: not read
-	return tmdbShared(ctx, t, t.seasons, fmt.Sprintf("/tv/%d/season/%d", id, season),
+	r := t.request(fmt.Sprintf("/tv/%d/season/%d", id, season),
 		"&language=en-US&append_to_response=images&include_image_language=en,ja,null", key, 2*24*time.Hour)
+	// A season the show lists but TMDB answers 404 for is remembered a day:
+	// the episode list, the season's text and its posters each read the
+	// file, so each build would ask up to three times.
+	r.NotFound, r.NotFoundTTL = only404, 24*time.Hour
+	return tmdbSharedAs(ctx, t, t.seasons, r)
 }
 
 // tmdbSeasonFile is what EpisodesAndPosters, SeasonOverview and SeasonArt
@@ -406,8 +419,8 @@ func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
 }
 
 // listsSeason: the show lists the season. One it doesn't (often Specials)
-// isn't asked for: TMDB would answer 404, which isn't cached. The show's
-// file is cached, and usually read already.
+// isn't asked for: TMDB would answer 404, a request a day (see season)
+// for nothing. The show's file is cached, and usually read already.
 func (t *TMDB) listsSeason(ctx context.Context, id, season int) (bool, error) {
 	show, err := t.tv(ctx, id)
 	if err != nil {

@@ -224,3 +224,46 @@ func (p pruneThenFail) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	return p.ft.n.RoundTrip(r)
 }
+
+// A season the show lists but TMDB answers 404 for is asked once a day, not
+// by each read of a build (episode list, season text, season posters) nor
+// at every build.
+func TestTMDBMissingSeasonRemembered(t *testing.T) {
+	const q = "?api_key=key&language=en-US"
+	const sq = q + "&append_to_response=images&include_image_language=en,ja,null"
+	const s0 = "api.themoviedb.org/3/tv/77/season/0" + sq
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
+		"api.themoviedb.org/3/tv/77" + q:           `{"name":"Show","seasons":[{"season_number":0},{"season_number":1}]}`,
+		"api.themoviedb.org/3/tv/77/season/1" + sq: `{"episodes":[{"episode_number":1,"name":"One"}]}`,
+		// season 0: 404
+	}}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	f.ThrottleAll(0)
+	ctx := context.Background()
+	build := func() {
+		t.Helper()
+		if eps, _, err := tm.EpisodesAndPosters(ctx, 77); err != nil || len(eps) != 1 {
+			t.Errorf("episodes %+v %v, want season 1's and no error", eps, err)
+		}
+		if a, err := tm.SeasonArt(ctx, 77, 0); len(a.Posters) != 0 || !fetch.IsNotFound(err) {
+			t.Errorf("season 0 art %+v %v, want its 404", a, err)
+		}
+		if got, err := tm.SeasonOverview(ctx, 77, 0); got != "" || !fetch.IsNotFound(err) {
+			t.Errorf("season 0 text %q %v, want its 404", got, err)
+		}
+	}
+	for b := 1; b <= 3; b++ {
+		build()
+		if c := n.count(s0); c != 1 {
+			t.Errorf("build %d: season 0 asked %d times, want 1", b, c)
+		}
+	}
+	backdate(t, filepath.Join(dir, "tmdb", "tv-77-s0-images.json.notfound"), 24*time.Hour)
+	build()
+	if c := n.count(s0); c != 2 {
+		t.Errorf("after a day: season 0 asked %d times in all, want 2", c)
+	}
+}

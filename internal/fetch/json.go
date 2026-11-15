@@ -72,7 +72,8 @@ func GetShared[T any](ctx context.Context, c *Client, m *Memo[string, *T], r Req
 func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error), known func(time.Time) bool) (time.Time, error) {
 	start := time.Now()
 	broken := false // the fresh copy doesn't decode: no stale copy to fall back on either
-	if data, at, ok, hit := c.freshKnown(ctx, r, known); ok {
+	data, at, ok, hit := c.freshKnown(ctx, r, known)
+	if ok {
 		if hit {
 			observe(ctx, r, start, KindCache, nil)
 			return at, nil
@@ -92,6 +93,11 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 			// download is a full one, and saves the new ETag with the new bytes.
 			_ = os.Remove(c.etagPath(r.Key))
 		}
+	}
+	// Before ready: a remembered "nothing there" needs no login either.
+	if err := c.knownNotFound(r, at); err != nil {
+		observe(ctx, r, start, KindCache, err)
+		return time.Time{}, err
 	}
 	if ready != nil {
 		var err error
