@@ -38,10 +38,25 @@ type keyCheck struct {
 }
 
 // getJSON is f.GetJSON, with no download while the key's rejection lasts.
+// Its twin is sharedJSON: the Quiet, Done and ready they set must stay
+// the same.
 func (k *keyCheck) getJSON(ctx context.Context, f *fetch.Client, r fetch.Request, out any) error {
 	r.Quiet, r.Done = true, k.onDone // logged in done: a rejection once per pause
 	return f.GetJSON(ctx, r, out, k.onReady)
 }
+
+// sharedJSON is k.getJSON for a value its callers share and only read
+// (fetch.GetShared), kept in m. Its twin is getJSON: see there.
+func sharedJSON[T any](ctx context.Context, k *keyCheck, f *fetch.Client, m *fetch.Memo[string, *T], r fetch.Request) (*T, error) {
+	r.Quiet, r.Done = true, k.onDone
+	return fetch.GetShared(ctx, f, m, r, k.onReady)
+}
+
+// sharedFor: how long a decoded file shared by the reads of a build, and of
+// the builds right after it, is kept (fetch.Memo's life), so a library scan
+// doesn't keep them all. For TheMovieDb's season lists and season files
+// and for TheTVDB's episode list pages.
+const sharedFor = time.Minute
 
 // ready is GetJSON's ready: the rejection, while its pause lasts, fails the
 // download before it is sent.

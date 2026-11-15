@@ -288,18 +288,17 @@ func TestTVDBSeriesRecordOnce(t *testing.T) {
 		t.Errorf("Details after the file changed: %q %v, want it read again", d.Date, err)
 	}
 
-	tv.seriesMu.Lock()
-	m := tv.series[267440]
-	m.kept = now.Add(-seriesMemoFor)
-	tv.series[267440] = m
-	tv.seriesMu.Unlock()
+	// A memo whose records are past their time as soon as they are kept
+	// (seriesMemoFor's own count is fetch.Memo's test).
+	tv.series = fetch.NewMemo[int, *tvdbSeries](0, 0)
+	if _, _, err := tv.DetailsAndSeasons(ctx, 267440); err != nil || tv.series.Len() != 1 {
+		t.Fatalf("%v, %d records kept, want 1", err, tv.series.Len())
+	}
 	if _, _, err := tv.DetailsAndSeasons(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	tv.seriesMu.Lock()
-	defer tv.seriesMu.Unlock()
-	if _, ok := tv.series[267440]; ok || len(tv.series) != 1 {
-		t.Errorf("%d records kept, want only the new one", len(tv.series))
+	if _, _, ok := tv.series.Get(267440); ok || tv.series.Len() != 1 {
+		t.Errorf("%d records kept, want only the new one", tv.series.Len())
 	}
 }
 

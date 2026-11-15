@@ -52,18 +52,15 @@ type TVDB struct {
 	noEnglishSeries map[int]time.Time
 
 	// series: extended series records decoded lately (DetailsAndSeasons and
-	// SeasonOverview both read one in the same build), by series id.
-	seriesMu sync.Mutex
-	series   map[int]seriesMemo
-}
-
-// seriesMemo is one decoded extended series record. It stands for its cache
-// file while the file keeps the time it had when read; it is dropped
-// seriesMemoFor after that, at the next one kept, so a library scan doesn't
-// keep them all.
-type seriesMemo struct {
-	at, kept time.Time // the cache file's time; when it was kept
-	rec      *tvdbSeries
+	// SeasonOverview both read one in the same build), by series id. One
+	// stands for its cache file while the file keeps the time it had when
+	// read; it is dropped seriesMemoFor after that, at the next one kept, so
+	// a library scan doesn't keep them all.
+	series *fetch.Memo[int, *tvdbSeries]
+	// pages: v4 episode list pages decoded lately, by cache key: every
+	// /anidb entry of a series reads its whole list, one build after the
+	// other.
+	pages *fetch.Memo[string, *tvdbEpisodePage]
 }
 
 const seriesMemoFor = time.Minute
@@ -132,7 +129,7 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
 		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}, noEnglishSeries: map[int]time.Time{},
-		series: map[int]seriesMemo{}}
+		series: fetch.NewMemo[int, *tvdbSeries](seriesMemoFor, 0), pages: fetch.NewMemo[string, *tvdbEpisodePage](sharedFor, 0)}
 }
 
 func (t *TVDB) Enabled() bool { return t != nil && (t.key != "" || t.legacyKey != "") } // nil = not set up
@@ -366,11 +363,41 @@ type getOpts struct {
 	background bool
 }
 
-// getAs is get, asked the way o says.
+// getAs is get, asked the way o says. Its twin is tvdbShared: the two must
+// keep the same Enabled check and the same retry after a 401.
 func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tvdb: no api key")
 	}
+	r, ready := t.request(ctx, legacy, o, path, key, ttl)
+	for retried := false; ; retried = true {
+		err := t.f.GetJSON(ctx, r, out, ready)
+		if retried || !unauthorized(err) {
+			return err
+		}
+		// No stale copy to answer with: try once more with a new token.
+	}
+}
+
+// tvdbShared is t.get for a value its callers share and only read
+// (fetch.GetShared), kept in m. Its twin is getAs: see there.
+func tvdbShared[T any](ctx context.Context, t *TVDB, m *fetch.Memo[string, *T], legacy bool, path, key string, ttl time.Duration) (*T, error) {
+	if !t.Enabled() {
+		return nil, fmt.Errorf("tvdb: no api key")
+	}
+	r, ready := t.request(ctx, legacy, getOpts{}, path, key, ttl)
+	for retried := false; ; retried = true {
+		v, err := fetch.GetShared(ctx, t.f, m, r, ready)
+		if retried || !unauthorized(err) {
+			return v, err
+		}
+		// No stale copy to answer with: try once more with a new token.
+	}
+}
+
+// request is how getAs asks for path: the request, and the ready that logs
+// in once the cache has no fresh answer.
+func (t *TVDB) request(ctx context.Context, legacy bool, o getOpts, path, key string, ttl time.Duration) (fetch.Request, func(fetch.Request) (fetch.Request, error)) {
 	r := fetch.Request{Key: cacheFolder(legacy) + key, TTL: ttl, Quiet: o.quiet, NoStale: o.noStale, Background: o.background}
 	// The login runs only when the cache has no fresh answer.
 	ready := func(req fetch.Request) (fetch.Request, error) {
@@ -398,13 +425,7 @@ func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key stri
 		}
 		return req, nil
 	}
-	for retried := false; ; retried = true {
-		err := t.f.GetJSON(ctx, r, out, ready)
-		if retried || !unauthorized(err) {
-			return err
-		}
-		// No stale copy to answer with: try once more with a new token.
-	}
+	return r, ready
 }
 
 func unauthorized(err error) bool {
@@ -428,32 +449,11 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 	if t.useLegacy(ctx, episodesKey(id, 0), episodesTTL) {
 		return t.episodes3(ctx, id)
 	}
-	type ep struct {
-		ID       int    `json:"id"`
-		Season   *int   `json:"seasonNumber"`
-		Number   *int   `json:"number"`
-		Absolute int    `json:"absoluteNumber"`
-		Name     string `json:"name"`
-		Overview string `json:"overview"`
-		Aired    string `json:"aired"`
-		Image    string `json:"image"`
-		Runtime  int    `json:"runtime"`
-	}
 	var out []Episode
 	err := episodePages(id, 0, func(page int) (bool, error) {
-		var r struct {
-			Data struct {
-				Episodes []ep `json:"episodes"`
-				Series   struct {
-					Episodes []ep `json:"episodes"`
-				} `json:"series"`
-			} `json:"data"`
-			Links struct {
-				Next *string `json:"next"`
-			} `json:"links"`
-		}
 		path := fmt.Sprintf("/series/%d/episodes/official/eng?page=%d", id, page)
-		if err := t.get(ctx, false, path, episodesKey(id, page), episodesTTL, &r); err != nil {
+		r, err := tvdbShared(ctx, t, t.pages, false, path, episodesKey(id, page), episodesTTL)
+		if err != nil {
 			return false, err
 		}
 		eps := r.Data.Episodes
@@ -471,6 +471,31 @@ func (t *TVDB) Episodes(ctx context.Context, id int) ([]Episode, error) {
 	})
 	sortEpisodes(out)
 	return out, err
+}
+
+// tvdbEpisodePage is one page of a v4 episode list, as Episodes reads it.
+type tvdbEpisodePage struct {
+	Data struct {
+		Episodes []tvdbEpisode `json:"episodes"`
+		Series   struct {
+			Episodes []tvdbEpisode `json:"episodes"`
+		} `json:"series"`
+	} `json:"data"`
+	Links struct {
+		Next *string `json:"next"`
+	} `json:"links"`
+}
+
+type tvdbEpisode struct {
+	ID       int    `json:"id"`
+	Season   *int   `json:"seasonNumber"`
+	Number   *int   `json:"number"`
+	Absolute int    `json:"absoluteNumber"`
+	Name     string `json:"name"`
+	Overview string `json:"overview"`
+	Aired    string `json:"aired"`
+	Image    string `json:"image"`
+	Runtime  int    `json:"runtime"`
 }
 
 // episodesTTL: how long a page of an episode list is cached.
@@ -685,17 +710,14 @@ func seriesDetails(r *tvdbSeries) Details {
 func seriesKey(id int) string { return fmt.Sprintf("%d/extended.json", id) }
 
 // seriesRecord returns the extended series record, decoded once while its
-// cache file stays the same (seriesMemo). It is shared: read it, don't change it.
+// cache file stays the same (TVDB.series). It is shared: read it, don't change it.
 func (t *TVDB) seriesRecord(ctx context.Context, id int) (*tvdbSeries, error) {
 	key := seriesKey(id)
-	t.seriesMu.Lock()
-	m, ok := t.series[id]
-	t.seriesMu.Unlock()
-	if ok {
+	if rec, keptAt, ok := t.series.Get(id); ok {
 		start := time.Now()
-		if at, cached := t.f.CachedAt(cacheFolder(false) + key); cached && at.Equal(m.at) && time.Since(at) < seriesTTL {
+		if at, cached := t.f.CachedAt(cacheFolder(false) + key); cached && at.Equal(keptAt) && time.Since(at) < seriesTTL {
 			fetch.Observe(ctx, cacheFolder(false)+key, fetch.KindCache, start, nil)
-			return m.rec, nil
+			return rec, nil
 		}
 	}
 	var r struct {
@@ -709,15 +731,7 @@ func (t *TVDB) seriesRecord(ctx context.Context, id int) (*tvdbSeries, error) {
 	// The file's time now is that of the bytes just read: downloads of one
 	// key don't overlap, and a stale copy answers only for a failed one.
 	if at, cached := t.f.CachedAt(cacheFolder(false) + key); cached {
-		now := time.Now()
-		t.seriesMu.Lock()
-		for id, m := range t.series {
-			if now.Sub(m.kept) >= seriesMemoFor {
-				delete(t.series, id)
-			}
-		}
-		t.series[id] = seriesMemo{at: at, kept: now, rec: &r.Data}
-		t.seriesMu.Unlock()
+		t.series.Put(id, at, &r.Data)
 	}
 	return &r.Data, nil
 }

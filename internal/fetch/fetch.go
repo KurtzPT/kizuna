@@ -265,20 +265,35 @@ func usedStale(ctx context.Context, key string, at, start time.Time, err error) 
 // fresh returns r's cached copy when it is younger than r.TTL. The file's
 // age is checked first: an expired copy is not read.
 func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
+	data, _, ok, _ := c.freshKnown(ctx, r, nil)
+	return data, ok
+}
+
+// freshKnown is fresh, and also gives the file's time. When known (if set)
+// says the caller has already parsed the file of that time, the file is
+// not read: it returns no bytes, the time, ok and hit.
+func (c *Client) freshKnown(ctx context.Context, r Request, known func(time.Time) bool) (data []byte, at time.Time, ok, hit bool) {
 	if r.TTL <= 0 || r.Key == "" {
-		return nil, false
+		return nil, time.Time{}, false, false
 	}
 	now := time.Now()
-	data, at, ok := readCache(c.path(r.Key), func(at time.Time) bool { return now.Sub(at) < r.TTL })
+	data, at, ok = readCache(c.path(r.Key), func(at time.Time) bool {
+		if now.Sub(at) >= r.TTL {
+			return false
+		}
+		hit = known != nil && known(at)
+		return !hit
+	})
+	ok = ok || hit
 	if at.IsZero() || !slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
-		return data, ok
+		return data, at, ok, hit
 	}
 	if age := now.Sub(at).Round(time.Minute); ok {
 		slog.Debug("cache hit", "key", r.Key, "age", age, "ttl", r.TTL)
 	} else {
 		slog.Debug("cache expired", "key", r.Key, "age", age, "ttl", r.TTL)
 	}
-	return data, ok
+	return data, at, ok, hit
 }
 
 // download runs at most one network request per key at a time; concurrent
