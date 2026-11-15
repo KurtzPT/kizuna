@@ -184,7 +184,7 @@ jobs:
             case ${out##*$'\n'} in
               200) ;;
               404) return 0 ;;
-              *) return 1 ;;
+              *) echo "ghcr.io answered ${out##*$'\n'} for :dev" >&2; return 1 ;;
             esac
             # every platform is built from the same commit: one is enough
             digest=$(jq -er 'first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest' <<< "${out%$'\n'*}") || return 1
@@ -200,7 +200,8 @@ jobs:
           if [ "$GITHUB_REF" = refs/heads/dev ]; then
             # Not "is this commit still dev's head": a docs-only push after
             # this one starts no ci run, and :dev would stay behind.
-            if ! built=$(dev_revision); then
+            # once more after a pause: one bad answer shouldn't fail the run
+            if ! built=$(dev_revision) && { sleep 10; ! built=$(dev_revision); }; then
               echo "::error::couldn't read which commit :dev was built from (see above; the package must be public), so this could move it back: nothing pushed. Run the failed jobs again"
               exit 1
             fi
