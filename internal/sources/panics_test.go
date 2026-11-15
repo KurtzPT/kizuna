@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -279,8 +280,7 @@ func TestAniDBCallPanicIsANetworkFailure(t *testing.T) {
 // all the same, so once the backoff is over the anime is asked again under
 // the usual rules. Kept, the next call would join it and be refused until a
 // restart ("the last call for this anime just ended"), or, not marked sent
-// yet, skip admit's checks. Marked sent, its count stays: another caller's
-// download could have gone out with it.
+// yet, skip admit's checks. Its count goes back: nothing went out.
 func TestAniDBSendingPanic(t *testing.T) {
 	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
 	notDir := filepath.Join(t.TempDir(), "file")
@@ -299,9 +299,9 @@ func TestAniDBSendingPanic(t *testing.T) {
 	c.mu.Lock()
 	c.statePath = good
 	c.mu.Unlock()
-	if st := c.stateOf(1); st.calling != nil || st.calls != 1 || st.failures != 1 || !st.backoff || st.blocked || requests.Load() != 0 {
-		t.Fatalf("state %+v, %d requests; want the call ended, still counted (it was marked sent), the backoff, "+
-			"the anime not blocked, nothing sent", st, requests.Load())
+	if st := c.stateOf(1); st.calling != nil || st.calls != 0 || st.failures != 1 || !st.backoff || st.blocked || requests.Load() != 0 {
+		t.Fatalf("state %+v, %d requests; want the call ended and not counted, the backoff, the anime not blocked, nothing sent",
+			st, requests.Load())
 	}
 	if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 0 {
 		t.Fatalf("in the backoff: %v, %d requests; want the backoff and no request", err, requests.Load())
@@ -309,5 +309,26 @@ func TestAniDBSendingPanic(t *testing.T) {
 	c.endBackoff()
 	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 {
 		t.Errorf("after the backoff: %v, %d requests; want the entry, asked once", err, requests.Load())
+	}
+}
+
+// The same, for a call sending admits itself (no call was under way when
+// the download's turn came) and that panics before it is marked sent: in
+// admit's debug line. The download is driven as ask drives it, without
+// allowed, so sending is the one that admits the call.
+func TestAniDBSendingPanicBeforeSent(t *testing.T) {
+	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
+	_ = panicLogsFrom(t, "anidb: calling the API", "(*AniDB).sending")
+	var call *anidbCall
+	_, err := c.f.Get(context.Background(), fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, 1), Key: anidbKey(1), NoRedirect: true,
+		Before:  func() (err error) { call, err = c.sending(1, false); return err },
+		Done:    func(err error) { c.result(1, call, err) },
+		NoStale: true, Quiet: true})
+	if !errors.Is(err, fetch.ErrPanicked) {
+		t.Fatalf("err %v, want the panic", err)
+	}
+	if st := c.stateOf(1); st.calling != nil || st.calls != 0 || st.failures != 1 || st.blocked || requests.Load() != 0 {
+		t.Fatalf("state %+v, %d requests; want the call ended and not counted, one failure, the anime not blocked, nothing sent",
+			st, requests.Load())
 	}
 }

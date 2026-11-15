@@ -148,9 +148,35 @@ func (e *anidbNotSent) Unwrap() error { return errAniDBUnavailable }
 // ban or a backoff, or Kizuna may be stopping and nobody waits for it (a
 // background call): then it is stopped, and its count given back. Otherwise
 // its count moves to now, so the 24 h window starts when it really went out.
+//
+// A panic in it (a state write's log line, say) sends nothing, and the
+// call it would have sent must not stay under way: a later call would join
+// it and skip admit's checks, or be refused until a restart once it is
+// marked sent. So the call is ended here, its count given back, under the
+// same lock. Only a call already marked sent when this run started is left
+// alone: an earlier download's, still waiting for its outcome (result).
+// The panic itself goes on to fetch, which makes it the download's error.
 func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	earlier := c.calling[aid]
+	if earlier != nil && !earlier.sent {
+		earlier = nil
+	}
+	returned := false
+	defer func() { // runs before the unlock: c.mu is held
+		if cl := c.calling[aid]; !returned && cl != nil && cl != earlier {
+			c.uncount(cl)
+			delete(c.calling, aid)
+		}
+	}()
+	call, err := c.sendingLocked(aid, background)
+	returned = true
+	return call, err
+}
+
+// sendingLocked is sending's work. Caller holds c.mu.
+func (c *AniDB) sendingLocked(aid int, background bool) (*anidbCall, error) {
 	now := time.Now()
 	call := c.calling[aid]
 	if why := c.paused(now); why != "" {
@@ -280,7 +306,8 @@ func anidbClientID(client, clientVer string) string {
 
 // result records how a call ended (called once per network request, even
 // when Plex stopped waiting for it). call is what sending returned (nil:
-// the call was stopped there).
+// the call was stopped there, or sending panicked; either way sending ended
+// it, and nothing went out).
 func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -335,20 +362,6 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		// answer. Most likely AniDB, or the connection to it, is down. Not
 		// this anime's fault, so it isn't blocked, and the call isn't one of
 		// the day's: the backoff keeps every call away until it ends.
-		if call == nil {
-			// sending (fetch's Before) panicked, so nothing went out, but
-			// the call admit counted is still under way: it must end here,
-			// or a later call would join it and skip admit's checks, or be
-			// refused until a restart once it is marked sent. Its count goes
-			// back only while not marked sent: once marked, another caller's
-			// download may have taken it and gone out with it.
-			if cl := c.calling[aid]; cl != nil {
-				if !cl.sent {
-					c.uncount(cl)
-				}
-				delete(c.calling, aid)
-			}
-		}
 		if call != nil {
 			c.uncount(call)
 			if call.at.Before(c.backedOffAt) {
