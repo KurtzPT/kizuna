@@ -1002,3 +1002,36 @@ func TestAniDBRedirectNotFollowed(t *testing.T) {
 		t.Fatalf("blocked %v, %d calls counted, %d failures, every call paused %v; want false, 0, 1, true", blocked, sent, failures, paused)
 	}
 }
+
+// An entry that ended over 60 days ago is cached for 180 days, else for 6.
+// A partial end date ("1989", "1989-03") counts from the last day it can
+// mean; an empty or unreadable one is "not ended".
+func TestAniDBTTL(t *testing.T) {
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	const short, long = 6 * 24 * time.Hour, 180 * 24 * time.Hour
+	for _, c := range []struct {
+		end  string
+		want time.Duration
+	}{
+		{"1999-10-20", long},
+		{"2026-09-16", long},  // 60 days and 12 h ago
+		{"2026-09-17", short}, // 59 days and 12 h ago
+		{"2026-10-01", short},
+		{"2026-12-24", short}, // not ended yet
+		{"1989", long},
+		{"1989-03", long},
+		{"2025", long},     // 2025-12-31
+		{"2026", short},    // 2026-12-31: the year isn't over
+		{"2026-09", short}, // 2026-09-30, not 2026-09-01 (75 days ago)
+		{"2026-08", long},  // 2026-08-31: 76 days ago
+		{"", short},
+		{"garbage", short},
+		{"1989-13", short},
+		{"19890301", short},
+		{"1989-3", short},
+	} {
+		if got := anidbTTL(c.end, now); got != c.want {
+			t.Errorf("anidbTTL(%q) = %v, want %v", c.end, got, c.want)
+		}
+	}
+}

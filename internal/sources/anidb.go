@@ -221,7 +221,7 @@ func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Durati
 		return nil, false, false, 0
 	}
 	age = time.Since(mod)
-	fresh = age < anidbTTL(a.EndDate)
+	fresh = age < anidbTTL(a.EndDate, time.Now())
 	c.remember(a, fresh, mod)
 	return a, fresh, false, age
 }
@@ -310,7 +310,7 @@ func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnim
 		return a, nil
 	}
 	if fresh {
-		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate))
+		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate, time.Now()))
 		fetch.Observe(ctx, anidbKey(aid), fetch.KindCache, start, nil)
 		return a, nil
 	}
@@ -418,10 +418,32 @@ func (c *AniDB) remember(a *AniDBAnime, fresh bool, mod time.Time) {
 func anidbKey(aid int) string { return fmt.Sprintf("anidb/anime/%d.xml", aid) }
 
 // anidbTTL: finished long ago -> rarely changes; airing or ended lately -> refresh every 6 days.
-func anidbTTL(endDate string) time.Duration {
-	end, err := time.Parse("2006-01-02", endDate)
-	if err != nil || time.Since(end) < 60*24*time.Hour {
+func anidbTTL(endDate string, now time.Time) time.Duration {
+	end, ok := anidbEnd(endDate)
+	if !ok || now.Sub(end) < 60*24*time.Hour {
 		return 6 * 24 * time.Hour
 	}
 	return 180 * 24 * time.Hour
+}
+
+// anidbEnd reads an end date. Old entries often give only "1989" or
+// "1989-03": that is read as the last day it can mean, so an entry is never
+// taken as finished sooner than it was. Empty or unreadable: not ended.
+func anidbEnd(s string) (time.Time, bool) {
+	// Chosen by length, so a full date (the usual case) is parsed once.
+	layout, months := "2006-01-02", 0 // months to add; less a day gives the last day it can mean
+	switch len(s) {
+	case len("2006-01"):
+		layout, months = "2006-01", 1
+	case len("2006"):
+		layout, months = "2006", 12
+	}
+	t, err := time.Parse(layout, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if months > 0 {
+		t = t.AddDate(0, months, -1)
+	}
+	return t, true
 }
