@@ -27,9 +27,9 @@ type File struct {
 	keepDays int    // 0 = keep forever
 	now      func() time.Time
 
-	f    *os.File
-	day  string    // date of the lines in kizuna.log
-	next time.Time // the local midnight that ends day: the first line from then on dates the file
+	f      *os.File
+	day    string // date of the lines in kizuna.log
+	dayNum int    // the same day as a number (dayNum): the first line of a later day dates the file
 	// After a failed dating, kizuna.log keeps its day and its new lines, and
 	// is dated again from retry on. The first failure is reported (failed).
 	retry  time.Time
@@ -43,10 +43,15 @@ type File struct {
 // the next try (each try closes and reopens the file).
 const retryDating = time.Minute
 
-// midnightAfter is the start of the local day after t's.
-func midnightAfter(t time.Time) time.Time {
+// dayNum numbers t's local calendar day: a later day has a greater number.
+//
+// Write compares days, not instants: the instant a day ends can't be asked
+// of time.Date. Where summer time starts at midnight, 00:00 doesn't exist
+// and time.Date answers 23:00 of the day before, so the file was dated again
+// at every line of that hour. A dayNum costs no allocation.
+func dayNum(t time.Time) int {
 	y, m, d := t.Date()
-	return time.Date(y, m, d+1, 0, 0, 0, 0, t.Location())
+	return y*10000 + int(m)*100 + d
 }
 
 // Open opens dir/<base>.log for appending. keepDays is how many past days of
@@ -90,7 +95,7 @@ func (l *File) dated(day string) string {
 }
 
 // setDay makes t's day the day of kizuna.log's lines.
-func (l *File) setDay(t time.Time) { l.day, l.next = t.Format(dateLayout), midnightAfter(t) }
+func (l *File) setDay(t time.Time) { l.day, l.dayNum = t.Format(dateLayout), dayNum(t) }
 
 func (l *File) openCurrent() error {
 	f, err := os.OpenFile(l.current(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -106,11 +111,14 @@ func (l *File) openCurrent() error {
 // line still goes to kizuna.log, which keeps its day and is dated again
 // retryDating later: the first such failure is Write's error (the line was
 // written all the same), later ones aren't.
+//
+// A line of an earlier day than the file's (the clock was set back) goes in
+// the file as it is: only a later day dates it.
 func (l *File) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var archErr error
-	if now := l.now(); !now.Before(l.next) && !now.Before(l.retry) {
+	if now := l.now(); dayNum(now) > l.dayNum && !now.Before(l.retry) {
 		if l.f != nil {
 			l.f.Close()
 			l.f = nil
