@@ -77,7 +77,7 @@ func (t *TVDB) episodes3(ctx context.Context, id int) ([]Episode, error) {
 			}
 			out = append(out, Episode{ID: e.ID, Season: *e.Season, Number: *e.Number, Absolute: abs, Title: e.Name,
 				Summary: e.Overview, Aired: e.Aired, Thumb: artURL(e.Image), Minutes: minutes,
-				Directors: people(e.Directors), Writers: people(e.Writers)})
+				Crew: Crew{Directors: people(e.Directors), Writers: people(e.Writers)}})
 		}
 		return r.Links.Next != nil, nil
 	})

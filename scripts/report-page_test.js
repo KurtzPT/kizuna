@@ -120,6 +120,12 @@ const count = (text, re) => (text.match(re) || []).length;
   check(opened.includes("https://image.tmdb.org/t/p/w342/p2.jpg") && opened.includes('href="https://image.tmdb.org/t/p/original/p2.jpg"'), "show, opened: TheMovieDb's poster is shown small and linked whole");
   check(count(opened, /javascript:alert\(1\)/g) >= 2, "show, opened: the javascript: addresses are shown as text");
   check(opened.includes("EPISODE-SUMMARY-TEXT one."), "show, opened: the episode's summary");
+  // An episode's producers, with their source; the episodes' crew photo count.
+  const producers = page.run(`episodeDetail({s: 1, e: 1, title: "T", producers: ["PRODUCER-ONE", "<b>x"], src: {producers: "plex"}})`);
+  check(/Producers.*PRODUCER-ONE, &lt;b&gt;x/s.test(producers) && producers.includes('data-s="plex"'), "show, opened: an episode's producers and their source");
+  const counted = page.run(`renderEpisodes({episodes: [{s: 1, e: 1}], crewPhotos: "crew photos: 1 of 2 (plex 1)"}, true)`);
+  check(counted.includes("Crew photos: 1 of 2 (plex 1)"), "show: the episodes' crew photo count");
+  check(!page.run(`renderEpisodes({episodes: [{s: 1, e: 1}]}, true)`).includes("rew photos"), "show: a crew photo count without crew");
   check(count(closed + opened, /target="_blank"/g) === count(closed + opened, /target="_blank" rel="noopener noreferrer"/g), "show: a new-tab link without noopener noreferrer");
 
   // Sent to Plex: the threads are the recorded itemSrc, nothing guessed.

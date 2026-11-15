@@ -682,6 +682,9 @@ func seriesDetails(r *tvdbSeries) Details {
 		case "Writer":
 			d.Writers = appendNew(d.Writers, c.PersonName)
 		}
+		if crewType(c.PeopleType) {
+			d.CrewPhotos = crewPhoto(d.CrewPhotos, c.PersonName, artURL(c.PersonImg))
+		}
 	}
 	for _, c := range r.Ratings {
 		d.addRating(alpha2(c.Country), c.Name)

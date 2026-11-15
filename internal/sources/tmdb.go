@@ -195,6 +195,9 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error)
 	// Anime crews list every episode director: keep the ones on the most episodes.
 	sort.SliceStable(c.Crew, func(i, j int) bool { return c.Crew[i].Episodes > c.Crew[j].Episodes })
 	for _, p := range c.Crew {
+		if p.Profile != "" { // whatever the job: the episodes' crew photos
+			d.CrewPhotos = crewPhoto(d.CrewPhotos, p.Name, tmdbImg+p.Profile)
+		}
 		jobs := []string{p.Job}
 		for _, j := range p.Jobs {
 			jobs = append(jobs, j.Job)
@@ -254,6 +257,7 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 						Job        string `json:"job"`
 						Department string `json:"department"`
 						Name       string `json:"name"`
+						Profile    string `json:"profile_path"`
 					} `json:"crew"`
 				} `json:"episodes"`
 				seasonImages
@@ -279,6 +283,9 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 					ep.Thumb = tmdbImg + e.Still
 				}
 				for _, c := range e.Crew {
+					if c.Profile != "" { // whatever the job; producers aren't read (TheMovieDb lists none)
+						ep.Photos = crewPhoto(ep.Photos, c.Name, tmdbImg+c.Profile)
+					}
 					switch {
 					case c.Job == "Director":
 						ep.Directors = append(ep.Directors, c.Name)

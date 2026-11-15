@@ -64,9 +64,10 @@ thumbnails.
 - **Turn it on:** set [`PLEX_TOKEN`](SETTINGS.md#-accounts--keys). Nothing else is needed.
 - **Change what it fills, or turn it off:** move `plex` up in a source list to prefer it, or take it out
   ([Sources per field](SETTINGS.md#-sources-per-field)).
-- **Plex's cast photos with another source's cast:** set
+- **Plex's photos with another source's people:** set
   [`CAST_PHOTOS_FROM_PLEX=true`](SETTINGS.md#-sources-per-field) to keep the cast `CAST_SOURCES` picks and take each
-  person's photo from Plex.
+  person's photo from Plex, and `CREW_PHOTOS_FROM_PLEX=true` to do the same for the episodes' directors, writers
+  and producers.
 - **A series needs a TheTVDB id** in the [id mapping](README.md#-id-mapping), and a movie a TheMovieDb or IMDb id:
   a show without one gets nothing from Plex.
 - **`Plex rejected the request: check PLEX_TOKEN`** in the log means the token is wrong or no longer valid.

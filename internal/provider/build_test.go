@@ -132,6 +132,7 @@ func newTestProvider(t *testing.T, net *fakeNet) *Provider {
 	lists.SetForTest(map[int]mapping.Entry{100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true},
 		TMDB: mapping.Placement{ID: 77}}})
 	cfg := config.Load()
+	cfg.DataDir = "" // the crew photo memory stays in memory: no file in the package's folder
 	p := New(cfg, titles, sources.NewAniDB(f, dir, "kizunatest", "1"), lists, Sources{
 		TVDB: sources.NewTVDB(f, "key", "", ""), TMDB: sources.NewTMDB(f, "key"), MAL: sources.NewMAL(f, ""), ANN: sources.NewANN(f)})
 	// No waits between requests: the throttles are tested in fetch and

@@ -79,7 +79,7 @@ type tvdbBuild struct {
 	// startTMDB fetches TheMovieDb's episode list (into tmdbEps and tmdbOK,
 	// done with tmdbWG), and start TheTVDB's crew records, when tvdb is
 	// first in EPISODE_CREW_SOURCES (into crew and crewPending, done with
-	// crewWG; crewEarly says it did).
+	// crewWG; crewEarly says it did), and Plex's list for crew (plexRead).
 	tmdbWG, crewWG sync.WaitGroup
 	tmdbOK         bool
 	crew           map[int]sources.Crew
@@ -88,9 +88,14 @@ type tvdbBuild struct {
 	// partial: TheTVDB's list came back with parts missing.
 	partial bool
 	// plex: Plex's episode list, at each episode's own TheTVDB spot, once
-	// read (readPlex) for the titles (tvdbPlexTitles) or the crew
+	// read (plexRead) for the titles (tvdbPlexTitles) or the crew
 	// (tvdbEpisodeCrew); empty otherwise.
 	plex pairedList
+	// plexRead reads Plex's list into plex, once, and says whether it came
+	// whole (nil: Plex's list isn't read, plexEpisodesListed).
+	plexRead func() bool
+	// photos: the crew photos of the build's sources (episode_crew.go).
+	photos crewPhotos
 }
 
 func newTVDBBuild(tvdbID, tmdbID, aid int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
@@ -117,11 +122,18 @@ func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() 
 }
 
 // start starts what the build needs whatever AniDB answers, once TheTVDB's
-// list is in: TheTVDB's crew records for every episode, when tvdb is first
-// in EPISODE_CREW_SOURCES. Otherwise they are asked at crew time, only for
-// the episodes the sources before tvdb left a gap in (tvdbEpisodeCrew).
+// list is in: Plex's list, when it is read for episode crew (plexCrewRead),
+// and TheTVDB's crew records for every episode, when tvdb is first in
+// EPISODE_CREW_SOURCES. Otherwise the records are asked at crew time, only
+// for the episodes the sources before tvdb left a gap in (tvdbEpisodeCrew).
 // wait waits for them.
 func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
+	if p.plexEpisodesListed(b.tvdbID, false) { // the closure only when used: it allocates
+		b.plexRead = sync.OnceValue(func() bool { return b.readPlex(ctx, p) })
+		if p.plexCrewRead(b.tvdbID) {
+			b.crewWG.Go(func() { b.plexRead() })
+		}
+	}
 	if order := p.cfg.EpisodeCrewSources; len(order) == 0 || order[0] != "tvdb" {
 		return
 	}
@@ -262,15 +274,16 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 
 // tvdbPlexTitles adds Plex's episode titles to a /tvdb show, when its list
 // can add something (plexListNeeded: in /tvdb only a title counts; the
-// episodes' other values come only from TheTVDB). Plex's episodes are in
-// TheTVDB's aired order: each lands at its own TheTVDB spot (Ep.listed), not
-// TheMovieDb's. They set no TheTVDB episode (Ep.tvdbEp). Returns false when
-// the list failed or came back partial.
+// episodes' other values come only from TheTVDB). It reuses the list start
+// read for crew. Plex's episodes are in TheTVDB's aired order: each lands at
+// its own TheTVDB spot (Ep.listed), not TheMovieDb's. They set no TheTVDB
+// episode (Ep.tvdbEp). Returns false when the list failed or came back
+// partial.
 func (p *Provider) tvdbPlexTitles(ctx context.Context, s *Show, b *tvdbBuild) bool {
-	if !p.plexEpisodesListed(b.tvdbID, false) || !p.plexListNeeded(s, !b.partial, false, func(*Ep) bool { return true }) {
+	if b.plexRead == nil || !p.plexListNeeded(s, !b.partial, false, func(*Ep) bool { return true }) {
 		return true
 	}
-	ok := b.readPlex(ctx, p)
+	ok := b.plexRead()
 	record := report.RecorderFrom(ctx) != nil
 	s.eachEpisode(func(ep *Ep) { b.plex.title(ep, "plex", record) })
 	return ok
@@ -285,32 +298,31 @@ func (b *tvdbBuild) readPlex(ctx context.Context, p *Provider) bool {
 	return ok
 }
 
-// tvdbEpisodeCrew sets directors and writers on a /tvdb show's episodes in
-// one pass over EPISODE_CREW_SOURCES (applyCrew places them): TheTVDB's
-// list's crew (on the episodes already, episodesFromList) and its records
-// (started early, else asked here for the episodes with a gap: tvdbCrew),
-// TheMovieDb's list, paired through AniDB like the titles (pr), and Plex's:
-// the one tvdbPlexTitles read, else read here when crew has a gap it may
-// fill (plexCrewNeeded). Returns false while episode crew is still being
-// fetched, or when Plex's list read here failed.
+// tvdbEpisodeCrew sets directors, writers and producers on a /tvdb show's
+// episodes in one pass over EPISODE_CREW_SOURCES (applyCrew places them),
+// and adds their photos to b.photos: TheTVDB's list's crew (on the episodes
+// already, episodesFromList) and its records (started early, else asked
+// here for the episodes with a gap: tvdbCrew), TheMovieDb's list, paired
+// through AniDB like the titles (pr), and Plex's, which start read for crew
+// (plexCrewRead). Returns false while episode crew is still being fetched,
+// or when Plex's list failed.
 func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
 	tm := pairedList{b.tmdbEps, pr.otherAt}
-	b.crewWG.Wait()
-	order := p.cfg.EpisodeCrewSources
-	plexOK := true
-	for i, src := range order {
-		switch src {
-		case "tvdb":
-			if !b.crewEarly {
-				b.crew, b.crewPending = p.tvdbCrew(ctx, s, order[:i], tm, b.plex)
-			}
-		case "plex":
-			if b.plex.at == nil && p.plexEpisodesListed(b.tvdbID, false) &&
-				p.plexCrewNeeded(s, b.crew, tm, b.crewPending, func(*Ep) bool { return true }) {
-				plexOK = b.readPlex(ctx, p)
-			}
-		}
+	if len(p.cfg.EpisodeCrewSources) == 0 {
+		applyCrew(s, nil, nil, tm, b.plex) // takes TheTVDB's list's crew off: no crew at all
+		return true
 	}
-	applyCrew(s, order, b.crew, tm, b.plex)
+	b.crewWG.Wait()
+	plexOK := true
+	if b.plexRead != nil && p.plexCrewRead(b.tvdbID) {
+		plexOK = b.plexRead() // done already: start read it
+	}
+	b.crew, b.crewPending = p.walkCrew(&b.photos, tm, b.plex, func(prior []string) (map[int]sources.Crew, bool) {
+		if b.crewEarly {
+			return b.crew, b.crewPending
+		}
+		return p.tvdbCrew(ctx, s, prior, &b.photos, tm, b.plex)
+	})
+	applyCrew(s, p.cfg.EpisodeCrewSources, b.crew, tm, b.plex)
 	return !b.crewPending && plexOK
 }

@@ -295,36 +295,53 @@ func TestPlexTLSName(t *testing.T) {
 	}
 }
 
-// CAST_PHOTOS_FROM_PLEX is off by default and on with true. On without
-// PLEX_TOKEN it warns once and counts as off.
-func TestCastPhotosFromPlex(t *testing.T) {
-	for _, c := range []struct {
-		value, token string
-		want, warns  bool
-	}{
-		{"", "token", false, false},
-		{"true", "token", true, false},
-		{"false", "token", false, false},
-		{"", "", false, false},
-		{"false", "", false, false},
-		{"true", "", false, true},
-	} {
-		t.Setenv("CAST_PHOTOS_FROM_PLEX", c.value)
-		t.Setenv("PLEX_TOKEN", c.token)
-		var got bool
-		log := warnings(t, func() { got = Load().CastPhotosFromPlex })
-		if got != c.want {
-			t.Errorf("CAST_PHOTOS_FROM_PLEX=%q PLEX_TOKEN=%q: %v, want %v", c.value, c.token, got, c.want)
+// CAST_PHOTOS_FROM_PLEX and CREW_PHOTOS_FROM_PLEX are off by default and on
+// with true, each on its own. On without PLEX_TOKEN each warns once and
+// counts as off.
+func TestPhotosFromPlex(t *testing.T) {
+	for _, name := range []string{"CAST_PHOTOS_FROM_PLEX", "CREW_PHOTOS_FROM_PLEX"} {
+		other := "CREW_PHOTOS_FROM_PLEX"
+		if name == other {
+			other = "CAST_PHOTOS_FROM_PLEX"
 		}
-		if n := strings.Count(log, "setting=CAST_PHOTOS_FROM_PLEX"); n != map[bool]int{false: 0, true: 1}[c.warns] {
-			t.Errorf("CAST_PHOTOS_FROM_PLEX=%q PLEX_TOKEN=%q: %d warnings, want %v (log %q)", c.value, c.token, n, c.warns, log)
+		get := func(c Config) (this, that bool) {
+			if name == "CAST_PHOTOS_FROM_PLEX" {
+				return c.CastPhotosFromPlex, c.CrewPhotosFromPlex
+			}
+			return c.CrewPhotosFromPlex, c.CastPhotosFromPlex
 		}
-		if c.warns && !strings.Contains(log, "without PLEX_TOKEN") {
-			t.Errorf("the warning doesn't name PLEX_TOKEN: %q", log)
+		for _, c := range []struct {
+			value, token string
+			want, warns  bool
+		}{
+			{"", "token", false, false},
+			{"true", "token", true, false},
+			{"false", "token", false, false},
+			{"", "", false, false},
+			{"false", "", false, false},
+			{"true", "", false, true},
+		} {
+			t.Setenv(name, c.value)
+			t.Setenv(other, "")
+			t.Setenv("PLEX_TOKEN", c.token)
+			var got, otherGot bool
+			log := warnings(t, func() { got, otherGot = get(Load()) })
+			if got != c.want || otherGot {
+				t.Errorf("%s=%q PLEX_TOKEN=%q: %v (%s %v), want %v (false)", name, c.value, c.token, got, other, otherGot, c.want)
+			}
+			if n := strings.Count(log, "setting="+name); n != map[bool]int{false: 0, true: 1}[c.warns] {
+				t.Errorf("%s=%q PLEX_TOKEN=%q: %d warnings, want %v (log %q)", name, c.value, c.token, n, c.warns, log)
+			}
+			if strings.Contains(log, "setting="+other) {
+				t.Errorf("%s=%q: a warning for %s: %q", name, c.value, other, log)
+			}
+			if c.warns && !strings.Contains(log, "without PLEX_TOKEN") {
+				t.Errorf("the warning doesn't name PLEX_TOKEN: %q", log)
+			}
 		}
-	}
-	if !wasRead("CAST_PHOTOS_FROM_PLEX") {
-		t.Error("CAST_PHOTOS_FROM_PLEX not marked read: the settings file would call it unknown")
+		if !wasRead(name) {
+			t.Errorf("%s not marked read: the settings file would call it unknown", name)
+		}
 	}
 }
 

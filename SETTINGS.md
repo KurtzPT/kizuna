@@ -71,7 +71,8 @@ Each list names the sources to ask, in order: `anidb`, `tvdb`, `tmdb`, `mal`, `p
 field allows. The first that has a value wins; `none` turns the field off ([more](#-how-sources-are-used)).
 
 - **A source you list nowhere is not asked at all,** even with its key set. The exceptions are AniDB and TheTVDB,
-  where Kizuna needs them to find a show's episodes, and Plex with `CAST_PHOTOS_FROM_PLEX`.
+  where Kizuna needs them to find a show's episodes, and Plex with `CAST_PHOTOS_FROM_PLEX` or
+  `CREW_PHOTOS_FROM_PLEX`.
 - **`plex` is last in the default lists,** so by default it only fills what the others leave empty.
 
 | Variable | Default | What it does |
@@ -93,7 +94,8 @@ field allows. The first that has a value wins; `none` turns the field off ([more
 | `SEASON_ART_FALLBACK` | `true` | A season without art of a kind gets that site's series art. `false`: the next source is asked instead ([season art](#season-art)) |
 | `EPISODE_TITLES` | `anidb,tvdb,tmdb,plex` | Episode titles. A real title beats a placeholder such as *Episode 12* or *TBA*. `tvdb,tmdb,anidb` puts TheTVDB's English titles first |
 | `EPISODE_FILL_SOURCES` | `tvdb,plex` | `/anidb` only: episode thumbnails, plus the summaries, dates and runtimes AniDB lacks. `tvdb`, `plex` or `none` |
-| `EPISODE_CREW_SOURCES` | `tvdb,tmdb,plex` | [Episode directors and writers](#episode-directors-and-writers). `tvdb`, `tmdb`, `plex` or `none` |
+| `EPISODE_CREW_SOURCES` | `tvdb,tmdb,plex` | [Episode directors, writers and producers](#episode-directors-and-writers), with their photos. `tvdb`, `tmdb`, `plex` or `none` |
+| `CREW_PHOTOS_FROM_PLEX` | `false` | `true`: an episode's directors, writers and producers get Plex's photo of them first, when Plex has one; a person Plex has no photo of gets one from `EPISODE_CREW_SOURCES`. The people themselves still come from `EPISODE_CREW_SOURCES`. Needs `PLEX_TOKEN`, and does nothing with `EPISODE_CREW_SOURCES=none`. A first scan takes a little longer per show, even with `plex` in no list. Shows already in Plex get the new photos when you refresh their metadata |
 
 ### 🎵 Opening and ending titles
 
@@ -171,6 +173,7 @@ its key is skipped.
 | Episode titles | ⭐ | ✅ | ✅ | | ✅ | |
 | Episode thumbnails, `/anidb` | | ⭐ | | | ✅ | |
 | Episode directors, writers | | ⭐ | ✅ | | ✅ | |
+| Episode producers | | ⭐¹ | | | ✅ | |
 
 <sub>⭐ first by default &nbsp;·&nbsp; ✅ can be used &nbsp;·&nbsp; with a legacy TheTVDB key: ¹ none, ² US rating
 only, ³ backgrounds only, no logos; no season summaries or season backgrounds, and episodes get the series'
@@ -195,12 +198,19 @@ Which entry starts a series follows the mapping, per site: [the rule](MAPPING.md
 
 ### Episode directors and writers
 
-`EPISODE_CREW_SOURCES` decides where they come from: by default TheTVDB, then TheMovieDb, then Plex. Directors and
-writers are picked separately, so an episode can get its directors from one source and its writers from another.
+`EPISODE_CREW_SOURCES` decides where they come from: by default TheTVDB, then TheMovieDb, then Plex. Directors,
+writers and producers are picked separately, so an episode can get its directors from one source and its writers from
+another. Producers come from TheTVDB (with a v4 key) and Plex, at most 5 per episode.
 
 - **A source you leave out gives none,** whatever the other lists say.
 - **Put a source first to prefer it:** `tmdb,tvdb`.
-- **`none`:** no episode directors or writers.
+- **`none`:** no episode directors, writers or producers.
+
+**Photos.** Each person gets a photo from the first listed source that has one of them, from any episode of the
+series: a director TheTVDB names can get TheMovieDb's photo. With
+[`CREW_PHOTOS_FROM_PLEX=true`](#-sources-per-field), Plex's photo comes first. Kizuna remembers every photo it
+sends, for every show: a person keeps their photo on shows whose sources have none, and Plex never loses one because
+a later show sent the name without it. The photos are kept in `crew-photos.json` in the data folder.
 
 > [!TIP]
 > With a v4 TheTVDB key, some episodes of a long show may lack them after its first scan: refresh the show a few
@@ -243,6 +253,9 @@ until `CACHE_FREE_TARGET` is free, in this order:
 
 The AniDB title list and the mapping lists are never deleted. If the target still isn't reached, something else is
 filling the disk, and Kizuna logs a warning.
+
+`crew-photos.json` in the data folder is not cache: the cleanup never deletes it. It holds the
+[episode crew photos](#episode-directors-and-writers) Kizuna has sent; delete it yourself to start over.
 
 | Cached | For |
 |---|---|

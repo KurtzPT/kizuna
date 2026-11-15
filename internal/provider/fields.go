@@ -770,6 +770,7 @@ type lazy[T any] struct {
 	v    T
 	err  error
 	read atomic.Bool // get was called since the last unread (failed)
+	ran  atomic.Bool // f ran: v is set (done)
 }
 
 func (l *lazy[T]) get() T {
@@ -777,9 +778,20 @@ func (l *lazy[T]) get() T {
 	l.once.Do(func() {
 		if l.f != nil {
 			l.v, l.err = l.f()
+			l.ran.Store(true)
 		}
 	})
 	return l.v
+}
+
+// done gives the value only when get has fetched it already: it never
+// fetches, and doesn't count as a read (failed).
+func (l *lazy[T]) done() (T, bool) {
+	if !l.ran.Load() {
+		var zero T
+		return zero, false
+	}
+	return l.v, true
 }
 
 func (l *lazy[T]) fetches() bool { return l.f != nil }
@@ -829,11 +841,27 @@ func uniqueCast(cast []sources.Person) []sources.Person {
 // characters gets the photo on both rows.
 func castPhotos(cast, plex []sources.Person) int {
 	photo := map[string]string{} // key -> photo; "" = different photos
-	for _, p := range plex {
+	addPhotos(photo, plex, nameKey)
+	n := 0
+	for i := range cast {
+		if k := nameKey(cast[i].Name); k != "" && photo[k] != "" {
+			cast[i].Photo = photo[k]
+			n++
+		}
+	}
+	return n
+}
+
+// addPhotos adds the photos of people to photo (key -> photo), each under
+// its key (an empty key gets none). Two different photos under one key
+// leave "": which one is meant can't be told, and a third doesn't decide.
+// The same photo twice is no conflict.
+func addPhotos(photo map[string]string, people []sources.Person, key func(string) string) {
+	for _, p := range people {
 		if p.Photo == "" {
 			continue
 		}
-		k := nameKey(p.Name)
+		k := key(p.Name)
 		if k == "" {
 			continue
 		}
@@ -843,14 +871,6 @@ func castPhotos(cast, plex []sources.Person) int {
 		}
 		photo[k] = p.Photo
 	}
-	n := 0
-	for i := range cast {
-		if k := nameKey(cast[i].Name); k != "" && photo[k] != "" {
-			cast[i].Photo = photo[k]
-			n++
-		}
-	}
-	return n
 }
 
 // nameAccents: the accented vowels romanised Japanese names use, without
@@ -866,14 +886,18 @@ var nameAccents = map[rune]rune{
 // "kouhei" into "kohei" but "kohei" into "koei", and the two must pair.
 var nameFolds = [...][2]string{{"ou", "o"}, {"oo", "o"}, {"oh", "o"}, {"ow", "o"}, {"uu", "u"}}
 
-// nameKey is what castPhotos pairs a name by: lower-cased, accents off, only
-// letters and spaces, long vowels folded, words sorted. The sources spell
-// one person differently ("Yamadera Kouichi", "Koichi Yamadera", "Kōichi
-// Yamadera"); a key that close is exact, never fuzzy: nearly the same name
-// is often someone else. "" never pairs.
+// nameKey is what castPhotos and the crew photos pair a name by:
+// lower-cased, accents off, only letters and spaces, long vowels folded,
+// words sorted. The sources spell one person differently ("Yamadera
+// Kouichi", "Koichi Yamadera", "Kōichi Yamadera"); a key that close is
+// exact, never fuzzy: nearly the same name is often someone else. "" never
+// pairs. Each rune is lowered as strings.ToLower would, without its copy of
+// the name: every crew name of a build gets a key.
 func nameKey(name string) string {
 	var b strings.Builder
-	for _, r := range strings.ToLower(name) {
+	b.Grow(len(name))
+	for _, r := range name {
+		r = unicode.ToLower(r)
 		if plain, ok := nameAccents[r]; ok {
 			r = plain
 		}
@@ -888,7 +912,14 @@ func nameKey(name string) string {
 	for _, f := range nameFolds {
 		s = strings.ReplaceAll(s, f[0], f[1])
 	}
-	words := strings.Fields(s)
+	var most [8]string // most names have fewer words: no slice to allocate
+	words, size := most[:0], 0
+	for w := range strings.FieldsSeq(s) {
+		words, size = append(words, w), size+len(w)+1
+	}
+	if size-1 == len(s) && slices.IsSorted(words) {
+		return s // already the key: one space between sorted words
+	}
 	slices.Sort(words)
 	return strings.Join(words, " ")
 }

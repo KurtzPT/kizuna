@@ -112,6 +112,10 @@ type Config struct {
 	// cast for the show, when Plex has that person with one. The cast itself
 	// still follows CastSources. Needs PlexToken: without it, false.
 	CastPhotosFromPlex bool
+	// CrewPhotosFromPlex: an episode's directors, writers and producers get
+	// Plex's photo of them first, the EpisodeCrewSources' photos after it.
+	// Needs PlexToken: without it, false.
+	CrewPhotosFromPlex bool
 }
 
 func Load() Config {
@@ -160,16 +164,18 @@ func Load() Config {
 		PlexToken:          env("PLEX_TOKEN", ""),
 		PlexTLSName:        env("PLEX_TLS_NAME", ""),
 	}
-	c.CastPhotosFromPlex = castPhotosFromPlex(c.PlexToken)
+	c.CastPhotosFromPlex = plexPhotos("CAST_PHOTOS_FROM_PLEX", c.PlexToken, "the cast keeps its sources' photos")
+	c.CrewPhotosFromPlex = plexPhotos("CREW_PHOTOS_FROM_PLEX", c.PlexToken, "the episode crew keeps its sources' photos")
 	return c
 }
 
-// castPhotosFromPlex reads CAST_PHOTOS_FROM_PLEX. Plex is asked only with
-// the user's token: on without one, it warns and counts as off.
-func castPhotosFromPlex(token string) bool {
-	on := flag("CAST_PHOTOS_FROM_PLEX", false)
+// plexPhotos reads a flag that takes photos from Plex (CAST_PHOTOS_FROM_PLEX,
+// CREW_PHOTOS_FROM_PLEX). Plex is asked only with the user's token: on
+// without one, it warns (saying what happens instead) and counts as off.
+func plexPhotos(name, token, instead string) bool {
+	on := flag(name, false)
 	if on && token == "" {
-		slog.Warn("CAST_PHOTOS_FROM_PLEX is on without PLEX_TOKEN: the cast keeps its sources' photos", "setting", "CAST_PHOTOS_FROM_PLEX")
+		slog.Warn(name+" is on without PLEX_TOKEN: "+instead, "setting", name)
 		return false
 	}
 	return on

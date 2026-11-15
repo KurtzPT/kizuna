@@ -14,9 +14,6 @@ import (
 	"kizuna/internal/fetch"
 )
 
-// Crew is one episode's directors and writers.
-type Crew struct{ Directors, Writers []string }
-
 const (
 	crewTTL     = 7 * 24 * time.Hour
 	crewRetry   = time.Hour // a record that failed isn't asked again for this long
@@ -35,6 +32,7 @@ type episodeRecord struct {
 		Characters []struct {
 			PersonName string `json:"personName"`
 			PeopleType string `json:"peopleType"`
+			PersonImg  string `json:"personImgURL"`
 			Sort       int    `json:"sort"`
 		} `json:"characters"`
 	} `json:"data"`
@@ -44,6 +42,7 @@ func (r episodeRecord) crew() Crew {
 	people := r.Data.Characters
 	sort.SliceStable(people, func(i, j int) bool { return people[i].Sort < people[j].Sort })
 	var c Crew
+	var prod []string
 	for _, p := range people {
 		if p.PersonName = strings.TrimSpace(p.PersonName); p.PersonName == "" {
 			continue
@@ -53,13 +52,31 @@ func (r episodeRecord) crew() Crew {
 			c.Directors = appendNew(c.Directors, p.PersonName)
 		case "Writer":
 			c.Writers = appendNew(c.Writers, p.PersonName)
+		case "Producer", "Executive Producer": // co-, associate and line producers left out
+			prod = append(prod, p.PersonName)
+		}
+		if crewType(p.PeopleType) {
+			c.Photos = crewPhoto(c.Photos, p.PersonName, artURL(p.PersonImg))
 		}
 	}
+	c.Producers = producers(prod)
 	return c
 }
 
-// EpisodeCrew returns the directors and writers of TheTVDB v4 episodes, by
-// episode id. v4 has them only in one record per episode: cached records are
+// crewType: TheTVDB's people types Kizuna sends on episodes (directors,
+// writers, producers), whose photos are crew photos. Actors and guest stars
+// are the cast.
+func crewType(t string) bool {
+	switch t {
+	case "Director", "Writer", "Producer", "Executive Producer":
+		return true
+	}
+	return false
+}
+
+// EpisodeCrew returns the directors, writers, producers and crew photos of
+// TheTVDB v4 episodes, by episode id. v4 has them only in one record per
+// episode: cached records are
 // used (stale ones refreshed in the background), missing ones are fetched for
 // up to crewBudget and the rest in the background (queueCrew).
 // pending: some are still on their way, so the caller should rebuild soon.
