@@ -85,11 +85,9 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		return nil, nil
 	}
 	slog.Info("match", append(attrs, "show", cands[0].root, "score", cands[0].score, "how", how, "candidates", len(cands))...)
-	if rq != nil {
-		rq.Key = p.reportKey(cands[0].root)
-		rq.Note = fmt.Sprintf("%s match: %s, score %d → %s", matchType(r.Type), how, cands[0].score, cands[0].root)
-	}
 	if list { // Plex "Fix Match" list: cheap items, no API calls
+		// The request keeps no key, so it is on no page: a search the user
+		// typed isn't about its best candidate, which may never be built.
 		if rq != nil {
 			rq.Answer, rq.Note = report.Answer{Kind: report.AnswerFixMatch}, fmt.Sprintf("%d candidates, best %s (score %d)", len(cands), cands[0].root, cands[0].score)
 		}
@@ -100,11 +98,27 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 		return out, nil
 	}
 	root := cands[0].root
+	if rq != nil {
+		rq.Key = p.reportKey(root)
+		rq.Note = fmt.Sprintf("%s match: %s, score %d → %s", matchType(r.Type), how, cands[0].score, root)
+	}
 	if m != nil {
 		ctx = report.WithMatch(ctx, m) // the build's report copies it as it is now
 	}
 	s, err := p.show(ctx, root)
 	if err != nil {
+		if rq != nil && p.noPage(root, err) {
+			// An id tag or GUID named a show that can't be found, and Plex
+			// got "no match": the title's unmatched page says why, as for any
+			// other title without a match. A manual match has none.
+			rq.Key = ""
+			if m != nil && r.Manual != 1 {
+				m.How += "; " + noShowWhy(root, err)
+				m.Root, m.Score = "", 0
+				rq.Key = p.reports.Unmatched(*m)
+				rq.Build, rq.Answer, rq.Note = "", report.Answer{Kind: report.AnswerNoMatch}, m.How
+			}
+		}
 		// No rq.Match: the report's latest match would say Plex got the show.
 		// The request itself says it wasn't available.
 		slog.Debug("match: show not available", "root", root, "err", err)

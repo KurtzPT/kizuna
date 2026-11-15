@@ -50,6 +50,12 @@ const (
 	// from the library). page.html says it in words ("after 30 days");
 	// TestPageRepeatsLimits keeps them in step.
 	unmatchedMaxAge = 30 * 24 * time.Hour
+	// showMaxAge: a show's page goes this long after the show's last build
+	// or request, and comes back at the show's next refresh. Longer than an
+	// unmatched title's: Plex may leave a finished show alone for more than
+	// a month, and its page and builds should outlast that. page.html says
+	// it too ("after 90 days").
+	showMaxAge = 90 * 24 * time.Hour
 )
 
 // indexEvery is how often the index is rewritten while pages change: a scan
@@ -81,8 +87,8 @@ func (p *pending) merge(later *pending) {
 	}
 }
 
-// Open uses dir (created if needed) and reads the existing index. Unmatched
-// pages older than unmatchedMaxAge are removed.
+// Open uses dir (created if needed) and reads the existing index. Pages
+// older than their limit (expired) are removed.
 func Open(dir, version string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		return nil, err
@@ -136,7 +142,7 @@ func (s *Store) openRow(r IndexRow, added bool) {
 	if expired(r) {
 		s.indexDirty = true
 		if err := s.remove(r.Key); err != nil {
-			slog.Warn("reports: can't remove an old unmatched page", "page", r.Key, "err", err)
+			slog.Warn("reports: can't remove an old page", "page", r.Key, "err", err)
 		}
 		return
 	}
@@ -290,11 +296,27 @@ func (s *Store) Matched(title string) {
 	key := UnmatchedKey(title)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, listed := s.index[key]; !listed && s.pending[key] == nil && s.writing[key] == nil {
-		return // no page: one being written isn't in the index yet
+	if !s.hasPage(key) {
+		return
 	}
 	p := s.touch(key)
 	*p = pending{drop: true}
+}
+
+// HasPage reports whether key has a page, written or about to be.
+func (s *Store) HasPage(key string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hasPage(key)
+}
+
+// hasPage: a page being written isn't in the index yet; caller holds s.mu.
+func (s *Store) hasPage(key string) bool {
+	_, listed := s.index[key]
+	return listed || s.pending[key] != nil || s.writing[key] != nil
 }
 
 // idTagRe: an id tag like [anidb-1], {tvdb2-5} or [imdb-tt0388629].
@@ -399,7 +421,7 @@ func (s *Store) flush(index bool) {
 	}
 	for _, key := range old {
 		if err := s.remove(key); err != nil {
-			slog.Warn("reports: can't remove an old unmatched page", "page", key, "err", err)
+			slog.Warn("reports: can't remove an old page", "page", key, "err", err)
 		}
 	}
 	slices.SortFunc(rows, func(a, b IndexRow) int { return b.Last.Compare(a.Last) })
@@ -429,9 +451,14 @@ func (s *Store) retry(key string, p *pending, err error) {
 	s.signal()
 }
 
-// expired: an unmatched title Plex hasn't asked about for unmatchedMaxAge.
+// expired: a title Plex hasn't asked about for unmatchedMaxAge, or a show
+// for showMaxAge. A show's row counts from its newest build or request
+// (showRow).
 func expired(r IndexRow) bool {
-	return r.Kind == "unmatched" && time.Since(r.Last) > unmatchedMaxAge
+	if r.Kind == "unmatched" {
+		return time.Since(r.Last) > unmatchedMaxAge
+	}
+	return time.Since(r.Last) > showMaxAge
 }
 
 // remove deletes a page and its data.

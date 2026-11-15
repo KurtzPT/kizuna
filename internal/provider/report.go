@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -40,6 +41,36 @@ func (p *Provider) reportKey(root string) string {
 		}
 	}
 	return root
+}
+
+// noPage: a build that failed with err gets no report page, and neither do
+// the requests it answered, because the show doesn't exist. Without this
+// every well-formed key anyone asks for would leave a page. Two failures
+// of a show that doesn't exist are still reported, as any other failure is:
+// a TheTVDB series the mapping knows that has no episodes there (the page
+// is where the user reads to use /anidb or /auto), and one on a show that
+// has a page already, from when it did exist.
+func (p *Provider) noPage(root string, err error) bool {
+	if !noShow(err) {
+		return false
+	}
+	if site, id, _ := parseRoot(root); site == "tvdb" && p.lists.FirstAID(id) > 0 {
+		return false
+	}
+	return !p.reports.HasPage(p.reportKey(root))
+}
+
+// noShowWhy says in the report's words why root's build found no show. A
+// new AniDB entry is real but unknown until the next daily title list, so
+// "doesn't exist" would be wrong for it.
+func noShowWhy(root string, err error) string {
+	switch {
+	case errors.Is(err, errUnknownAID):
+		return root + " isn't in AniDB's title list (a new entry appears with the next daily list)"
+	case errors.Is(err, errNoEpisodes):
+		return root + " has no episodes on TheTVDB"
+	}
+	return root + " doesn't exist"
 }
 
 // buildMode: the provider a build is reported under, and whose GUIDs its
