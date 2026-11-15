@@ -733,11 +733,19 @@ warn() { WARNINGS+=("$1"); }
 PLAN_REL=() PLAN_VAL=() # hints for the current show: show-relative file, episode number
 KEPT=0                  # files that already have a hint
 SHOW_SKIPPED=0
+# What same_numbers needs to know about the current show's files, recorded by
+# plan_show as it reads them, so that it reads no name again:
+declare -A HINT_SRC=()      # show-relative file -> the season and episode its hint was planned from (S02E01)
+declare -A NAME_KEY=()      # show-relative file -> the episode Plex reads from its folder and name, when no hint is planned for it
+declare -A FOLDER_SEASON=() # show-relative folder -> its season, as dir_season gives it ("" for none)
 
 # hint plans "ep: $2: $1" for the show-relative file $1, unless the file
 # already has a hint (yours, or from an earlier run): that one is kept, with a
-# warning when it numbers the file differently.
+# warning when it numbers the file differently. $3, if given, is the season
+# and episode the number was read from (S02E01 for the plain tvdb S02E04):
+# two files read from the same one are one episode in two layouts.
 hint() {
+	if [[ -n ${3:-} ]]; then HINT_SRC[$1]=$3; fi
 	local have=${USER_EP[$1]:-} rd ds
 	shopt -s nocasematch
 	if [[ $have =~ ^sp[0-9] ]]; then # Plex 1.43 drops files hinted "SPxx"
@@ -782,6 +790,7 @@ plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
 	local relative=0 se rs re pk pe numbered ctext mains="" byhand
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
+	HINT_SRC=() NAME_KEY=() FOLDER_SEASON=()
 	for sub in "$dir"/*/; do
 		sub=$(basename "$sub")
 		if [[ $sub =~ $GROUP_DIR ]]; then warn "$dir: grouping folder \"$sub\" - move it to the library root as its own show"; fi
@@ -840,7 +849,7 @@ plan_show() {
 		rel=${v#"$dir"/} stem=$(basename -- "${v%.*}") rd=$(dirname -- "$rel")
 		if [[ $rd == . ]]; then rd=""; fi
 		ds=""
-		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); fi # a subfolder's season, if it has one
+		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); FOLDER_SEASON[$rd]=$ds; fi # a subfolder's season, if it has one
 		if plex_extra "$stem"; then # an extra to Plex, like those in extras/
 			# reported when it is meant as an episode or the movie
 			if ((${#videos[@]} == 1)) || plex_numbered "$stem" || (($(absolute_number "$stem") > 0)); then
@@ -922,19 +931,27 @@ plan_show() {
 				load_seasons "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
 				loaded=1
 			fi
+			printf -v se 'S%02dE%02d' "$rs" "$re"
 			if [[ ${SEASON_OF[$re]:-} == "$rs" ]]; then
+				NAME_KEY[$rel]=$se
 				continue # already absolute (season 1 always is)
 			fi
 			abs=${ABS_OF["$rs $re"]:-}
 			if [[ -z $abs ]]; then
-				warn "$v: S$(printf '%02d' "$rs")E$(printf '%02d' "$re"): TheTVDB's season $rs of $SHOW_KEY has no episode $re (and $re isn't one of its absolute numbers)"
+				warn "$v: $se: TheTVDB's season $rs of $SHOW_KEY has no episode $re (and $re isn't one of its absolute numbers)"
 				continue
 			fi
-			hint "$rel" "$(printf 'S%02dE%02d' "$rs" "$abs")"
+			hint "$rel" "$(printf 'S%02dE%02d' "$rs" "$abs")" "$se"
 			continue
 		fi
 		shopt -s nocasematch
 		if [[ $rules != tvdb || -n $ds || $stem =~ $SXE ]]; then
+			# a bare number in a season folder: Plex reads it with the folder's
+			# season (a season and episode in the name, same_numbers reads itself)
+			if [[ -n $ds ]] && ((abs > 0)) && [[ ! $stem =~ $SXE ]]; then
+				printf -v se 'S%02dE%02d' "$ds" "$abs"
+				NAME_KEY[$rel]=$se
+			fi
 			shopt -u nocasematch
 			continue # Plex's scanner reads these fine
 		fi
@@ -957,9 +974,106 @@ plan_show() {
 			continue
 		fi
 		if ((season == ${ROOT_SEASON:-1})) && [[ -z ${USER_EP[$rel]:-} ]]; then
+			printf -v se 'S%02dE%02d' "$season" "$abs"
+			NAME_KEY[$rel]=$se
 			continue # the scanner already reads "Show - 05" in the show folder as S01E05
 		fi
 		hint "$rel" "$(printf 'S%02dE%02d' "$season" "$abs")"
+	done
+	same_numbers "${videos[@]}"
+}
+
+# same_numbers warns about each episode number that two or more of the
+# show's videos ($@) end up on, when a hint planned here is one of them: Plex
+# shows the files of one number as one episode. They can be one (its two
+# parts), so the hints stay planned. A file counts with its planned hint, else
+# with the hint it already has, else with the number Plex reads from its name
+# or folder ("Show - S00E01", "Specials/Show - 01"). A range hint
+# (S00E04-E05) counts with its first number only. Not counted: a file Plex
+# makes an extra ("Show-trailer") or leaves out (an SPxx hint), whatever its
+# hint says.
+# Files are one episode on purpose, so there is no warning, when their numbers
+# were read from the same season and episode ("Show - S02E01" and
+# "Season 02/Show - 01" in a plain [tvdb-N] folder), or when they are in one
+# folder and their names differ only in tags, version or extension
+# ("Show - SP3" and "Show - SP3v2 [1080p]").
+# It reads what plan_show recorded (HINT_SRC, NAME_KEY, FOLDER_SEASON) and
+# runs no subshell: it costs a show without such files next to nothing.
+same_numbers() {
+	local v rel stem key have kind s e i n list first differ same tags='\[[^]]*\]|\([^)]*\)|\{[^}]*\}'
+	local -A planned=() members=() fresh=()
+	local order=() rels=() kinds=()
+	((${#PLAN_REL[@]} > 0)) || return 0
+	for i in "${!PLAN_REL[@]}"; do planned[${PLAN_REL[i]}]=${PLAN_VAL[i]}; done
+	n=0
+	for v in "$@"; do
+		rel=${v#"$SHOW_DIR"/} stem=${rel##*/} stem=${stem%.*}
+		key=${planned[$rel]:-} have=${USER_EP[$rel]:-} kind=planned
+		if [[ -n $key ]]; then
+			fresh[$key]=1
+		elif plex_extra "$stem"; then
+			continue
+		elif [[ -n $have ]]; then
+			kind=hinted have=${have%%-*} # a range: its first number
+			if [[ $have =~ ^[sS][pP][0-9] ]]; then continue; fi
+			if [[ $have =~ ^[sS]([0-9]+)[eE]([0-9]+)$ ]]; then
+				s=${BASH_REMATCH[1]} e=${BASH_REMATCH[2]}
+			elif [[ $have =~ ^[eE]?([0-9]+)$ ]]; then # a bare number: the folder's season
+				s=${ROOT_SEASON:-1} e=${BASH_REMATCH[1]}
+				if [[ $rel == */* ]]; then s=${FOLDER_SEASON[${rel%/*}]:-1}; fi
+			else
+				continue
+			fi
+			printf -v key 'S%02dE%02d' "$((10#$s))" "$((10#$e))"
+		else
+			kind=name key=${NAME_KEY[$rel]:-}
+			if [[ -z $key ]]; then
+				shopt -s nocasematch
+				if [[ $stem =~ $SXE ]]; then
+					printf -v key 'S%02dE%02d' "$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))"
+				fi
+				shopt -u nocasematch
+				[[ -n $key ]] || continue
+			fi
+		fi
+		if [[ -z ${members[$key]:-} ]]; then order+=("$key"); fi
+		members[$key]+="$n "
+		rels+=("$rel") kinds+=("$kind")
+		n=$((n + 1))
+	done
+	for key in "${order[@]}"; do
+		if [[ -z ${fresh[$key]:-} || ${members[$key]} != *" "*" "* ]]; then continue; fi # planned here, and two files or more
+		first="" differ=0 list=""
+		for i in ${members[$key]}; do
+			rel=${rels[i]}
+			# what makes it the same episode as the others: the season and
+			# episode its number was read from, else its folder and its name
+			# without tags and version
+			same=${HINT_SRC[$rel]:-}
+			if [[ -z $same && ${kinds[i]} == name ]]; then same=$key; fi
+			if [[ -z $same ]]; then
+				stem=${rel##*/} stem=${stem%.*}
+				while [[ $stem =~ $tags ]]; do stem=${stem/"${BASH_REMATCH[0]}"/}; done
+				stem=${stem#"${stem%%[![:space:]]*}"} stem=${stem%"${stem##*[![:space:]]}"}
+				if [[ $stem != *[[:space:]]* ]]; then # underscores for spaces, as strip_tags reads them
+					stem=${stem//_/ }
+					stem=${stem#"${stem%%[![:space:]]*}"} stem=${stem%"${stem##*[![:space:]]}"}
+				fi
+				stem=${stem,,}
+				while [[ $stem =~ ^(.*[0-9])v[0-9]($|[^[:alnum:]].*$) ]]; do stem=${BASH_REMATCH[1]}${BASH_REMATCH[2]}; done
+				same=/$stem
+				if [[ $rel == */* ]]; then same=${rel%/*}$same; fi
+			fi
+			if [[ -z $list ]]; then first=$same; elif [[ $same != "$first" ]]; then differ=1; fi
+			list+="${list:+, }\"$rel\""
+			case ${kinds[i]} in
+			hinted) list+=" (already hinted)" ;;
+			name) list+=" (numbered by its name)" ;;
+			esac
+		done
+		if ((differ)); then
+			warn "$SHOW_DIR: more than one file is on $key, and Plex shows them as one episode: $list. If they are different episodes, give each its own number: rename the file, or set its ep: line in the show's .plexmatch by hand"
+		fi
 	done
 }
 
