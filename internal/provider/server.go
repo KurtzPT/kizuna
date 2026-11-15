@@ -417,7 +417,11 @@ func readMatch(r *http.Request) (MatchRequest, error) {
 				fields[k] = map[bool]string{true: "1", false: "0"}[v]
 			}
 		}
-	} else if form, err := url.ParseQuery(body); err == nil {
+	} else {
+		form, err := url.ParseQuery(body)
+		if err != nil { // a bad "%" or a ";": matching without the body's fields would answer "no match"
+			return MatchRequest{}, err
+		}
 		for k := range form {
 			fields[k] = form.Get(k)
 		}

@@ -59,6 +59,20 @@ func TestReadMatch(t *testing.T) {
 	}
 }
 
+// A form body Go can't parse (a bare "%", a ";") is an error, like broken
+// JSON: dropping every field would answer "no match" for a bad request.
+func TestReadMatchBrokenForm(t *testing.T) {
+	for _, body := range []string{"type=2&title=100%", "type=2&title=A; B"} {
+		if got, err := readMatch(httptest.NewRequest("POST", "/", strings.NewReader(body))); err == nil {
+			t.Errorf("%q: got %+v, want an error (HTTP 400)", body, got)
+		}
+	}
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	if rec := plexRequest(context.Background(), p, "POST", "/anidb/library/metadata/matches", "type=2&title=100%"); rec.Code != 400 {
+		t.Errorf("status %d, want 400", rec.Code)
+	}
+}
+
 // The query string is parsed once, not once per key: allocations grow with
 // the number of keys, not with its square.
 func TestReadMatchManyQueryKeys(t *testing.T) {
