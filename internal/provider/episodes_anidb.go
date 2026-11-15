@@ -27,6 +27,7 @@ type episodeLists struct {
 func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) episodeLists {
 	list := func(src string, id int, on bool) func() (episodeIndex, bool) {
 		return sync.OnceValues(func() (episodeIndex, bool) {
+			defer keepStack()
 			if !on || id <= 0 {
 				return episodeIndex{}, true
 			}
@@ -66,7 +67,7 @@ func (p *Provider) tmdbEpisodesListed(tvdbMode bool) bool {
 
 // start fetches the lists, in wg: Plex's only when it is read anyway
 // (plexEarly).
-func (l episodeLists) start(wg *sync.WaitGroup) {
+func (l episodeLists) start(wg *group) {
 	wg.Go(func() { l.tvdb() })
 	wg.Go(func() { l.tmdb() })
 	if l.plexEarly {
@@ -181,7 +182,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	}
 	var tv, tm episodeIndex
 	tvOK, tmOK := true, true
-	var wg sync.WaitGroup
+	var wg group
 	if wantTVDB {
 		wg.Go(func() { tv, tvOK = lists.tvdb() })
 	}

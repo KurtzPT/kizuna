@@ -230,7 +230,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	}
 	entry := p.lists.ByAID(aid)
 	lists := p.episodeLists(ctx, entry)
-	var early sync.WaitGroup
+	var early group
 	defer early.Wait()
 	if p.listsEarly(aid, entry) {
 		lists.start(&early)
@@ -287,7 +287,8 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 		firstEntry{tvdb: p.lists.StartsShow("tvdb", aid), tmdb: movie || p.lists.StartsShow("tmdb", aid)})
 	ss.setAniDB(ctx, a, entry)
 	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
-	var wg sync.WaitGroup
+	var wg group
+	defer wg.Wait() // when a panic skips the Wait below (group)
 	episodesOK := true
 	var photos crewPhotos
 	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
@@ -471,7 +472,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	b.startTMDB(ctx, p, tmdbShow) // while TheTVDB's episode list downloads
 	defer b.wait()                // a failed build too: nothing it started outlives it
 
-	var wg sync.WaitGroup
+	var wg group
 	defer wg.Wait() // a failed build too: AniDB's answer is cached for the next
 	var d anidbDetails
 	if aid > 0 {
@@ -508,6 +509,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	b.start(ctx, p)
 	ss := p.newSources(ctx, aid, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
+	defer ss.earlyWG.Wait() // when a panic keeps the build from warm's Wait (group)
 	ss.warmEarly()
 	wg.Wait()
 	a := d.a
@@ -537,6 +539,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 // be asked of the show (its tmdb:// GUID then comes from the mapping alone).
 func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Entry) func() (int, error) {
 	return sync.OnceValues(func() (int, error) {
+		defer keepStack()
 		if entry.TMDB.ID == 0 && p.tmdb.Enabled() && p.cfg.Listed("tmdb") {
 			return p.tmdb.TVFromTVDB(ctx, tvdbID)
 		}
@@ -572,7 +575,8 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 // one of them (tvdbBuild.tmdbOn). Returns false while other AniDB entries
 // or episode crew are still being fetched, or when a source failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) bool {
-	var wg sync.WaitGroup
+	var wg group
+	defer wg.Wait() // when a panic skips the Wait below (group)
 	var tmdbOK, titlesReady, plexOK, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
