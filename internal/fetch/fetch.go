@@ -357,6 +357,7 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	method := cmp.Or(r.Method, http.MethodGet)
 	req, err := http.NewRequest(method, r.URL, bytes.NewReader(r.Body))
 	if err != nil {
+		redactURLError(err) // the URL it couldn't parse is in the message
 		return nil, 0, waited, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
@@ -378,10 +379,7 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) { // its message repeats the whole URL, secrets included
-			ue.URL = Redact(ue.URL)
-		}
+		redactURLError(err) // its message repeats the whole URL, secrets included
 		return nil, 0, waited, err
 	}
 	defer resp.Body.Close()
@@ -567,11 +565,17 @@ func gunzip(data []byte, limit int64) ([]byte, error) {
 
 // Redact hides secrets in logged URLs: every query parameter whose name
 // contains "key" or "token" (api_key, X-Plex-Token...), and AniDB's client
-// name ("client").
+// name ("client"). A user name and password, and a fragment, go whole: no
+// source uses them, so one there is a key's tail cut off at a "#" or "@".
 func Redact(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return raw
+		return redactUnparsed(raw)
+	}
+	user := u.User != nil
+	u.User = nil // url.User would escape the mark to %2A%2A%2A
+	if u.Fragment != "" || u.RawFragment != "" {
+		u.Fragment, u.RawFragment = "***", ""
 	}
 	q := u.Query()
 	for k := range q {
@@ -580,5 +584,63 @@ func Redact(raw string) string {
 		}
 	}
 	u.RawQuery = strings.ReplaceAll(q.Encode(), "%2A%2A%2A", "***")
+	if user { // the first "//" is the one after the scheme: a scheme has no "/"
+		return strings.Replace(u.String(), "//", "//***@", 1)
+	}
 	return u.String()
+}
+
+// hiddenURL stands for a URL that can't be parsed and whose parts can't be
+// told apart safely either.
+const hiddenURL = "(unreadable URL, hidden)"
+
+// redactUnparsed is Redact for a URL url.Parse rejects, such as a key pasted
+// with a line break or tab in it. Without the parser no one can say which
+// parameter is which, so the whole query (and fragment) goes, and so does a
+// user name and password. Scheme, host and path stay, for the log. An "@"
+// anywhere else ahead of the query makes the parts uncertain: then nothing is
+// kept. Control characters in what is kept are left as they are: the log
+// handler quotes them.
+func redactUnparsed(raw string) string {
+	cut := strings.IndexAny(raw, "?#")
+	if cut < 0 {
+		cut = len(raw)
+	}
+	host := 0 // where the authority starts: after the first "//" ahead of the query
+	if i := strings.Index(raw[:cut], "//"); i >= 0 {
+		host = i + 2
+	}
+	rest := raw[host:]
+	end := strings.IndexAny(rest, "/?#")
+	if end < 0 {
+		end = len(rest)
+	}
+	user := strings.LastIndexByte(rest[:end], '@') + 1 // 0: no user part
+	// The query goes anyway, so an "@" in it doesn't matter, unless it comes
+	// before the first "/": then it may end a password holding a "?" or "#".
+	authority := strings.IndexByte(rest, '/')
+	if authority < 0 {
+		authority = len(rest)
+	}
+	if strings.Contains(raw[:host], "@") || strings.Contains(raw[host+user:cut], "@") ||
+		strings.Contains(rest[user:authority], "@") {
+		return hiddenURL
+	}
+	kept, mark := rest[user:], ""
+	if i := strings.IndexAny(kept, "?#"); i >= 0 {
+		kept, mark = kept[:i], kept[i:i+1]+"***"
+	}
+	if user > 0 {
+		kept = "***@" + kept
+	}
+	return raw[:host] + kept + mark
+}
+
+// redactURLError hides the secrets in the URL an *url.Error repeats in its
+// message (a failed request, or one http.NewRequest couldn't parse).
+func redactURLError(err error) {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		ue.URL = Redact(ue.URL)
+	}
 }
