@@ -57,6 +57,70 @@ bytes() { od -An -c "$1" | tr -d ' \n'; }
 
 # --- name parsing --------------------------------------------------------------
 
+# trim, strip_tags and file_stem set a variable, read here as the script reads it
+while IFS='|' read -r text want; do
+	trim "$text"
+	check "trim \"$text\"" "$TRIM" "$want"
+done <<'EOF'
+  Show - 05  |Show - 05
+Show|Show
+   |
+|
+EOF
+trim $'\t Show\r\n'
+check "trim: tabs and line ends" "$TRIM" "Show"
+
+while IFS='|' read -r name want; do
+	strip_tags "$name"
+	check "strip_tags \"$name\"" "$STRIP_TAGS" "$want"
+done <<'EOF'
+[Grp] Show - 05 [1080p]|Show - 05
+[Grp]_Show_-_SP1_[1080p]|Show - SP1
+[Grp] Show_-_SP1 [1080p]|Show - SP1
+Show (2010) {tvdb-5} - 01|Show   - 01
+_Show_|Show
+[only tags] (here)|
+Show [unclosed|Show [unclosed
+Show [a [b] c]|Show  c]
+EOF
+
+# a file named only ".mkv" gets its folder's name, as basename gave it
+while IFS='|' read -r path want; do
+	file_stem "$path"
+	check "file_stem \"$path\"" "$FILE_STEM" "$want"
+done <<'EOF'
+lib/Show/Show - 01.mkv|Show - 01
+lib/Show/Season 1/a.b.mkv|a.b
+lib/Show/.mkv|Show
+lib/Show/..mkv|.
+lib/Show/noext|noext
+-x/y.mkv|y
+EOF
+
+# Each setter clears its variable on every path: called in one shell, as the
+# script calls it, an answer is followed by none. Each line: the call for an
+# answer, the call for none, the variable shown with declare -p.
+# shellcheck disable=SC2034 # read by the sourced script's season_of_dir
+DIR_SEASON=() ROOT_SEASON=""
+while IFS='|' read -r fn hit miss var want; do
+	"$fn" "$hit"
+	"$fn" "$miss"
+	got=$(declare -p "$var")
+	check "$fn \"$hit\" then \"$miss\": $var" "${got#declare -* "$var"=}" "$want"
+done <<'EOF'
+core_number|Show - 05|Show|CORE_NUMBER|"0"
+core_credit|Show - NCOP1|Show - 05|CORE_CREDIT|()
+core_special|Show - SP2|Show - 05|CORE_SPECIAL|"0"
+plex_credit_of|Show - NCOP1|Show - 05|PLEX_CREDIT_OF|()
+season_of_dir|Season 02|Bonus|SEASON_OF_DIR|""
+ep_pair|S01E02|x1|EP_PAIR|""
+capital_name|op1|Show|CAPITAL_NAME|""
+name_tails|Show - SP1|Show - 05|NAME_TAILS|()
+EOF
+season_episode "Show - S02E01" "" 0
+season_episode "Show - 05" "" 5
+check "season_episode: an answer, then none" "${#SEASON_EPISODE[@]}" "0"
+
 # A name without spaces once its tags are gone uses underscores for them, and
 # is read like the same name with spaces, also when spaces are left around the
 # tags.
@@ -257,6 +321,21 @@ x1|1|
 EOF
 
 # --- reading .plexmatch files --------------------------------------------------
+
+# One listing of a show's files for its .plexmatch files and its videos
+show=$WORK/list/Show
+mkdir -p "$show/Season 1" "$show/b" "$show/extras" "$show/.hidden" "$WORK/list/Empty"
+for f in "b/x.mkv" "a.mkv" "Season 1/c.MP4" "notes.txt" "extras/e.mkv" ".hidden/h.mkv" ".plexmatch" "b/.plexmatch"; do
+	: >"$show/$f"
+done
+show_files "$show"
+check "show_files: every file, hidden and extras folders left out" \
+	"$(printf '%s\n' "${SHOW_FILES[@]#"$show"/}" | LC_ALL=C sort | tr '\n' '|')" ".plexmatch|Season 1/c.MP4|a.mkv|b/.plexmatch|b/x.mkv|notes.txt|"
+list_videos
+check "list_videos: the videos, sorted" "$(printf '%s|' "${LIST_VIDEOS[@]#"$show"/}")" "Season 1/c.MP4|a.mkv|b/x.mkv|"
+show_files "$WORK/list/Empty"
+list_videos
+check "list_videos: none" "${#SHOW_FILES[@]} ${#LIST_VIDEOS[@]}" "0 0"
 
 show=$WORK/read/Show
 mkdir -p "$show/Season 03" "$show/extras"
