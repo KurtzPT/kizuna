@@ -30,12 +30,12 @@ func tvdbOff(t *testing.T) func(p *Provider) {
 	return func(p *Provider) { p.tvdb = sources.NewTVDB(fetch.New(t.TempDir()), "", "", "") }
 }
 
-// Plex's episode list is read only when it can add something: not when the
-// sources before plex gave every episode its values; when TheTVDB is off or
-// its list failed, a gap is left, or plex comes first. For titles and fill
-// values, in /tvdb only a missing title is a gap; those cases leave plex out
-// of EPISODE_CREW_SOURCES, whose own gaps (a director or a writer) are the
-// crew cases.
+// For titles and fill values, Plex's episode list is read only when it can
+// add something: not when the sources before plex gave every episode its
+// values; when TheTVDB is off or its list failed, a gap is left, or plex
+// comes first. In /tvdb only a missing title is a gap; those cases leave
+// plex out of EPISODE_CREW_SOURCES. With plex in EPISODE_CREW_SOURCES the
+// list is always read, gap or not: the crew cases.
 func TestPlexEpisodeListRead(t *testing.T) {
 	failed := func(path string, q map[string][]string) (int, string) {
 		if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
@@ -78,14 +78,14 @@ func TestPlexEpisodeListRead(t *testing.T) {
 		}), false},
 		{"tvdb: pictures and summaries missing are no gap", testSeries, "tvdb-500", noCrew(nil), false},
 		{"tvdb: a title missing", testSeries, "tvdb-500", noCrew(func(p *Provider) { p.cfg.EpisodeTitles = []string{"tmdb", "plex", "tvdb"} }), true},
-		{"anidb crew: no gap", fullTVDB, "anidb-100", crewOnly(true, "tvdb", "tmdb", "plex"), false},
-		{"tvdb crew: no gap", fullCrew, "tvdb-500", crewOnly(true, "tvdb", "tmdb", "plex"), false},
+		{"anidb crew: no gap", fullTVDB, "anidb-100", crewOnly(true, "tvdb", "tmdb", "plex"), true},
+		{"tvdb crew: no gap", fullCrew, "tvdb-500", crewOnly(true, "tvdb", "tmdb", "plex"), true},
 		{"anidb crew: a writer missing", crewGap, "anidb-100", crewOnly(true, "tvdb", "tmdb", "plex"), true},
 		{"tvdb crew: a writer missing", testSeries, "tvdb-500", crewOnly(true, "tvdb", "tmdb", "plex"), true},
 		{"anidb crew: a writer missing, tmdb not listed", fullTVDB, "anidb-100", crewOnly(true, "tvdb", "plex"), true},
 		{"anidb crew: plex first", fullCrew, "anidb-100", crewOnly(true, "plex", "tvdb", "tmdb"), true},
 		{"tvdb crew: plex first", fullCrew, "tvdb-500", crewOnly(true, "plex", "tvdb", "tmdb"), true},
-		{"anidb crew: TheTVDB off, no gap", fullCrew, "anidb-100", crewOnly(false, "tvdb", "tmdb", "plex"), false},
+		{"anidb crew: TheTVDB off, no gap", fullCrew, "anidb-100", crewOnly(false, "tvdb", "tmdb", "plex"), true},
 		{"anidb crew: TheTVDB off, a gap", crewGap, "anidb-100", crewOnly(false, "tvdb", "tmdb", "plex"), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -152,6 +152,38 @@ func fullCrew(path string, q map[string][]string) (int, string) {
 	return fullTVDB(path, q)
 }
 
+// plexEpisodeFull is plexEpisode with a producer too, and a photo for each
+// of its crew.
+func plexEpisodeFull(season, n int, title string) string {
+	return fmt.Sprintf(`{"index":%d,"parentIndex":%d,"title":%q,"summary":"Plex summary %d-%d","thumb":"https://plex/e%d-%d.jpg",
+		"originallyAvailableAt":"2001-01-0%d","duration":1500000,"Director":[{"tag":"Plex Director","thumb":"https://plex/director.jpg"}],
+		"Writer":[{"tag":"Plex Writer","thumb":"https://plex/writer.jpg"}],"Producer":[{"tag":"Plex Producer","thumb":"https://plex/producer.jpg"}]}`,
+		n, season, title, season, n, season, n, n)
+}
+
+// plexFullCrew: plexService over next, where Plex's episodes of the seasons
+// listed have full crew with photos (plexEpisodeFull).
+func plexFullCrew(next func(string, map[string][]string) (int, string), seasons ...int) func(string, map[string][]string) (int, string) {
+	plex := plexService(next)
+	return func(path string, q map[string][]string) (int, string) {
+		episode := func(season, n int, title string) string {
+			if slices.Contains(seasons, season) {
+				return plexEpisodeFull(season, n, title)
+			}
+			return plexEpisode(season, n, title)
+		}
+		switch strings.TrimPrefix(path, plexHost) {
+		case "/library/metadata/p500s0/children":
+			return 200, plexList(episode(0, 1, "Plex Special"))
+		case "/library/metadata/p500s1/children":
+			return 200, plexList(episode(1, 1, "Plex One"), episode(1, 2, "Plex Two"))
+		case "/library/metadata/p500s2/children":
+			return 200, plexList(episode(2, 1, "Plex Three"))
+		}
+		return plex(path, q)
+	}
+}
+
 // crewGap: fullTVDB, where S01E02 has a writer at neither TheTVDB (record
 // 12) nor TheMovieDb: a crew gap in both modes, and none for titles or fill
 // values.
@@ -191,9 +223,8 @@ func checkCrew(t *testing.T, name string, s *Show, wants []crewWant) {
 
 // Episode directors and writers from Plex: where the sources listed before
 // plex in EPISODE_CREW_SOURCES have none, each field on its own. Its list is
-// read for that alone when an episode has such a gap, also with plex in no
-// other list, and a list read only for crew gives no titles and no fill
-// values. Both modes.
+// read for crew, also with plex in no other list, and a list read only for
+// crew gives no titles and no fill values. Both modes.
 func TestPlexEpisodeCrew(t *testing.T) {
 	wants := map[string][]crewWant{
 		"tvdb-500": {
@@ -230,7 +261,7 @@ func TestPlexEpisodeCrew(t *testing.T) {
 				t.Fatal(err)
 			}
 			if read := plexAsked(net, "s1/children") > 0; !read || !s.Complete {
-				t.Errorf("%s: Plex's list read %v, complete %v; want read for the gap, complete", name, read, s.Complete)
+				t.Errorf("%s: Plex's list read %v, complete %v; want read for crew, complete", name, read, s.Complete)
 			}
 			checkCrew(t, name, s, wants[root])
 			s.eachEpisode(func(ep *Ep) {
@@ -297,12 +328,11 @@ func TestPlexEpisodeCrewFirst(t *testing.T) {
 	}
 }
 
-// While TheTVDB's records are still on their way and tvdb comes before
-// plex, a gap can't be told from a record still to come: Plex's list is not
-// read for crew, and the build is incomplete. The rebuild, with the records
-// in, reads it for the gap. With plex first it is read all the same, and as
-// Plex gives every episode both fields, no record is asked for: nothing is
-// pending. Both modes.
+// While TheTVDB's records are still on their way the build is incomplete;
+// Plex's list is read all the same, and the rebuild, with the records in,
+// takes Plex's writer for the gap. With plex first, as Plex gives every
+// episode its directors, writers and producers with their photos, no record
+// is asked for: nothing is pending. Both modes.
 func TestPlexEpisodeCrewTVDBPending(t *testing.T) {
 	for _, c := range []struct {
 		root      string
@@ -316,6 +346,9 @@ func TestPlexEpisodeCrewTVDBPending(t *testing.T) {
 	} {
 		name := fmt.Sprintf("%s %v", c.root, c.order)
 		net := &fakeNet{answer: plexService(crewGap)}
+		if c.plexFirst {
+			net.answer = plexFullCrew(crewGap, 0, 1, 2)
+		}
 		p := newTestProvider(t, net)
 		withPlex(t, p, net)
 		p.cfg.EpisodeCrewSources = c.order
@@ -326,8 +359,8 @@ func TestPlexEpisodeCrewTVDBPending(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if read := plexAsked(net, "s1/children") > 0; read != c.plexFirst || s.Complete != c.plexFirst {
-			t.Errorf("%s, records pending: Plex's list read %v, complete %v; want read and complete %v", name, read, s.Complete, c.plexFirst)
+		if read := plexAsked(net, "s1/children") > 0; !read || s.Complete != c.plexFirst {
+			t.Errorf("%s, records pending: Plex's list read %v, complete %v; want read, complete %v", name, read, s.Complete, c.plexFirst)
 		}
 		p.tvdb.WaitIdle() // the records are in
 		if n := tvdbCrewAsked(net); c.plexFirst && n != 0 {

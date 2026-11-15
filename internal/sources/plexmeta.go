@@ -172,6 +172,7 @@ type plexItem struct {
 	Genre       []plexTag
 	Director    []plexTag
 	Writer      []plexTag
+	Producer    []plexTag
 	Role        []plexRole
 	Image       []plexImage
 }
@@ -181,16 +182,17 @@ func (it *plexItem) UnmarshalJSON(data []byte) error {
 		"ratingKey": &it.RatingKey, "title": &it.Title, "summary": &it.Summary, "index": &it.Index,
 		"parentIndex": &it.ParentIndex, "thumb": &it.Thumb, "originallyAvailableAt": &it.Date, "duration": &it.Duration,
 		"studio": &it.Studio, "contentRating": &it.Rating, "Genre": &it.Genre, "Director": &it.Director,
-		"Writer": &it.Writer, "Role": &it.Role, "Image": &it.Image,
+		"Writer": &it.Writer, "Producer": &it.Producer, "Role": &it.Role, "Image": &it.Image,
 	})
 }
 
 type plexTag struct {
-	Tag string
+	Tag   string
+	Thumb string // a person's photo (crew tags)
 }
 
 func (t *plexTag) UnmarshalJSON(data []byte) error {
-	return exactKeys(data, map[string]any{"tag": &t.Tag})
+	return exactKeys(data, map[string]any{"tag": &t.Tag, "thumb": &t.Thumb})
 }
 
 type plexRole struct {
@@ -319,7 +321,7 @@ const plexCast = 50
 // the cast can't write over the people after it.
 func (it plexItem) details() (d Details, people []Person) {
 	d = Details{Studio: strings.TrimSpace(it.Studio), Date: it.Date, Genres: tags(it.Genre),
-		Directors: tags(it.Director), Writers: tags(it.Writer)}
+		Directors: tags(it.Director), Writers: tags(it.Writer), CrewPhotos: it.crewPhotos()}
 	roles := append([]plexRole(nil), it.Role...)
 	sort.SliceStable(roles, func(i, j int) bool { return roles[i].Order < roles[j].Order })
 	for _, r := range roles {
@@ -339,12 +341,25 @@ func (it plexItem) details() (d Details, people []Person) {
 	return d, people
 }
 
-func tags(t []plexTag) []string {
+func tags(t []plexTag) []string { return people(tagNames(t)) }
+
+func tagNames(t []plexTag) []string {
 	names := make([]string, 0, len(t))
 	for _, x := range t {
 		names = append(names, x.Tag)
 	}
-	return people(names)
+	return names
+}
+
+// crewPhotos: the item's directors, writers and producers with a photo.
+func (it plexItem) crewPhotos() []Person {
+	var out []Person
+	for _, list := range [...][]plexTag{it.Director, it.Writer, it.Producer} {
+		for _, x := range list {
+			out = crewPhoto(out, x.Tag, x.Thumb)
+		}
+	}
+	return out
 }
 
 // plexArt: the posters, backgrounds and logos of an item's Image list.
@@ -506,5 +521,6 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 // episode: an episode item of the season numbered season.
 func (it plexItem) episode(season int) Episode {
 	return Episode{Season: season, Number: it.Index, Title: it.Title, Summary: it.Summary, Aired: it.Date, Thumb: it.Thumb,
-		Minutes: max(0, (it.Duration+30_000)/60_000), Directors: tags(it.Director), Writers: tags(it.Writer)}
+		Minutes: max(0, (it.Duration+30_000)/60_000), Crew: Crew{Directors: tags(it.Director), Writers: tags(it.Writer),
+			Producers: producers(tagNames(it.Producer)), Photos: it.crewPhotos()}}
 }

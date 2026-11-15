@@ -220,10 +220,12 @@ type Result struct {
 	Seasons  []Season
 	Episodes []Episode
 	EpsTotal int
-	Art      []ArtGroup
-	Item     json.RawMessage
-	ItemSrc  map[string]string
-	Checks   []Check // go after the ones recorded while the build ran
+	// CrewPhotos: the episodes' crew photo count (Build.CrewPhotos).
+	CrewPhotos string
+	Art        []ArtGroup
+	Item       json.RawMessage
+	ItemSrc    map[string]string
+	Checks     []Check // go after the ones recorded while the build ran
 }
 
 // Finish ends the build: took is how long it ran, err its failure.
@@ -240,6 +242,7 @@ func (r *Recorder) Finish(took time.Duration, err error, res Result) {
 	r.head = res.Head
 	r.b.Mapping, r.b.Complete, r.b.Seasons = res.Mapping, res.Complete, res.Seasons
 	r.b.Episodes, r.b.EpsTotal, r.b.Art, r.b.Item, r.b.ItemSrc = res.Episodes, res.EpsTotal, res.Art, res.Item, res.ItemSrc
+	r.b.CrewPhotos = res.CrewPhotos
 	r.b.Checks = append(r.b.Checks, res.Checks...)
 	r.finished = time.Now()
 }

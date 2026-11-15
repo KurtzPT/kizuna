@@ -605,3 +605,32 @@ func TestPlexOff(t *testing.T) {
 		t.Errorf("err %v, %d requests", err, len(n.requests()))
 	}
 }
+
+// An episode's crew: its Director, Writer and Producer tags, producers as
+// they come with a repeat once and at most 5, and every one of them with a
+// thumb as a photo. A show's crew photos come from the same tags. The
+// lower-case "producer" key is another field, not the list.
+func TestPlexEpisodeCrewAndPhotos(t *testing.T) {
+	var it plexItem
+	if err := json.Unmarshal([]byte(`{"index":1,"producer":"x",
+		"Director":[{"tag":"D","thumb":"https://plex/d.jpg"}],
+		"Writer":[{"tag":" W ","thumb":"https://plex/w.jpg"},{"tag":"W"},{"tag":" ","thumb":"https://plex/none.jpg"}],
+		"Producer":[{"tag":"P1","thumb":"https://plex/p1.jpg"},{"tag":"P2"},{"tag":"P1"},{"tag":"P3"},{"tag":"P4"},
+			{"tag":"P5"},{"tag":"P6","thumb":"https://plex/p6.jpg"}],
+		"Role":[{"tag":"Actor","thumb":"https://plex/actor.jpg"}]}`), &it); err != nil {
+		t.Fatal(err)
+	}
+	e := it.episode(1)
+	if strings.Join(e.Directors, ",") != "D" || strings.Join(e.Writers, ",") != "W" || strings.Join(e.Producers, ",") != "P1,P2,P3,P4,P5" {
+		t.Errorf("directors %q writers %q producers %q", e.Directors, e.Writers, e.Producers)
+	}
+	// P6, past the five producers kept, still has a photo: it names a person.
+	want := []Person{{Name: "D", Photo: "https://plex/d.jpg"}, {Name: "W", Photo: "https://plex/w.jpg"},
+		{Name: "P1", Photo: "https://plex/p1.jpg"}, {Name: "P6", Photo: "https://plex/p6.jpg"}}
+	if !slices.Equal(e.Photos, want) {
+		t.Errorf("photos %+v\nwant   %+v", e.Photos, want)
+	}
+	if d, _ := it.details(); !slices.Equal(d.CrewPhotos, want) || strings.Join(d.Directors, ",") != "D" {
+		t.Errorf("show crew photos %+v directors %q", d.CrewPhotos, d.Directors)
+	}
+}

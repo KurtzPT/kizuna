@@ -55,6 +55,7 @@ type Item struct {
 	Genre    []Tag     `json:"Genre,omitempty"`
 	Director []Tag     `json:"Director,omitempty"`
 	Writer   []Tag     `json:"Writer,omitempty"`
+	Producer []Tag     `json:"Producer,omitempty"`
 	Role     []Role    `json:"Role,omitempty"`
 	Guid     []GuidTag `json:"Guid,omitempty"`
 	Image    []Image   `json:"Image,omitempty"`
@@ -62,7 +63,8 @@ type Item struct {
 }
 
 type Tag struct {
-	Tag string `json:"tag"`
+	Tag   string `json:"tag"`
+	Thumb string `json:"thumb,omitempty"` // a crew person's photo (episodes)
 }
 
 type Role struct {

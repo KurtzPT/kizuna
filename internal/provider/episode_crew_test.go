@@ -365,9 +365,11 @@ func TestAniDBTVDBListWhenListed(t *testing.T) {
 }
 
 // TheTVDB's crew records are asked only for the episodes the sources
-// listed before tvdb left a gap in: with tmdb,tvdb and TheMovieDb giving
-// season 1 both fields, only season 2's and the special's. With tvdb first
-// (the default), every paired episode's, as before. Both modes.
+// listed before tvdb left a gap in: directors, writers or producers missing,
+// or a person named without a photo. With plex,tvdb and Plex giving season
+// 1 all three with photos, only season 2's and the special's. With
+// tmdb,tvdb every paired episode's: TheMovieDb gives no producers. With tvdb
+// first (the default), every paired episode's, as before. Both modes.
 func TestTVDBCrewRecordsOnlyForGaps(t *testing.T) {
 	defaultLists(t)
 	for _, c := range []struct {
@@ -375,12 +377,14 @@ func TestTVDBCrewRecordsOnlyForGaps(t *testing.T) {
 		wants map[string][]int // records asked, by root
 	}{
 		{[]string{"tvdb", "tmdb", "plex"}, map[string][]int{"tvdb-500": {11, 12, 13, 14}, "anidb-100": {11, 12}}},
-		{[]string{"tmdb", "tvdb"}, map[string][]int{"tvdb-500": {13, 14}, "anidb-100": nil}},
+		{[]string{"tmdb", "tvdb"}, map[string][]int{"tvdb-500": {11, 12, 13, 14}, "anidb-100": {11, 12}}},
+		{[]string{"plex", "tvdb"}, map[string][]int{"tvdb-500": {13, 14}, "anidb-100": nil}},
 	} {
 		for _, root := range []string{"tvdb-500", "anidb-100"} {
 			name := fmt.Sprintf("%v %s", c.order, root)
-			net := &fakeNet{answer: fullCrew}
+			net := &fakeNet{answer: plexFullCrew(fullCrew, 1)}
 			p := newTestProvider(t, net)
+			withPlex(t, p, net)
 			p.cfg.EpisodeCrewSources = c.order
 			s, err := p.buildShow(context.Background(), root)
 			if err != nil {
@@ -444,7 +448,8 @@ func defaultLists(t *testing.T) {
 	for _, name := range []string{"TITLE_SOURCES", "SUMMARY_SOURCES", "POSTER_SOURCES", "BACKGROUND_SOURCES",
 		"LOGO_SOURCES", "EPISODE_FILL_SOURCES", "EPISODE_CREW_SOURCES", "EPISODE_TITLES", "GENRE_SOURCES",
 		"CAST_SOURCES", "STUDIO_SOURCES", "CREW_SOURCES", "RATING_SOURCES", "DATE_SOURCES", "RATING_COUNTRY",
-		"ART_ALL_SOURCES", "SEASON_ART_FALLBACK", "PLEX_TOKEN", "MAL_CLIENT_ID", "CAST_PHOTOS_FROM_PLEX"} {
+		"ART_ALL_SOURCES", "SEASON_ART_FALLBACK", "PLEX_TOKEN", "MAL_CLIENT_ID", "CAST_PHOTOS_FROM_PLEX",
+		"CREW_PHOTOS_FROM_PLEX"} {
 		t.Setenv(name, "") // blank: the default
 	}
 }
@@ -499,8 +504,8 @@ func siteShow(withStudio bool, tmdbDetails func() (int, string)) (func(string, m
 // fetched even where a source before them has the field: TheTVDB's text
 // (AniDB has the title and summary), TheMovieDb's details and pictures
 // (TheTVDB has every detail and every kind of picture). Plex, MyAnimeList
-// and Anime News Network, set up and listed after those, are not asked.
-// Both modes.
+// and Anime News Network, set up and listed after those, are not asked for
+// show values; Plex's episode lists are read, for episode crew. Both modes.
 func TestSiteValuesFetchedAhead(t *testing.T) {
 	defaultLists(t)
 	for _, root := range []string{"tvdb-500", "anidb-100"} {
@@ -537,10 +542,14 @@ func TestSiteValuesFetchedAhead(t *testing.T) {
 		if net.count("api.themoviedb.org/3/tv/77/images") == 0 {
 			t.Errorf("%s: TheMovieDb's pictures not fetched", root)
 		}
-		for _, host := range []string{plexHost, "api.myanimelist.net/", "cdn.animenewsnetwork.com/"} {
+		for _, host := range []string{"api.myanimelist.net/", "cdn.animenewsnetwork.com/"} {
 			if n := asked(net, host); n != 0 {
 				t.Errorf("%s: %d requests to %s, want none", root, n, host)
 			}
+		}
+		lists := plexAsked(net, "/matches/2/tvdb://500") + plexAsked(net, "/children")
+		if n := asked(net, plexHost); n != lists || net.count(plexHost+"/library/metadata/p500") != 0 {
+			t.Errorf("%s: %d requests to Plex, %d of them for its episode lists; want only those, not its show", root, n, lists)
 		}
 	}
 }

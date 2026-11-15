@@ -91,6 +91,8 @@ func TestTMDBTVDetails(t *testing.T) {
 		aggCrew(18, "Kanehito Yamada", "Writing", 0, "Original Story"),
 		aggCrew(19, "Jobless Writer", "Writing", 1),
 		aggCrew(20, "Composer", "Sound", 28, "Music"),
+		strings.Replace(aggCrew(21, "Photo Producer", "Production", 2, "Producer"), `"profile_path": null`, `"profile_path": "/pp.jpg"`, 1),
+		strings.Replace(aggCrew(22, "Keiichiro Saito", "Directing", 28, "Storyboard"), `"profile_path": null`, `"profile_path": "/ks.jpg"`, 1),
 	}, ",\n")
 	tm := newTMDBTest(t, map[string]string{
 		"api.themoviedb.org/3/tv/209867" + tmdbQ + "&append_to_response=aggregate_credits,content_ratings": fmt.Sprintf(tmdbTVDetails, crew),
@@ -114,6 +116,12 @@ func TestTMDBTVDetails(t *testing.T) {
 	}
 	if len(d.Ratings) != 2 || d.Ratings["US"] != "TV-14" || d.Ratings["DE"] != "12" {
 		t.Errorf("ratings %v", d.Ratings)
+	}
+	// Crew photos: every crew person with a profile, whatever the job, on
+	// the most episodes first; never the cast.
+	wantPhotos := []Person{{Name: "Keiichiro Saito", Photo: tmdbImg + "/ks.jpg"}, {Name: "Photo Producer", Photo: tmdbImg + "/pp.jpg"}}
+	if !slices.Equal(d.CrewPhotos, wantPhotos) {
+		t.Errorf("crew photos %+v, want %+v", d.CrewPhotos, wantPhotos)
 	}
 }
 
@@ -189,10 +197,11 @@ func TestTMDBEpisodesAndPosters(t *testing.T) {
 		      "crew": null, "guest_stars": null},
 		    {"air_date": "2020-01-01", "episode_number": 1, "episode_type": "standard", "id": 11, "name": "One", "overview": "First.",
 		      "runtime": 24, "season_number": 1, "show_id": 77, "still_path": "/s.jpg", "vote_average": 0, "vote_count": 0,
-		      "crew": [{"job": "Director", "department": "Directing", "name": " D "},
-		        {"job": "Screenplay", "department": "Writing", "name": "W"}, {"job": "Writer", "department": "Writing", "name": "W"},
-		        {"job": "Storyboard", "department": "Directing", "name": "S"}],
-		      "guest_stars": []}],
+		      "crew": [{"job": "Director", "department": "Directing", "name": " D ", "profile_path": "/d.jpg"},
+		        {"job": "Screenplay", "department": "Writing", "name": "W", "profile_path": null}, {"job": "Writer", "department": "Writing", "name": "W"},
+		        {"job": "Storyboard", "department": "Directing", "name": "S", "profile_path": "/s-face.jpg"},
+		        {"job": "Producer", "department": "Production", "name": "P", "profile_path": "/p.jpg"}],
+		      "guest_stars": [{"character": "Guest", "name": "Guest Actor", "profile_path": "/g.jpg"}]}],
 		  "images": {"posters": [{"file_path": "/p1.jpg", "iso_639_1": "en"}]}}`,
 		season + "2" + sq: `503 {"status_code": 46, "status_message": "Service unavailable"}`,
 		season + "3" + sq: `500 {"status_code": 11, "status_message": "Internal error"}`,
@@ -207,10 +216,16 @@ func TestTMDBEpisodesAndPosters(t *testing.T) {
 		t.Fatalf("episodes %+v", eps)
 	}
 	if e := eps[0]; e.Thumb != tmdbImg+"/s.jpg" || e.Minutes != 24 || e.Aired != "2020-01-01" || e.Summary != "First." ||
-		strings.Join(e.Directors, ",") != "D" || strings.Join(e.Writers, ",") != "W" {
+		strings.Join(e.Directors, ",") != "D" || strings.Join(e.Writers, ",") != "W" || len(e.Producers) != 0 {
 		t.Errorf("episode 1 %+v", e)
 	}
-	if e := eps[1]; e.Thumb != "" || len(e.Directors)+len(e.Writers) != 0 {
+	// Photos: every crew person with a profile, whatever the job; the guest
+	// stars are cast, and producers aren't read.
+	wantPhotos := []Person{{Name: "D", Photo: tmdbImg + "/d.jpg"}, {Name: "S", Photo: tmdbImg + "/s-face.jpg"}, {Name: "P", Photo: tmdbImg + "/p.jpg"}}
+	if !slices.Equal(eps[0].Photos, wantPhotos) {
+		t.Errorf("episode 1 photos %+v, want %+v", eps[0].Photos, wantPhotos)
+	}
+	if e := eps[1]; e.Thumb != "" || len(e.Directors)+len(e.Writers) != 0 || e.Photos != nil {
 		t.Errorf("episode 2 (nulls) %+v", e)
 	}
 	if len(posters) != 1 || strings.Join(posters[1], ",") != tmdbImg+"/p1.jpg" {

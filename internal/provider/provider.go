@@ -78,6 +78,7 @@ type Provider struct {
 	mal          *sources.MAL
 	ann          *sources.ANN
 	plex         *sources.Plex // Plex's metadata service; nil = off
+	crewMemory   *crewMemory   // every episode crew photo sent (crew_memory.go)
 
 	access   Access            // ALLOW_FROM / ALLOWED_HOSTS
 	reports  *report.Store     // match reports; nil = off
@@ -149,7 +150,7 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	loaded := make(chan struct{})
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists,
-		tvdb: src.TVDB, tmdb: src.TMDB, mal: src.MAL, ann: src.ANN, plex: src.Plex,
+		tvdb: src.TVDB, tmdb: src.TMDB, mal: src.MAL, ann: src.ANN, plex: src.Plex, crewMemory: loadCrewMemory(cfg.DataDir),
 		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
 		ended: make(chan struct{}, 1)}
 }

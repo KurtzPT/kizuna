@@ -813,6 +813,7 @@ function episodeDetail(e) {
   if (e.minutes) rows.push(["Duration", src("minutes"), esc(e.minutes) + " min"]);
   if ((e.directors || []).length) rows.push(["Directors", src("directors"), esc(e.directors.join(", "))]);
   if ((e.writers || []).length) rows.push(["Writers", src("writers"), esc(e.writers.join(", "))]);
+  if ((e.producers || []).length) rows.push(["Producers", src("producers"), esc(e.producers.join(", "))]);
   if (e.thumb) rows.push(["Thumbnail", src("thumb"), link(e.thumb), "mono"]);
   if ((e.guids || []).length) rows.push(["GUIDs", false, esc(e.guids.join("\n")), "mono"]);
   titles.forEach(([s, t], n) => rows.push([n ? "" : "Titles offered", s, esc(t) + (s === e.from ? '<span class="sentword">sent</span>' : "")]));
@@ -854,6 +855,7 @@ function renderEpisodes(b, newest) {
     <div class="seg" role="group" aria-label="Filter episodes"><button aria-pressed="true" data-f="all">All ${b.episodes.length}</button><button aria-pressed="false" data-f="issue">Problems ${issues}</button></div>
     <button class="morebtn" data-allseasons>Open all seasons</button>
     <span class="count" id="ep-count" role="status"></span></div>
+    ${b.crewPhotos ? `<p class="dim" style="padding:0 16px">${esc(b.crewPhotos[0].toUpperCase() + b.crewPhotos.slice(1))}</p>` : ""}
     <div id="ep-list"></div></div>`;
 }
 
@@ -1062,6 +1064,7 @@ function bugReport(S, b) {
     for (const f of b.fields) L.push(`| ${cell(f.name)} | ${cell((f.used || []).map(name).join(", ") || "none")} | ${cell(f.order.map(name).join(", "))} |`);
   }
   if ((b.seasons || []).length) L.push("", "#### Seasons", "", ...b.seasons.map(s => `- ${cell(s.name)}: ${plural(s.count, "episode")}`));
+  if (b.crewPhotos) L.push("", cell(b.crewPhotos[0].toUpperCase() + b.crewPhotos.slice(1)) + ".");
   const eps = b.episodes || [];
   if (eps.length) {
     L.push("", `<details><summary>Episodes (${eps.length})</summary>`, "", "| Episode | Paired with | Title | Title from | Issue |", "|---|---|---|---|---|");

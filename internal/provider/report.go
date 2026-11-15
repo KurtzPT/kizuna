@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"runtime/debug"
 	"slices"
@@ -199,6 +200,7 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 		}
 		var with [][]string
 		res.Episodes, with = p.episodeRows(mode, s)
+		res.CrewPhotos = p.crewPhotoCount(mode, s)
 		res.Checks = buildChecks(s, rec.Facts(), with)
 	}
 	rec.Finish(took, err, res)
@@ -428,6 +430,63 @@ func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string
 	return out, with
 }
 
+// crewPhotoCount counts the distinct crew names the episodes' items send
+// and those sent with a photo, by the source this build found it at (s.crew),
+// "remembered" for a photo no source of this build gave: "crew photos: 41 of
+// 64 (tmdb 30, plex 9, remembered 2)". "" without crew.
+func (p *Provider) crewPhotoCount(mode Mode, s *Show) string {
+	withPhoto := map[string]bool{}
+	for _, n := range s.Seasons() {
+		for i := range s.Episodes[n] {
+			it := p.episodeItem(mode, s, &s.Episodes[n][i])
+			for _, tags := range [...][]Tag{it.Director, it.Writer, it.Producer} {
+				for _, t := range tags {
+					withPhoto[t.Tag] = withPhoto[t.Tag] || t.Thumb != ""
+				}
+			}
+		}
+	}
+	if len(withPhoto) == 0 {
+		return ""
+	}
+	by := map[string]int{}
+	sent := 0
+	for name, has := range withPhoto {
+		if !has {
+			continue
+		}
+		sent++
+		src := "remembered"
+		if c := s.crew[name].src; c != srcNone {
+			src = c.name()
+		}
+		by[src]++
+	}
+	srcs := slices.Collect(maps.Keys(by))
+	slices.SortFunc(srcs, func(a, b string) int { // most first, "remembered" last
+		if (a == "remembered") != (b == "remembered") {
+			return cmp.Compare(boolInt(a == "remembered"), boolInt(b == "remembered"))
+		}
+		return cmp.Or(cmp.Compare(by[b], by[a]), cmp.Compare(a, b))
+	})
+	parts := make([]string, len(srcs))
+	for i, src := range srcs {
+		parts[i] = src + " " + strconv.Itoa(by[src])
+	}
+	text := "crew photos: " + strconv.Itoa(sent) + " of " + strconv.Itoa(len(withPhoto))
+	if len(parts) > 0 {
+		text += " (" + strings.Join(parts, ", ") + ")"
+	}
+	return text
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // sentEpisode is an episode's row. Its values are read off it, the item Plex
 // gets for ep, so the row can't differ from what was sent; ep says where each
 // came from. The title stays ep's: the item says "Episode N" for an episode
@@ -441,6 +500,9 @@ func sentEpisode(it Item, ep *Ep, issue string) report.Episode {
 	for _, w := range it.Writer {
 		e.Writers = append(e.Writers, w.Tag)
 	}
+	for _, pr := range it.Producer {
+		e.Producers = append(e.Producers, pr.Tag)
+	}
 	for _, g := range it.Guid {
 		e.Guids = append(e.Guids, g.ID)
 	}
@@ -451,7 +513,7 @@ func sentEpisode(it Item, ep *Ep, issue string) report.Episode {
 	}{
 		{"summary", e.Summary != "", ep.src.summary}, {"date", e.Date != "", ep.src.date}, {"thumb", e.Thumb != "", ep.src.thumb},
 		{"minutes", e.Minutes > 0, ep.src.minutes}, {"directors", len(e.Directors) > 0, ep.src.directors},
-		{"writers", len(e.Writers) > 0, ep.src.writers},
+		{"writers", len(e.Writers) > 0, ep.src.writers}, {"producers", len(e.Producers) > 0, ep.src.producers},
 	} {
 		if f.has && f.src != srcNone {
 			if e.Src == nil {

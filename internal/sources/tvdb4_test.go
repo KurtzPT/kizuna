@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -478,5 +479,72 @@ func TestTVDBSeriesWithoutEnglish(t *testing.T) {
 	_, _, _ = tv.Overview(ctx, 400100)
 	if c := n.count(u); c != 2 {
 		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
+	}
+}
+
+// characterImg is a documented Character record with a person photo
+// (personImgURL, a full address as TheTVDB documents it, or a path).
+func characterImg(id int, person, peopleType, img string, sort int) string {
+	return strings.Replace(character(id, person, peopleType, sort), `"personImgURL": ""`, `"personImgURL": "`+img+`"`, 1)
+}
+
+// A v4 episode record's producers are its Producer and Executive Producer
+// people, by sort, a repeated name once, at most 5; co-, associate and line
+// producers are left out. Every director, writer and producer with a photo
+// is in Photos, actors and guest stars never. The series record gives the
+// show's crew photos the same way. Made-up answers in the documented shape:
+// TheTVDB v4 can't be asked here.
+func TestTVDBV4CrewProducersAndPhotos(t *testing.T) {
+	record := `{"data": {"id": 3001, "characters": [
+	  ` + characterImg(1, "Voice Actor", "Actor", "https://artworks.thetvdb.com/banners/person/1/actor.jpg", 0) + `,
+	  ` + characterImg(2, "Guest Person", "Guest Star", "/banners/person/2/guest.jpg", 1) + `,
+	  ` + characterImg(3, "Hajime Kamegaki", "Director", "https://artworks.thetvdb.com/banners/person/3/dir.jpg", 2) + `,
+	  ` + characterImg(4, "Ito Oogure", "Writer", "person/4/writer.jpg", 3) + `,
+	  ` + characterImg(5, "Exec One", "Executive Producer", "https://artworks.thetvdb.com/banners/person/5/p.jpg", 9) + `,
+	  ` + character(6, "Prod Two", "Producer", 10) + `,
+	  ` + character(7, "Co Producer", "Co-Producer", 11) + `,
+	  ` + character(8, "Associate", "Associate Producer", 12) + `,
+	  ` + character(9, "Line", "Line Producer", 13) + `,
+	  ` + character(10, "Prod Three", "Producer", 14) + `,
+	  ` + character(11, "Exec One", "Producer", 15) + `,
+	  ` + character(12, "Prod Four", "Producer", 16) + `,
+	  ` + character(13, "Prod Five", "Executive Producer", 17) + `,
+	  ` + character(14, "Prod Six", "Producer", 18) + `,
+	  ` + character(15, "Prod First", "Producer", 5) + `
+	], "seasonNumber": 1, "number": 1}, "status": "success"}`
+	series := strings.Replace(v4SeriesExtended, `"characters": []`, `"characters": [
+	  `+characterImg(1, "Voice Actor", "Actor", "https://artworks.thetvdb.com/banners/person/1/actor.jpg", 0)+`,
+	  `+characterImg(3, "Hajime Kamegaki", "Director", "https://artworks.thetvdb.com/banners/person/3/dir.jpg", 1)+`,
+	  `+characterImg(5, "Exec One", "Executive Producer", "/banners/person/5/p.jpg", 2)+`,
+	  `+character(6, "Prod Two", "Producer", 3)+`]`, 1)
+	tv, _ := newTVDBTest(t, map[string]string{
+		v4 + "/login":                  `{"data": {"token": "t4"}, "status": "success"}`,
+		v4 + "/episodes/3001/extended": record,
+		v4 + "/series/267440/extended": series,
+	}, "v4key", "", "")
+	ctx := context.Background()
+	crew, _ := tv.EpisodeCrew(ctx, []int{3001})
+	c := crew[3001]
+	if got := strings.Join(c.Producers, ","); got != "Prod First,Exec One,Prod Two,Prod Three,Prod Four" {
+		t.Errorf("producers %q", got)
+	}
+	want := []Person{
+		{Name: "Hajime Kamegaki", Photo: "https://artworks.thetvdb.com/banners/person/3/dir.jpg"},
+		{Name: "Ito Oogure", Photo: "https://artworks.thetvdb.com/banners/person/4/writer.jpg"},
+		{Name: "Exec One", Photo: "https://artworks.thetvdb.com/banners/person/5/p.jpg"},
+	}
+	if !slices.Equal(c.Photos, want) {
+		t.Errorf("photos %+v\nwant   %+v", c.Photos, want)
+	}
+	d, _, err := tv.DetailsAndSeasons(ctx, 267440)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []Person{
+		{Name: "Hajime Kamegaki", Photo: "https://artworks.thetvdb.com/banners/person/3/dir.jpg"},
+		{Name: "Exec One", Photo: "https://artworks.thetvdb.com/banners/person/5/p.jpg"},
+	}
+	if !slices.Equal(d.CrewPhotos, want) || len(d.Cast) != 1 || d.Cast[0].Name != "Voice Actor" {
+		t.Errorf("series crew photos %+v (cast %+v)\nwant %+v", d.CrewPhotos, d.Cast, want)
 	}
 }

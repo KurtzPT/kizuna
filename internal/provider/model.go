@@ -71,6 +71,11 @@ type Show struct {
 	// artBy: which sources gave the art, for the match report (nil with the
 	// reports off).
 	artBy *artSources
+
+	// crew: each name on the episodes' crew, its key for the photo memory
+	// and the source of the photo the build found (finishCrew). nil without
+	// crew.
+	crew map[string]crewRef
 }
 
 // Ep is one episode at the season/index Plex's scanner gives the file.
@@ -83,6 +88,7 @@ type Ep struct {
 	Minutes       int
 	Directors     []string // per EPISODE_CREW_SOURCES (applyCrew)
 	Writers       []string
+	Producers     []string
 
 	titles   map[string]string // source -> its title for this episode
 	titleSrc string            // source of Title, for the match report
@@ -117,7 +123,7 @@ func (c srcCode) name() string {
 // Ep.titleSrc). Each is set where the value is; one left on a value that
 // ended up empty means nothing.
 type epSources struct {
-	summary, date, thumb, minutes, directors, writers srcCode
+	summary, date, thumb, minutes, directors, writers, producers srcCode
 }
 
 // mapIndex is the number the mapping knows the episode by.
@@ -283,8 +289,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
 	var wg sync.WaitGroup
 	episodesOK := true
+	var photos crewPhotos
 	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
-		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry, lists) })
+		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry, lists, &photos) })
 	}
 	ss.fill(s)
 	ss.fillSeasons(s)
@@ -296,6 +303,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	if special && a == nil {
 		finishSpecial(s)
 	}
+	// The fields and the episodes are in, and the episodes are the ones
+	// sent: no photo is learned for a person of an episode dropped above.
+	p.finishCrew(s, ss, &photos)
 	p.pickEpisodeTitles(s)
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
@@ -541,7 +551,7 @@ func (p *Provider) tmdbShowOf(ctx context.Context, tvdbID int, entry mapping.Ent
 func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
-			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers,
+			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers, Producers: e.Producers,
 			listed: spot{e.Season, e.Number}, tvdbEp: e.ID,
 			src: epSources{summary: srcTVDB, date: srcTVDB, thumb: srcTVDB, minutes: srcTVDB}}
 		if e.Season == 0 {
@@ -576,6 +586,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
+	p.finishCrew(s, ss, &b.photos) // the fields and the episodes are in
 	ss.pairTMDB(pairs, b.tmdbEps.posters)
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)

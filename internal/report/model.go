@@ -84,6 +84,10 @@ type Build struct {
 	Seasons  []Season   `json:"seasons,omitempty"`
 	Episodes []Episode  `json:"episodes,omitempty"` // kept for the newest build only
 	EpsTotal int        `json:"epsTotal"`
+	// CrewPhotos counts the distinct crew names the episodes sent and those
+	// with a photo, by source: "crew photos: 41 of 64 (tmdb 30, plex 9,
+	// remembered 2)". "" = no crew.
+	CrewPhotos string `json:"crewPhotos,omitempty"`
 	// Item is the show item sent to Plex, as the JSON Plex got (without its
 	// seasons).
 	Item json.RawMessage `json:"item,omitempty"`
@@ -267,10 +271,11 @@ type Episode struct {
 	Minutes   int               `json:"minutes,omitempty"`
 	Directors []string          `json:"directors,omitempty"`
 	Writers   []string          `json:"writers,omitempty"`
+	Producers []string          `json:"producers,omitempty"`
 	Guids     []string          `json:"guids,omitempty"`
-	// Src: the source of summary, date, thumb, minutes, directors and
-	// writers (anidb, tvdb, tmdb, plex, or show: a movie's episode has the show's
-	// summary), for those the episode has.
+	// Src: the source of summary, date, thumb, minutes, directors, writers
+	// and producers (anidb, tvdb, tmdb, plex, or show: a movie's episode has
+	// the show's summary), for those the episode has.
 	Src   map[string]string `json:"src,omitempty"`
 	Issue string            `json:"issue,omitempty"`
 }

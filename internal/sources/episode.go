@@ -26,9 +26,36 @@ type Episode struct {
 	Thumb    string // full URL
 	Minutes  int
 	ID       int // TheTVDB episode id (0 from other sources' lists); EpisodeCrew takes v4's
-	// Directors and writers: TheTVDB v3 and TheMovieDb lists carry them; a
-	// TheTVDB v4 list doesn't (see EpisodeCrew).
-	Directors, Writers []string
+	// Crew: TheTVDB v3, TheMovieDb and Plex lists carry it; a TheTVDB v4
+	// list doesn't (see EpisodeCrew).
+	Crew
+}
+
+// Crew is one episode's directors, writers and producers, and Photos: its
+// crew people with a photo, whatever their job (never the cast). A person
+// in Photos may be in none of the three lists.
+type Crew struct {
+	Directors, Writers, Producers []string
+	Photos                        []Person
+}
+
+// maxProducers: how many producers an episode keeps, in the source's order.
+// Anime credit many; Plex shows them all on the episode's page.
+const maxProducers = 5
+
+// producers is people, cut to maxProducers.
+func producers(names []string) []string {
+	p := people(names)
+	return p[:min(len(p), maxProducers)]
+}
+
+// crewPhoto adds a crew person's photo to photos, when there is a name and
+// a photo.
+func crewPhoto(photos []Person, name, photo string) []Person {
+	if name = strings.TrimSpace(name); name == "" || photo == "" {
+		return photos
+	}
+	return append(photos, Person{Name: name, Photo: photo})
 }
 
 // people trims names and drops empty and repeated ones.
@@ -69,10 +96,13 @@ func FillAbsolute(eps []Episode) {
 // Details holds the show-level fields besides title, summary and artwork.
 // Empty fields mean the source has nothing for them.
 type Details struct {
-	Genres        []string
-	Cast          []Person
-	Directors     []string
-	Writers       []string
+	Genres    []string
+	Cast      []Person
+	Directors []string
+	Writers   []string
+	// CrewPhotos: the show's crew people with a photo (episode crew photos;
+	// Plex keeps no crew on a show).
+	CrewPhotos    []Person
 	Studio        string
 	ContentRating string            // rating without a country (AniDB's 18+ "X")
 	Ratings       map[string]string // country (ISO 3166-1 alpha-2, "US") -> rating

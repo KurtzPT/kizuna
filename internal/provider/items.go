@@ -28,13 +28,13 @@ func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
 	it.Studio, it.ContentRating, it.Duration = s.Studio, s.ContentRating, s.Minutes*60000
 	setDate(&it, s.Date)
 	for _, g := range s.Genres {
-		it.Genre = append(it.Genre, Tag{g})
+		it.Genre = append(it.Genre, Tag{Tag: g})
 	}
 	for _, d := range s.Directors {
-		it.Director = append(it.Director, Tag{d})
+		it.Director = append(it.Director, Tag{Tag: d})
 	}
 	for _, w := range s.Writers {
-		it.Writer = append(it.Writer, Tag{w})
+		it.Writer = append(it.Writer, Tag{Tag: w})
 	}
 	for i, r := range s.Roles {
 		it.Role = append(it.Role, Role{Tag: r.Name, Role: r.Role, Thumb: r.Photo, Order: i + 1})
@@ -159,12 +159,11 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 	if len(s.Art.Posters) > 0 {
 		it.GrandparentThumb = s.Art.Posters[0]
 	}
-	for _, d := range e.Directors {
-		it.Director = append(it.Director, Tag{d})
-	}
-	for _, w := range e.Writers {
-		it.Writer = append(it.Writer, Tag{w})
-	}
+	// Each person's photo comes from the memory, read now: a show built
+	// earlier still sends the photos learned since.
+	it.Director = p.crewTags(s, e.Directors)
+	it.Writer = p.crewTags(s, e.Writers)
+	it.Producer = p.crewTags(s, e.Producers)
 	if s.episodeGuids && e.tvdbEp > 0 {
 		it.Guid = []GuidTag{{fmt.Sprintf("tvdb://%d", e.tvdbEp)}}
 	}
@@ -173,6 +172,20 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 		it.Image = []Image{{Type: "snapshot", URL: e.Thumb, Alt: title}}
 	}
 	return it
+}
+
+// crewTags are an episode's directors, writers or producers, each with the
+// photo the memory has for them (crewMemory). nil without names, as before
+// the photos: an episode without crew is sent as it was.
+func (p *Provider) crewTags(s *Show, names []string) []Tag {
+	if len(names) == 0 {
+		return nil
+	}
+	tags := make([]Tag, len(names))
+	for i, n := range names {
+		tags[i] = Tag{Tag: n, Thumb: p.crewMemory.photo(s.crew[n].key)}
+	}
+	return tags
 }
 
 // lightItem is a "Fix Match" search result built from the title dump only.

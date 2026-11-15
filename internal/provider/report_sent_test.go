@@ -530,7 +530,7 @@ func itemSrcFits(t *testing.T, b report.Build, item map[string]any) {
 // year. A field no source or more than one filled gives none.
 func TestItemSources(t *testing.T) {
 	it := Item{Title: "T", Summary: "S", OriginalTitle: "O", Studio: "St", ContentRating: "TV-14", Year: 2009, OriginallyAvailableAt: "2009-04-01",
-		Duration: 60000, Genre: []Tag{{"Action"}}, Director: []Tag{{"D"}}, Role: []Role{{Tag: "A"}}, Guid: []GuidTag{{"tvdb://1"}},
+		Duration: 60000, Genre: []Tag{{Tag: "Action"}}, Director: []Tag{{Tag: "D"}}, Role: []Role{{Tag: "A"}}, Guid: []GuidTag{{"tvdb://1"}},
 		Thumb: "https://img.example/p2", Image: []Image{{Type: "coverPoster", URL: "https://img.example/p1"}, {Type: "snapshot", URL: "https://img.example/x"},
 			{Type: "coverPoster", URL: "https://img.example/p2"}}}
 	field := func(name string, used ...string) report.Field { return report.Field{Name: name, Used: used} }
