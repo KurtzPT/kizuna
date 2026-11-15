@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"unicode"
 
+	"kizuna/internal/config"
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
 	"kizuna/internal/report"
@@ -242,62 +243,74 @@ func (ss *showSources) eachLazy(f func(name string, l lazyState)) {
 	}
 }
 
+// title, summary and detailsOf give src's value for the show, and the lazy
+// value it is read from (nil: none, or at hand, as AniDB's are). With
+// ahead (warm) they fetch nothing: the value only when it is at hand, so
+// warm can fetch that lazy value ahead. One function for both, so warm
+// fetches exactly what fill reads.
+//
 // title: TVDB and TMDB TV names are the series' ("One Piece" for Film Red),
 // so each is skipped unless this show starts the series on that site; a
 // TMDB movie is its own entry. Sites have no per-season name to stand in.
-func (ss *showSources) title(src string) string {
+func (ss *showSources) title(src string, ahead bool) (string, warmer) {
 	switch src {
 	case "anidb":
 		if titles := ss.p.showTitles(ss.aid, ss.a); len(titles) > 0 {
-			return ss.p.showTitle(titles)
+			return ss.p.showTitle(titles), nil
 		}
 	case "tvdb":
 		if ss.first.tvdb {
-			return ss.tvdbText.get().title
+			return ss.tvdbText.value(ahead).title, &ss.tvdbText
 		}
 	case "tmdb":
 		if ss.first.tmdb {
-			return ss.tmdbText.get().title
+			return ss.tmdbText.value(ahead).title, &ss.tmdbText
 		}
 	case "plex":
 		if ss.plexFirst() {
-			return ss.plexShow.get().Title
+			return ss.plexShow.value(ahead).Title, &ss.plexShow
 		}
 	case "ann":
-		return ss.ann.get().Title
+		return ss.ann.value(ahead).Title, &ss.ann
 	}
-	return ""
+	return "", nil
 }
 
 // summary: TVDB and TMDB TV overviews describe the whole series (its first
 // season, mostly), so a later entry there gets its own season's instead.
-func (ss *showSources) summary(src string) string {
+func (ss *showSources) summary(src string, ahead bool) (string, warmer) {
 	switch src {
 	case "anidb":
 		if ss.a != nil {
-			return ss.a.Description
+			return ss.a.Description, nil
 		}
 	case "tvdb":
 		if !ss.first.tvdb {
-			return ss.tvdbSeason.get()
+			return ss.tvdbSeason.value(ahead), &ss.tvdbSeason
 		}
-		return ss.tvdbText.get().summary
+		return ss.tvdbText.value(ahead).summary, &ss.tvdbText
 	case "tmdb":
 		if !ss.first.tmdb {
-			return ss.tmdbSeason.get()
+			return ss.tmdbSeason.value(ahead), &ss.tmdbSeason
 		}
-		return ss.tmdbText.get().summary
+		return ss.tmdbText.value(ahead).summary, &ss.tmdbText
 	case "mal":
-		return ss.mal.get().Synopsis
+		return ss.mal.value(ahead).Synopsis, &ss.mal
 	case "plex":
-		if !ss.plexFirst() {
-			return ss.plexSeasonOf(ss.plexSeasonAt).Summary
+		if !ss.plexFirst() { // its season's, from the season list
+			if ss.plexSeasonAt == noSeason {
+				return "", nil
+			}
+			if ahead {
+				return "", &ss.plexSeasonList
+			}
+			return ss.plexSeasonOf(ss.plexSeasonAt).Summary, &ss.plexSeasonList
 		}
-		return ss.plexShow.get().Summary
+		return ss.plexShow.value(ahead).Summary, &ss.plexShow
 	case "ann":
-		return ss.ann.get().Summary
+		return ss.ann.value(ahead).Summary, &ss.ann
 	}
-	return ""
+	return "", nil
 }
 
 func (ss *showSources) art(src string) sources.Art {
@@ -325,31 +338,37 @@ func (ss *showSources) art(src string) sources.Art {
 }
 
 // details returns a source's genres, people, studio, rating and date.
+func (ss *showSources) details(src string) sources.Details {
+	d, _ := ss.detailsOf(src, false)
+	return d
+}
+
+// detailsOf: details and the lazy value they are read from (see title).
 // TVDB and TMDB TV data describe the whole series, so each is skipped
 // unless this show starts it on that site; a TMDB movie is always its own
 // entry.
-func (ss *showSources) details(src string) sources.Details {
+func (ss *showSources) detailsOf(src string, ahead bool) (sources.Details, warmer) {
 	switch src {
 	case "anidb":
-		return ss.anidbDetails()
+		return ss.anidbDetails(), nil
 	case "tvdb":
 		if ss.first.tvdb {
-			return ss.tvdbDetails.get()
+			return ss.tvdbDetails.value(ahead), &ss.tvdbDetails
 		}
 	case "tmdb":
 		if ss.first.tmdb {
-			return ss.tmdbDetails.get()
+			return ss.tmdbDetails.value(ahead), &ss.tmdbDetails
 		}
 	case "mal":
-		return ss.mal.get().Details
+		return ss.mal.value(ahead).Details, &ss.mal
 	case "plex":
 		if ss.plexFirst() {
-			return ss.plexShow.get().Details
+			return ss.plexShow.value(ahead).Details, &ss.plexShow
 		}
 	case "ann": // per entry, like AniDB: no first-entry guard needed
-		return ss.ann.get().Details
+		return ss.ann.value(ahead).Details, &ss.ann
 	}
-	return sources.Details{}
+	return sources.Details{}, nil
 }
 
 // anidbDetails: AniDB's details, built from a on first use. A sync.Once,
@@ -363,14 +382,109 @@ func (ss *showSources) anidbDetails() sources.Details {
 	return ss.anidbDet
 }
 
-// pickDetails returns the first source's details that has the field.
-func (ss *showSources) pickDetails(order []string, has func(sources.Details) bool) (sources.Details, string) {
+// showField is one show field set from a source order. showFields drives
+// fill, warm and siteFields, so the sources warm fetches ahead are the ones
+// fill reads: a source no list names is asked for nothing. A static table
+// of plain functions, so a build allocates nothing for it.
+type showField struct {
+	name, key string // in the match report; in the debug line
+	order     func(c *config.Config) []string
+	// of gives src's value and the lazy value it is read from (title).
+	of  func(ss *showSources, src string, ahead bool) (fieldValue, warmer)
+	has func(v fieldValue, c *config.Config) bool // v has the field
+	set func(s *Show, v fieldValue, c *config.Config)
+	// describe: what v offers, for the match report (the cast's is
+	// recordCast's: nil).
+	describe func(v fieldValue, c *config.Config) string
+}
+
+// fieldValue is a source's value for a field: a text (title, summary) or
+// its details.
+type fieldValue struct {
+	text string
+	d    sources.Details
+}
+
+func titleValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
+	t, l := ss.title(src, ahead)
+	return fieldValue{text: t}, l
+}
+
+func summaryValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
+	t, l := ss.summary(src, ahead)
+	return fieldValue{text: t}, l
+}
+
+func detailsValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
+	d, l := ss.detailsOf(src, ahead)
+	return fieldValue{d: d}, l
+}
+
+func hasText(v fieldValue, _ *config.Config) bool          { return v.text != "" }
+func textOf(v fieldValue, _ *config.Config) string         { return v.text }
+func hasRating(v fieldValue, c *config.Config) bool        { return v.d.Rating(c.RatingCountries) != "" }
+func hasAnyRating(v fieldValue, _ *config.Config) bool     { return v.d.AnyRating() != "" }
+func describeCrewOf(v fieldValue, _ *config.Config) string { return describeCrew(v.d) }
+
+// The keys fill gives explicit code to: the cast-photo swap and the
+// cast's report line, the rating's second pass.
+const (
+	castKey   = "cast"
+	ratingKey = "rating"
+)
+
+// showFields, in fill's order (the match report's and the debug line's).
+// The content rating's has is its first pass (fill).
+var showFields = [...]showField{
+	{name: "Title", key: "title", order: func(c *config.Config) []string { return c.TitleSources },
+		of: titleValue, has: hasText,
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Title = firstOf(v.text, s.Title) },
+		describe: textOf},
+	{name: "Summary", key: "summary", order: func(c *config.Config) []string { return c.SummarySources },
+		of: summaryValue, has: hasText,
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Summary = firstOf(v.text, s.Summary) },
+		describe: textOf},
+	{name: "Genres", key: "genres", order: func(c *config.Config) []string { return c.GenreSources },
+		of:       detailsValue,
+		has:      func(v fieldValue, _ *config.Config) bool { return len(v.d.Genres) > 0 },
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Genres = v.d.Genres },
+		describe: func(v fieldValue, _ *config.Config) string { return strings.Join(v.d.Genres, ", ") }},
+	{name: "Cast", key: castKey, order: func(c *config.Config) []string { return c.CastSources },
+		of:  detailsValue,
+		has: func(v fieldValue, _ *config.Config) bool { return len(v.d.Cast) > 0 },
+		set: func(s *Show, v fieldValue, _ *config.Config) { s.Roles = uniqueCast(v.d.Cast) }},
+	{name: "Studio", key: "studio", order: func(c *config.Config) []string { return c.StudioSources },
+		of:       detailsValue,
+		has:      func(v fieldValue, _ *config.Config) bool { return v.d.Studio != "" },
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Studio = v.d.Studio },
+		describe: func(v fieldValue, _ *config.Config) string { return v.d.Studio }},
+	{name: "Crew", key: "crew", order: func(c *config.Config) []string { return c.CrewSources },
+		of:       detailsValue,
+		has:      func(v fieldValue, _ *config.Config) bool { return len(v.d.Directors)+len(v.d.Writers) > 0 },
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Directors, s.Writers = v.d.Directors, v.d.Writers },
+		describe: describeCrewOf},
+	{name: "Content rating", key: ratingKey, order: func(c *config.Config) []string { return c.RatingSources },
+		of: detailsValue, has: hasRating,
+		set: func(s *Show, v fieldValue, c *config.Config) { s.ContentRating = v.d.Rating(c.RatingCountries) },
+		describe: func(v fieldValue, c *config.Config) string {
+			return cmp.Or(v.d.Rating(c.RatingCountries), v.d.AnyRating())
+		}},
+	{name: "First aired", key: "date", order: func(c *config.Config) []string { return c.DateSources },
+		of:       detailsValue,
+		has:      func(v fieldValue, _ *config.Config) bool { return v.d.Date != "" },
+		set:      func(s *Show, v fieldValue, _ *config.Config) { s.Date = firstOf(fullDate(v.d.Date), s.Date) },
+		describe: func(v fieldValue, _ *config.Config) string { return v.d.Date }},
+}
+
+// pick returns f's first value in source order that has the field (has),
+// and its source ("" = none).
+func (ss *showSources) pick(f *showField, order []string, has func(fieldValue, *config.Config) bool) (fieldValue, string) {
 	for _, src := range order {
-		if d := ss.details(src); has(d) {
-			return d, src
+		if v, _ := f.of(ss, src, false); has(v, &ss.p.cfg) {
+			return v, src
 		}
 	}
-	return sources.Details{}, ""
+	return fieldValue{}, ""
 }
 
 // fill sets every source-selectable field from the configured source orders.
@@ -378,7 +492,7 @@ func (ss *showSources) pickDetails(order []string, has func(sources.Details) boo
 // line per show says which source supplied each field ("-" = none). Whether
 // a source failed is told by finish, after fillSeasons.
 func (ss *showSources) fill(s *Show) {
-	cfg := ss.p.cfg
+	cfg := &ss.p.cfg
 	done := ss.rec.Step("Show fields and artwork")
 	ss.warm()
 	debug := debugOn(context.Background())
@@ -392,58 +506,38 @@ func (ss *showSources) fill(s *Show) {
 		}
 	}
 
-	title, src := pick(cfg.TitleSources, ss.title)
-	s.Title = firstOf(title, s.Title)
-	note("title", src)
-	ss.recordField("Title", cfg.TitleSources, src, ss.title)
-	summary, src := pick(cfg.SummarySources, ss.summary)
-	s.Summary = firstOf(summary, s.Summary)
-	note("summary", src)
-	ss.recordField("Summary", cfg.SummarySources, src, ss.summary)
-	detail := func(name string, order []string, src string, describe func(sources.Details) string) {
-		ss.recordField(name, order, src, func(src string) string { return describe(ss.details(src)) })
+	for i := range showFields {
+		f := &showFields[i]
+		order := f.order(cfg)
+		v, src := ss.pick(f, order, f.has)
+		f.set(s, v, cfg)
+		photos := -1 // the cast's: the swap didn't run
+		switch f.key {
+		case castKey:
+			// CAST_PHOTOS_FROM_PLEX: Plex's photos for the people it has.
+			// Plex's show is read only for a cast of another source, so
+			// without one a Plex that failed leaves the show complete. Read
+			// directly, not through details: the photos apply to later
+			// entries too (plexFirst).
+			if cfg.CastPhotosFromPlex && len(s.Roles) > 0 && src != "plex" && ss.plexShow.fetches() {
+				photos = castPhotos(s.Roles, ss.plexShow.get().People)
+			}
+		case ratingKey:
+			// Content rating: a listed country (or a country-less rating)
+			// from any source first; only then a rating from some other
+			// country.
+			if s.ContentRating == "" {
+				v, src = ss.pick(f, order, hasAnyRating)
+				s.ContentRating = v.d.AnyRating()
+			}
+		}
+		note(f.key, src)
+		if f.key == castKey {
+			ss.recordCast(order, src, s.Roles, photos)
+		} else {
+			ss.recordShowField(f, order, src)
+		}
 	}
-
-	d, src := ss.pickDetails(cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 })
-	s.Genres = d.Genres
-	note("genres", src)
-	detail("Genres", cfg.GenreSources, src, func(d sources.Details) string { return strings.Join(d.Genres, ", ") })
-	d, src = ss.pickDetails(cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 })
-	s.Roles = uniqueCast(d.Cast)
-	// CAST_PHOTOS_FROM_PLEX: Plex's photos for the people it has. Plex's
-	// show is read only for a cast of another source, so without one a Plex
-	// that failed leaves the show complete. Read directly, not through
-	// details: the photos apply to later entries too (plexFirst).
-	photos := -1 // the swap didn't run
-	if cfg.CastPhotosFromPlex && len(s.Roles) > 0 && src != "plex" && ss.plexShow.fetches() {
-		photos = castPhotos(s.Roles, ss.plexShow.get().People)
-	}
-	note("cast", src)
-	ss.recordCast(cfg.CastSources, src, s.Roles, photos)
-	d, src = ss.pickDetails(cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" })
-	s.Studio = d.Studio
-	note("studio", src)
-	detail("Studio", cfg.StudioSources, src, func(d sources.Details) string { return d.Studio })
-	d, src = ss.pickDetails(cfg.CrewSources, func(d sources.Details) bool { return len(d.Directors)+len(d.Writers) > 0 })
-	s.Directors, s.Writers = d.Directors, d.Writers
-	note("crew", src)
-	detail("Crew", cfg.CrewSources, src, describeCrew)
-	// Content rating: a listed country (or a country-less rating) from any
-	// source first; only then a rating from some other country.
-	d, src = ss.pickDetails(cfg.RatingSources, func(d sources.Details) bool { return d.Rating(cfg.RatingCountries) != "" })
-	s.ContentRating = d.Rating(cfg.RatingCountries)
-	if s.ContentRating == "" {
-		d, src = ss.pickDetails(cfg.RatingSources, func(d sources.Details) bool { return d.AnyRating() != "" })
-		s.ContentRating = d.AnyRating()
-	}
-	note("rating", src)
-	detail("Content rating", cfg.RatingSources, src, func(d sources.Details) string {
-		return cmp.Or(d.Rating(cfg.RatingCountries), d.AnyRating())
-	})
-	d, src = ss.pickDetails(cfg.DateSources, func(d sources.Details) bool { return d.Date != "" })
-	s.Date = firstOf(fullDate(d.Date), s.Date)
-	note("date", src)
-	detail("First aired", cfg.DateSources, src, func(d sources.Details) string { return d.Date })
 
 	art, by := ss.pickArt(ss.show, "", debug || ss.rec != nil)
 	s.Art = art
@@ -495,41 +589,28 @@ func (ss *showSources) finish(s *Show) bool {
 // as read (unread): failed tells only what fill and fillSeasons read, so a
 // value fetched ahead that no field needed can't fail the show.
 func (ss *showSources) warm() {
-	cfg := ss.p.cfg
+	cfg := &ss.p.cfg
 	var w warmSet
 	if !ss.early { // else warmEarly started them
 		ss.siteFields(&w)
 	}
-	// first: the first source of order that would be fetched, unless a
-	// source before it has the field at hand. TheTVDB's and TheMovieDb's
-	// are siteFields' already.
-	first := func(order []string, of func(string) warmer, has func(string) bool) {
-		for _, src := range order {
-			if l := of(src); l != nil && l.fetches() {
+	// Per field, the first source of its order that would be fetched,
+	// unless a source before it has the field at hand. TheTVDB's and
+	// TheMovieDb's are siteFields' already.
+	for i := range showFields {
+		f := &showFields[i]
+		for _, src := range f.order(cfg) {
+			v, l := f.of(ss, src, true)
+			if l != nil && l.fetches() {
 				if !siteSource(src) {
 					w.add(l)
 				}
-				return
+				break
 			}
-			if has(src) {
-				return
+			if f.has(v, cfg) {
+				break
 			}
 		}
-	}
-	first(cfg.TitleSources, ss.titleLazy, func(src string) bool { return ss.title(src) != "" })
-	first(cfg.SummarySources, ss.summaryLazy, func(src string) bool { return ss.summary(src) != "" })
-	for _, f := range [...]struct {
-		order []string
-		has   func(sources.Details) bool
-	}{
-		{cfg.GenreSources, func(d sources.Details) bool { return len(d.Genres) > 0 }},
-		{cfg.CastSources, func(d sources.Details) bool { return len(d.Cast) > 0 }},
-		{cfg.StudioSources, func(d sources.Details) bool { return d.Studio != "" }},
-		{cfg.CrewSources, func(d sources.Details) bool { return len(d.Directors)+len(d.Writers) > 0 }},
-		{cfg.RatingSources, func(d sources.Details) bool { return d.Rating(cfg.RatingCountries) != "" }},
-		{cfg.DateSources, func(d sources.Details) bool { return d.Date != "" }},
-	} {
-		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
 	w.jobs = ss.warmArt(w.jobs, ss.notEarly, true)
 	var wg group
@@ -552,22 +633,15 @@ func (ss *showSources) warm() {
 // movie by its IMDb id). /tvdb can call it first: there AniDB never changes
 // it.
 func (ss *showSources) siteFields(w *warmSet) {
-	cfg := ss.p.cfg
+	cfg := &ss.p.cfg
 	if cfg.CastPhotosFromPlex && len(cfg.CastSources) > 0 {
 		w.add(&ss.plexShow) // nothing to ask (no id, no token): add skips it
 	}
 	for _, src := range [...]string{"tvdb", "tmdb"} {
-		if slices.Contains(cfg.TitleSources, src) {
-			w.add(ss.titleLazy(src))
-		}
-		if slices.Contains(cfg.SummarySources, src) {
-			w.add(ss.summaryLazy(src))
-		}
-		for _, order := range [...][]string{cfg.GenreSources, cfg.CastSources, cfg.StudioSources, cfg.CrewSources,
-			cfg.RatingSources, cfg.DateSources} {
-			if slices.Contains(order, src) {
-				w.add(ss.detailsLazy(src))
-				break
+		for i := range showFields {
+			if f := &showFields[i]; slices.Contains(f.order(cfg), src) {
+				_, l := f.of(ss, src, true)
+				w.add(l) // the details' fields share one: added once
 			}
 		}
 	}
@@ -628,89 +702,6 @@ func (ss *showSources) notEarly(src string) bool { return !ss.early || !earlySou
 type warmer interface {
 	fetches() bool // getting it downloads something
 	warm()
-}
-
-// titleLazy, summaryLazy, detailsLazy: what title, summary and details ask
-// src for, when that is a fetch (nil: the answer is at hand, AniDB's, or
-// none). Keep them in step with those three.
-func (ss *showSources) titleLazy(src string) warmer {
-	switch src {
-	case "tvdb":
-		if ss.first.tvdb {
-			return &ss.tvdbText
-		}
-	case "tmdb":
-		if ss.first.tmdb {
-			return &ss.tmdbText
-		}
-	case "plex":
-		if ss.plexFirst() {
-			return &ss.plexShow
-		}
-	case "ann":
-		return &ss.ann
-	}
-	return nil
-}
-
-func (ss *showSources) summaryLazy(src string) warmer {
-	switch src {
-	case "tvdb":
-		if !ss.first.tvdb {
-			return &ss.tvdbSeason
-		}
-		return &ss.tvdbText
-	case "tmdb":
-		if !ss.first.tmdb {
-			return &ss.tmdbSeason
-		}
-		return &ss.tmdbText
-	case "mal":
-		return &ss.mal
-	case "plex":
-		if !ss.plexFirst() {
-			if ss.plexSeasonAt == noSeason {
-				return nil
-			}
-			return &ss.plexSeasonList
-		}
-		return &ss.plexShow
-	case "ann":
-		return &ss.ann
-	}
-	return nil
-}
-
-func (ss *showSources) detailsLazy(src string) warmer {
-	switch src {
-	case "tvdb":
-		if ss.first.tvdb {
-			return &ss.tvdbDetails
-		}
-	case "tmdb":
-		if ss.first.tmdb {
-			return &ss.tmdbDetails
-		}
-	case "mal":
-		return &ss.mal
-	case "plex":
-		if ss.plexFirst() {
-			return &ss.plexShow
-		}
-	case "ann":
-		return &ss.ann
-	}
-	return nil
-}
-
-// pick returns the first non-empty value in source order, and its source.
-func pick(order []string, get func(src string) string) (string, string) {
-	for _, src := range order {
-		if v := get(src); v != "" {
-			return v, src
-		}
-	}
-	return "", ""
 }
 
 // images joins image URLs in source order (all=true) or returns the first
@@ -782,6 +773,15 @@ func (l *lazy[T]) get() T {
 	l.read.Store(true)
 	l.fetch()
 	return l.v
+}
+
+// value is get, or with ahead the zero value, fetching nothing (title).
+func (l *lazy[T]) value(ahead bool) T {
+	if ahead {
+		var zero T
+		return zero
+	}
+	return l.get()
 }
 
 // fetch runs f, once, without counting as a read.

@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
+	"maps"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,8 +18,12 @@ import (
 func TestPickFallsBack(t *testing.T) {
 	vals := map[string]string{"anidb": "", "tvdb": "from tvdb", "tmdb": "from tmdb"}
 	var asked []string
-	got, _ := pick([]string{"anidb", "tvdb", "tmdb"}, func(src string) string { asked = append(asked, src); return vals[src] })
-	if got != "from tvdb" {
+	f := &showField{has: hasText, of: func(_ *showSources, src string, _ bool) (fieldValue, warmer) {
+		asked = append(asked, src)
+		return fieldValue{text: vals[src]}, nil
+	}}
+	v, _ := (&showSources{p: &Provider{}}).pick(f, []string{"anidb", "tvdb", "tmdb"}, f.has)
+	if got := v.text; got != "from tvdb" {
 		t.Fatalf("got %q, want tvdb value", got)
 	}
 	if !slices.Equal(asked, []string{"anidb", "tvdb"}) { // tmdb never fetched
@@ -51,7 +58,7 @@ func TestSeriesGuard(t *testing.T) {
 		return func() (sources.Details, error) { return sources.Details{Genres: []string{src}}, nil }
 	}
 	order := []string{"tvdb", "tmdb", "mal"}
-	has := func(d sources.Details) bool { return len(d.Genres) > 0 }
+	genres := &showFields[slices.IndexFunc(showFields[:], func(f showField) bool { return f.key == "genres" })]
 	for _, c := range []struct {
 		first firstEntry
 		want  string
@@ -60,18 +67,16 @@ func TestSeriesGuard(t *testing.T) {
 		{firstEntry{tvdb: true}, "tvdb"},
 		{firstEntry{tmdb: true}, "tmdb"}, // a later TheTVDB entry, its own TheMovieDb show
 	} {
-		ss := &showSources{tvdb: 1, tmdb: 2, first: c.first}
+		ss := &showSources{p: &Provider{}, tvdb: 1, tmdb: 2, first: c.first}
 		ss.tvdbDetails.f, ss.tmdbDetails.f = details("tvdb"), details("tmdb")
 		ss.mal.f = func() (sources.MALAnime, error) {
 			return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}}, nil
 		}
-		if got := pd(ss.pickDetails(order, has)).Genres[0]; got != c.want {
-			t.Errorf("%+v: got %q, want %q", c.first, got, c.want)
+		if v, _ := ss.pick(genres, order, genres.has); v.d.Genres[0] != c.want {
+			t.Errorf("%+v: got %q, want %q", c.first, v.d.Genres[0], c.want)
 		}
 	}
 }
-
-func pd(d sources.Details, _ string) sources.Details { return d }
 
 // Without AniDB details, the fallbacks fill will reach are fetched at once,
 // not one after another: each fetch here only returns once the other one has
@@ -334,5 +339,54 @@ func TestUniqueCast(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// Every source list of the settings (config.Config's *Sources) is read by
+// exactly one of: a row of showFields (fill, warm and siteFields all take
+// the show fields' lists from it), an art kind (artKind.order), or the
+// episodes' code. A list added to Config and to none of them fails here,
+// so a show field's list can't be read by one of fill, warm and siteFields
+// and missed by another.
+func TestShowFieldsCoverSourceLists(t *testing.T) {
+	var c config.Config
+	cv := reflect.ValueOf(&c).Elem()
+	var lists []string
+	for i := range cv.NumField() {
+		if name := cv.Type().Field(i).Name; strings.HasSuffix(name, "Sources") && cv.Field(i).Type() == reflect.TypeFor[[]string]() {
+			cv.Field(i).Set(reflect.ValueOf([]string{name})) // each list names itself
+			lists = append(lists, name)
+		}
+	}
+	readBy := map[string][]string{}
+	read := func(order []string, by string) {
+		if len(order) != 1 {
+			t.Errorf("%s reads no source list of Config", by)
+			return
+		}
+		readBy[order[0]] = append(readBy[order[0]], by)
+	}
+	keys, names := map[string]bool{}, map[string]bool{}
+	for _, f := range showFields {
+		if keys[f.key] || names[f.name] || f.of == nil || f.has == nil || f.set == nil || f.describe == nil && f.key != castKey {
+			t.Errorf("show field %q (%s): a repeated name or key, or a function missing", f.name, f.key)
+		}
+		keys[f.key], names[f.name] = true, true
+		read(f.order(&c), "show field "+f.key)
+	}
+	ss := &showSources{p: &Provider{cfg: c}}
+	for _, k := range artKinds {
+		read(k.order(ss), "art "+k.name())
+	}
+	for _, name := range []string{"EpisodeFillSources", "EpisodeCrewSources"} { // episodes_anidb.go, episode_crew.go
+		read([]string{name}, "episodes")
+	}
+	for _, name := range lists {
+		if by := readBy[name]; len(by) != 1 {
+			t.Errorf("%s is read by %q, want exactly one of showFields, artKinds or the episodes' lists", name, by)
+		}
+	}
+	if len(readBy) != len(lists) {
+		t.Errorf("lists read %v, Config has %v", slices.Sorted(maps.Keys(readBy)), lists)
 	}
 }
