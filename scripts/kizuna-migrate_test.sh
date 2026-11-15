@@ -716,7 +716,7 @@ if ((have_jq)); then
 	out=$(cd "$t" && bash "$SCRIPT" -u "$FAKE" lib 2>&1)
 	check "hostile credits: exit" "$?" "0"
 	check "hostile credits: no command ran" "$(marker_in "$t")" ""
-	check "hostile credits: nothing bash complains about" "$(grep -c 'value too great for base\|invalid' <<<"$out")" "0"
+	check "hostile credits: nothing bash complains about" "$(grep -cE 'value too great for base|invalid' <<<"$out")" "0"
 	unlisted="not among the ones whose Kizuna titles the script can read; $langs_fix"
 	check "hostile credits: a line made by a title's line break is no credit" "$(number_of "Inj - OP1")" \
 		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP1: $unlisted), $by_hand_end"
