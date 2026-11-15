@@ -272,3 +272,4 @@ Kizuna warns at startup, quoting the value as written:
 | a bad `ALLOW_FROM` or `ALLOWED_HOSTS` entry | ignores it. An `ALLOW_FROM` with nothing valid left falls back to `private` |
 | an unknown language or country code | no warning: it never matches, so the next one is used |
 | neither `ANIDB_CLIENT` nor a TheTVDB key, or a port already in use | **doesn't start** ([troubleshooting](SETUP.md#kizuna-doesnt-start)) |
+| a space or a character such as `&` or `#` inside `ANIDB_CLIENT`, `TMDB_API_KEY`, `MAL_CLIENT_ID` or `PLEX_TOKEN`, or an `ANIDB_CLIENTVER` that isn't a whole number | **doesn't start**, naming the setting but not the value. Copy the key again from the site |

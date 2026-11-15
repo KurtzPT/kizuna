@@ -97,7 +97,12 @@ func main() {
 	cfg := config.Load()
 	if !healthCheck {
 		envFile.Log()
-		if err := cfg.CheckModes(); err != nil {
+		// A malformed key stops the start before any request could carry it.
+		err := cfg.CheckKeys()
+		if err == nil {
+			err = cfg.CheckModes()
+		}
+		if err != nil {
 			slog.Error("can't start: " + err.Error())
 			os.Exit(1)
 		}
