@@ -293,10 +293,9 @@ func serve(cfg config.Config) error {
 // is a setup of its own: the plex source uses it, so that is an info line.
 // PLEX_TLS_NAME is only for the titles: without PLEX_URL it does nothing,
 // which is a warning (without PLEX_TOKEN, PLEX_URL's warning covers it).
-// A PLEX_TLS_NAME that can't
-// be used turns the titles off too: going on without it would fail on every
-// call, or send the token over plain http to a user who asked for a
-// certificate check.
+// A PLEX_TLS_NAME that can't be used turns the titles off too: going on
+// without it would fail on every call, or send the token over plain http to
+// a user who asked for a certificate check.
 func extraTitles(cfg config.Config) *plex.Renamer {
 	switch tlsName := cfg.PlexTLSName != ""; {
 	case cfg.PlexURL == "" && cfg.PlexToken == "":

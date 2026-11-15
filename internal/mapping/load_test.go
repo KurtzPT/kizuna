@@ -393,8 +393,10 @@ func TestLoadWarnsAboutCustomEntriesWithoutAniDBID(t *testing.T) {
 	}
 }
 
-// An empty anime-list-custom.xml (0 bytes, or only blanks) has no entries:
-// no error at each load, and the entries of an earlier version are gone.
+// An anime-list-custom.xml without any element (0 bytes, blanks, a BOM, only
+// <?xml?> or a comment) has no entries: no error at each load, and the
+// entries of an earlier version are gone. A document cut off is still an
+// error.
 func TestLoadEmptyCustomFile(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
@@ -407,7 +409,9 @@ func TestLoadEmptyCustomFile(t *testing.T) {
 	if err := l.Load(context.Background(), f, dir); err != nil || l.ByAID(5).TVDB.ID != 500 {
 		t.Fatalf("custom file: %v, entry 5 %+v", err, l.ByAID(5))
 	}
-	for _, content := range []string{"", " \r\n\t"} {
+	for _, content := range []string{"", " \r\n\t", "\xef\xbb\xbf", "\xef\xbb\xbf\r\n",
+		`<?xml version="1.0" encoding="UTF-8"?>` + "\n", "<!-- nothing yet -->\n",
+		"\xef\xbb\xbf" + `<?xml version="1.0"?>` + "\n<!-- nothing yet -->\n"} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -416,6 +420,26 @@ func TestLoadEmptyCustomFile(t *testing.T) {
 		}
 		if l.ByAID(5).AID != 0 || l.ByAID(1).TVDB.ID != 100 || !l.Ready() {
 			t.Errorf("custom file %q: entry 5 %+v, entry 1 %+v; want the lists alone", content, l.ByAID(5), l.ByAID(1))
+		}
+	}
+
+	// A document cut off is still broken: reported, and the entries of the
+	// last good version stay.
+	if err := os.WriteFile(path, []byte(`<anime-list><anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Load(context.Background(), f, dir); err != nil || l.ByAID(5).TVDB.ID != 500 {
+		t.Fatalf("custom file again: %v, entry 5 %+v", err, l.ByAID(5))
+	}
+	for _, cut := range []string{"<anime-list>", `<anime-list><anime anidbid="5"`, "\xef\xbb\xbf<?xml version=\"1.0\"?>\n<anime-list>\n<anime"} {
+		if err := os.WriteFile(path, []byte(cut), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Load(context.Background(), f, dir); err == nil || !strings.Contains(err.Error(), "anime-list-custom.xml ignored") {
+			t.Errorf("custom file %q: %v, want it reported as broken", cut, err)
+		}
+		if l.ByAID(5).TVDB.ID != 500 {
+			t.Errorf("custom file %q: entry 5 %+v, want the last good version kept", cut, l.ByAID(5))
 		}
 	}
 }
@@ -434,8 +458,9 @@ func fribbRows(n int, more ...string) string {
 
 // A Fribb row with a field of the wrong type is skipped, with one warning
 // counting such rows; the rest of the list is used. Rows that a format change
-// would break (more than 1 in 100) refuse the download instead, so the cached
-// copy and the mapping stay. Broken JSON still fails the whole list.
+// would break (more than 5, and more than 1 in 100) refuse the download
+// instead, so the cached copy and the mapping stay. Broken JSON still fails
+// the whole list.
 func TestFribbSkipsBadRows(t *testing.T) {
 	bad := `{"anidb_id": 500, "tvdb_id": "81797", "mal_id": 9}`
 	logs := captureWarnings(t)
@@ -451,9 +476,32 @@ func TestFribbSkipsBadRows(t *testing.T) {
 		t.Errorf("want one warning counting the bad row, got:\n%s", log)
 	}
 
-	// Two bad rows in 101: more than 1 in 100.
-	if _, err := parseFribb([]byte(fribbRows(99, bad, bad))); err == nil || !strings.Contains(err.Error(), "2 of 101 rows") {
-		t.Errorf("too many bad rows: %v, want the list refused", err)
+	// A few bad rows never refuse a list by themselves, however small it is.
+	five := []string{bad, bad, bad, bad, bad}
+	for _, c := range []struct {
+		name string
+		list string
+	}{{"1 bad of 50", fribbRows(49, bad)}, {"5 bad of 6", fribbRows(1, five...)}} {
+		if list, err := parseFribb([]byte(c.list)); err != nil || list[1].MAL != 1001 {
+			t.Errorf("%s: %v, entry 1 %+v; want the list used", c.name, err, list[1])
+		}
+	}
+	// Refused: more than 5 bad rows and more than 1 in 100.
+	six := append(five, bad)
+	for _, c := range []struct {
+		list, want string
+	}{{fribbRows(1, six...), "6 of 7 rows"}, {fribbRows(593, six...), "6 of 599 rows"}} {
+		if _, err := parseFribb([]byte(c.list)); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s bad: %v, want the list refused", c.want, err)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		list string
+	}{{"5 bad of 599 (at the floor)", fribbRows(594, five...)}, {"6 bad of 600 (1 in 100)", fribbRows(594, six...)}} {
+		if _, err := parseFribb([]byte(c.list)); err != nil {
+			t.Errorf("%s: %v, want the list used", c.name, err)
+		}
 	}
 	for _, broken := range []string{fribbRows(5)[:20], fribbRows(5) + "x", `{"anidb_id": 1}`} {
 		if _, err := parseFribb([]byte(broken)); err == nil {
@@ -474,7 +522,7 @@ func TestFribbSkipsBadRows(t *testing.T) {
 	if err := os.Chtimes(cached, old, old); err != nil {
 		t.Fatal(err)
 	}
-	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: fribbRows(1, bad)})
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: fribbRows(1, six...)})
 	_ = l.Load(context.Background(), f, dir)
 	if b, _ := os.ReadFile(cached); string(b) != goodFribb || l.ByAID(2).MAL != 7 {
 		t.Errorf("mostly broken download: cached %q, entry 2 %+v; want the good copy kept", b, l.ByAID(2))

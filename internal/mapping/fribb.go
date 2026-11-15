@@ -51,11 +51,15 @@ type fribbRow struct {
 	} `json:"episode_offset"`
 }
 
-// fribbBadRows: a list with more than one row in this many that doesn't
-// read is refused, so the cached copy stays. A few bad rows are a typo
-// upstream; many mean the format changed, and using what is left would
-// quietly lose most of the ids.
-const fribbBadRows = 100
+// A list with more than 1 row in fribbBadRowsPer that doesn't read, and
+// more than fribbBadRowsFloor such rows, is refused, so the cached copy
+// stays. A few bad rows are a typo upstream; many mean the format changed,
+// and using what is left would quietly lose most of the ids. The floor keeps
+// a stray row or two from refusing a small list by themselves.
+const (
+	fribbBadRowsPer   = 100
+	fribbBadRowsFloor = 5
+)
 
 // parseFribb reads the list row by row. A row with a field of the wrong type
 // is skipped, not the whole list. Broken JSON (a cut-off download) still
@@ -72,7 +76,7 @@ func parseFribb(data []byte) (map[int]Entry, error) {
 		total++
 		var a fribbRow
 		if err := dec.Decode(&a); err != nil {
-			// Decode reads the whole row before it fills r, so after a type
+			// Decode reads the whole row before it fills a, so after a type
 			// error the next row starts cleanly. Any other error is broken
 			// JSON.
 			var te *json.UnmarshalTypeError
@@ -95,8 +99,8 @@ func parseFribb(data []byte) (map[int]Entry, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, errors.New("text after the list")
 	}
-	if bad*fribbBadRows > total {
-		return nil, fmt.Errorf("%d of %d rows don't read (more than 1 in %d: has the list's format changed?): %w", bad, total, fribbBadRows, firstBad)
+	if bad > fribbBadRowsFloor && bad*fribbBadRowsPer > total {
+		return nil, fmt.Errorf("%d of %d rows don't read (more than 1 in %d: has the list's format changed?): %w", bad, total, fribbBadRowsPer, firstBad)
 	}
 	if bad > 0 {
 		slog.Warn("mapping: skipped Fribb rows that don't read; the rest of the list is used", "list", "fribb", "rows", bad, "of", total, "first", firstBad.Error())

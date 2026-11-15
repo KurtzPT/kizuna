@@ -389,8 +389,14 @@ func TestArguments(t *testing.T) {
 		{[]string{"-h"}, 0, usage, ""},
 	} {
 		dir := t.TempDir()
-		cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestRunMain$", "--", runMainMarker}, c.args...)...)
-		cmd.Env = []string{"DATA_DIR=" + dir} // nothing from this machine: no keys, no settings file
+		// Only a safety net: a child that hangs fails the test instead of
+		// hanging it. Every case ends long before this.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestRunMain$", "--", runMainMarker}, c.args...)...)
+		// Nothing from this machine: no keys, no settings file. GOCOVERDIR
+		// keeps a coverage build's child from warning on stderr.
+		cmd.Env = []string{"DATA_DIR=" + dir, "GOCOVERDIR=" + t.TempDir()}
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()

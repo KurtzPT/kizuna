@@ -17,11 +17,11 @@
 package mapping
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -183,18 +183,22 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	// nor the custom entries it held the last time it parsed.
 	var extra map[int]Entry
 	switch {
-	case customErr == nil && len(bytes.TrimSpace(custom)) == 0:
-		// An empty file (one just created, or emptied to turn the
-		// corrections off) has no entries; it isn't broken XML.
 	case customErr == nil:
 		var err error
-		if extra, err = parseAnimeListsFile(custom, customFile); err != nil {
+		switch extra, err = parseAnimeListsFile(custom, customFile); {
+		case errors.Is(err, io.EOF):
+			// The file ends before any element: empty, blanks, a BOM, only
+			// <?xml?> or a comment (one just created, or emptied to turn the
+			// corrections off). That is no entries, not broken XML; a document
+			// cut off inside an element is a syntax error instead.
+			extra = nil
+		case err != nil:
 			extra = l.get().custom
-			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", len(extra), err))
+			errs = append(errs, fmt.Errorf("%s ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", customFile, len(extra), err))
 		}
 	case !errors.Is(customErr, fs.ErrNotExist):
 		extra = l.get().custom
-		errs = append(errs, fmt.Errorf("anime-list-custom.xml unreadable, keeping the %d entries of its last good version: %w", len(extra), customErr))
+		errs = append(errs, fmt.Errorf("%s unreadable, keeping the %d entries of its last good version: %w", customFile, len(extra), customErr))
 	}
 	for aid, e := range extra {
 		entries[aid] = e
