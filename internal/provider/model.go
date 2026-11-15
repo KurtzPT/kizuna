@@ -297,13 +297,15 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)
 	wg.Wait()
-	p.finishCrew(s, ss, &photos) // the fields and the episodes are in
 	if !episodesOK || !sourcesOK {
 		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
 	}
 	if special && a == nil {
 		finishSpecial(s)
 	}
+	// The fields and the episodes are in, and the episodes are the ones
+	// sent: no photo is learned for a person of an episode dropped above.
+	p.finishCrew(s, ss, &photos)
 	p.pickEpisodeTitles(s)
 	if s.OriginalTitle == s.Title {
 		s.OriginalTitle = ""
