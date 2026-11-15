@@ -516,7 +516,7 @@ func expire(t *testing.T, c *Client, key string) {
 	}
 }
 
-// A cached file is read with its own time; Fresh reads it only while it is
+// A cached file is read with its own time; fresh reads it only while it is
 // younger than the TTL. A folder or a missing file is no copy.
 func TestCachedReads(t *testing.T) {
 	c := New(t.TempDir())
@@ -530,14 +530,14 @@ func TestCachedReads(t *testing.T) {
 	if data, got, ok := c.CachedSince("a.json"); !ok || string(data) != "abc" || !got.Equal(at) {
 		t.Errorf("CachedSince: %q, %v, %v; want abc at %v", data, got, ok, at)
 	}
-	if data, ok := c.Fresh(context.Background(), "a.json", 2*time.Hour); !ok || string(data) != "abc" {
-		t.Errorf("Fresh within the TTL: %q, %v", data, ok)
+	if data, ok := c.fresh(context.Background(), Request{Key: "a.json", TTL: 2 * time.Hour}); !ok || string(data) != "abc" {
+		t.Errorf("fresh within the TTL: %q, %v", data, ok)
 	}
-	if data, ok := c.Fresh(context.Background(), "a.json", time.Minute); ok || data != nil {
-		t.Errorf("Fresh past the TTL: %q, %v; want nothing", data, ok)
+	if data, ok := c.fresh(context.Background(), Request{Key: "a.json", TTL: time.Minute}); ok || data != nil {
+		t.Errorf("fresh past the TTL: %q, %v; want nothing", data, ok)
 	}
-	if _, ok := c.Fresh(context.Background(), "a.json", 0); ok {
-		t.Error("Fresh with no TTL answered")
+	if _, ok := c.fresh(context.Background(), Request{Key: "a.json", TTL: 0}); ok {
+		t.Error("fresh with no TTL answered")
 	}
 	if err := os.Mkdir(c.path("dir"), 0o755); err != nil {
 		t.Fatal(err)
@@ -546,8 +546,8 @@ func TestCachedReads(t *testing.T) {
 		if _, _, ok := c.CachedSince(key); ok {
 			t.Errorf("CachedSince(%q) answered", key)
 		}
-		if _, ok := c.Fresh(context.Background(), key, time.Hour); ok {
-			t.Errorf("Fresh(%q) answered", key)
+		if _, ok := c.fresh(context.Background(), Request{Key: key, TTL: time.Hour}); ok {
+			t.Errorf("fresh(%q) answered", key)
 		}
 	}
 }

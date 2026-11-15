@@ -175,12 +175,6 @@ func (c *Client) CachedSince(key string) ([]byte, time.Time, bool) {
 	return readCache(c.path(key), nil)
 }
 
-// Fresh returns the cached file key when it is younger than ttl, without
-// any network access. Its age is checked first: an expired file isn't read.
-func (c *Client) Fresh(ctx context.Context, key string, ttl time.Duration) ([]byte, bool) {
-	return c.fresh(ctx, Request{Key: key, TTL: ttl})
-}
-
 // readCache reads a cache file and the time it was last written through one
 // open, so the time is always that of the bytes. When young (if set) says
 // the time is too old, the file isn't read: no bytes, its time, false. No
@@ -237,7 +231,7 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 			observe(ctx, r, start, KindFail, err)
 			return nil, err
 		}
-		if stale, ok := c.Stale(ctx, r.Key, start, err); ok {
+		if stale, ok := c.stale(ctx, r.Key, start, err); ok {
 			return stale, nil
 		}
 		observe(ctx, r, start, KindFail, err)
@@ -247,19 +241,25 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	return data, nil
 }
 
-// Stale returns key's cached copy however old, for a call that failed with
+// stale returns key's cached copy however old, for a call that failed with
 // err (a download, a login): old data beats none. It logs that at debug and
 // reports it to ctx's observer as KindStale.
-func (c *Client) Stale(ctx context.Context, key string, start time.Time, err error) ([]byte, bool) {
+func (c *Client) stale(ctx context.Context, key string, start time.Time, err error) ([]byte, bool) {
 	data, at, ok := c.CachedSince(key)
 	if !ok {
 		return nil, false
 	}
+	usedStale(ctx, key, at, start, err)
+	return data, true
+}
+
+// usedStale logs and reports that key's copy written at at answered a call
+// that failed with err.
+func usedStale(ctx context.Context, key string, at, start time.Time, err error) {
 	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
 		slog.Debug("request failed; using stale cache", "key", key, "age", time.Since(at).Round(time.Minute), "err", err)
 	}
 	Observe(ctx, key, KindStale, start, err)
-	return data, true
 }
 
 // fresh returns r's cached copy when it is younger than r.TTL. The file's

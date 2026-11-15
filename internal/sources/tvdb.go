@@ -371,50 +371,40 @@ func (t *TVDB) getAs(ctx context.Context, legacy bool, o getOpts, path, key stri
 	if !t.Enabled() {
 		return fmt.Errorf("tvdb: no api key")
 	}
-	key = cacheFolder(legacy) + key
-	start := time.Now()
-	if data, ok := t.f.Fresh(ctx, key, ttl); ok { // skip the login when cached; an expired file isn't read
-		fetch.Observe(ctx, key, fetch.KindCache, start, nil)
-		return json.Unmarshal(data, out)
-	}
-	for retried := false; ; retried = true {
+	r := fetch.Request{Key: cacheFolder(legacy) + key, TTL: ttl, Quiet: o.quiet, NoStale: o.noStale, Background: o.background}
+	// The login runs only when the cache has no fresh answer.
+	ready := func(req fetch.Request) (fetch.Request, error) {
 		token, tokenLegacy, err := t.login(ctx)
 		if err != nil {
-			return t.stale(ctx, o, key, start, err, out)
+			// The expired cached copy answers, as for a failed download: old
+			// data beats none. Not when the caller gave up.
+			req.NoStale = req.NoStale || ctx.Err() != nil
+			return req, err
 		}
 		if tokenLegacy != legacy {
-			return errTVDBSwitched
+			req.NoStale = true
+			return req, errTVDBSwitched
 		}
 		headers := map[string]string{"Authorization": "Bearer " + token}
 		if legacy {
 			headers["Accept-Language"] = "en" // v3 picks the language by header
 		}
-		err = t.f.GetJSON(ctx, fetch.Request{URL: apiBase(legacy) + path, Key: key, TTL: ttl, Headers: headers, Quiet: o.quiet, NoStale: o.noStale, Background: o.background,
-			// Done sees a 401 even when a stale copy answers the call.
-			Done: func(err error) {
-				if unauthorized(err) {
-					t.dropToken(token)
-				}
-			}}, out)
+		req.URL, req.Headers = apiBase(legacy)+path, headers
+		// Done sees a 401 even when a stale copy answers the call.
+		req.Done = func(err error) {
+			if unauthorized(err) {
+				t.dropToken(token)
+			}
+		}
+		return req, nil
+	}
+	for retried := false; ; retried = true {
+		err := t.f.GetJSON(ctx, r, out, ready)
 		if retried || !unauthorized(err) {
 			return err
 		}
 		// No stale copy to answer with: try once more with a new token.
 	}
-}
-
-// stale answers a call whose login failed with the expired cached copy, as
-// fetch does for a failed download: old data beats none. Not when the caller
-// gave up or asked for no stale copy (noStale).
-func (t *TVDB) stale(ctx context.Context, o getOpts, key string, start time.Time, err error, out any) error {
-	if o.noStale || ctx.Err() != nil {
-		return err
-	}
-	data, ok := t.f.Stale(ctx, key, start, err)
-	if !ok {
-		return err
-	}
-	return json.Unmarshal(data, out)
 }
 
 func unauthorized(err error) bool {
