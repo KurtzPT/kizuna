@@ -1,17 +1,13 @@
-.git
-.github
-.env
-data
-*.md
-*.exe
-scripts
-assets
-unraid
-compose.yml
-.gitignore
-.gitattributes
-kizuna
-*.test
-*.out
-coverage.*
-plan.txt
+# An allowlist: only what the image build needs goes into the build context,
+# the Go code, go.mod and .env.sample (a test checks every setting is in it).
+# Docs, scripts, a local .env or data/ and anything else at the root stay out.
+#
+# These lines are also the list of what changes the image: ci's gate reads
+# them (scripts/dev-image.sh), docker.yml's push filter repeats them, and
+# scripts/dev-image_test.sh fails when the two disagree. Keep the form the
+# script reads: "*" first, then one "!<file or folder>" per line, no patterns.
+*
+!cmd
+!internal
+!go.mod
+!.env.sample

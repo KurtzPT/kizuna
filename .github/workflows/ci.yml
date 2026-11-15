@@ -186,6 +186,7 @@ jobs:
         run: |
           bash scripts/kizuna-migrate_test.sh
           bash scripts/ghcr-cleanup_test.sh
+          bash scripts/dev-image_test.sh
 
       # the match report page's script (internal/report/page.html), on the
       # runner's own Node: the test uses no packages
@@ -222,10 +223,10 @@ jobs:
   # Publishes: a version tag (v1.2.3, v1.2.3-beta.1); dev, when something that
   # goes into the image changed since the commit :dev was built from; a manual
   # run on dev or a tag with "publish" ticked. Never a pull request, main or
-  # any other branch. "Changes the image" follows .dockerignore: commits that
-  # only touch docs, assets/, scripts/, unraid/, compose.yml, .gitignore,
-  # .gitattributes or .github/ (except docker.yml) would build the same image
-  # again and only add another sha-* version.
+  # any other branch. "Changes the image" is .dockerignore's allowlist plus
+  # the files that define the build (scripts/dev-image.sh): commits that touch
+  # nothing else would build the same image again and only add another sha-*
+  # version.
   gate:
     name: gate
     if: >-
@@ -260,70 +261,20 @@ jobs:
           EVENT: ${{ github.event_name }}
           PUBLISH_INPUT: ${{ inputs.publish }}
         run: |
-          # The commit :dev was built from: the revision label of the
-          # published image (docker.yml's metadata step writes it), read
-          # without a login (the package is public). Prints nothing when
-          # there is no :dev or no such label; fails when the registry can't
-          # be read. The same function is in docker.yml: change both.
-          dev_revision() {
-            local image=${GITHUB_REPOSITORY,,} accept out token auth digest rev
-            accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
-            out=$(curl -fsS --max-time 30 "https://ghcr.io/token?scope=repository:$image:pull") || return 1
-            token=$(jq -er .token <<< "$out") || return 1
-            auth="Authorization: Bearer $token"
-            # the tag's index: one image per platform. 404: no :dev yet
-            out=$(curl -sS --max-time 30 -w '\n%{http_code}' -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/dev") || return 1
-            case ${out##*$'\n'} in
-              200) ;;
-              404) return 0 ;;
-              *) echo "ghcr.io answered ${out##*$'\n'} for :dev" >&2; return 1 ;;
-            esac
-            # every platform is built from the same commit: one is enough
-            digest=$(jq -er 'first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest' <<< "${out%$'\n'*}") || return 1
-            out=$(curl -fsS --max-time 30 -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/$digest") || return 1
-            digest=$(jq -er .config.digest <<< "$out") || return 1
-            # the labels are in the image's config
-            out=$(curl -fsSL --max-time 30 -H "$auth" "https://ghcr.io/v2/$image/blobs/$digest") || return 1
-            rev=$(jq -r '.config.Labels["org.opencontainers.image.revision"] // ""' <<< "$out") || return 1
-            if [[ $rev =~ ^[0-9a-f]{40}$ ]]; then echo "$rev"; fi
-          }
-
           want=true
           [ "$EVENT" = workflow_dispatch ] && want=$PUBLISH_INPUT
           publish=false
           case $GITHUB_REF in # only dev and v* tags get here (the job's if)
             refs/tags/v*) publish=$want ;;
             refs/heads/dev)
-              # Compared with the commit :dev was built from, not the one
-              # before this push: a waiting run that a newer push replaced
-              # never published, and its changes must still reach :dev.
-              # Whenever the answer isn't certain: publish.
               if [ "$EVENT" = workflow_dispatch ] && [ "$want" = true ]; then
                 publish=true
-              elif ! built=$(dev_revision); then
-                echo "::notice::couldn't read which commit :dev was built from (see above): publishing"
-                publish=true
-              elif [ -z "$built" ]; then
-                echo "::notice::there is no :dev image that names its commit: publishing"
-                publish=true
-              elif [ "$built" = "$GITHUB_SHA" ]; then
-                echo "::notice:::dev is already built from this commit: not publishing"
-              # a force push, or a re-run of an older run
-              elif ! git merge-base --is-ancestor "$built" "$GITHUB_SHA" 2> /dev/null; then
-                echo "::notice:::dev was built from $built, which isn't in this commit's history: publishing"
-                publish=true
               else
-                changed=$(git diff --name-only "$built" "$GITHUB_SHA")
-                echo "changed files since $built (:dev):"
-                while IFS= read -r f; do echo "  $f"; done <<< "$changed"
-                # an empty diff (only empty commits) publishes rather than guess
-                if [ -z "$changed" ] ||
-                   grep -Fxq .github/workflows/docker.yml <<< "$changed" ||
-                   grep -vqE '\.md$|^(\.github|scripts|assets|unraid)/|^(compose\.yml|\.gitignore|\.gitattributes)$' <<< "$changed"; then
-                  publish=true
-                else
-                  echo "::notice::nothing that goes into the image changed since :dev was built: not publishing"
-                fi
+                # compares with the commit :dev was built from, says why,
+                # and writes publish=true|false itself; whenever the answer
+                # isn't certain: publish
+                bash scripts/dev-image.sh publish
+                exit 0
               fi
               ;;
           esac
