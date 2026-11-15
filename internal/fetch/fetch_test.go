@@ -31,6 +31,91 @@ func TestRedact(t *testing.T) {
 	if !strings.Contains(got, "page=2") || !strings.Contains(got, "clientver=1") || !strings.Contains(got, "api_key=***") {
 		t.Fatalf("redacted too much: %s", got)
 	}
+	if want := "https://x/y?X-Plex-Token=***&api_key=***&client=***&clientver=1&page=2"; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+// A URL that parses can still hold a secret outside the query: a key cut
+// off at a "#" (its tail is a fragment) or a user name and password.
+func TestRedactOutsideQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, want string
+	}{
+		{"# in a key", "https://api.themoviedb.org/3/tv/1?api_key=SECPART#TAILPART&language=en",
+			"https://api.themoviedb.org/3/tv/1?api_key=***#***"},
+		{"# in AniDB's client name", "http://api.anidb.net:9001/httpapi?request=anime&client=SECPART#TAILPART&clientver=1&protover=1&aid=5",
+			"http://api.anidb.net:9001/httpapi?client=***&request=anime#***"},
+		{"escaped fragment", "https://api.example/a#SECPART%20TAILPART", "https://api.example/a#***"},
+		{"password", "https://user:SECPART@api.example/a/b?page=2", "https://***@api.example/a/b?page=2"},
+		{"user name alone", "https://SECPART@api.example/a/b", "https://***@api.example/a/b"},
+		// url.Parse takes it; Query drops the pair it can't unescape.
+		{"bad escape in the query", "https://api.example/a/b?api_key=SECPART%zzTAILPART", "https://api.example/a/b"},
+		{"empty fragment", "https://api.example/a/b?page=2#", "https://api.example/a/b?page=2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Redact(tc.raw)
+			if strings.Contains(got, "SECPART") || strings.Contains(got, "TAILPART") {
+				t.Fatalf("secret not redacted: %q", got)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A URL url.Parse rejects (a key pasted with a line break in it) still loses
+// its query and user part: only the scheme, host and path are kept.
+func TestRedactUnparsable(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, want string
+	}{
+		{"line break in a key", "https://api.example/a/b?api_key=SECRET\nKEY&page=2", "https://api.example/a/b?***"},
+		{"tab in a key", "https://api.example/a/b?client=SECRET\tKEY", "https://api.example/a/b?***"},
+		{"DEL in a key", "https://api.example/a/b?api_key=SECRET\x7fKEY", "https://api.example/a/b?***"},
+		{"bad escape in the path", "https://api.example/a%zz/b?api_key=SECRETKEY", "https://api.example/a%zz/b?***"},
+		{"control character in the host", "https://api.exa\x01mple/a/b?api_key=SECRETKEY", "https://api.exa\x01mple/a/b?***"},
+		{"control character in the password", "https://user:SECRET\nKEY@api.example/a/b?page=2", "https://***@api.example/a/b?***"},
+		{"no path", "https://user:SECRET\x01KEY@api.example?api_key=SECRETKEY", "https://***@api.example?***"},
+		{"fragment", "https://api.example/a\nb#SECRETKEY", "https://api.example/a\nb#***"},
+		{"request path", "/anidb/a/b?X-Plex-Token=SECRET\nKEY", "/anidb/a/b?***"},
+		{"user part unclear", "https://user:SECRET\n?KEY@api.example/a/b", hiddenURL},
+		{"@ after the host", "https://api.example/a/b\n@SECRETKEY", hiddenURL},
+		{"@ in the query", "https://api.example/3/tv/1?api_key=SECRET@\tKEY&language=en", "https://api.example/3/tv/1?***"},
+		{"@ in the query, no path", "https://api.example?api_key=SECRET@\tKEY", hiddenURL},
+		{"user part without //", "user:SECRET@api.example/a//b\n", hiddenURL},
+		{"user part after a single /", "https:/user:SECRET@api.example//x\n", hiddenURL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Redact(tc.raw)
+			if strings.Contains(got, "SECRET") || strings.Contains(got, "KEY") {
+				t.Fatalf("secret not redacted: %q", got)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A URL http.NewRequest can't parse is repeated in its error: redacted too.
+func TestUnparsableURLErrorRedacted(t *testing.T) {
+	c := New(t.TempDir())
+	c.SetTransport(roundTrip(func(*http.Request) (*http.Response, error) {
+		t.Error("a URL that can't be parsed must not be sent")
+		return nil, errors.New("sent")
+	}))
+	_, _, _, err := c.do(Request{URL: "https://api.example/x?api_key=SECRET\nKEY&client=MYCLIENT"}, nil)
+	if err == nil {
+		t.Fatal("expected a parse error")
+	}
+	if strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "MYCLIENT") {
+		t.Fatalf("secret in error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "api.example/x") {
+		t.Fatalf("the error should still name the host and path: %v", err)
+	}
 }
 
 // A network error repeats the whole URL in its message: it must be redacted too.
