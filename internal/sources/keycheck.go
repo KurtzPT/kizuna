@@ -2,7 +2,6 @@ package sources
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -24,6 +23,8 @@ const rejectedKeyPause = 10 * time.Minute
 type keyCheck struct {
 	source, setting string      // for the log: "TMDB", "TMDB_API_KEY"
 	onDone          func(error) // the requests' Done (made once: no allocation per call)
+	// onReady: the requests' ready for GetJSON (made once too).
+	onReady func(fetch.Request) (fetch.Request, error)
 	// rejects, if set, also counts this answer as a rejected key (one the
 	// source gives with another code than 401/403).
 	rejects func(*fetch.StatusError) bool
@@ -36,22 +37,15 @@ type keyCheck struct {
 	err   error
 }
 
-// getJSON is f.GetJSON, unless the key was rejected lately.
+// getJSON is f.GetJSON, with no download while the key's rejection lasts.
 func (k *keyCheck) getJSON(ctx context.Context, f *fetch.Client, r fetch.Request, out any) error {
-	if err := k.blocked(); err != nil {
-		start := time.Now()
-		if data, ok := f.Fresh(ctx, r.Key, r.TTL); ok {
-			fetch.Observe(ctx, r.Key, fetch.KindCache, start, nil)
-			return json.Unmarshal(data, out)
-		}
-		if data, ok := f.Stale(ctx, r.Key, start, err); ok {
-			return json.Unmarshal(data, out)
-		}
-		return err
-	}
 	r.Quiet, r.Done = true, k.onDone // logged in done: a rejection once per pause
-	return f.GetJSON(ctx, r, out)
+	return f.GetJSON(ctx, r, out, k.onReady)
 }
+
+// ready is GetJSON's ready: the rejection, while its pause lasts, fails the
+// download before it is sent.
+func (k *keyCheck) ready(r fetch.Request) (fetch.Request, error) { return r, k.blocked() }
 
 // blocked returns the rejection while its pause lasts.
 func (k *keyCheck) blocked() error {
@@ -65,7 +59,7 @@ func (k *keyCheck) blocked() error {
 
 func newKeyCheck(source, setting string) *keyCheck {
 	k := &keyCheck{source: source, setting: setting}
-	k.onDone = k.done
+	k.onDone, k.onReady = k.done, k.ready
 	return k
 }
 

@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -542,5 +543,171 @@ func TestTVDBRenewerDoesNotStall(t *testing.T) {
 	tv.mu.Unlock()
 	if token != "t-new" {
 		t.Errorf("token %q after the renewal, want t-new", token)
+	}
+}
+
+// A fresh cached TheTVDB answer that doesn't decode is downloaded again,
+// once, and a good answer replaces it. With TheTVDB failing (the record or
+// the login) the call fails and the file stays for the next try; a broken
+// answer is asked for once and replaces nothing. Both APIs' cache folders.
+func TestTVDBBrokenCopyDownloadedAgain(t *testing.T) {
+	const broken = `{"data":{"name":"Old"`
+	var se *fetch.StatusError
+	cases := []struct {
+		name, login, answer string
+		err                 func(error) bool // nil: no error
+		asked               int              // record requests
+	}{
+		{"good answer", "", `{"data":{"name":"New"}}`, nil, 1},
+		{"record down", "", `503 {}`, func(err error) bool { return errors.As(err, &se) && se.Code == 503 }, 1},
+		{"login down", `503 {}`, `{"data":{"name":"New"}}`, func(err error) bool { return errors.Is(err, errTVDBLogin) }, 0},
+		{"broken again", "", `<html>busy</html>`, func(err error) bool { return err != nil }, 1},
+	}
+	for _, legacy := range []bool{false, true} {
+		host, login, folder := v4, `{"data":{"token":"t4"}}`, "tvdb"
+		if legacy {
+			host, login, folder = v3, `{"token":"t3"}`, "tvdb3"
+		}
+		for _, c := range cases {
+			name := fmt.Sprintf("legacy %v, %s", legacy, c.name)
+			dir := t.TempDir()
+			f := fetch.New(dir)
+			n := &tvdbNet{answers: map[string]string{host + "/login": cmp.Or(c.login, login), host + "/series/9/translations/eng": c.answer}}
+			f.SetTransport(n)
+			tv := NewTVDB(f, "v4key", "", "")
+			if legacy {
+				tv = NewTVDB(f, "", "", "legacykey")
+			}
+			p := filepath.Join(dir, folder, "9", "eng.json")
+			if err := fetch.WriteFile(p, []byte(broken)); err != nil {
+				t.Fatal(err)
+			}
+			var r struct {
+				Data struct {
+					Name string `json:"name"`
+				} `json:"data"`
+			}
+			err := tv.get(context.Background(), legacy, "/series/9/translations/eng", "9/eng.json", seriesFilesTTL, &r)
+			switch {
+			case c.err == nil && (err != nil || r.Data.Name != "New"):
+				t.Errorf("%s: %q, %v; want the new answer", name, r.Data.Name, err)
+			case c.err != nil && (!c.err(err) || r.Data.Name != ""):
+				t.Errorf("%s: %q, %v; want the failure and nothing decoded", name, r.Data.Name, err)
+			}
+			if got := n.count(host + "/series/9/translations/eng"); got != c.asked {
+				t.Errorf("%s: record asked %d times, want %d", name, got, c.asked)
+			}
+			want := broken
+			if c.err == nil {
+				want = c.answer
+			}
+			if data, err := os.ReadFile(p); err != nil || string(data) != want {
+				t.Errorf("%s: cached %q, %v; want %q", name, data, err, want)
+			}
+		}
+	}
+}
+
+// A cached answer replaces what out held: no field of the first record read
+// into it is left after the second, and one that doesn't decode leaves
+// nothing of itself.
+func TestTVDBCachedAnswerReplacesOut(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(&tvdbNet{answers: map[string]string{v4 + "/login": `{"data":{"token":"t4"}}`}}) // no record: 404
+	tv := NewTVDB(f, "v4key", "", "")
+	for id, body := range map[int]string{
+		1: `{"data":{"name":"One","overview":"About one."}}`,
+		2: `{"data":{"name":"Two"}}`,
+		3: `{"data":{"name":"Three","overview":3}}`, // name decodes, overview doesn't
+	} {
+		if err := fetch.WriteFile(filepath.Join(dir, "tvdb", fmt.Sprint(id), "eng.json"), []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var r struct {
+		Data struct {
+			Name     string `json:"name"`
+			Overview string `json:"overview"`
+		} `json:"data"`
+	}
+	ctx := context.Background()
+	get := func(id int) error {
+		return tv.get(ctx, false, fmt.Sprintf("/series/%d/translations/eng", id), fmt.Sprintf("%d/eng.json", id), seriesFilesTTL, &r)
+	}
+	if err := get(1); err != nil || r.Data.Overview != "About one." {
+		t.Fatalf("record 1: %+v, %v", r, err)
+	}
+	if err := get(2); err != nil || r.Data.Name != "Two" || r.Data.Overview != "" {
+		t.Errorf("record 2: %+v, %v; want Two and no overview", r, err)
+	}
+	if err := get(3); !fetch.IsNotFound(err) || r.Data.Name != "" {
+		t.Errorf("record 3: %+v, %v; want the 404 of its new download and nothing decoded", r, err)
+	}
+}
+
+// hangingNet never answers: a request on it ends only with its caller's ctx.
+type hangingNet struct{ release chan struct{} }
+
+func (n *hangingNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	<-n.release
+	return nil, errors.New("released")
+}
+
+// staleEng caches TheTVDB's series 9 text in folder, older than any TTL.
+func staleEng(t *testing.T, dir, folder string) {
+	t.Helper()
+	p := filepath.Join(dir, folder, "9", "eng.json")
+	if err := fetch.WriteFile(p, []byte(`{"data":{"name":"Stale"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A login that fails because the caller gave up is the call's error: the
+// stale copy doesn't answer a caller that is gone.
+func TestTVDBLoginCancelledNoStale(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &hangingNet{release: make(chan struct{})}
+	t.Cleanup(func() { close(n.release) })
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
+	staleEng(t, dir, "tvdb")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the login's request can only end with ctx
+	var r struct {
+		Data struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	err := tv.get(ctx, false, "/series/9/translations/eng", "9/eng.json", seriesFilesTTL, &r)
+	if !errors.Is(err, errTVDBLogin) || !errors.Is(err, context.Canceled) || r.Data.Name != "" {
+		t.Errorf("%q, %v; want the cancelled login's error, no stale copy", r.Data.Name, err)
+	}
+}
+
+// A v4 call that finds the client switched to the legacy key gives up with
+// errTVDBSwitched, even with a stale v4 copy on disk.
+func TestTVDBSwitchedNoStale(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(&tvdbNet{answers: map[string]string{v3 + "/login": `{"token":"t3"}`}})
+	tv := NewTVDB(f, "v4key", "", "legacykey")
+	tv.mu.Lock()
+	tv.legacy = true // switched since the call picked v4
+	tv.mu.Unlock()
+	staleEng(t, dir, "tvdb")
+	var r struct {
+		Data struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	err := tv.get(context.Background(), false, "/series/9/translations/eng", "9/eng.json", seriesFilesTTL, &r)
+	if !errors.Is(err, errTVDBSwitched) || r.Data.Name != "" {
+		t.Errorf("%q, %v; want errTVDBSwitched, no stale copy", r.Data.Name, err)
 	}
 }
