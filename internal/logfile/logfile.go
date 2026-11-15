@@ -29,7 +29,7 @@ type File struct {
 
 	f      *os.File
 	day    string // date of the lines in kizuna.log
-	dayNum int    // the same day as a dayNum: the first line of a later day dates the file
+	dayNum int    // the same day as a number (dayNum): the first line of a later day dates the file
 	// After a failed dating, kizuna.log keeps its day and its new lines, and
 	// is dated again from retry on. The first failure is reported (failed).
 	retry  time.Time

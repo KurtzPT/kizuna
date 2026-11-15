@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-	_ "time/tzdata" // the zones below without the machine's zone database (Windows has none)
+	_ "time/tzdata" // the zones below where the machine has no zone database (Windows)
 )
 
 func names(dir string) []string {
