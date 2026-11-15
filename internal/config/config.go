@@ -36,10 +36,6 @@ type Config struct {
 	TMDBKey       string // TheMovieDb v3 API key (optional)
 	MALClientID   string // MyAnimeList API v2 client ID (optional, public data only)
 
-	// MappingSources: AniDB id mapping lists, in priority order; later ones
-	// only fill missing ids. animelists, fribb.
-	MappingSources []string
-
 	TitleLangs []string // show title priority; "main" = AniDB main (romaji) title
 	// TitleOfficialOnly skips AniDB synonyms for TitleLangs, so a language
 	// without an official title falls through to the next one.
@@ -131,7 +127,6 @@ func Load() Config {
 		TVDBLegacyKey:      env("TVDB_LEGACY_API_KEY", ""),
 		TMDBKey:            env("TMDB_API_KEY", ""),
 		MALClientID:        env("MAL_CLIENT_ID", ""),
-		MappingSources:     mappingSources(),
 		TitleLangs:         lowerList(env("TITLE_LANGS", "main,x-jat,en")),
 		TitleOfficialOnly:  flag("TITLE_OFFICIAL_ONLY", false),
 		OriginalTitleLangs: langList("ORIGINAL_TITLE_LANGS", "ja"),
@@ -369,7 +364,7 @@ func LogLevel() string { return env("LOG_LEVEL", "") }
 // sourceList reads a comma-separated source order. "none" turns the field
 // off; unknown or unsupported names are dropped with a warning. A list with
 // no known source left uses the default, with a warning: a typo must not
-// turn a field off (an empty MAPPING_SOURCES would never load a mapping).
+// turn a field off.
 func sourceList(name, def string, allowed ...string) []string {
 	raw := strings.ToLower(env(name, def))
 	if raw == "none" {
@@ -382,17 +377,6 @@ func sourceList(name, def string, allowed ...string) []string {
 		return knownSources(name, def, allowed)
 	}
 	return out
-}
-
-// mappingSources reads MAPPING_SOURCES. Unlike the other lists it can't be
-// "none": without a list the mapping never loads and /health stays down.
-func mappingSources() []string {
-	const name, def = "MAPPING_SOURCES", "animelists,fribb"
-	if raw := env(name, def); strings.EqualFold(raw, "none") {
-		slog.Warn("a mapping list is required; using the default", "setting", name, "value", raw, "default", def)
-		return list(def)
-	}
-	return sourceList(name, def, "animelists", "fribb")
 }
 
 // knownSources keeps the allowed names of a source list, once each.

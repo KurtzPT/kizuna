@@ -14,7 +14,7 @@ import (
 	"kizuna/internal/fetch"
 )
 
-// notModified answers Anime-Lists' URL with one list and an ETag, and 304
+// notModified answers each list's URL with one list and an ETag, and 304
 // when asked with that ETag. Requests only come from the Load under test.
 type notModified struct{}
 
@@ -24,6 +24,9 @@ func (notModified) RoundTrip(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusNotModified, Body: io.NopCloser(strings.NewReader("")), Header: h, Request: r}, nil
 	}
 	body := `<anime-list><anime anidbid="1" tvdbid="100" defaulttvdbseason="1"/></anime-list>`
+	if r.URL.String() == fribbURL {
+		body = goodFribb
+	}
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: h, Request: r}, nil
 }
 
@@ -36,13 +39,18 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 	l := &Lists{}
 	load := func() {
 		t.Helper()
-		if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+		if err := l.Load(context.Background(), f, dir); err != nil {
 			t.Fatal(err)
 		}
 	}
-	expire := func() { // the daily reload: the cached copy has expired
+	expire := func() { // the daily reload: the cached copies have expired
+		t.Helper()
 		old := time.Now().Add(-48 * time.Hour)
-		_ = os.Chtimes(filepath.Join(dir, "cache", "mapping", "anime-list-master.xml"), old, old)
+		for _, name := range []string{"anime-list-master.xml", "fribb-anime-list-mini.json"} {
+			if err := os.Chtimes(filepath.Join(dir, "cache", "mapping", name), old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	load()
 	first := l.cur.Load()
@@ -51,8 +59,8 @@ func TestLoadSkipsUnchanged(t *testing.T) {
 	if l.cur.Load() != first {
 		t.Error("unchanged list was parsed and merged again")
 	}
-	if l.ByAID(1).TVDB.ID != 100 {
-		t.Fatalf("entry 1: %+v", l.ByAID(1))
+	if l.ByAID(1).TVDB.ID != 100 || l.ByAID(2).MAL != 7 {
+		t.Fatalf("entry 1: %+v, entry 2: %+v", l.ByAID(1), l.ByAID(2))
 	}
 
 	custom := `<anime-list><anime anidbid="1" tvdbid="200" defaulttvdbseason="1"/></anime-list>`
@@ -86,7 +94,7 @@ func TestLoadCustomWithoutLists(t *testing.T) {
 	f := fetch.New(filepath.Join(dir, "cache"))
 	f.SetTransport(down{})
 	l := &Lists{}
-	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err == nil {
+	if err := l.Load(context.Background(), f, dir); err == nil {
 		t.Error("no list loaded: want an error to log")
 	}
 	if l.ByAID(1).TVDB.ID != 200 || l.AIDFor("tvdb", "200") != 1 {
@@ -97,7 +105,7 @@ func TestLoadCustomWithoutLists(t *testing.T) {
 	}
 
 	f.SetTransport(notModified{})
-	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
 	if !l.Ready() || l.ByAID(1).TVDB.ID != 200 {
@@ -124,15 +132,36 @@ const (
 	goodFribb        = `[{"anidb_id": 2, "tvdb_id": 200, "mal_id": 7}]`
 )
 
+// Load merges Anime-Lists first, whatever answers first: where both lists
+// place an anime, Anime-Lists' series, season and exceptions stay, and Fribb
+// only adds the ids that entry lacks.
+func TestLoadAnimeListsFirst(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists,
+		fribbURL: `[{"anidb_id": 1, "tvdb_id": 999, "season": {"tvdb": 4}, "mal_id": 7}]`})
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir); err != nil {
+		t.Fatal(err)
+	}
+	e := l.ByAID(1)
+	if e.TVDB.ID != 100 || e.TVDB.Season != 1 || !e.TVDB.HasException(1, 5) || e.MAL != 7 {
+		t.Errorf("entry 1: %+v; want Anime-Lists' placement with Fribb's MAL id", e)
+	}
+	if l.AIDFor("tvdb", "999") != 0 {
+		t.Error("Fribb's TVDB id replaced Anime-Lists'")
+	}
+}
+
 // A download that doesn't parse is rejected before it's cached: the good
 // cached copy stays, and so does the mapping. With no copy at all, the list
 // counts as failed.
 func TestLoadRejectsBrokenDownload(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
-	f.SetTransport(lists{animeListsURL: goodAnimeLists})
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
 	l := &Lists{}
-	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
 	cached := filepath.Join(dir, "cache", "mapping", "anime-list-master.xml")
@@ -140,8 +169,8 @@ func TestLoadRejectsBrokenDownload(t *testing.T) {
 	if err := os.Chtimes(cached, old, old); err != nil {
 		t.Fatal(err)
 	}
-	f.SetTransport(lists{animeListsURL: brokenAnimeLists})
-	if err := l.Load(context.Background(), f, dir, []string{"animelists"}); err != nil {
+	f.SetTransport(lists{animeListsURL: brokenAnimeLists, fribbURL: goodFribb})
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Errorf("broken download with a good cached copy: %v, want the copy used", err)
 	}
 	if b, _ := os.ReadFile(cached); string(b) != goodAnimeLists {
@@ -153,13 +182,16 @@ func TestLoadRejectsBrokenDownload(t *testing.T) {
 
 	empty := t.TempDir()
 	f2 := fetch.New(filepath.Join(empty, "cache"))
-	f2.SetTransport(lists{animeListsURL: brokenAnimeLists})
-	if err := (&Lists{}).Load(context.Background(), f2, empty, []string{"animelists"}); err == nil {
-		t.Error("broken download and no cached copy: want an error")
+	// Fribb loads in both cases: the error is Anime-Lists'.
+	f2.SetTransport(lists{animeListsURL: brokenAnimeLists, fribbURL: goodFribb})
+	if err := (&Lists{}).Load(context.Background(), f2, empty); err == nil || !strings.Contains(err.Error(), "animelists") {
+		t.Errorf("broken download and no cached copy: %v, want an error", err)
 	}
-	f2.SetTransport(lists{animeListsURL: `<anime-list></anime-list>`})
-	if err := (&Lists{}).Load(context.Background(), f2, empty, []string{"animelists"}); err == nil {
-		t.Error("a list without entries: want an error")
+	empty = t.TempDir()
+	f2 = fetch.New(filepath.Join(empty, "cache"))
+	f2.SetTransport(lists{animeListsURL: `<anime-list></anime-list>`, fribbURL: goodFribb})
+	if err := (&Lists{}).Load(context.Background(), f2, empty); err == nil || !strings.Contains(err.Error(), "animelists") {
+		t.Errorf("a list without entries: %v, want an error", err)
 	}
 }
 
@@ -170,16 +202,15 @@ func TestLoadKeepsMappingWhenAListFails(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
 	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
-	order := []string{"animelists", "fribb"}
 	l := &Lists{}
-	if err := l.Load(context.Background(), f, dir, order); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
 	cached := filepath.Join(dir, "cache", "mapping", "anime-list-master.xml")
 	if err := os.WriteFile(cached, []byte(brokenAnimeLists), 0o644); err != nil { // fresh: no download
 		t.Fatal(err)
 	}
-	err := l.Load(context.Background(), f, dir, order)
+	err := l.Load(context.Background(), f, dir)
 	if err == nil || !strings.Contains(err.Error(), "keeping") {
 		t.Errorf("a list failed: %v, want an error saying the mapping is kept", err)
 	}
@@ -188,7 +219,7 @@ func TestLoadKeepsMappingWhenAListFails(t *testing.T) {
 	}
 
 	first := &Lists{}
-	if err := first.Load(context.Background(), f, dir, order); err == nil {
+	if err := first.Load(context.Background(), f, dir); err == nil {
 		t.Error("first load with a broken list: want an error to log")
 	}
 	if !first.Ready() || first.ByAID(2).MAL != 7 || first.ByAID(1).AID != 0 {
@@ -203,9 +234,8 @@ func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
 	f.SetTransport(lists{animeListsURL: goodAnimeLists}) // fribb: 404
-	order := []string{"animelists", "fribb"}
 	l := &Lists{}
-	if err := l.Load(context.Background(), f, dir, order); err == nil {
+	if err := l.Load(context.Background(), f, dir); err == nil {
 		t.Error("fribb failed: want an error to log")
 	}
 	if !l.Ready() || l.ByAID(1).TVDB.ID != 100 {
@@ -223,7 +253,7 @@ func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "anime-list-custom.xml"), []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := l.Load(context.Background(), f, dir, order)
+	err := l.Load(context.Background(), f, dir)
 	if err == nil || strings.Contains(err.Error(), "keeping") {
 		t.Errorf("fribb still fails: %v, want its error but not the mapping kept", err)
 	}
@@ -239,9 +269,8 @@ func TestLoadAppliesChangesWhileANeverLoadedListFails(t *testing.T) {
 func TestMissingUntilEveryListLoaded(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
-	order := []string{"animelists", "fribb", "unknown"}
 	l := &Lists{}
-	if got := l.Missing(order); !slices.Equal(got, []string{"animelists", "fribb"}) {
+	if got := l.Missing(); !slices.Equal(got, []string{"animelists", "fribb"}) {
 		t.Errorf("before any load: missing %v, want both lists", got)
 	}
 	custom := `<anime-list><anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`
@@ -249,22 +278,22 @@ func TestMissingUntilEveryListLoaded(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.SetTransport(lists{}) // both 404
-	_ = l.Load(context.Background(), f, dir, order)
-	if got := l.Missing(order); l.Ready() || !slices.Equal(got, []string{"animelists", "fribb"}) {
+	_ = l.Load(context.Background(), f, dir)
+	if got := l.Missing(); l.Ready() || !slices.Equal(got, []string{"animelists", "fribb"}) {
 		t.Errorf("custom entries alone: ready %v, missing %v, want both lists", l.Ready(), got)
 	}
 
 	f.SetTransport(lists{animeListsURL: goodAnimeLists}) // fribb: 404
-	_ = l.Load(context.Background(), f, dir, order)
-	if got := l.Missing(order); !l.Ready() || !slices.Equal(got, []string{"fribb"}) {
+	_ = l.Load(context.Background(), f, dir)
+	if got := l.Missing(); !l.Ready() || !slices.Equal(got, []string{"fribb"}) {
 		t.Errorf("fribb failed on the first start: ready %v, missing %v, want fribb", l.Ready(), got)
 	}
 
 	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
-	if err := l.Load(context.Background(), f, dir, order); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
-	if got := l.Missing(order); len(got) > 0 {
+	if got := l.Missing(); len(got) > 0 {
 		t.Errorf("both loaded: missing %v", got)
 	}
 
@@ -272,10 +301,10 @@ func TestMissingUntilEveryListLoaded(t *testing.T) {
 	if err := os.WriteFile(cached, []byte("[broken"), 0o644); err != nil { // fresh: no download
 		t.Fatal(err)
 	}
-	if err := l.Load(context.Background(), f, dir, order); err == nil {
+	if err := l.Load(context.Background(), f, dir); err == nil {
 		t.Error("broken fribb: want an error to log")
 	}
-	if got := l.Missing(order); len(got) > 0 || l.ByAID(2).MAL != 7 {
+	if got := l.Missing(); len(got) > 0 || l.ByAID(2).MAL != 7 {
 		t.Errorf("fribb failed after it loaded: missing %v, entry 2 %+v; want the mapping kept", got, l.ByAID(2))
 	}
 }
@@ -285,8 +314,7 @@ func TestMissingUntilEveryListLoaded(t *testing.T) {
 func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
-	f.SetTransport(lists{animeListsURL: goodAnimeLists})
-	order := []string{"animelists"}
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
 	path := filepath.Join(dir, "anime-list-custom.xml")
 	write := func(s string) {
 		t.Helper()
@@ -296,12 +324,12 @@ func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
 	}
 	l := &Lists{}
 	write(`<anime-list><anime anidbid="1" tvdbid="200" defaulttvdbseason="1"/></anime-list>`)
-	if err := l.Load(context.Background(), f, dir, order); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
 	write(`<anime-list><anime anidbid="1" tvdbid="300" & defaulttvdbseason="1"/></anime-list>`)
 	for i := range 2 {
-		err := l.Load(context.Background(), f, dir, order)
+		err := l.Load(context.Background(), f, dir)
 		if err == nil || !strings.Contains(err.Error(), "anime-list-custom.xml ignored") {
 			t.Errorf("reload %d with a broken custom file: %v, want it reported", i, err)
 		}
@@ -310,7 +338,7 @@ func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
 		}
 	}
 	write(`<anime-list><anime anidbid="1" tvdbid="400" defaulttvdbseason="1"/></anime-list>`)
-	if err := l.Load(context.Background(), f, dir, order); err != nil {
+	if err := l.Load(context.Background(), f, dir); err != nil {
 		t.Fatal(err)
 	}
 	if l.ByAID(1).TVDB.ID != 400 {
@@ -323,15 +351,14 @@ func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
 func TestLoadCancelledKeepsMapping(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
-	f.SetTransport(lists{animeListsURL: goodAnimeLists})
-	order := []string{"animelists"}
-	if err := (&Lists{}).Load(context.Background(), f, dir, order); err != nil { // caches the list
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	if err := (&Lists{}).Load(context.Background(), f, dir); err != nil { // caches the lists
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	l := &Lists{}
-	if err := l.Load(ctx, f, dir, order); err == nil {
+	if err := l.Load(ctx, f, dir); err == nil {
 		t.Error("cancelled load: want its error")
 	}
 	if l.cur.Load() != nil {

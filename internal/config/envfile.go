@@ -97,7 +97,7 @@ func (f EnvFile) Log() {
 		slog.Warn("settings file: skipped a line", "path", f.Path, "problem", p)
 	}
 	for _, k := range slices.Concat(f.Keys, f.Overridden) {
-		if !wasRead(k) && !slices.Contains(externalVars, k) {
+		if !wasRead(k) && !slices.Contains(externalVars, k) && !slices.Contains(retiredVars, k) {
 			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "setting", k)
 		}
 	}
@@ -108,6 +108,10 @@ func (f EnvFile) Log() {
 
 // externalVars are read outside Load: TZ by SetTimeZone (and the Go runtime).
 var externalVars = []string{"TZ"}
+
+// retiredVars were settings once and do nothing now. A file that still has
+// one is not a typo: no warning.
+var retiredVars = []string{"MAPPING_SOURCES"}
 
 // SetTimeZone makes TZ (e.g. "Europe/London") the local time zone, on every
 // OS: Go reads TZ itself only on Linux and macOS, while on Windows the zone

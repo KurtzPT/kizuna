@@ -130,10 +130,10 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 		Plex: sources.NewPlex(f, cfg.PlexToken)})
 	load := func() {
 		loadErr(ctx, "AniDB title list", titles.Load(ctx, f))
-		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir, cfg.MappingSources))
+		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir))
 	}
 	keepLoaded = func(firstDone func()) {
-		keepFresh(ctx, load, func() (bool, []string) { return titles.Ready(), lists.Missing(cfg.MappingSources) }, firstDone)
+		keepFresh(ctx, load, func() (bool, []string) { return titles.Ready(), lists.Missing() }, firstDone)
 	}
 	return p, tvdb, keepLoaded
 }
@@ -299,7 +299,7 @@ func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time
 		"titles", u(cfg.TitleSources), "summaries", u(cfg.SummarySources), "posters", u(cfg.PosterSources),
 		"backgrounds", u(cfg.BackgroundSources), "logos", u(cfg.LogoSources), "art_all", cfg.ArtAllSources, "season_art_fallback", cfg.SeasonArtFallback,
 		"genres", u(cfg.GenreSources), "cast", u(cfg.CastSources), "cast_photos_from_plex", cfg.CastPhotosFromPlex, "studio", u(cfg.StudioSources), "crew", u(cfg.CrewSources),
-		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "mapping", cfg.MappingSources, "date", u(cfg.DateSources),
+		"rating", u(cfg.RatingSources), "rating_country", cfg.RatingCountries, "date", u(cfg.DateSources),
 		"episode_fill", u(cfg.EpisodeFillSources), "episode_crew", u(cfg.EpisodeCrewSources), "crew_photos_from_plex", cfg.CrewPhotosFromPlex, "episode_titles", u(cfg.EpisodeTitles), "auto_default", cfg.AutoDefault, "cache_min_free_mb", cfg.CacheMinFree>>20, "cache_free_target_mb", max(cfg.CacheFreeTarget, cfg.CacheMinFree)>>20,
 		"match_reports", cfg.MatchReports, "extra_titles", extraTitles)
 }

@@ -221,8 +221,8 @@ Each field has its own source order, which you can change. **More:** [which keys
 
 ### 🔗 Id mapping
 
-Two community lists connect AniDB to every other site. When they disagree, the first list in
-[`MAPPING_SOURCES`](SETTINGS.md#-matching--titles) wins:
+Two community lists connect AniDB to every other site. Anime-Lists is used first, and Fribb fills in what it
+lacks:
 
 | List | Adds |
 |---|---|
