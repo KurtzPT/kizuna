@@ -184,6 +184,11 @@ specials and trailers as `S00Exx` with [Kizuna's number](#openings-and-endings-w
 
 <sub>🔧 the script does it &nbsp;·&nbsp; ✋ you do it</sub>
 
+A file numbered ` - 13`, `E13`, `Ep 13`, `Episode 13` or `S01E13` is an episode, whatever its title says:
+`Show Ep 13 - Christmas Special.mkv` gets no hint. A number before the dash doesn't count, so
+`Show 13 - Christmas Special.mkv` is planned as a special: rename it to one of those forms, or write its `ep:` line
+[by hand](#-your-own-plexmatch-files) first.
+
 > [!NOTE]
 > Hints are written as `S00Exx`. Plex's `.plexmatch` documentation also allows `SPxx`, but Plex Media Server 1.43
 > reads that without a season and leaves the file out. The script warns about an `SPxx` line for a file it would hint.

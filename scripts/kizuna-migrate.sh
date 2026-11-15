@@ -82,8 +82,8 @@ strip_tags() {
 }
 
 # Regexes are matched with nocasematch on (case-insensitive).
-SXE='(^|[^[:alnum:]_])s[0-9]{1,2}[[:space:]]*e[0-9]{1,4}([^[:alnum:]_]|$)'
-SXE_NUM='(^|[^[:alnum:]_])s([0-9]{1,2})[[:space:]]*e([0-9]{1,4})([^[:alnum:]_]|$)'
+# group 2 is the season, 3 the episode
+SXE='(^|[^[:alnum:]_])s([0-9]{1,2})[[:space:]]*e([0-9]{1,4})([^[:alnum:]_]|$)'
 # a plain HAMA tvdb tag ([tvdb-81797], {tvdb-81797}): no digit after "tvdb", unlike [tvdb3-...]
 PLAIN_TVDB_TAG='[[{]tvdb-[0-9]+[]}]'
 # an id tag as Kizuna reads it (tagRe in internal/provider/match.go); the first one in a name counts
@@ -132,13 +132,26 @@ SPECIALS=(
 	'^(ova|oad|special)$|0|0'
 )
 
+# numbered_name says whether name $1 (tags stripped) is a numbered episode
+# whatever the rest of it says: "Show - 05", "Show Ep 05", S01E05. NAME_NUM
+# is its absolute number, empty for S01E05. Call it with nocasematch on.
+# absolute_number and name_tails both ask here, so a form read as an episode
+# number is never also read as a special.
+# A number ending the name (ABS_END) is not one of these forms: "Show OVA 2"
+# and "Show - Special 2" end in a number too, and are specials.
+numbered_name() {
+	NAME_NUM=""
+	if [[ $1 =~ $ABS_DASH ]]; then NAME_NUM=$((10#${BASH_REMATCH[1]}))
+	elif [[ $1 =~ $ABS_EP ]]; then NAME_NUM=$((10#${BASH_REMATCH[3]}))
+	elif [[ ! $1 =~ $SXE ]]; then return 1; fi
+}
+
 # absolute_number prints the episode number in a file name, or 0.
 absolute_number() {
 	local core
 	core=$(strip_tags "$1")
 	shopt -s nocasematch
-	if [[ $core =~ $ABS_DASH ]]; then echo $((10#${BASH_REMATCH[1]}))
-	elif [[ $core =~ $ABS_EP ]]; then echo $((10#${BASH_REMATCH[3]}))
+	if numbered_name "$core" && [[ -n $NAME_NUM ]]; then echo "$NAME_NUM"
 	elif [[ $core =~ $ABS_END ]]; then echo $((10#${BASH_REMATCH[2]}))
 	else echo 0; fi
 	shopt -u nocasematch
@@ -146,12 +159,13 @@ absolute_number() {
 
 # name_tails prints the parts of a file name that may name a special: the
 # text after the last " - ", the last two words, the last word. Nothing for
-# names that already have an episode number (S01E05, "Show - 05").
+# a numbered episode (S01E05, "Show - 05", "Show Ep 05"): a word in its
+# title ("Show Ep 13 - Christmas Special") doesn't make it a special.
 name_tails() {
 	local core words
 	core=$(strip_tags "$1")
 	shopt -s nocasematch
-	if [[ $core =~ $SXE || $core =~ $ABS_DASH ]]; then
+	if numbered_name "$core"; then
 		shopt -u nocasematch
 		return
 	fi
@@ -651,7 +665,7 @@ credit_index() {
 season_episode() {
 	local n
 	shopt -s nocasematch
-	if [[ $1 =~ $SXE_NUM ]]; then
+	if [[ $1 =~ $SXE ]]; then
 		shopt -u nocasematch
 		if ((10#${BASH_REMATCH[2]} > 0)); then echo "$((10#${BASH_REMATCH[2]})) $((10#${BASH_REMATCH[3]}))"; fi
 		return 0
