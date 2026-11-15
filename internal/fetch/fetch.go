@@ -85,7 +85,9 @@ type Request struct {
 	Background bool
 	// NoRedirect: a redirect answer is the request's error (a StatusError),
 	// not followed. For a request with a secret in Headers: Go would carry
-	// it to whatever host the redirect names.
+	// it to whatever host the redirect names. And for AniDB: a followed
+	// redirect is a second request the throttle and the caller's Before
+	// never see.
 	NoRedirect bool
 }
 

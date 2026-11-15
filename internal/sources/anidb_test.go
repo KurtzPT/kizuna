@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -944,4 +945,60 @@ func TestAniDBFailureKinds(t *testing.T) {
 			t.Fatalf("blocked %v, %d calls counted, %d failures; want false, 0, 1", blocked, len(a.state.Sent), a.state.Failures)
 		}
 	})
+}
+
+// anidbRedirectNet answers the AniDB host with a redirect to another host,
+// which has the entry, and records the hosts asked.
+type anidbRedirectNet struct {
+	mu    sync.Mutex
+	asked []string
+}
+
+func (n *anidbRedirectNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	n.mu.Lock()
+	n.asked = append(n.asked, r.URL.Host)
+	n.mu.Unlock()
+	if r.URL.Host == "anidb.test" {
+		return &http.Response{StatusCode: http.StatusFound, Body: io.NopCloser(strings.NewReader("")),
+			Header: http.Header{"Location": {"http://elsewhere.test/anime.xml"}}, Request: r}, nil
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(anidbSample)), Header: http.Header{}, Request: r}, nil
+}
+
+// A redirect from the AniDB host is not followed: the second request would
+// go out with no 4 s gap and uncounted, and its answer would be cached as
+// the entry. It is a failure without AniDB's answer about the anime.
+func TestAniDBRedirectNotFollowed(t *testing.T) {
+	old := anidbAPI
+	anidbAPI = "http://anidb.test/httpapi?client=%s&clientver=%s&aid=%d"
+	t.Cleanup(func() { anidbAPI = old })
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &anidbRedirectNet{}
+	f.SetTransport(n)
+	a := NewAniDB(f, dir, "test", "1")
+	f.Throttle("anidb.test", 0)
+
+	_, err := a.Anime(context.Background(), 69)
+	var se *fetch.StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusFound {
+		t.Fatalf("err %v, want the 302 as an error", err)
+	}
+	n.mu.Lock()
+	asked := strings.Join(n.asked, " ")
+	n.mu.Unlock()
+	if asked != "anidb.test" {
+		t.Fatalf("asked %q, want one request, to the AniDB host", asked)
+	}
+	if _, cached := f.CachedAt(anidbKey(69)); cached {
+		t.Fatal("the redirect's answer was cached as the entry")
+	}
+	_, blocked := a.BlockedUntil(69)
+	a.mu.Lock()
+	sent, failures := len(a.state.Sent), a.state.Failures
+	paused := a.paused(time.Now()) != ""
+	a.mu.Unlock()
+	if blocked || sent != 0 || failures != 1 || !paused {
+		t.Fatalf("blocked %v, %d calls counted, %d failures, every call paused %v; want false, 0, 1, true", blocked, sent, failures, paused)
+	}
 }
