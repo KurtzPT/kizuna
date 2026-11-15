@@ -98,23 +98,36 @@ func TestNoPageForUnknownShow(t *testing.T) {
 		t.Errorf("after asking for shows that don't exist: pages %v, index %v; want none", pages, listed)
 	}
 
-	const title = "Wrong Tag [anidb-999999992]"
-	for _, body := range []string{`{"type":2,"title":"` + title + `"}`, `{"type":3,"parentTitle":"` + title + `","index":1,"manual":1}`} {
-		if code := serve("POST", "/anidb/library/metadata/matches", body); code != 200 {
-			t.Errorf("match %s: HTTP %d, want 200 (no match)", body, code)
+	// The reason is the true one: AniDB may well have a new entry the daily
+	// title list doesn't know yet, and TheTVDB a series without episodes.
+	tags := []struct{ mode, title, how string }{
+		{"anidb", "Wrong Tag [anidb-999999992]", "tag [anidb-999999992]; anidb-999999992 isn't in AniDB's title list (a new entry appears with the next daily list)"},
+		{"tvdb", "Other Tag [tvdb-999999994]", "tag [tvdb-999999994]; tvdb-999999994 has no episodes on TheTVDB"},
+	}
+	var keys []string
+	for _, c := range tags {
+		for _, body := range []string{`{"type":2,"title":"` + c.title + `"}`, `{"type":3,"parentTitle":"` + c.title + `","index":1,"manual":1}`} {
+			if code := serve("POST", "/"+c.mode+"/library/metadata/matches", body); code != 200 {
+				t.Errorf("/%s match %s: HTTP %d, want 200 (no match)", c.mode, body, code)
+			}
 		}
+		keys = append(keys, report.UnmatchedKey(c.title))
 	}
 	store.Flush()
-	key := report.UnmatchedKey(title)
-	if pages, listed := reportPages(t, dir); !slices.Equal(pages, []string{key}) || !slices.Equal(listed, []string{key}) {
-		t.Fatalf("after a tag for a show that doesn't exist: pages %v, index %v; want only %s", pages, listed, key)
+	slices.Sort(keys)
+	if pages, listed := reportPages(t, dir); !slices.Equal(pages, keys) || !slices.Equal(listed, keys) {
+		t.Fatalf("after tags for shows that don't exist: pages %v, index %v; want only %v", pages, listed, keys)
 	}
-	var un report.UnmatchedDoc
-	readJSON(t, filepath.Join(dir, "data", key+".json"), &un)
-	const how = "tag [anidb-999999992]; anidb-999999992 doesn't exist"
-	if un.Match.How != how || un.Match.Root != "" || len(un.Requests) != 1 || un.Requests[0].Note != how ||
-		un.Requests[0].Answer != (report.Answer{Kind: report.AnswerNoMatch}) || un.Requests[0].Build != "" {
-		t.Errorf("unmatched page %+v: want the automatic match's request, no match: %s", un, how)
+	for _, c := range tags {
+		var un report.UnmatchedDoc
+		readJSON(t, filepath.Join(dir, "data", report.UnmatchedKey(c.title)+".json"), &un)
+		if un.Match.How != c.how || un.Match.Root != "" || un.Match.By.Search != "" || len(un.Requests) != 1 || un.Requests[0].Note != c.how ||
+			un.Requests[0].Answer != (report.Answer{Kind: report.AnswerNoMatch}) || un.Requests[0].Build != "" {
+			t.Errorf("unmatched page %+v: want the automatic match's request, no match: %s", un, c.how)
+		}
+	}
+	if strings.Contains(logs.String(), "next daily list") || strings.Contains(logs.String(), "has no episodes on TheTVDB") {
+		t.Errorf("the report's reason is in the log:\n%s", logs.String())
 	}
 }
 

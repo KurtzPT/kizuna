@@ -1,0 +1,19 @@
+{
+  "schema": 3,
+  "key": "unmatched-wrong-tag-357b3bba",
+  "match": {
+    "time": "2026-11-10T20:59:42Z",
+    "mode": "anidb",
+    "type": "show",
+    "title": "Wrong Tag </script><b>x [anidb-999999992]",
+    "file": "/media/Anime/Wrong Tag [anidb-999999992]/Wrong Tag - S01E01.mkv",
+    "how": "tag [anidb-999999992]; anidb-999999992 isn't in AniDB's title list (a new entry appears with the next daily list)",
+    "by": {"id": "tag", "text": "[anidb-999999992]"},
+    "min": 80,
+    "query": "Wrong Tag </script><b>x"
+  },
+  "last": "2026-11-10T20:59:42Z",
+  "requests": [
+    {"time": "2026-11-10T20:59:42Z", "mode": "anidb", "method": "POST", "url": "/anidb/library/metadata/matches", "answer": {"kind": "nomatch"}, "note": "tag [anidb-999999992]; anidb-999999992 isn't in AniDB's title list (a new entry appears with the next daily list)", "status": 200, "bytes": 105, "tookMs": 0.5}
+  ]
+}

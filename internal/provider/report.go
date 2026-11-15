@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -57,6 +58,19 @@ func (p *Provider) noPage(root string, err error) bool {
 		return false
 	}
 	return !p.reports.HasPage(p.reportKey(root))
+}
+
+// noShowWhy says in the report's words why root's build found no show. A
+// new AniDB entry is real but unknown until the next daily title list, so
+// "doesn't exist" would be wrong for it.
+func noShowWhy(root string, err error) string {
+	switch {
+	case errors.Is(err, errUnknownAID):
+		return root + " isn't in AniDB's title list (a new entry appears with the next daily list)"
+	case errors.Is(err, errNoEpisodes):
+		return root + " has no episodes on TheTVDB"
+	}
+	return root + " doesn't exist"
 }
 
 // buildMode: the provider a build is reported under, and whose GUIDs its

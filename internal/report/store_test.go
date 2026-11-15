@@ -274,7 +274,7 @@ func TestPendingMerge(t *testing.T) {
 	}
 }
 
-// Unmatched pages nobody asked about for pageMaxAge go at start-up.
+// Unmatched pages nobody asked about for unmatchedMaxAge go at start-up.
 func TestUnmatchedAging(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
@@ -285,7 +285,7 @@ func TestUnmatchedAging(t *testing.T) {
 	readDoc(t, dir, "index", &rows)
 	for i := range rows {
 		if rows[i].Key == oldKey {
-			rows[i].Last = time.Now().Add(-pageMaxAge - time.Hour)
+			rows[i].Last = time.Now().Add(-unmatchedMaxAge - time.Hour)
 		}
 	}
 	data, _ := json.Marshal(rows)
@@ -305,13 +305,15 @@ func TestUnmatchedAging(t *testing.T) {
 	}
 }
 
-// A show's page goes, with its index row, pageMaxAge after its last build
+// A show's page goes, with its index row, showMaxAge after its last build
 // or request: when the index is next written, and at start-up. A page with
-// either of them lately stays.
+// either of them lately stays, and so does one past an unmatched page's
+// shorter limit, which still takes the unmatched pages.
 func TestShowPageAging(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
-	longAgo := time.Now().Add(-pageMaxAge - time.Hour)
+	longAgo := time.Now().Add(-showMaxAge - time.Hour)
+	aMonth := time.Now().Add(-unmatchedMaxAge - 24*time.Hour) // past an unmatched page's limit only
 	for _, key := range []string{"anidb-1", "anidb-2", "anidb-3"} {
 		s.AddBuild(key, finished(key))
 	}
@@ -319,6 +321,8 @@ func TestShowPageAging(t *testing.T) {
 	asked.b.Start = longAgo
 	s.AddBuild("anidb-4", asked)
 	s.AddRequest(Request{Key: "anidb-4", URL: "/r", Status: 200, Time: time.Now()})
+	un1 := s.Unmatched(Match{Mode: "anidb", Title: "First Title"})
+	un2 := s.Unmatched(Match{Mode: "anidb", Title: "Second Title"})
 	s.Flush()
 	listed := func() []string {
 		var rows []IndexRow
@@ -335,29 +339,37 @@ func TestShowPageAging(t *testing.T) {
 		_, data := os.Stat(filepath.Join(dir, "data", key+".json"))
 		return os.IsNotExist(page) && os.IsNotExist(data)
 	}
-	if got := listed(); !slices.Equal(got, []string{"anidb-1", "anidb-2", "anidb-3", "anidb-4"}) {
-		t.Fatalf("index %v, want the four shows", got)
+	want := func(keys ...string) []string { slices.Sort(keys); return keys }
+	if got := listed(); !slices.Equal(got, want("anidb-1", "anidb-2", "anidb-3", "anidb-4", un1, un2)) {
+		t.Fatalf("index %v, want the four shows and the two titles", got)
 	}
 
-	// While Kizuna runs: anidb-1's row as it is a month later, and another
+	// While Kizuna runs: the rows as they are that much later, and another
 	// page's update has the index written.
 	s.mu.Lock()
-	row := s.index["anidb-1"]
-	row.Last = longAgo
-	s.index["anidb-1"] = row
+	for key, last := range map[string]time.Time{"anidb-1": longAgo, "anidb-3": aMonth, un1: aMonth} {
+		row := s.index[key]
+		row.Last = last
+		s.index[key] = row
+	}
 	s.mu.Unlock()
-	s.AddRequest(Request{Key: "anidb-3", URL: "/r", Status: 200, Time: time.Now()})
+	s.AddRequest(Request{Key: "anidb-4", URL: "/r", Status: 200, Time: time.Now()})
 	s.Flush()
-	if got := listed(); !gone("anidb-1") || !slices.Equal(got, []string{"anidb-2", "anidb-3", "anidb-4"}) {
-		t.Errorf("an old show page: gone %v, index %v; want it removed and unlisted", gone("anidb-1"), got)
+	if got := listed(); !gone("anidb-1") || !gone(un1) || gone("anidb-3") || !slices.Equal(got, want("anidb-2", "anidb-3", "anidb-4", un2)) {
+		t.Errorf("gone: old show %v, month-old title %v, month-old show %v; index %v; want the first two removed and unlisted, the show kept",
+			gone("anidb-1"), gone(un1), gone("anidb-3"), got)
 	}
 
-	// At start-up: anidb-2 as a restart finds it a month later.
+	// At start-up: the rows as a restart finds them that much later.
+	// anidb-3's is still a month old.
 	var rows []IndexRow
 	readDoc(t, dir, "index", &rows)
 	for i := range rows {
-		if rows[i].Key == "anidb-2" {
+		switch rows[i].Key {
+		case "anidb-2":
 			rows[i].Last = longAgo
+		case un2:
+			rows[i].Last = aMonth
 		}
 	}
 	data, _ := json.Marshal(rows)
@@ -365,12 +377,13 @@ func TestShowPageAging(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ = Open(dir, "test")
-	if _, ok := s.index["anidb-2"]; ok || !gone("anidb-2") {
-		t.Errorf("an old show page at start-up: listed %v, gone %v; want it removed and unlisted", ok, gone("anidb-2"))
+	if !gone("anidb-2") || !gone(un2) || gone("anidb-3") {
+		t.Errorf("at start-up, gone: old show %v, month-old title %v, month-old show %v; want the first two removed, the show kept",
+			gone("anidb-2"), gone(un2), gone("anidb-3"))
 	}
 	s.Flush()
-	if got := listed(); !slices.Equal(got, []string{"anidb-3", "anidb-4"}) || gone("anidb-3") || gone("anidb-4") {
-		t.Errorf("index %v, want the two shows built or asked about lately, their pages kept", got)
+	if got := listed(); !slices.Equal(got, want("anidb-3", "anidb-4")) || gone("anidb-4") {
+		t.Errorf("index %v, want the month-old show and the one asked about lately, their pages kept", got)
 	}
 }
 
@@ -704,7 +717,7 @@ func TestOldSchemaUnmatchedNotExpired(t *testing.T) {
 	var rows []IndexRow
 	readDoc(t, dir, "index", &rows)
 	for i := range rows {
-		rows[i].Last = time.Now().Add(-pageMaxAge - time.Hour)
+		rows[i].Last = time.Now().Add(-unmatchedMaxAge - time.Hour)
 	}
 	data, _ := json.Marshal(rows)
 	data = bytes.ReplaceAll(data, []byte(`"schema":0,`), nil) // as the old version wrote it
@@ -871,7 +884,7 @@ func TestOpenListsUnindexedPages(t *testing.T) {
 	s.flush(false) // the pages, not the index: then the process dies
 	var old UnmatchedDoc
 	readDoc(t, dir, oldKey, &old)
-	old.Last = time.Now().Add(-pageMaxAge - time.Hour) // and its title isn't asked about for a month
+	old.Last = time.Now().Add(-unmatchedMaxAge - time.Hour) // and its title isn't asked about for a month
 	data, _ := json.Marshal(old)
 	if err := os.WriteFile(filepath.Join(dir, "data", oldKey+".json"), data, 0o644); err != nil {
 		t.Fatal(err)
@@ -936,7 +949,12 @@ func TestSpanKindsAreFetchKinds(t *testing.T) {
 
 // page.html says the limits in words.
 func TestPageRepeatsLimits(t *testing.T) {
-	for _, want := range []string{fmt.Sprintf("up to %d are kept", maxRequests), fmt.Sprintf("after %d days without a request", pageMaxAge/(24*time.Hour))} {
+	const day = 24 * time.Hour
+	for _, want := range []string{
+		fmt.Sprintf("up to %d are kept", maxRequests),
+		fmt.Sprintf("or after %d days without a request", unmatchedMaxAge/day),            // an unmatched page
+		fmt.Sprintf("A show's page goes after %d days without a request", showMaxAge/day), // the index, about show pages
+	} {
 		if !bytes.Contains(pageHTML, []byte(want)) {
 			t.Errorf("page.html doesn't say %q", want)
 		}

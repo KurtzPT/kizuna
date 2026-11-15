@@ -45,12 +45,17 @@ type Store struct {
 const (
 	// flushEvery is how long updates wait to be written together.
 	flushEvery = 2 * time.Second
-	// pageMaxAge: a page goes once Plex hasn't asked about its title or show
-	// for this long (renamed, matched another way, or gone from the
-	// library). Plex asks about a show it has on every refresh, so the page
-	// of one still in the library stays. page.html says it in words ("after
-	// 30 days"); TestPageRepeatsLimits keeps them in step.
-	pageMaxAge = 30 * 24 * time.Hour
+	// unmatchedMaxAge: an unmatched title's page goes once Plex hasn't asked
+	// about the title for this long (renamed, matched another way, or gone
+	// from the library). page.html says it in words ("after 30 days");
+	// TestPageRepeatsLimits keeps them in step.
+	unmatchedMaxAge = 30 * 24 * time.Hour
+	// showMaxAge: a show's page goes this long after the show's last build
+	// or request, and comes back at the show's next refresh. Longer than an
+	// unmatched title's: Plex may leave a finished show alone for more than
+	// a month, and its page and builds should outlast that. page.html says
+	// it too ("after 90 days").
+	showMaxAge = 90 * 24 * time.Hour
 )
 
 // indexEvery is how often the index is rewritten while pages change: a scan
@@ -83,7 +88,7 @@ func (p *pending) merge(later *pending) {
 }
 
 // Open uses dir (created if needed) and reads the existing index. Pages
-// older than pageMaxAge are removed.
+// older than their limit (expired) are removed.
 func Open(dir, version string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		return nil, err
@@ -446,10 +451,14 @@ func (s *Store) retry(key string, p *pending, err error) {
 	s.signal()
 }
 
-// expired: a title or show Plex hasn't asked about for pageMaxAge. A show's
-// row counts from its newest build or request (showRow).
+// expired: a title Plex hasn't asked about for unmatchedMaxAge, or a show
+// for showMaxAge. A show's row counts from its newest build or request
+// (showRow).
 func expired(r IndexRow) bool {
-	return time.Since(r.Last) > pageMaxAge
+	if r.Kind == "unmatched" {
+		return time.Since(r.Last) > unmatchedMaxAge
+	}
+	return time.Since(r.Last) > showMaxAge
 }
 
 // remove deletes a page and its data.

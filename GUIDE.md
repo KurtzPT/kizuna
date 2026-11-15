@@ -162,7 +162,7 @@ A show's page covers its last 5 refreshes:
 
 - A title that matched nothing gets `unmatched-<title>-<hash>.html`, with the closest candidates and how to fix it.
   It goes once the title matches, or after 30 days without a request for it.
-- A show's page goes after 30 days without a request for the show, such as one removed from the library.
+- A show's page goes after 90 days without a request for the show, and comes back at its next refresh.
 - Delete the `reports/` folder to start over. Turning reports off leaves it as it is.
 
 > [!TIP]

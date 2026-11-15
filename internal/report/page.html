@@ -1205,12 +1205,14 @@ function renderShow() {
 /* ---------- unmatched page ---------- */
 // Why nothing matched, from match.by: an id tag rule said so before any
 // search (more than one tag, or a tag whose provider is off), the show
-// lacks the season or episode asked for, or the title search found too
-// little.
+// lacks the season or episode asked for, an id tag or GUID named a show
+// that can't be found (no search ran after it), or the title search found
+// too little.
 function unmatchedReason(m) {
   const by = m.by || {};
   if ((by.id === "tags" || by.id === "off") && !by.search) return by.id;
   if (by.missing) return "missing";
+  if ((by.id === "tag" || by.id === "guid") && !by.search && !m.root) return "noshow";
   return by.search === "low" || by.search === "none" ? by.search : "other";
 }
 function renderUnmatched() {
@@ -1226,18 +1228,21 @@ function renderUnmatched() {
     missing: `Kizuna found the show, but it has no ${esc(by.missing)}, so it answered with no match.`,
     low: `The closest AniDB title${best ? `, “${esc(best.title)}”,` : ""} scored ${esc(best ? best.score : by.best)}. That is below MIN_SCORE (${esc(m.min)}), so Kizuna answered with no match.`,
     none: `The title search found nothing similar, so Kizuna answered with no match.`,
+    noshow: `Kizuna answered with no match: ${esc(m.how)}.`,
     other: `Kizuna answered with no match: ${esc(m.how)}.`,
   }[why];
+  const byTag = why === "noshow" && by.id === "tag";
   const first = {
     tags: `<b>Keep one id tag</b><p>Keep the tag of the right show in the folder or file name and remove the others${best ? `. If “${esc(best.title)}” is the show` : ", for example"}:</p>${ex}`,
     off: `<b>Turn on <code>/${esc(by.off)}</code></b><p>Set <code>${esc(by.need)}</code>, restart Kizuna and refresh the show in Plex. Or replace the tag with one for a provider that is on.</p>`,
     missing: `<b>Check the season and episode numbers</b><p>The show was found, so the name is right: the file asks for a ${esc((by.missing || "").split(" ")[0])} it doesn't have. Compare the numbers in the file names with the show's episode list on the site this provider numbers by (AniDB for <code>/anidb</code>, TheTVDB for <code>/tvdb</code>).</p>`,
+    noshow: byTag ? `<b>Check the id in the tag</b><p>Open the show on the site the tag <code>${esc(by.text)}</code> names and compare the number in its address with the tag.${/anidb/i.test(by.text) ? " A show added to AniDB in the last day isn't known yet: refresh it in Plex tomorrow." : ""}</p>` : "",
   }[why] || `<b>Add an id tag to the folder name</b><p>Find the show on AniDB and add its id to the folder name${best ? `. If “${esc(best.title)}” is the show` : ", for example"}:</p>${ex}<p>A tag always wins over title search. <code>[tvdb-…]</code>, <code>[tmdb-…]</code> and <code>[imdb-…]</code> work too.</p>`;
   const ruled = why === "tags" || why === "off";
   app.innerHTML = `<div class="page">${rail(U.key, [["f-cands","Candidates",(m.candidates || []).length],["f-fix","How to fix",""],["f-req","What Plex asked",""],["f-seen","Plex requests",reqs.length]], false)}<main>
   <header class="head"><h1>No match for “${esc(m.title)}”${m.year ? ` (${esc(m.year)})` : ""}</h1></header>
   <div class="opening"><p class="verdict">Plex asked <code>/${esc(m.mode)}</code> to match this ${esc(m.type)}${U.last ? `, last on ${esc(when(U.last))}` : ""}. ${said}</p></div>
-    <section id="f-cands"><h2>Candidates</h2><p class="lede">${(m.candidates || []).length ? "The best titles the search found. The mark on each bar is MIN_SCORE." : "What the title search found."}</p><div class="panel">${renderCandidates(m) || `<div class="empty">${ruled ? "The title search didn't run: the id tag rule decided first." : "The title search found nothing similar."}</div>`}</div></section>
+    <section id="f-cands"><h2>Candidates</h2><p class="lede">${(m.candidates || []).length ? "The best titles the search found. The mark on each bar is MIN_SCORE." : "What the title search found."}</p><div class="panel">${renderCandidates(m) || `<div class="empty">${ruled ? "The title search didn't run: the id tag rule decided first." : why === "noshow" ? `The title search didn't run: the ${byTag ? "id tag" : "GUID Plex already had"} decided first.` : "The title search found nothing similar."}</div>`}</div></section>
     <section id="f-fix"><h2>How to fix</h2><p class="lede">In the order worth trying. One is enough.</p>
       <div class="panel"><ol class="steps">
         <li><div>${first}</div></li>
@@ -1321,7 +1326,7 @@ function renderIndex() {
   <div class="filters"><label class="sr" for="ix-find">Filter by title or id</label><input class="find" id="ix-find" type="search" placeholder="Filter by title or id" autocomplete="off" value="${esc(f.q)}">
     <div class="seg" role="group" aria-label="Filter by provider"><button aria-pressed="${!f.mode}" data-ixm="">Any provider</button>${IX_MODES.map(m => `<button aria-pressed="${f.mode === m}" data-ixm="${m}">/${m}</button>`).join("")}</div>
     <span class="count" id="ix-count" role="status"></span></div>
-  <section id="ix-shows"><h2>Shows</h2><p class="lede">Open a show to see what each source offered and what Plex received. A page goes after 30 days without a request for its show.</p>
+  <section id="ix-shows"><h2>Shows</h2><p class="lede">Open a show to see what each source offered and what Plex received. A show's page goes after 90 days without a request for the show, and comes back at its next refresh.</p>
   <div class="panel"><div class="tools"><div class="seg" role="group" aria-label="Filter shows by their newest build">${IX_STATES.map(([s, l]) => `<button aria-pressed="${f.state === s}" data-ixs="${s}">${l} ${nState(s)}</button>`).join("")}</div></div><div id="ix-shows-body"></div></div></section>
   <section id="ix-un"><h2>Unmatched</h2><p class="lede">Titles Plex asked about that Kizuna could not match. Each page says how to fix it. A page goes once its title matches, or after 30 days without a request.</p>
   <div class="panel" id="ix-un-body"></div></section>

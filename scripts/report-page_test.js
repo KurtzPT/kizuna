@@ -239,6 +239,23 @@ const count = (text, re) => (text.match(re) || []).length;
   check(h.includes("found nothing similar") && h.includes("Add an id tag to the folder name") && !h.includes("Lower MIN_SCORE"), "unmatched, nothing similar: the reason and the tag step");
   h = why({type: "season", by: {search: "found", best: 100, missing: "season 9"}});
   check(h.includes("it has no season 9") && h.includes("Check the season and episode numbers") && !h.includes("Lower MIN_SCORE"), "unmatched, no such season: the reason and the first step");
+
+  // An id tag that names a show Kizuna can't find: no search ran after it.
+  const tagDoc = fixture("unmatched-tag"), tagHTML = load("unmatched", tagDoc).html();
+  checkLinks("unmatched-tag", tagHTML);
+  checkEscaped("unmatched-tag", tagHTML);
+  check(tagHTML.includes("Kizuna answered with no match: tag [anidb-999999992]; anidb-999999992 isn") && tagHTML.includes("title list (a new entry appears with the next daily list)."),"unmatched, a tag for an unknown show: the reason");
+  check(tagHTML.includes("The title search didn't run: the id tag decided first.") && !tagHTML.includes("found nothing similar"), "unmatched, a tag for an unknown show: the search didn't run");
+  check(tagHTML.includes("Check the id in the tag") && tagHTML.includes("<code>[anidb-999999992]</code>") && tagHTML.includes("added to AniDB in the last day") &&
+    !tagHTML.includes("Add an id tag to the folder name") && !tagHTML.includes("[anidb-12345]") && !tagHTML.includes("Lower MIN_SCORE") && tagHTML.includes("Use Fix Match in Plex"),
+    "unmatched, a tag for an unknown show: check the tag, no second tag offered");
+  const tagWhy = m => { const d = JSON.parse(JSON.stringify(tagDoc)); Object.assign(d.match, m); return load("unmatched", d).html(); };
+  h = tagWhy({mode: "tvdb", how: "tag [tvdb-999999994]; tvdb-999999994 has no episodes on TheTVDB", by: {id: "tag", text: "[tvdb-999999994]"}});
+  check(h.includes("tvdb-999999994 has no episodes on TheTVDB.") && h.includes("Check the id in the tag") && h.includes("<code>[tvdb-999999994]</code>") &&
+    !h.includes("added to AniDB") && h.includes("the id tag decided first"), "unmatched, a TheTVDB tag for an unknown show: no AniDB hint");
+  h = tagWhy({by: {id: "guid", text: "tv.plex.agents.custom.kizuna.anidb://show/anidb-999999992"}});
+  check(h.includes("The title search didn't run: the GUID Plex already had decided first.") && h.includes("Add an id tag to the folder name") && !h.includes("Check the id in the tag"),
+    "unmatched, a GUID for an unknown show: the search didn't run, the tag step");
 }
 
 // ---- index ------------------------------------------------------------------
@@ -248,7 +265,8 @@ const count = (text, re) => (text.match(re) || []).length;
   checkEscaped("index", html);
   check(!/<img/i.test(html), "index: an <img>");
   check(html.includes("5 shows and 2 unmatched titles"), "index: the counts");
-  check(html.includes("after 30 days without a request"), "index: when an unmatched page goes");
+  check(html.includes("or after 30 days without a request"), "index: when an unmatched page goes");
+  check(html.includes("A show's page goes after 90 days without a request for the show, and comes back at its next refresh."), "index: when a show's page goes");
   check(html.includes('href="anidb-7.html"') && html.includes('href="unmatched-lighthouse-weepers-0d77e353.html"'), "index: the links to the pages");
   check(html.includes('href="anidb-40%22onmouseover%3D%22x.html"'), "index: a key is encoded in its link");
   const keys = () => [...(page.run(`document.getElementById("ix-shows-body").innerHTML`) + page.run(`document.getElementById("ix-un-body").innerHTML`)).matchAll(/<a href="([^"]+)\.html">/g)].map(m => decodeURIComponent(m[1]).replace(/^unmatched-(\w+).*/, "un-$1").replace(/"onmouseover.*/, "")).join(" ");

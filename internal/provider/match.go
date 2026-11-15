@@ -108,12 +108,12 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	s, err := p.show(ctx, root)
 	if err != nil {
 		if rq != nil && p.noPage(root, err) {
-			// An id tag named a show that doesn't exist, and Plex got "no
-			// match": the title's unmatched page says so, as for any other
-			// title without a match. A manual match has none.
+			// An id tag or GUID named a show that can't be found, and Plex
+			// got "no match": the title's unmatched page says why, as for any
+			// other title without a match. A manual match has none.
 			rq.Key = ""
 			if m != nil && r.Manual != 1 {
-				m.How += "; " + root + " doesn't exist"
+				m.How += "; " + noShowWhy(root, err)
 				m.Root, m.Score = "", 0
 				rq.Key = p.reports.Unmatched(*m)
 				rq.Build, rq.Answer, rq.Note = "", report.Answer{Kind: report.AnswerNoMatch}, m.How
