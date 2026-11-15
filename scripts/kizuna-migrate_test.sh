@@ -330,6 +330,7 @@ user_ep "case.mkv"
 check "user_ep: other letter case, two such videos" "$HAVE|$HAVE_AS" "|"
 user_ep "Case.MKV"
 check "user_ep: exact name, two such videos" "$HAVE|$HAVE_AS" "S00E06|"
+# shellcheck disable=SC2034 # read by the sourced script
 USER_EP=() USER_EP_LC=() USER_EP_AS=() USER_EP_DIR=() USER_EP_SK=() VIDEO_LC=()
 WARNINGS=()
 
@@ -728,6 +729,7 @@ hex() { od -An -tx1 | tr -d ' \n'; }
 # output is left in $first_out, the dry run's in $out.
 again() {
 	local lib=$WORK/again/$1 pm="$WORK/again/$1/Show [anidb-1]/.plexmatch" first=$WORK/again/$1.first
+	# shellcheck disable=SC2034 # read by name, through ${!run}
 	first_out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
 	check "again, $1: first run exit" "$?" "0"
 	check "again, $1: first run adds only the missing hints" "$(hex <"$pm")" "$(printf '%s' "$2" | hex)"
