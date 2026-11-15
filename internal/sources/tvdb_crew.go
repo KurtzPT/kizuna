@@ -79,7 +79,11 @@ func crewType(t string) bool {
 // episode: cached records are
 // used (stale ones refreshed in the background), missing ones are fetched for
 // up to crewBudget and the rest in the background (queueCrew).
-// pending: some are still on their way, so the caller should rebuild soon.
+// pending: some records are still missing and worth asking for again, so
+// the caller should rebuild soon. They are on their way in the background,
+// or their request failed without an answer from TheTVDB (a network error,
+// a failed login): the next build asks for those again. A record TheTVDB
+// itself answered with an error (crewAnswer) isn't pending.
 // With the legacy key it returns nothing: v3 episode lists carry the crew.
 func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, pending bool) {
 	if len(ids) == 0 || !t.Enabled() {
@@ -123,9 +127,14 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	bctx, cancel := context.WithTimeout(ctx, crewBudget)
 	defer cancel()
 	var (
-		mu   sync.Mutex
-		wg   sync.WaitGroup
-		left []int
+		mu sync.Mutex
+		wg sync.WaitGroup
+		// What the workers report, in one variable: each one they share is
+		// an allocation of the build.
+		res struct {
+			left   []int // not fetched within the budget: the background queue takes them
+			failed bool  // a request failed without an answer from TheTVDB
+		}
 	)
 	jobs := make(chan int)
 	for range crewWorkers {
@@ -133,7 +142,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 			for id := range jobs {
 				if bctx.Err() != nil { // don't start downloads nobody waits for: the background queue takes them
 					mu.Lock()
-					left = append(left, id)
+					res.left = append(res.left, id)
 					mu.Unlock()
 					continue
 				}
@@ -143,10 +152,16 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 				case err == nil:
 					crew[id] = c
 				case bctx.Err() != nil:
-					left = append(left, id)
+					res.left = append(res.left, id)
 				case crewAnswer(err):
 					t.crewFail(id, err)
-				default: // a login or network blip: the next build asks again
+				default:
+					// A login or network blip, or an answer that can't be
+					// read: not TheTVDB's answer about the record. Pending,
+					// so the next build comes soon and asks again. Not queued
+					// for the background: that would ask twice per build
+					// while TheTVDB is down.
+					res.failed = true
 					slog.Debug("tvdb: episode record not fetched", "episode", id, "err", err)
 				}
 				mu.Unlock()
@@ -158,12 +173,12 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	}
 	close(jobs)
 	wg.Wait()
-	if len(left) > 0 {
+	if len(res.left) > 0 {
 		pending = true
-		slog.Debug("tvdb: episode records left for the background", "count", len(left), "of", len(missing))
+		slog.Debug("tvdb: episode records left for the background", "count", len(res.left), "of", len(missing))
 	}
-	t.queueCrew(append(left, stale...))
-	return crew, pending
+	t.queueCrew(append(res.left, stale...))
+	return crew, pending || res.failed
 }
 
 // fetchCrew gets an episode record. background: a fetch nobody waits for.

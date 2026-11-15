@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -401,6 +402,74 @@ func TestTVDBCrewRecordsOnlyForGaps(t *testing.T) {
 				t.Errorf("%s: records asked %v, complete %v; want %v, complete", name, got, s.Complete, c.wants[root])
 			}
 		}
+	}
+}
+
+// downCrewNet is a fakeNet where one TheTVDB episode record fails the way a
+// dead connection does while down: an error, no answer from TheTVDB.
+type downCrewNet struct {
+	*fakeNet
+	record string // "host/path"
+	mu     sync.Mutex
+	down   bool
+	asked  int
+}
+
+func (n *downCrewNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Hostname()+r.URL.Path == n.record {
+		n.mu.Lock()
+		n.asked++
+		down := n.down
+		n.mu.Unlock()
+		if down {
+			return nil, errors.New("connection reset")
+		}
+	}
+	return n.fakeNet.RoundTrip(r)
+}
+
+// A TheTVDB episode record whose request failed on the network leaves the
+// show incomplete, so it is rebuilt soon, like any other source that failed.
+// The other records' crew is on the build, and the record is asked once per
+// build. The rebuild, with the network back, is complete. Both modes.
+func TestTVDBCrewRecordNetworkError(t *testing.T) {
+	defaultLists(t)
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		net := &fakeNet{answer: fullCrew}
+		p := newTestProvider(t, net)
+		down := &downCrewNet{fakeNet: net, record: "api4.thetvdb.com/v4/episodes/12/extended", down: true}
+		f := fetch.New(t.TempDir())
+		f.SetTransport(down)
+		p.tvdb = sources.NewTVDB(f, "key", "", "")
+		f.ThrottleAll(0)
+
+		s, err := p.buildShow(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Complete {
+			t.Errorf("%s: complete with record 12 not fetched; want incomplete, rebuilt soon", root)
+		}
+		checkCrew(t, root+", record 12 down", s, []crewWant{
+			{1, 1, "TVDB Director", "TVDB Writer", "tvdb", "tvdb"},
+			{1, 2, "TMDB Director 2", "TMDB Writer 2", "tmdb", "tmdb"}, // the next source's, meanwhile
+		})
+		p.tvdb.WaitIdle() // a retry in the background would be counted too
+		down.mu.Lock()
+		asked := down.asked
+		down.down = false // the network is back
+		down.mu.Unlock()
+		if asked != 1 {
+			t.Errorf("%s: record 12 asked %d times in one build, want 1", root, asked)
+		}
+
+		if s, err = p.buildShow(context.Background(), root); err != nil {
+			t.Fatal(err)
+		}
+		if !s.Complete {
+			t.Errorf("%s, rebuilt: incomplete, want complete", root)
+		}
+		checkCrew(t, root+", rebuilt", s, []crewWant{{1, 2, "TVDB Director", "TVDB Writer", "tvdb", "tvdb"}})
 	}
 }
 

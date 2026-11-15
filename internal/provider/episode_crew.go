@@ -38,7 +38,8 @@ func (p *Provider) plexCrewRead(tvdb int) bool {
 // episodeCrew sets an /anidb show's episode crew from TheTVDB, TheMovieDb's
 // list (tm) and Plex's (px, read here for crew when its read for titles or
 // fill values didn't happen), and adds their photos to cp. Returns false
-// while TheTVDB's records are still being fetched.
+// while TheTVDB's records are still being fetched, or when one's request
+// failed (TVDB.EpisodeCrew's pending).
 func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *plexFill, cp *crewPhotos) bool {
 	if len(p.cfg.EpisodeCrewSources) == 0 {
 		applyCrew(s, nil, nil, tm, px.list) // takes TheTVDB's list's crew off: no crew at all
@@ -58,7 +59,7 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *
 // cp as it reaches it (Plex's first, with CREW_PHOTOS_FROM_PLEX: they count
 // in TheTVDB's gap test then). records gives TheTVDB's crew records, once
 // the photos of the sources before tvdb (prior) are in cp; pending: some are
-// still on their way.
+// still on their way, or their request failed (TVDB.EpisodeCrew).
 func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
 	records func(prior []string) (map[int]sources.Crew, bool)) (crew map[int]sources.Crew, pending bool) {
 	order := p.cfg.EpisodeCrewSources
@@ -88,7 +89,7 @@ func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
 // listed before tvdb; tm and px their lists, cp their photos): lacksCrew.
 // A record is a request per episode: none is asked for an episode those
 // filled. With tvdb first, every paired episode is asked for. pending: some
-// are still on their way.
+// are still on their way, or their request failed (TVDB.EpisodeCrew).
 func (p *Provider) tvdbCrew(ctx context.Context, s *Show, prior []string, cp *crewPhotos, tm, px pairedList) (crew map[int]sources.Crew, pending bool) {
 	var ids []int
 	plexPhotos := p.cfg.CrewPhotosFromPlex
