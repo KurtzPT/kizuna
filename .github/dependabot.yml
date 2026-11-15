@@ -13,7 +13,9 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    # / is the workflows; the local actions (the image build's steps) are
+    # only read when listed
+    directories: ["/", "/.github/actions/build-image"]
     target-branch: dev
     schedule:
       interval: weekly

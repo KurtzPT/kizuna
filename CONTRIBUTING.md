@@ -100,6 +100,7 @@ for f in scripts/*.sh; do bash -n "$f"; done
 shellcheck --severity=warning scripts/*.sh
 bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (offline)
 bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, needs jq)
+bash scripts/dev-image_test.sh        # when :dev is published, and the image's file list (offline, needs jq)
 node scripts/report-page_test.js      # the match report page's script (offline, plain Node)
 ```
 
@@ -140,6 +141,8 @@ scripts/report-page_test.js     the report page's tests, on fixture pages in scr
 scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not in the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run by a workflow)
+scripts/dev-image.sh            whether a push to dev publishes :dev (run by ci and docker)
+.dockerignore                   what goes into the image: an allowlist, also read by dev-image.sh
 ```
 
 | To add… | Start in |
