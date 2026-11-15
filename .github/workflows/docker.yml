@@ -11,6 +11,9 @@
 #              push to dev         -> :dev and :sha-<short>                  (beta)
 #              tag v1.2.3 on main  -> :1.2.3, :1.2, :latest and :sha-<short>  (stable)
 #              tag v1.2.3-beta.1   -> :1.2.3-beta.1 and :sha-<short>          (never :latest)
+#            The tags that move (:dev, :latest, :1.2) only move forward: a
+#            run for an older commit or release than the tag already has
+#            (an old run started again) pushes the other tags only.
 #            To rebuild :dev by hand, run the ci workflow on dev.
 #
 # Every published image gets a signed build provenance attestation, so anyone
@@ -51,6 +54,7 @@ jobs:
     # every run that isn't ci's publishing call
     if: ${{ !inputs.publish }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     # a new push to a pull request replaces the run for the old one. Not
@@ -109,38 +113,131 @@ jobs:
     # one publish per branch at a time)
     if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
+    # about 2 minutes with the build cache; a release builds without it
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write     # push the image to GHCR
       id-token: write     # attestation: sign with the workflow's identity (Sigstore)
       attestations: write # attestation: store it on GitHub
-    env:
-      # a stable release: a v* tag without a pre-release part (v1.2.3, not v1.2.3-beta.1)
-      STABLE: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     steps:
-      # ci only calls this for dev and v* tags; refuse anything else anyway
-      - name: dev or a release tag
+      # ci only calls this for dev and v* tags, and its gate job refuses a tag
+      # that isn't a version; refuse anything else here too. A stable release
+      # is a version without a pre-release part (v1.2.3, not v1.2.3-beta.1).
+      - name: dev or a version tag
+        id: ref
         run: |
           case $GITHUB_REF in
-            refs/heads/dev | refs/tags/v*) ;;
-            *) echo "::error::publishes only dev and v* tags, not $GITHUB_REF"; exit 1 ;;
+            refs/heads/dev) stable=false ;;
+            refs/tags/*)
+              if ! [[ $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+                echo "::error::$GITHUB_REF_NAME isn't a version: a release tag is v1.2.3, or v1.2.3-beta.1 for a pre-release. Nothing is published"
+                exit 1
+              fi
+              case $GITHUB_REF_NAME in
+                *-*) stable=false ;;
+                *) stable=true ;;
+              esac
+              ;;
+            *) echo "::error::publishes only dev and version tags, not $GITHUB_REF"; exit 1 ;;
           esac
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # every branch and tag: the next two steps compare with main, with
+          # dev's newer commits and with the other release tags
+          fetch-depth: 0
           persist-credentials: false
 
-      # :latest must only ever be something that was merged to main. The only
-      # step that needs history: main's, fetched here (public repository, no
-      # token) instead of a full clone on every run.
+      # :latest must only ever be something that was merged to main
       - name: stable tag is on main
-        if: env.STABLE == 'true'
+        if: steps.ref.outputs.stable == 'true'
         run: |
-          git fetch --quiet --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::$GITHUB_REF_NAME isn't on main. Stable releases are tagged on main; tag a beta (v1.2.3-beta.1) on dev"
             exit 1
           fi
+
+      # :dev, :latest and :1.2 point at the newest build and only move
+      # forward. Without this, starting an old run again (its failed jobs,
+      # say) after a newer one published would move them back. The tags that
+      # name one build (sha-*, 1.2.3) are always pushed.
+      - name: moving tags
+        id: moving
+        env:
+          STABLE: ${{ steps.ref.outputs.stable }}
+        run: |
+          # The commit :dev was built from: the revision label of the
+          # published image (the metadata step below writes it), read
+          # without a login (the package is public). Prints nothing when
+          # there is no :dev or no such label; fails when the registry can't
+          # be read. The same function is in ci.yml: change both.
+          dev_revision() {
+            local image=${GITHUB_REPOSITORY,,} accept out token auth digest rev
+            accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+            out=$(curl -fsS --max-time 30 "https://ghcr.io/token?scope=repository:$image:pull") || return 1
+            token=$(jq -er .token <<< "$out") || return 1
+            auth="Authorization: Bearer $token"
+            # the tag's index: one image per platform. 404: no :dev yet
+            out=$(curl -sS --max-time 30 -w '\n%{http_code}' -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/dev") || return 1
+            case ${out##*$'\n'} in
+              200) ;;
+              404) return 0 ;;
+              *) echo "ghcr.io answered ${out##*$'\n'} for :dev" >&2; return 1 ;;
+            esac
+            # every platform is built from the same commit: one is enough
+            digest=$(jq -er 'first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest' <<< "${out%$'\n'*}") || return 1
+            out=$(curl -fsS --max-time 30 -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/$digest") || return 1
+            digest=$(jq -er .config.digest <<< "$out") || return 1
+            # the labels are in the image's config
+            out=$(curl -fsSL --max-time 30 -H "$auth" "https://ghcr.io/v2/$image/blobs/$digest") || return 1
+            rev=$(jq -r '.config.Labels["org.opencontainers.image.revision"] // ""' <<< "$out") || return 1
+            if [[ $rev =~ ^[0-9a-f]{40}$ ]]; then echo "$rev"; fi
+          }
+
+          dev=false latest=false minor=false
+          if [ "$GITHUB_REF" = refs/heads/dev ]; then
+            # Not "is this commit still dev's head": a docs-only push after
+            # this one starts no ci run, and :dev would stay behind.
+            # once more after a pause: one bad answer shouldn't fail the run
+            if ! built=$(dev_revision) && { sleep 10; ! built=$(dev_revision); }; then
+              echo "::error::couldn't read which commit :dev was built from (see above; the package must be public), so this could move it back: nothing pushed. Run the failed jobs again"
+              exit 1
+            fi
+            # newer: this run's commit is in its history
+            if [ -n "$built" ] && [ "$built" != "$GITHUB_SHA" ] &&
+               git merge-base --is-ancestor "$GITHUB_SHA" "$built" 2> /dev/null; then
+              echo "::notice:::dev is built from $built, a newer commit than this run's: pushing only sha-${GITHUB_SHA::7}, :dev stays"
+            else
+              dev=true
+            fi
+          elif [ "$STABLE" = true ]; then
+            # the stable releases: the vX.Y.Z tags on main (one anywhere
+            # else was refused above and never published), oldest first
+            releases=$({ git tag --merged origin/main --list 'v*'; echo "$GITHUB_REF_NAME"; } |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -u -V)
+            newest=$(tail -n 1 <<< "$releases")
+            # v1.2.3 -> v1.2: the newest patch release of the same minor
+            xy=${GITHUB_REF_NAME%.*}
+            newest_minor=$(grep -E "^${xy//./\\.}\.[0-9]+$" <<< "$releases" | tail -n 1)
+            if [ "$newest" = "$GITHUB_REF_NAME" ]; then
+              latest=true
+            else
+              echo "::notice::$newest is a newer stable release than $GITHUB_REF_NAME: :latest stays"
+            fi
+            if [ "$newest_minor" = "$GITHUB_REF_NAME" ]; then
+              minor=true
+            else
+              echo "::notice::$newest_minor is a newer ${xy#v} release than $GITHUB_REF_NAME: :${xy#v} stays"
+            fi
+          fi
+          echo "dev: $dev, latest: $latest, minor (X.Y): $minor"
+          {
+            echo "dev=$dev"
+            echo "latest=$latest"
+            echo "minor=$minor"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -173,11 +270,11 @@ jobs:
           images: ${{ env.IMAGE }}
           flavor: latest=false
           tags: |
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ env.STABLE == 'true' }}
+            type=raw,value=dev,enable=${{ steps.moving.outputs.dev == 'true' }}
+            type=raw,value=latest,enable=${{ steps.moving.outputs.latest == 'true' }}
             type=sha
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.moving.outputs.minor == 'true' }}
 
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -190,8 +287,10 @@ jobs:
           build-args: |
             VERSION=${{ env.KIZUNA_VERSION }}
             GO_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # no build cache for a tag: a release is built from scratch and
+          # doesn't depend on cache entries other runs wrote (as in ci.yml)
+          cache-from: ${{ github.ref_type != 'tag' && 'type=gha' || '' }}
+          cache-to: ${{ github.ref_type != 'tag' && 'type=gha,mode=max' || '' }}
           # in the image index, next to each platform's image: an SPDX SBOM
           # (docker buildx imagetools inspect <image> --format '{{ json .SBOM }}')
           # and full BuildKit provenance (build args, base image digests)

@@ -104,9 +104,10 @@ jobs:
             fi
             sleep 30
           done
-          # ci publishes :dev once its checks pass, but only for an update that
-          # changes the image (the distroless digest, a Go module); an Actions
-          # update would only add an identical sha-* image
+          # ci publishes :dev once its checks pass for an update that changes
+          # the image (the distroless digest, a Go module). An Actions update
+          # alone would only add an identical sha-* image: with publish=false
+          # ci publishes only when :dev is missing an earlier change
           case $ECOSYSTEM in
             docker | go_modules | gomod) publish=true ;;
             *) publish=false ;;

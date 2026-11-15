@@ -9,7 +9,7 @@
 #   script     bash syntax, ShellCheck and the behaviour tests of the scripts
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
 #   gate       (dev and v* tags only, never a pull request) does this run
-#              publish an image?
+#              publish an image? Fails on a v* tag that isn't a version
 #   docker     (only when gate says so) the docker workflow, publishing: shows
 #              as "docker / publish"
 # Pull requests get their "image" check (build only) from docker.yml itself.
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "On dev or a v* tag: publish the image once the checks pass"
+        description: "On dev or a v* tag: publish the image once the checks pass (unticked on dev: only when :dev is missing a change)"
         type: boolean
         default: true
 
@@ -38,9 +38,12 @@ permissions: {}
 # runs are never cancelled once started, but GitHub keeps only one waiting run
 # per group: a newer push to the same branch replaces a waiting one. Three
 # quick pushes to dev therefore run the first and the last; the middle commit
-# gets no checks and no :sha-<short> image, and :dev still ends on the newest.
-# Kept that way on purpose: one run per branch at a time means an older run
-# can never overwrite :dev after a newer one. Every tag is its own group.
+# gets no checks and no :sha-<short> image. :dev still ends on the newest: the
+# gate job compares with the commit :dev was built from, not with the push
+# before, so the last run also publishes what a replaced run would have.
+# One run per branch at a time, so two runs never push :dev at once. A re-run
+# of an older run can't move it back either (docker.yml, "moving tags").
+# Every tag is its own group.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -49,6 +52,7 @@ jobs:
   go:
     name: go
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -120,6 +124,8 @@ jobs:
   fuzz:
     name: fuzz
     runs-on: ubuntu-latest
+    # 20 s per target plus the builds: about 4 minutes with 8 targets
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -133,29 +139,36 @@ jobs:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       # go test runs only one fuzz target at a time; the seeds of every target
-      # already run as plain tests in the go job. A crash leaves the failing
-      # input in the log: add it under testdata/fuzz/<target>/ to keep it.
+      # already run as plain tests in the go job. The targets are read from the
+      # code, so a new one is fuzzed without a change here. A crash leaves the
+      # failing input in the log: add it under testdata/fuzz/<target>/ to keep it.
       - name: fuzz (20s per target)
         run: |
           set -e
-          while read -r pkg target; do
-            [ -z "$pkg" ] && continue
-            echo "::group::$pkg $target"
-            go test -run='^$' -fuzz="^$target\$" -fuzztime=20s "$pkg"
-            echo "::endgroup::"
-          done <<'EOF'
-          ./internal/anidb FuzzNormalize
-          ./internal/anidb FuzzCleanSummary
-          ./internal/anidb FuzzSearch
-          ./internal/mapping FuzzParseAnimeLists
-          ./internal/mapping FuzzParseFribb
-          ./internal/sources FuzzParseAniDB
-          ./internal/sources FuzzParseANN
-          EOF
+          count=0
+          for pkg in $(go list ./...); do
+            # on its own line, not in a pipe: a package that doesn't build
+            # stops the step
+            list=$(go test -list '^Fuzz' "$pkg")
+            # the names only: the list ends with an "ok <package>" line
+            for target in $(grep '^Fuzz' <<< "$list" || true); do
+              echo "::group::$pkg $target"
+              go test -run='^$' -fuzz="^$target\$" -fuzztime=20s "$pkg"
+              echo "::endgroup::"
+              count=$((count + 1))
+            done
+          done
+          echo "fuzzed $count targets"
+          # the code has fuzz targets: none found means the listing broke
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no fuzz target found"
+            exit 1
+          fi
 
   script:
     name: script
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -182,6 +195,7 @@ jobs:
   workflows:
     name: workflows
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -205,58 +219,110 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: pipx run zizmor==1.32.0 --format=github .
 
-  # Publishes: a v* tag; a push to dev that changes what goes into the image; a
-  # manual run on dev or a tag with "publish" ticked. Never a pull request,
-  # main or any other branch. "Changes the image" follows .dockerignore: a push
-  # that only touches docs, assets/, scripts/, unraid/, compose.yml,
-  # .gitignore, .gitattributes or .github/ (except docker.yml) would build the
-  # same image again and only add another sha-* version.
+  # Publishes: a version tag (v1.2.3, v1.2.3-beta.1); dev, when something that
+  # goes into the image changed since the commit :dev was built from; a manual
+  # run on dev or a tag with "publish" ticked. Never a pull request, main or
+  # any other branch. "Changes the image" follows .dockerignore: commits that
+  # only touch docs, assets/, scripts/, unraid/, compose.yml, .gitignore,
+  # .gitattributes or .github/ (except docker.yml) would build the same image
+  # again and only add another sha-* version.
   gate:
     name: gate
     if: >-
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       publish: ${{ steps.gate.outputs.publish }}
     steps:
+      # v1.2 or vtest would otherwise count as a stable release and move
+      # :latest. docker.yml checks again before it pushes.
+      - name: a tag is a version
+        if: github.ref_type == 'tag'
+        run: |
+          if ! [[ $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::$GITHUB_REF_NAME isn't a version: a release tag is v1.2.3, or v1.2.3-beta.1 for a pre-release. Nothing is published"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # all of it: the next step compares with an older commit of dev
+          fetch-depth: 0
           persist-credentials: false
 
       - name: publish?
         id: gate
         env:
           EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
           PUBLISH_INPUT: ${{ inputs.publish }}
         run: |
+          # The commit :dev was built from: the revision label of the
+          # published image (docker.yml's metadata step writes it), read
+          # without a login (the package is public). Prints nothing when
+          # there is no :dev or no such label; fails when the registry can't
+          # be read. The same function is in docker.yml: change both.
+          dev_revision() {
+            local image=${GITHUB_REPOSITORY,,} accept out token auth digest rev
+            accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+            out=$(curl -fsS --max-time 30 "https://ghcr.io/token?scope=repository:$image:pull") || return 1
+            token=$(jq -er .token <<< "$out") || return 1
+            auth="Authorization: Bearer $token"
+            # the tag's index: one image per platform. 404: no :dev yet
+            out=$(curl -sS --max-time 30 -w '\n%{http_code}' -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/dev") || return 1
+            case ${out##*$'\n'} in
+              200) ;;
+              404) return 0 ;;
+              *) echo "ghcr.io answered ${out##*$'\n'} for :dev" >&2; return 1 ;;
+            esac
+            # every platform is built from the same commit: one is enough
+            digest=$(jq -er 'first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest' <<< "${out%$'\n'*}") || return 1
+            out=$(curl -fsS --max-time 30 -H "$auth" -H "$accept" "https://ghcr.io/v2/$image/manifests/$digest") || return 1
+            digest=$(jq -er .config.digest <<< "$out") || return 1
+            # the labels are in the image's config
+            out=$(curl -fsSL --max-time 30 -H "$auth" "https://ghcr.io/v2/$image/blobs/$digest") || return 1
+            rev=$(jq -r '.config.Labels["org.opencontainers.image.revision"] // ""' <<< "$out") || return 1
+            if [[ $rev =~ ^[0-9a-f]{40}$ ]]; then echo "$rev"; fi
+          }
+
           want=true
           [ "$EVENT" = workflow_dispatch ] && want=$PUBLISH_INPUT
           publish=false
           case $GITHUB_REF in # only dev and v* tags get here (the job's if)
             refs/tags/v*) publish=$want ;;
             refs/heads/dev)
-              if [ "$EVENT" != push ]; then
-                publish=$want
-              # the commit dev pointed at before this push: compare the two
-              # trees. Not there (a new branch, a force push)? Publish.
-              elif ! git fetch --quiet --no-tags --depth=1 origin "$BEFORE"; then
-                echo "::notice::couldn't fetch the previous dev commit ($BEFORE): publishing"
+              # Compared with the commit :dev was built from, not the one
+              # before this push: a waiting run that a newer push replaced
+              # never published, and its changes must still reach :dev.
+              # Whenever the answer isn't certain: publish.
+              if [ "$EVENT" = workflow_dispatch ] && [ "$want" = true ]; then
+                publish=true
+              elif ! built=$(dev_revision); then
+                echo "::notice::couldn't read which commit :dev was built from (see above): publishing"
+                publish=true
+              elif [ -z "$built" ]; then
+                echo "::notice::there is no :dev image that names its commit: publishing"
+                publish=true
+              elif [ "$built" = "$GITHUB_SHA" ]; then
+                echo "::notice:::dev is already built from this commit: not publishing"
+              # a force push, or a re-run of an older run
+              elif ! git merge-base --is-ancestor "$built" "$GITHUB_SHA" 2> /dev/null; then
+                echo "::notice:::dev was built from $built, which isn't in this commit's history: publishing"
                 publish=true
               else
-                changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-                echo "changed files:"
+                changed=$(git diff --name-only "$built" "$GITHUB_SHA")
+                echo "changed files since $built (:dev):"
                 while IFS= read -r f; do echo "  $f"; done <<< "$changed"
-                # an empty diff (an empty commit) publishes rather than guess
+                # an empty diff (only empty commits) publishes rather than guess
                 if [ -z "$changed" ] ||
                    grep -Fxq .github/workflows/docker.yml <<< "$changed" ||
                    grep -vqE '\.md$|^(\.github|scripts|assets|unraid)/|^(compose\.yml|\.gitignore|\.gitattributes)$' <<< "$changed"; then
                   publish=true
                 else
-                  echo "::notice::nothing that goes into the image changed: not publishing"
+                  echo "::notice::nothing that goes into the image changed since :dev was built: not publishing"
                 fi
               fi
               ;;

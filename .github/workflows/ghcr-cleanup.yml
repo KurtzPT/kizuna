@@ -33,6 +33,8 @@ jobs:
   cleanup:
     name: cleanup
     runs-on: ubuntu-latest
+    # one registry request per kept version and one API call per deletion
+    timeout-minutes: 30
     permissions:
       contents: read  # check out the script
       packages: write # list and delete package versions

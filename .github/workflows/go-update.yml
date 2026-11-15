@@ -28,6 +28,7 @@ jobs:
   bump:
     name: bump
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write      # push the go-update/go-X.Y branch
       pull-requests: write # open the pull request
@@ -45,7 +46,7 @@ jobs:
         run: |
           current=$(awk '$1 == "go" {print $2}' go.mod)
           # newest stable release first, e.g. go1.27.1 -> 1.27
-          latest=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' \
+          latest=$(curl -fsSL --max-time 60 'https://go.dev/dl/?mode=json' | jq -r '.[0].version' \
             | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')
           if ! [[ $latest =~ ^[0-9]+\.[0-9]+$ ]]; then
             echo "::error::couldn't read the latest Go version from go.dev (got '$latest')"

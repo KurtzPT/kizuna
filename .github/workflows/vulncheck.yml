@@ -25,6 +25,7 @@ jobs:
   image:
     name: image (${{ matrix.tag }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     strategy:
