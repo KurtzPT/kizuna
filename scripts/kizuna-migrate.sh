@@ -67,28 +67,43 @@ usage() {
 
 die() { echo "error: $*" >&2; exit 1; }
 
-# trim removes leading and trailing whitespace.
+# Helpers that run for every video set a result variable instead of printing:
+# each $(...) starts a process, and those made the script slow (on Git Bash
+# above all). The variable is the helper's name in capitals (trim sets TRIM,
+# core_credit the array CORE_CREDIT), set on every path; numbered_name, user_ep
+# and credit_index are older and keep theirs. The printing helpers the tests
+# call (absolute_number, credit_of...) call the setter and print its variable.
+# Rules for code that calls them:
+# - Copy a result into a local straight after the call: other helpers reuse
+#   the variables (strip_tags sets TRIM; core_credit and core_special set
+#   NAME_TAILS and STRIP_TAGS).
+# - Never capture a setter with $(...): it prints nothing. trim, strip_tags,
+#   name_tails, season_episode, main_videos and list_videos kept their names
+#   and used to print.
+# - Between shopt -s nocasematch and shopt -u, call no helper that sets it
+#   (core_number, name_tails, plex_numbered...): each leaves it off, also for
+#   its caller.
+
+# trim sets TRIM to $1 without leading and trailing whitespace.
 trim() {
-	local s=$1
-	s=${s#"${s%%[![:space:]]*}"}
-	s=${s%"${s##*[![:space:]]}"}
-	printf '%s' "$s"
+	TRIM=${1#"${1%%[![:space:]]*}"}
+	TRIM=${TRIM%"${TRIM##*[![:space:]]}"}
 }
 
 # --- name parsing ------------------------------------------------------------
 
-# strip_tags removes [..], (..) and {..} groups and trims spaces. What is
-# left without any space is a name that uses underscores for them, and is
-# read like the same name with spaces: "[Grp]_Show_-_SP1_[1080p]" and
-# "[Grp] Show_-_SP1 [1080p]" like "Show - SP1". Plex takes an underscore for
-# a space too. The spaces around the tags are trimmed before that check, so
-# they don't count.
+# strip_tags sets STRIP_TAGS to $1 without its [..], (..) and {..} groups,
+# trimmed. What is left without any space is a name that uses underscores for
+# them, and is read like the same name with spaces: "[Grp]_Show_-_SP1_[1080p]"
+# and "[Grp] Show_-_SP1 [1080p]" like "Show - SP1". Plex takes an underscore
+# for a space too. The spaces around the tags are trimmed before that check,
+# so they don't count.
 strip_tags() {
 	local s=$1 re='\[[^]]*\]|\([^)]*\)|\{[^}]*\}'
 	while [[ $s =~ $re ]]; do s=${s/"${BASH_REMATCH[0]}"/}; done
-	s=${s#"${s%%[![:space:]]*}"} s=${s%"${s##*[![:space:]]}"}
-	if [[ $s != *[[:space:]]* ]]; then s=${s//_/ }; fi
 	trim "$s"
+	if [[ $TRIM != *[[:space:]]* ]]; then trim "${TRIM//_/ }"; fi
+	STRIP_TAGS=$TRIM
 }
 
 # Regexes are matched with nocasematch on (case-insensitive).
@@ -98,13 +113,16 @@ SXE='(^|[^[:alnum:]_])s([0-9]{1,2})[[:space:]]*e([0-9]{1,4})([^[:alnum:]_]|$)'
 PLAIN_TVDB_TAG='[[{]tvdb-[0-9]+[]}]'
 # an id tag as Kizuna reads it (tagRe in internal/provider/match.go); the first one in a name counts
 ID_TAG='[[{](anidb|tvdb|tmdb|imdb|mal|anilist|kitsu|ann)[0-9]?-(tt[0-9]+|[0-9]+)[]}]'
-ABS_DASH=' - ([0-9]{1,4})(v[0-9])?([^[:alnum:]_]|$)'
-ABS_EP='(^|[^[:alnum:]_])(e|ep|episode)[[:space:]]*([0-9]{1,4})(v[0-9])?([^[:alnum:]_]|$)'
-ABS_END='(^|[^[:alnum:]_])([0-9]{1,4})(v[0-9])?[[:space:]]*$'
+# a release's version after its number ("05v2"): one group, counted in the
+# group numbers of the patterns that use it
+VERSION_RE='(v[0-9])?'
+ABS_DASH=' - ([0-9]{1,4})'"$VERSION_RE"'([^[:alnum:]_]|$)'
+ABS_EP='(^|[^[:alnum:]_])(e|ep|episode)[[:space:]]*([0-9]{1,4})'"$VERSION_RE"'([^[:alnum:]_]|$)'
+ABS_END='(^|[^[:alnum:]_])([0-9]{1,4})'"$VERSION_RE"'[[:space:]]*$'
 SEASON_DIR='^((season|series|saison|staffel|temporada)[ ._-]*[0-9]{1,4}|s[0-9]{1,4}|specials?)$'
 GROUP_DIR='^[[:space:]]*[[(][0-9]+[])]'
 # openings / endings: NCOP1, OP1b, ED, Ending 2a (kind, number, variant letter)
-CREDIT_RE='^(nc)?(op|opening|ed|ending)[[:space:]]*0*([0-9]{1,2})?[[:space:]]*([a-z])?(v[0-9])?$'
+CREDIT_RE='^(nc)?(op|opening|ed|ending)[[:space:]]*0*([0-9]{1,2})?[[:space:]]*([a-z])?'"$VERSION_RE"'$'
 # Plex's own opening/ending check (Plex Media Server 1.43, from its binary):
 #   (?:\b|_|\.)(?<title>(?:NC|(?:Creditless|Clean)[ ._])?(?<type>OP|ED|Opening|Ending|OPED)
 #   (?:[ ._]?(?<index>\d{1,2})[A-Za-z]?)?(?:[ ._][A-Za-z])?)(?:v\d)?(?:\b|_|\.)
@@ -144,8 +162,8 @@ FULLWIDTH_ASCII='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz(
 CREDIT_PLACEHOLDER_RE='^(episode|ep\.?)[[:space:]]*[0-9]+$'
 # other special patterns: "regex|base|number group" (no group = number 1)
 SPECIALS=(
-	'^(pv|cm|trailer|teaser|promo|preview)[[:space:]]*0*([0-9]{1,2})?(v[0-9])?$|200|2'
-	'^(sp|special|ova|oad|s)[[:space:]]*0*([0-9]{1,3})(v[0-9])?$|0|2'
+	'^(pv|cm|trailer|teaser|promo|preview)[[:space:]]*0*([0-9]{1,2})?'"$VERSION_RE"'$|200|2'
+	'^(sp|special|ova|oad|s)[[:space:]]*0*([0-9]{1,3})'"$VERSION_RE"'$|0|2'
 	'^(ova|oad|special)$|0|0'
 )
 
@@ -163,53 +181,71 @@ numbered_name() {
 	elif [[ ! $1 =~ $SXE ]]; then return 1; fi
 }
 
+# core_number sets CORE_NUMBER to the episode number in a file name without
+# its tags (strip_tags), or 0.
+core_number() {
+	CORE_NUMBER=0
+	shopt -s nocasematch
+	if numbered_name "$1" && [[ -n $NAME_NUM ]]; then CORE_NUMBER=$NAME_NUM
+	elif [[ $1 =~ $ABS_END ]]; then CORE_NUMBER=$((10#${BASH_REMATCH[2]})); fi
+	shopt -u nocasematch
+}
+
 # absolute_number prints the episode number in a file name, or 0.
 absolute_number() {
-	local core
-	core=$(strip_tags "$1")
-	shopt -s nocasematch
-	if numbered_name "$core" && [[ -n $NAME_NUM ]]; then echo "$NAME_NUM"
-	elif [[ $core =~ $ABS_END ]]; then echo $((10#${BASH_REMATCH[2]}))
-	else echo 0; fi
-	shopt -u nocasematch
+	strip_tags "$1"
+	core_number "$STRIP_TAGS"
+	echo "$CORE_NUMBER"
 }
 
-# name_tails prints the parts of a file name that may name a special: the
-# text after the last " - ", the last two words, the last word. Nothing for
-# a numbered episode (S01E05, "Show - 05", "Show Ep 05"): a word in its
-# title ("Show Ep 13 - Christmas Special") doesn't make it a special.
+# name_tails sets NAME_TAILS to the parts of a file name without its tags
+# that may name a special: the text after the last " - ", the last two words,
+# the last word. None for a numbered episode (S01E05, "Show - 05", "Show Ep
+# 05"): a word in its title ("Show Ep 13 - Christmas Special") doesn't make
+# it a special. It leaves nocasematch off (see the rules at the top).
 name_tails() {
-	local core words
-	core=$(strip_tags "$1")
+	local words
+	NAME_TAILS=()
 	shopt -s nocasematch
-	if numbered_name "$core"; then
+	if numbered_name "$1"; then
 		shopt -u nocasematch
-		return
+		return 0
 	fi
 	shopt -u nocasematch
-	if [[ $core == *" - "* ]]; then printf '%s\n' "${core##* - }"; fi
-	read -ra words <<<"$core"
-	if ((${#words[@]} > 1)); then printf '%s\n' "${words[-2]} ${words[-1]}"; fi
-	if ((${#words[@]} > 0)); then printf '%s\n' "${words[-1]}"; fi
+	if [[ $1 == *" - "* ]]; then NAME_TAILS+=("${1##* - }"); fi
+	read -ra words <<<"$1"
+	if ((${#words[@]} > 1)); then NAME_TAILS+=("${words[-2]} ${words[-1]}"); fi
+	if ((${#words[@]} > 0)); then NAME_TAILS+=("${words[-1]}"); fi
 }
 
-# credit_of prints "op|ed NUMBER LETTER TEXT" for an opening or ending file
-# name, TEXT being the part of the name that says so (Show - NCOP1 ->
-# "op 1 - NCOP1", OP1b -> "op 1 b OP1b", ED -> "ed 1 - ED"), or nothing.
-credit_of() {
+# core_credit sets CORE_CREDIT to (op|ed NUMBER LETTER TEXT) for an opening
+# or ending file name without its tags, TEXT being the part of the name that
+# says so (Show - NCOP1 -> op 1 - NCOP1, OP1b -> op 1 b OP1b, ED -> ed 1 - ED),
+# or to none.
+core_credit() {
 	local t kind num letter
-	while IFS= read -r t; do
-		t=$(strip_tags "$t")
+	CORE_CREDIT=()
+	name_tails "$1"
+	for t in "${NAME_TAILS[@]}"; do
+		strip_tags "$t"
+		t=$STRIP_TAGS
 		shopt -s nocasematch
 		if [[ $t =~ $CREDIT_RE ]]; then
 			kind=${BASH_REMATCH[2],,} num=${BASH_REMATCH[3]:-1} letter=${BASH_REMATCH[4],,}
 			shopt -u nocasematch
 			if [[ $kind == e* ]]; then kind="ed"; else kind="op"; fi
-			echo "$kind $((10#$num)) ${letter:--} $t"
-			return
+			CORE_CREDIT=("$kind" "$((10#$num))" "${letter:--}" "$t")
+			return 0
 		fi
 		shopt -u nocasematch
-	done < <(name_tails "$1")
+	done
+}
+
+# credit_of prints core_credit's answer for a file name, on one line.
+credit_of() {
+	strip_tags "$1"
+	core_credit "$STRIP_TAGS"
+	if ((${#CORE_CREDIT[@]} > 0)); then printf '%s %s %s %s\n' "${CORE_CREDIT[@]}"; fi
 }
 
 # credit_title prints "NUMBER LETTER" for an AniDB credit title
@@ -248,7 +284,8 @@ plex_numbered() {
 # episode of a show is worse than a missed one.
 number_like() {
 	local core
-	core=$(strip_tags "$1")
+	strip_tags "$1"
+	core=$STRIP_TAGS
 	if [[ -n $2 && $core == *[0-9]* ]]; then return 0; fi
 	shopt -s nocasematch
 	if [[ $core =~ $NUMBER_LIKE_RE ]]; then
@@ -271,67 +308,83 @@ plex_extra() {
 	return 1
 }
 
-# plex_credit prints what Plex's scanner does with file name $1 (without its
-# extension) as an opening or ending, and the part of the name that does it:
-# "extra NCOP1" (an opening/ending extra) or "dropped Opening 1" (left out of
-# the library: the whole word Opening or Ending without Creditless or Clean
-# in front). Fails for a name Plex reads like any other. The Go port of the
-# same rules is CreditOf in internal/plex/title.go: keep the two in step.
-plex_credit() {
+# plex_credit_of sets PLEX_CREDIT_OF to what Plex's scanner does with file
+# name $1 (without its extension) as an opening or ending, and the part of
+# the name that does it: (extra NCOP1) for an opening/ending extra, (dropped
+# "Opening 1") for one left out of the library (the whole word Opening or
+# Ending without Creditless or Clean in front). None for a name Plex reads
+# like any other. The Go port of the same rules is CreditOf in
+# internal/plex/title.go: keep the two in step.
+plex_credit_of() {
 	local kind=extra word
-	if plex_numbered "$1"; then return 1; fi
-	[[ $1 =~ $PLEX_CREDIT_RE ]] || return 1
+	PLEX_CREDIT_OF=()
+	if plex_numbered "$1"; then return 0; fi
+	[[ $1 =~ $PLEX_CREDIT_RE ]] || return 0
 	word=${BASH_REMATCH[5]}
 	if [[ ($word == Opening || $word == Ending) && -z ${BASH_REMATCH[4]} ]]; then kind=dropped; fi
-	printf '%s %s\n' "$kind" "${BASH_REMATCH[2]}"
+	PLEX_CREDIT_OF=("$kind" "${BASH_REMATCH[2]}")
 }
 
-# short_credit prints the name Plex makes an extra of for a spelled-out one
-# ("Opening 1" -> "OP1", "NCOpening" -> "NCOP", "Ending a" -> "ED a").
-short_credit() {
+# plex_credit prints plex_credit_of's answer on one line, and fails for none.
+plex_credit() {
+	plex_credit_of "$1"
+	((${#PLEX_CREDIT_OF[@]} > 0)) || return 1
+	printf '%s %s\n' "${PLEX_CREDIT_OF[@]}"
+}
+
+# short_name sets SHORT_NAME to the name Plex makes an extra of for a
+# spelled-out one ("Opening 1" -> "OP1", "NCOpening" -> "NCOP", "Ending a" ->
+# "ED a").
+short_name() {
 	local s=${1/Opening/OP}
 	s=${s/Ending/ED}
 	if [[ $s =~ $SHORT_CREDIT_RE ]]; then s=${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]}; fi
-	printf '%s' "$s"
+	SHORT_NAME=$s
 }
 
-# capital_credit prints the name Plex makes an extra of for an opening or
-# ending spelled another way ("op1" -> "OP1", "ncop2" -> "NCOP2",
-# "ending 2A" -> "ED2a"), or nothing.
-capital_credit() {
+short_credit() { short_name "$1"; printf '%s' "$SHORT_NAME"; }
+
+# capital_name sets CAPITAL_NAME to the name Plex makes an extra of for an
+# opening or ending spelled another way ("op1" -> "OP1", "ncop2" -> "NCOP2",
+# "ending 2A" -> "ED2a"), or to "".
+capital_name() {
 	local nc word num letter
+	CAPITAL_NAME=""
 	shopt -s nocasematch
 	if [[ $1 =~ $CREDIT_RE ]]; then
 		nc=${BASH_REMATCH[1]^^} word=${BASH_REMATCH[2],,} num=${BASH_REMATCH[3]} letter=${BASH_REMATCH[4],,}
 		shopt -u nocasematch
 		if [[ $word == e* ]]; then word=ED; else word=OP; fi
-		printf '%s' "$nc$word${num:+$((10#$num))}$letter"
-		return
+		CAPITAL_NAME=$nc$word${num:+$((10#$num))}$letter
+		return 0
 	fi
 	shopt -u nocasematch
 }
 
-# credit_note explains an opening or ending file, which never gets a hint:
-# $1 the file's name, $2 what Plex does with it (extra or dropped, as
-# plex_credit says, or plain: it doesn't take the name), $3 the part of the
-# name that says so, $4 the special number it would have, if known, with $5
-# a remark on that number, else $5 how to find the number; $6 1 when the
-# number is guessed from the file name, not Kizuna's. The script
-# renames nothing, so making the file a special is left to the user: the
-# note only says how.
+capital_credit() { capital_name "$1"; printf '%s' "$CAPITAL_NAME"; }
+
+# credit_note warns about an opening or ending file, which never gets a hint:
+# $1 the file, $2 what Plex does with it (extra or dropped, as plex_credit_of
+# says, or plain: it doesn't take the name), $3 the part of the name that
+# says so, $4 the special number it would have, if known, with $5 a remark on
+# that number, else $5 how to find the number; $6 1 when the number is
+# guessed from the file name, not Kizuna's. The script renames nothing, so
+# making the file a special is left to the user: the note only says how.
 credit_note() {
-	local note short
+	local note short name=${1##*/}
 	case $2 in
 	extra)
 		note="Plex's scanner makes files with \"$3\" in the name opening/ending extras and ignores .plexmatch hints for them, so it stays an extra (it still plays from the show page) and gets no hint"
 		;;
 	dropped)
-		short=$(short_credit "$3")
-		note="Plex's scanner leaves files with the whole word \"$3\" in the name out of the library, as neither an extra nor an episode, so it gets no hint. To have it as an extra, rename it with $short in place of that, e.g. to \"${1/"$3"/$short}\""
+		short_name "$3"
+		short=$SHORT_NAME
+		note="Plex's scanner leaves files with the whole word \"$3\" in the name out of the library, as neither an extra nor an episode, so it gets no hint. To have it as an extra, rename it with $short in place of that, e.g. to \"${name/"$3"/$short}\""
 		;;
 	*)
-		short=$(capital_credit "$3")
-		note="Plex's scanner only takes these words in capitals, so \"$3\" doesn't make it an opening/ending extra, and the script writes no hint for openings and endings. To have it as an extra (Kizuna can then give it a readable title), rename it with $short in place of that, e.g. to \"${1/"$3"/$short}\""
+		capital_name "$3"
+		short=$CAPITAL_NAME
+		note="Plex's scanner only takes these words in capitals, so \"$3\" doesn't make it an opening/ending extra, and the script writes no hint for openings and endings. To have it as an extra (Kizuna can then give it a readable title), rename it with $short in place of that, e.g. to \"${name/"$3"/$short}\""
 		;;
 	esac
 	note+=". If you want it as a special, that is yours to do: rename it to a name without \"$3\" or another such word, and add "
@@ -344,16 +397,20 @@ credit_note() {
 	else
 		note+="an ep: hint for the new name, with ${5:-its number}, to the show's .plexmatch by hand"
 	fi
-	printf '%s' "$note"
+	warn "$1: $note"
 }
 
-# special_number maps other special file names to season-0 numbers
-# (PV -> 201, SP03 -> 3); 0 = not one. Openings and endings: credit_of.
-special_number() {
+# core_special sets CORE_SPECIAL to the season-0 number of other special
+# file names without their tags (PV -> 201, SP03 -> 3); 0 = not one. Openings
+# and endings: core_credit.
+core_special() {
 	local t entry re base group n
+	CORE_SPECIAL=0
+	name_tails "$1"
 	shopt -s nocasematch
-	while IFS= read -r t; do
-		t=$(strip_tags "$t")
+	for t in "${NAME_TAILS[@]}"; do
+		strip_tags "$t"
+		t=$STRIP_TAGS
 		for entry in "${SPECIALS[@]}"; do
 			re=${entry%|*|*} base=${entry%|*} base=${base##*|} group=${entry##*|}
 			if [[ $t =~ $re ]]; then
@@ -361,14 +418,28 @@ special_number() {
 				if ((group > 0)) && [[ -n ${BASH_REMATCH[group]} ]]; then n=$((10#${BASH_REMATCH[group]})); fi
 				if ((base + n > 0)); then
 					shopt -u nocasematch
-					echo $((base + n))
-					return
+					CORE_SPECIAL=$((base + n))
+					return 0
 				fi
 			fi
 		done
-	done < <(name_tails "$1")
+	done
 	shopt -u nocasematch
-	echo 0
+}
+
+# special_number prints core_special's answer for a file name.
+special_number() {
+	strip_tags "$1"
+	core_special "$STRIP_TAGS"
+	echo "$CORE_SPECIAL"
+}
+
+# file_stem sets FILE_STEM to the name of the video path $1 without its
+# extension, as basename gives it: a file named only ".mkv" gets its folder's.
+file_stem() {
+	local s=${1%.*}
+	s=${s%/}
+	FILE_STEM=${s##*/}
 }
 
 is_video() {
@@ -383,12 +454,23 @@ is_video() {
 # is too long, planning the same files again under every longer path.
 MAX_DEPTH=6
 
-# list_videos prints the videos under a show folder, sorted, skipping hidden
-# and "extras" folders. Symlinked folders and files are followed, as Plex does
-# (find -L reports a symlink loop and skips it; MAX_DEPTH bounds one it doesn't).
+SHOW_FILES=() # the current show's files: show_files
+
+# show_files sets SHOW_FILES to the files under the show folder $1, in find's
+# order, skipping hidden and "extras" folders: one listing for both the
+# .plexmatch files and the videos. Symlinked folders and files are followed, as
+# Plex does (find -L reports a symlink loop and skips it; MAX_DEPTH bounds one
+# it doesn't).
+show_files() {
+	mapfile -t SHOW_FILES < <(find -L "$1" -mindepth 1 -maxdepth "$MAX_DEPTH" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -print)
+}
+
+# list_videos sets LIST_VIDEOS to the videos in SHOW_FILES, sorted.
 list_videos() {
-	find -L "$1" -mindepth 1 -maxdepth "$MAX_DEPTH" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -print |
-		while IFS= read -r f; do if is_video "$f"; then printf '%s\n' "$f"; fi; done | LC_ALL=C sort
+	local f list=""
+	LIST_VIDEOS=()
+	for f in "${SHOW_FILES[@]}"; do if is_video "$f"; then list+=$f$'\n'; fi; done
+	if [[ -n $list ]]; then mapfile -t LIST_VIDEOS < <(LC_ALL=C sort <<<"${list%$'\n'}"); fi
 }
 
 # --- existing .plexmatch files -------------------------------------------------
@@ -429,14 +511,17 @@ hint_key() {
 }
 
 # read_plexmatches reads every .plexmatch in the show folder $1 and below,
-# in the folders list_videos looks in. Hints in subfolders only count for
-# their own folder, like in Plex. Every ep: line counts as the user's, also
-# those an earlier run wrote.
+# in the folders show_files looks in, and leaves that listing in SHOW_FILES
+# for list_videos. Hints in subfolders only count for their own folder, like
+# in Plex. Every ep: line counts as the user's, also those an earlier run
+# wrote.
 read_plexmatches() {
 	local dir=$1 pm reldir line name value file top as
-	SHOW_TITLE=$(basename "$dir") SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
+	SHOW_TITLE=${dir##*/} SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
 	USER_EP=() USER_EP_LC=() USER_EP_AS=() USER_EP_DIR=() USER_EP_SK=() DIR_SEASON=()
-	while IFS= read -r pm; do
+	show_files "$dir"
+	for pm in "${SHOW_FILES[@]}"; do
+		[[ ${pm##*/} == "$PLEXMATCH" ]] || continue
 		reldir=${pm%/"$PLEXMATCH"} reldir=${reldir#"$dir"} reldir=${reldir#/} # "" = the show folder
 		top=1
 		while IFS= read -r line || [[ -n $line ]]; do
@@ -446,9 +531,13 @@ read_plexmatches() {
 				warn "$pm: starts with a byte order mark, and Plex may not read its first line. Save the file without it (UTF-8 without BOM)"
 			fi
 			top=0
-			line=$(trim "${line%$'\r'}")
+			trim "${line%$'\r'}"
+			line=$TRIM
 			if [[ -z $line || $line == \#* || $line != *:* ]]; then continue; fi
-			name=$(trim "${line%%:*}") value=$(trim "${line#*:}")
+			trim "${line%%:*}"
+			name=$TRIM
+			trim "${line#*:}"
+			value=$TRIM
 			case ${name,,} in
 			title | show) if [[ -z $reldir && -n $value ]]; then SHOW_TITLE=$value; fi ;;
 			year) if [[ -z $reldir && $value =~ ^[0-9]{4}$ ]]; then SHOW_YEAR=$((10#$value)); fi ;;
@@ -478,7 +567,7 @@ read_plexmatches() {
 				;;
 			esac
 		done <"$pm"
-	done < <(find -L "$dir" -mindepth 1 -maxdepth "$MAX_DEPTH" \( -type d \( -name '.*' -o -iname extras \) -prune \) -o -type f -name "$PLEXMATCH" -print)
+	done
 }
 
 # --- HAMA .id files ------------------------------------------------------------
@@ -496,12 +585,12 @@ read_id_file() {
 	local -A by_kind=()
 	ID_FILE_TAG=""
 	shopt -s nocasematch
-	if [[ $(basename "$dir") =~ $ID_TAG ]]; then
+	if [[ ${dir##*/} =~ $ID_TAG ]]; then
 		shopt -u nocasematch
 		return 0 # a tag in the folder name wins, as in HAMA
 	fi
 	for f in "$dir"/*; do
-		base=$(basename "$f")
+		base=${f##*/}
 		if [[ -f $f && $base =~ $ID_FILE_RE && -z ${by_kind[${BASH_REMATCH[1],,}]:-} ]]; then
 			by_kind[${BASH_REMATCH[1],,}]=$f
 		fi
@@ -510,11 +599,12 @@ read_id_file() {
 	for kind in anidb tvdb tmdb imdb; do
 		f=${by_kind[$kind]:-}
 		[[ -n $f ]] || continue
-		if [[ -n $used ]]; then others+=" $(basename "$f")"; continue; fi
+		if [[ -n $used ]]; then others+=" ${f##*/}"; continue; fi
 		line=""
 		IFS= read -r line <"$f" || true
-		line=$(trim "${line%$'\r'}")
-		base=$(basename "$f")
+		trim "${line%$'\r'}"
+		line=$TRIM
+		base=${f##*/}
 		shopt -s nocasematch
 		[[ $base =~ $ID_FILE_RE ]]
 		src=${BASH_REMATCH[1],,}${BASH_REMATCH[2]}
@@ -529,7 +619,7 @@ read_id_file() {
 		ID_FILE_TAG="[$src-$id]" used=$base
 	done
 	if [[ -n $used ]]; then
-		warn "$dir: $used says $ID_FILE_TAG, but Plex never reads .id files. Rename the folder to \"$(basename "$dir") $ID_FILE_TAG\" before switching the library (the hints above assume that tag)"
+		warn "$dir: $used says $ID_FILE_TAG, but Plex never reads .id files. Rename the folder to \"${dir##*/} $ID_FILE_TAG\" before switching the library (the hints above assume that tag)"
 		if [[ -n $others ]]; then warn "$dir: also has$others; used $used"; fi
 	fi
 }
@@ -545,32 +635,44 @@ unsupported_order() {
 	shopt -u nocasematch
 }
 
-# dir_season prints the season Plex's scanner gives the show-relative folder
-# $1 ("" = the show folder): its season: hint, its name (Season 02, Specials),
-# or nothing for other folders.
-dir_season() {
+# season_of_dir sets SEASON_OF_DIR to the season Plex's scanner gives the
+# show-relative folder $1 ("" = the show folder): its season: hint, its name
+# (Season 02, Specials), or "" for other folders.
+season_of_dir() {
 	local rd=$1 base
-	if [[ -z $rd ]]; then echo "${ROOT_SEASON:-1}"; return; fi
-	if [[ -n ${DIR_SEASON[$rd]:-} ]]; then echo "${DIR_SEASON[$rd]}"; return; fi
+	SEASON_OF_DIR=""
+	if [[ -z $rd ]]; then SEASON_OF_DIR=${ROOT_SEASON:-1}; return 0; fi
+	if [[ -n ${DIR_SEASON[$rd]:-} ]]; then SEASON_OF_DIR=${DIR_SEASON[$rd]}; return 0; fi
 	base=${rd##*/}
 	shopt -s nocasematch
 	if [[ $base =~ $SEASON_DIR ]]; then
-		if [[ $base =~ ([0-9]+) ]]; then echo $((10#${BASH_REMATCH[1]})); else echo 0; fi
+		if [[ $base =~ ([0-9]+) ]]; then SEASON_OF_DIR=$((10#${BASH_REMATCH[1]})); else SEASON_OF_DIR=0; fi
 	fi
 	shopt -u nocasematch
 }
 
-# norm_ep prints "SEASON EPISODE" for a .plexmatch episode number ($2 = the
-# folder's season, for a bare number), the start of a range: SP04 -> "0 4",
-# S03E04 -> "3 4", E02 / 02 -> "$2 2".
-norm_ep() {
+dir_season() {
+	season_of_dir "$1"
+	if [[ -n $SEASON_OF_DIR ]]; then echo "$SEASON_OF_DIR"; fi
+}
+
+# ep_pair sets EP_PAIR to "SEASON EPISODE" for a .plexmatch episode number
+# ($2 = the folder's season, for a bare number), the start of a range: SP04
+# -> "0 4", S03E04 -> "3 4", E02 / 02 -> "$2 2"; "" for another one.
+ep_pair() {
 	local v=${1%%-*}
+	EP_PAIR=""
 	shopt -s nocasematch
-	if [[ $v =~ ^sp([0-9]+)$ ]]; then echo "0 $((10#${BASH_REMATCH[1]}))"
-	elif [[ $v =~ ^s([0-9]+)e([0-9]+)$ ]]; then echo "$((10#${BASH_REMATCH[1]})) $((10#${BASH_REMATCH[2]}))"
-	elif [[ $v =~ ^e?([0-9]+)$ ]]; then echo "$2 $((10#${BASH_REMATCH[1]}))"
+	if [[ $v =~ ^sp([0-9]+)$ ]]; then EP_PAIR="0 $((10#${BASH_REMATCH[1]}))"
+	elif [[ $v =~ ^s([0-9]+)e([0-9]+)$ ]]; then EP_PAIR="$((10#${BASH_REMATCH[1]})) $((10#${BASH_REMATCH[2]}))"
+	elif [[ $v =~ ^e?([0-9]+)$ ]]; then EP_PAIR="$2 $((10#${BASH_REMATCH[1]}))"
 	fi
 	shopt -u nocasematch
+}
+
+norm_ep() {
+	ep_pair "$1" "$2"
+	if [[ -n $EP_PAIR ]]; then echo "$EP_PAIR"; fi
 }
 
 # --- provider lookup -----------------------------------------------------------
@@ -584,6 +686,15 @@ match_body() {
 	jq -n --arg t "$SHOW_TITLE${ID_FILE_TAG:+ $ID_FILE_TAG}" --arg f "$rel" --argjson y "$SHOW_YEAR" --argjson m "$2" \
 		'{type: 2, title: $t, filename: $f} + (if $y > 0 then {year: $y} else {} end)
 		 + (if $m == 1 then {manual: 1} else {} end)'
+}
+
+# match_key prints the rating key of Kizuna's match for the current show, the
+# request made the way Plex makes it: $1 = one of its videos, $2 = 1 for a
+# manual match, $3 = the provider. Nothing when there is no match; fails when
+# Kizuna doesn't answer.
+match_key() {
+	curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$1" "$2")" \
+		"$URL/$3/library/metadata/matches" | jq -r '.MediaContainer.Metadata[0].ratingKey // empty' | tr -d '\r'
 }
 
 # A whole number in Kizuna's answer, for jq. Anything else in a number's place
@@ -600,9 +711,7 @@ load_seasons() {
 	local video=$1 key lines abs season
 	local -A nth=()
 	SEASON_OF=() ABS_OF=() SHOW_KEY=""
-	key=$(curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$video" 0)" \
-		"$URL/$MODE/library/metadata/matches" | jq -r '.MediaContainer.Metadata[0].ratingKey // empty' | tr -d '\r') ||
-		return 1
+	key=$(match_key "$video" 0 "$MODE") || return 1
 	[[ -n $key ]] || return 1
 	lines=$(curl -fsS --max-time 60 -H 'X-Plex-Container-Size: 100000' \
 		"$URL/$MODE/library/metadata/$key/grandchildren" |
@@ -641,9 +750,7 @@ tag_rules() {
 # answers from the title list, without any API call.
 show_rules() {
 	local key
-	key=$(curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$1" 1)" \
-		"$URL/auto/library/metadata/matches" | jq -r '.MediaContainer.Metadata[0].ratingKey // empty' | tr -d '\r') ||
-		return 1
+	key=$(match_key "$1" 1 auto) || return 1
 	[[ $key == anidb-* || $key == tvdb-* ]] || return 1
 	echo "${key%%-*}"
 }
@@ -663,9 +770,7 @@ SHOW_VARIANTS="" # " op ed": kinds with variant files (OP1b...) in the current s
 # has for the show of video $1: its season 0 from 101 on.
 fetch_credits() {
 	local key
-	key=$(curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$1" 1)" \
-		"$URL/$MODE/library/metadata/matches" | jq -r '.MediaContainer.Metadata[0].ratingKey // empty' | tr -d '\r') ||
-		return 0
+	key=$(match_key "$1" 1 "$MODE") || return 0
 	[[ $key == anidb-* ]] || return 0
 	curl -fsS --max-time 120 -H 'X-Plex-Container-Size: 100000' "$URL/$MODE/library/metadata/$key-s0/children" |
 		jq -r "$JQ_WHOLE"'
@@ -746,22 +851,20 @@ credit_index() {
 	((CREDIT_N > 0))
 }
 
-# season_episode prints "SEASON EPISODE" for a file whose name or folder gives
-# a season above 0 ("Show - S02E01", or "Season 02/Show - 01"), or nothing.
-# $1 = file name without extension, $2 = the season of its subfolder, if any.
+# season_episode sets SEASON_EPISODE to (SEASON EPISODE) for a file whose name
+# or folder gives a season above 0 ("Show - S02E01", or "Season 02/Show - 01"),
+# or to none. $1 = file name without extension, $2 = the season of its
+# subfolder, if any, $3 = the episode number in its name (core_number).
 season_episode() {
-	local n
+	SEASON_EPISODE=()
 	shopt -s nocasematch
 	if [[ $1 =~ $SXE ]]; then
 		shopt -u nocasematch
-		if ((10#${BASH_REMATCH[2]} > 0)); then echo "$((10#${BASH_REMATCH[2]})) $((10#${BASH_REMATCH[3]}))"; fi
+		if ((10#${BASH_REMATCH[2]} > 0)); then SEASON_EPISODE=("$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))"); fi
 		return 0
 	fi
 	shopt -u nocasematch
-	if [[ -n $2 ]] && (($2 > 0)); then
-		n=$(absolute_number "$1")
-		if ((n > 0)); then echo "$2 $n"; fi
-	fi
+	if [[ -n $2 ]] && (($2 > 0 && $3 > 0)); then SEASON_EPISODE=("$2" "$3"); fi
 	return 0
 }
 
@@ -813,7 +916,7 @@ user_ep() {
 hint() {
 	if [[ -n ${3:-} ]]; then HINT_SRC[$1]=$3; fi
 	user_ep "$1"
-	local have=$HAVE rd ds
+	local have=$HAVE rd ds pair
 	shopt -s nocasematch
 	if [[ $have =~ ^sp[0-9] ]]; then # Plex 1.43 drops files hinted "SPxx"
 		shopt -u nocasematch
@@ -823,10 +926,14 @@ hint() {
 	fi
 	shopt -u nocasematch
 	if [[ -n $have ]]; then
-		rd=$(dirname -- "$1")
-		if [[ $rd == . ]]; then rd=""; fi
-		ds=$(dir_season "$rd")
-		if [[ $(norm_ep "$have" "${ds:-1}") != "$(norm_ep "$2" "${ds:-1}")" ]]; then
+		rd=""
+		if [[ $1 == */* ]]; then rd=${1%/*}; fi
+		season_of_dir "$rd"
+		ds=$SEASON_OF_DIR
+		ep_pair "$have" "${ds:-1}"
+		pair=$EP_PAIR
+		ep_pair "$2" "${ds:-1}"
+		if [[ $pair != "$EP_PAIR" ]]; then
 			warn "$SHOW_DIR/$1: kept its hint \"ep: $have\"; Kizuna's numbering is $2. Change that line by hand if it's wrong"
 		fi
 		KEPT=$((KEPT + 1))
@@ -843,31 +950,36 @@ lead_space() {
 	warn "$SHOW_DIR/$1: its name or folder starts with a space, and Plex may not match its ep: hint to it. Rename it without the space"
 }
 
-# main_videos prints how many of the videos ($@) are no special, trailer,
-# opening, ending or other extra: a show's episodes, or its movie. It stops
-# at 2.
+# main_videos sets MAIN_VIDEOS to how many of the videos ($@) are no special,
+# trailer, opening, ending or other extra: a show's episodes, or its movie. It
+# stops at 2.
 main_videos() {
-	local v stem n=0
+	local v stem core n=0
 	for v in "$@"; do
 		stem=${v##*/} stem=${stem%.*}
-		if plex_extra "$stem" && ! plex_numbered "$stem" && (($(absolute_number "$stem") == 0)); then
+		strip_tags "$stem"
+		core=$STRIP_TAGS
+		core_number "$core"
+		if plex_extra "$stem" && ! plex_numbered "$stem" && ((CORE_NUMBER == 0)); then
 			continue # an extra, unless it is meant as an episode (plan_show reports it)
 		fi
-		if ! plex_numbered "$stem" && [[ -n $(credit_of "$stem") ]]; then continue; fi
-		if (($(special_number "$stem") > 0)); then continue; fi
+		core_credit "$core"
+		if ! plex_numbered "$stem" && ((${#CORE_CREDIT[@]} > 0)); then continue; fi
+		core_special "$core"
+		if ((CORE_SPECIAL > 0)); then continue; fi
 		n=$((n + 1))
 		if ((n > 1)); then break; fi
 	done
-	echo "$n"
+	MAIN_VIDEOS=$n
 }
 
 plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
-	local relative=0 se rs re pk pe numbered ctext mains="" byhand have plain
+	local relative=0 se rs re pk pe numbered ctext mains="" byhand have plain core ep
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
 	HINT_SRC=() NAME_KEY=() FOLDER_SEASON=() VIDEO_LC=()
 	for sub in "$dir"/*/; do
-		sub=$(basename "$sub")
+		sub=${sub%/} sub=${sub##*/}
 		if [[ $sub =~ $GROUP_DIR ]]; then warn "$dir: grouping folder \"$sub\" - move it to the library root as its own show"; fi
 	done
 	read_plexmatches "$dir"
@@ -883,24 +995,27 @@ plan_show() {
 		warn "$dir/$PLEXMATCH: \"season: $ROOT_SEASON\" puts every file without a hint of its own in season $ROOT_SEASON"
 	fi
 	read_id_file "$dir"
-	order=$(unsupported_order "$(basename "$dir")${ID_FILE_TAG:+ $ID_FILE_TAG}")
+	order=$(unsupported_order "${dir##*/}${ID_FILE_TAG:+ $ID_FILE_TAG}")
 	if [[ -n $order ]]; then
 		warn "$dir: $order is a HAMA numbering order Kizuna doesn't support: the tag finds the show, but its episodes follow Kizuna's numbering, not that order. Check this show's hints against your files"
 	fi
-	mapfile -t videos < <(list_videos "$dir")
+	list_videos
+	videos=("${LIST_VIDEOS[@]}")
 	SHOW_VARIANTS=""
 	shopt -s nocasematch
-	if [[ $(basename "$dir") =~ $PLAIN_TVDB_TAG || $ID_FILE_TAG =~ $PLAIN_TVDB_TAG ]]; then
+	if [[ ${dir##*/} =~ $PLAIN_TVDB_TAG || $ID_FILE_TAG =~ $PLAIN_TVDB_TAG ]]; then
 		relative=1 # HAMA plain tvdb: seasons counted from 1
 	fi
 	shopt -u nocasematch
 	for v in "${videos[@]}"; do
 		hint_key "${v#"$dir"/}"
 		VIDEO_LC[${HINT_KEY,,}]=$((${VIDEO_LC[${HINT_KEY,,}]:-0} + 1))
-		stem=$(basename -- "${v%.*}")
-		if ! plex_numbered "$stem" && read -r ckind cnum cletter ctext < <(credit_of "$stem") && [[ $cletter != - ]]; then
-			SHOW_VARIANTS+=" $ckind"
-		fi
+		file_stem "$v"
+		stem=$FILE_STEM
+		if plex_numbered "$stem"; then continue; fi
+		strip_tags "$stem"
+		core_credit "$STRIP_TAGS"
+		if ((${#CORE_CREDIT[@]} > 0)) && [[ ${CORE_CREDIT[2]} != - ]]; then SHOW_VARIANTS+=" ${CORE_CREDIT[0]}"; fi
 	done
 	if [[ $MODE == auto ]] && ((${#videos[@]} > 0)); then
 		rules=$(tag_rules "$SHOW_TITLE${ID_FILE_TAG:+ $ID_FILE_TAG}")
@@ -923,8 +1038,11 @@ plan_show() {
 		fi
 	fi
 	for v in "${videos[@]}"; do
-		rel=${v#"$dir"/} stem=$(basename -- "${v%.*}") rd=$(dirname -- "$rel")
-		if [[ $rd == . ]]; then rd=""; fi
+		file_stem "$v"
+		rel=${v#"$dir"/} stem=$FILE_STEM rd=""
+		if [[ $rel == */* ]]; then rd=${rel%/*}; fi
+		strip_tags "$stem"
+		core=$STRIP_TAGS # read once, for every number below
 		user_ep "$rel"
 		have=$HAVE
 		if [[ -n $HAVE_AS ]]; then
@@ -934,10 +1052,11 @@ plan_show() {
 		fi
 		if [[ -n $have && $rel =~ (^|/)[[:space:]] ]]; then lead_space "$rel"; fi
 		ds=""
-		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); FOLDER_SEASON[$rd]=$ds; fi # a subfolder's season, if it has one
+		if [[ -n $rd ]]; then season_of_dir "$rd"; ds=$SEASON_OF_DIR; FOLDER_SEASON[$rd]=$ds; fi # a subfolder's season, if it has one
 		if plex_extra "$stem"; then # an extra to Plex, like those in extras/
 			# reported when it is meant as an episode or the movie
-			if ((${#videos[@]} == 1)) || plex_numbered "$stem" || (($(absolute_number "$stem") > 0)); then
+			core_number "$core"
+			if ((${#videos[@]} == 1 || CORE_NUMBER > 0)) || plex_numbered "$stem"; then
 				warn "$v: Plex's scanner makes it an extra, not an episode or a movie: its name ends in \"-${stem##*-}\". Rename it without that"
 			fi
 			continue
@@ -949,35 +1068,41 @@ plan_show() {
 		if plex_numbered "$stem"; then
 			numbered=1
 		else
-			read -r pk pe < <(plex_credit "$stem") || pk="" pe=""
+			plex_credit_of "$stem"
+			pk=${PLEX_CREDIT_OF[0]:-} pe=${PLEX_CREDIT_OF[1]:-}
 		fi
 		# an opening or ending: reported, never hinted
-		if ((!numbered)) && read -r ckind cnum cletter ctext < <(credit_of "$stem"); then
+		core_credit "$core"
+		if ((!numbered && ${#CORE_CREDIT[@]} > 0)); then
+			ckind=${CORE_CREDIT[0]} cnum=${CORE_CREDIT[1]} cletter=${CORE_CREDIT[2]} ctext=${CORE_CREDIT[3]}
 			if [[ -z $pk ]]; then pk=plain pe=$ctext; fi # not spelled the way Plex takes it
 			if [[ $rules == tvdb ]]; then # TVDB numbers its own specials; the 101+ scheme doesn't apply
-				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its TVDB number (S00Exx)")"
+				credit_note "$v" "$pk" "$pe" "" "its TVDB number (S00Exx)"
 				continue
 			fi
 			if [[ $CREDITS_FOR != "$dir" ]]; then load_credits "$dir" "$v"; fi
 			if credit_index "$ckind" "$cnum" "$cletter"; then
-				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$CREDIT_N")" "$CREDIT_NOTE" "$CREDIT_GUESS")"
+				printf -v ep 'S00E%02d' "$CREDIT_N"
+				credit_note "$v" "$pk" "$pe" "$ep" "$CREDIT_NOTE" "$CREDIT_GUESS"
 			else
-				warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)")"
+				credit_note "$v" "$pk" "$pe" "" "its Kizuna number (S00E101...; ${ckind^^}$cnum${cletter#-}: $CREDIT_NOTE)"
 			fi
 			continue
 		fi
-		n=$(special_number "$stem")
+		core_special "$core"
+		n=$CORE_SPECIAL
 		if ((n > 0)); then
+			printf -v ep 'S00E%02d' "$n"
 			if [[ -n $pk ]]; then
 				if [[ $rules == tvdb ]]; then
-					warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "" "its TVDB number (S00Exx)")"
+					credit_note "$v" "$pk" "$pe" "" "its TVDB number (S00Exx)"
 				else
-					warn "$v: $(credit_note "$(basename "$v")" "$pk" "$pe" "$(printf 'S00E%02d' "$n")")"
+					credit_note "$v" "$pk" "$pe" "$ep"
 				fi
 			elif [[ $rules == tvdb ]]; then
 				warn "$v: special file - add its TVDB number by hand (ep: S00Exx: $rel)"
 			else
-				hint "$rel" "$(printf 'S00E%02d' "$n")"
+				hint "$rel" "$ep"
 			fi
 			continue
 		fi
@@ -987,10 +1112,11 @@ plan_show() {
 		elif [[ $pk == dropped ]]; then
 			warn "$v: Plex's scanner leaves it out of the library: its name contains the whole word \"$pe\". Rename it without that"
 		fi
-		abs=$(absolute_number "$stem")
+		core_number "$core"
+		abs=$CORE_NUMBER
 		if ((abs == 0 && !numbered)); then # no number in it, for the script or for Plex
 			# counted once per show, and only for a show with such a file
-			if [[ -z $mains ]]; then mains=$(main_videos "${videos[@]}"); fi
+			if [[ -z $mains ]]; then main_videos "${videos[@]}"; mains=$MAIN_VIDEOS; fi
 			if ((mains == 1)); then # a movie: next to it only specials, trailers, openings and endings
 				hint "$rel" "S01E01"
 				continue
@@ -1010,8 +1136,9 @@ plan_show() {
 			fi
 		fi
 		# plain HAMA tvdb: S02E01 is the 1st episode of TVDB season 2 -> its absolute number
-		if [[ $rules == tvdb ]] && ((relative)) && se=$(season_episode "$stem" "$ds") && [[ -n $se ]]; then
-			read -r rs re <<<"$se"
+		season_episode "$stem" "$ds" "$abs"
+		if [[ $rules == tvdb ]] && ((relative && ${#SEASON_EPISODE[@]} > 0)); then
+			rs=${SEASON_EPISODE[0]} re=${SEASON_EPISODE[1]}
 			if ((!loaded)); then
 				load_seasons "$v" || { warn "$dir: no match from Kizuna at $URL; skipped"; SHOW_SKIPPED=1; return; }
 				loaded=1
@@ -1026,7 +1153,8 @@ plan_show() {
 				warn "$v: $se: TheTVDB's season $rs of $SHOW_KEY has no episode $re (and $re isn't one of its absolute numbers)"
 				continue
 			fi
-			hint "$rel" "$(printf 'S%02dE%02d' "$rs" "$abs")" "$se"
+			printf -v ep 'S%02dE%02d' "$rs" "$abs"
+			hint "$rel" "$ep" "$se"
 			continue
 		fi
 		shopt -s nocasematch
@@ -1063,7 +1191,8 @@ plan_show() {
 			NAME_KEY[$rel]=$se
 			continue # the scanner already reads "Show - 05" in the show folder as S01E05
 		fi
-		hint "$rel" "$(printf 'S%02dE%02d' "$season" "$abs")"
+		printf -v ep 'S%02dE%02d' "$season" "$abs"
+		hint "$rel" "$ep"
 	done
 	same_numbers "${videos[@]}"
 }
@@ -1085,7 +1214,7 @@ plan_show() {
 # It reads what plan_show recorded (HINT_SRC, NAME_KEY, FOLDER_SEASON) and
 # runs no subshell: it costs a show without such files next to nothing.
 same_numbers() {
-	local v rel stem key have kind s e i n list first differ same tags='\[[^]]*\]|\([^)]*\)|\{[^}]*\}'
+	local v rel stem key have kind s e i n list first differ same
 	local -A planned=() members=() fresh=()
 	local order=() rels=() kinds=()
 	((${#PLAN_REL[@]} > 0)) || return 0
@@ -1140,13 +1269,8 @@ same_numbers() {
 			if [[ -z $same && ${kinds[i]} == name ]]; then same=$key; fi
 			if [[ -z $same ]]; then
 				stem=${rel##*/} stem=${stem%.*}
-				while [[ $stem =~ $tags ]]; do stem=${stem/"${BASH_REMATCH[0]}"/}; done
-				stem=${stem#"${stem%%[![:space:]]*}"} stem=${stem%"${stem##*[![:space:]]}"}
-				if [[ $stem != *[[:space:]]* ]]; then # underscores for spaces, as strip_tags reads them
-					stem=${stem//_/ }
-					stem=${stem#"${stem%%[![:space:]]*}"} stem=${stem%"${stem##*[![:space:]]}"}
-				fi
-				stem=${stem,,}
+				strip_tags "$stem"
+				stem=${STRIP_TAGS,,}
 				while [[ $stem =~ ^(.*[0-9])v[0-9]($|[^[:alnum:]].*$) ]]; do stem=${BASH_REMATCH[1]}${BASH_REMATCH[2]}; done
 				same=/$stem
 				if [[ $rel == */* ]]; then same=${rel%/*}$same; fi
