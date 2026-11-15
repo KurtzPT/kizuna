@@ -132,7 +132,7 @@ const (
 	goodFribb        = `[{"anidb_id": 2, "tvdb_id": 200, "mal_id": 7}]`
 )
 
-// Load merges Anime-Lists first, whatever answers first: where both lists
+// Load merges Anime-Lists first: where both lists
 // place an anime, Anime-Lists' series, season and exceptions stay, and Fribb
 // only adds the ids that entry lacks.
 func TestLoadAnimeListsFirst(t *testing.T) {
