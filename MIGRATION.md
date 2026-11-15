@@ -174,13 +174,15 @@ specials and trailers as `S00Exx` with [Kizuna's number](#openings-and-endings-w
 | `Show [anidb-23]/Show - 01.mkv` … `- 148.mkv`, `S01E05`, `Specials/Show - 01.mkv` | the right number | none |
 | specials: `SP3` `Special 3` `OVA2` `OAD` | skipped | 🔧 `ep: S00E03: … SP3.mkv`; a bare `OVA`, `OAD` or `Special` is `S00E01` |
 | trailers: `PV` `PV2` `CM` `Trailer` `Teaser` `Promo` `Preview` | skipped | 🔧 `ep: S00E201: … PV.mkv`, `PV2` is `S00E202` |
-| a folder's **only** video, without a number: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
+| a movie: the **only** video without a number, not counting specials, trailers, openings and endings: `Movie (2016).mkv` | skipped | 🔧 `ep: S01E01: Movie (2016).mkv` |
+| other videos without any number: `Movie Part A.mkv` next to `Movie Part B.mkv`, `Show - Recap.mkv` next to episodes | skipped | ✋ the script warns: rename them with a number, or write their `ep:` hints [by hand](#-your-own-plexmatch-files) |
 | openings and endings | made extras | none ([below](#openings-and-endings)) |
 | HAMA `anidb.id`, `tvdb.id`… | ignored by Plex | ✋ rename the folder ([`.id` files](#hama-id-files)) |
 | `tvshow.nfo` | ignored by Plex | ✋ put the id in the folder name: `Show [anidb-23]` |
 | grouping folders, `Show/[2] Sequel/` | merged into one show | ✋ move each to the library root; the script warns |
 | folder offsets, `-s2e12` | not supported | ✋ write `ep:` hints by hand |
-| `extras/` and hidden folders | ignored by the script | none. Other folders, such as `Trailers/`, are planned like the rest |
+| `extras/`, hidden folders, Plex's extras names such as `Movie (2016)-trailer.mkv` | ignored by the script | none. Other folders, such as `Trailers/`, are planned like the rest |
+| an episode or the only video with such an ending: `Show - 02 - Love-scene.mkv` | made an extra | ✋ rename it without the ending; the script warns |
 
 <sub>🔧 the script does it &nbsp;·&nbsp; ✋ you do it</sub>
 
@@ -188,6 +190,9 @@ A file numbered ` - 13`, `E13`, `Ep 13`, `Episode 13` or `S01E13` is an episode,
 `Show Ep 13 - Christmas Special.mkv` gets no hint. A number before the dash doesn't count, so
 `Show 13 - Christmas Special.mkv` is planned as a special: rename it to one of those forms, or write its `ep:` line
 [by hand](#-your-own-plexmatch-files) first.
+
+A name with underscores for spaces is read like the same name with spaces: `[Group]_Show_-_SP3_[1080p].mkv` like
+`Show - SP3.mkv`.
 
 > [!NOTE]
 > Hints are written as `S00Exx`. Plex's `.plexmatch` documentation also allows `SPxx`, but Plex Media Server 1.43
@@ -264,7 +269,8 @@ ASS put `Show [tvdb3-12345]/Show - 033.mkv` into the right TVDB season by itself
 ```
 
 - **Seasons** come from Kizuna, which needs a [TheTVDB key](SETTINGS.md#-accounts--keys).
-- **Left alone:** files with `SxxEyy` in the name or in a `Season NN` folder.
+- **Left alone:** files with `SxxEyy` in the name or in a `Season NN` folder, and Plex's extras names such as
+  `Movie (2016)-trailer.mkv` (an episode named so is reported: rename it without the ending).
 - **Episode numbers** are read from ` - 033`, `E33`, `Ep 33`, `Episode 33`, or a number ending the name; `[…]`,
   `(…)` and `{…}` groups don't count. A file with none is reported.
 - **A lone unnumbered movie** gets `ep: S01E01`. Tag its folder `[anidb-…]`, not with the series' tag
