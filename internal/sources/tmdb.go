@@ -21,21 +21,39 @@ type TMDB struct {
 	f    *fetch.Client
 	key  string
 	keys *keyCheck
+	// shows, seasons: a show's season list and its season files, decoded
+	// once per file (several reads of one build, and the entries of one
+	// series built one after the other, read the same files), by cache key.
+	shows   *fetch.Memo[string, *tmdbShow]
+	seasons *fetch.Memo[string, *tmdbSeasonFile]
 }
 
 func NewTMDB(f *fetch.Client, key string) *TMDB {
 	f.Throttle("api.themoviedb.org", 50*time.Millisecond)
-	return &TMDB{f: f, key: key, keys: newKeyCheck("TMDB", "TMDB_API_KEY")}
+	return &TMDB{f: f, key: key, keys: newKeyCheck("TMDB", "TMDB_API_KEY"),
+		shows: fetch.NewMemo[string, *tmdbShow](sharedFor, 0), seasons: fetch.NewMemo[string, *tmdbSeasonFile](sharedFor, 0)}
 }
 
 func (t *TMDB) Enabled() bool { return t != nil && t.key != "" } // nil = not set up
 
+// get reads one answer of TheMovieDb. Its twin is tmdbShared: the URL and
+// the request they build must stay the same.
 func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Duration, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tmdb: no api key")
 	}
 	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
 	return t.keys.getJSON(ctx, t.f, fetch.Request{URL: url, Key: key, TTL: ttl}, out)
+}
+
+// tmdbShared is t.get for a value its callers share and only read, kept
+// in m. Its twin is get: see there.
+func tmdbShared[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T], path, query, key string, ttl time.Duration) (*T, error) {
+	if !t.Enabled() {
+		return nil, fmt.Errorf("tmdb: no api key")
+	}
+	url := fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query)
+	return sharedJSON(ctx, t.keys, t.f, m, fetch.Request{URL: url, Key: key, TTL: ttl})
 }
 
 // findTTL: how long TMDB's answer for a TVDB id is kept. An empty one (the
@@ -95,11 +113,14 @@ type tmdbSeason struct {
 // season files it leads to (2 days), while the details answer is big
 // (aggregate_credits lists the cast and crew of every season) and kept a week. One file
 // would mean that big answer every 2 days, also for the episode lists
-// (EpisodesAndPosters), which need only the seasons.
+// (EpisodesAndPosters), which need only the seasons. Its Seasons are
+// shared (TMDB.shows): read them, don't change them.
 func (t *TMDB) tv(ctx context.Context, id int) (tmdbShow, error) {
-	var s tmdbShow
-	err := t.get(ctx, fmt.Sprintf("/tv/%d", id), "&language=en-US", fmt.Sprintf("tmdb/tv-%d.json", id), 2*24*time.Hour, &s)
-	return s, err
+	s, err := tmdbShared(ctx, t, t.shows, fmt.Sprintf("/tv/%d", id), "&language=en-US", fmt.Sprintf("tmdb/tv-%d.json", id), 2*24*time.Hour)
+	if err != nil {
+		return tmdbShow{}, err
+	}
+	return *s, nil
 }
 
 // Text returns the English title and overview of a TV show or a movie. A
@@ -270,24 +291,7 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 		wg.Add(1)
 		go func(season int) {
 			defer wg.Done()
-			var r struct {
-				Episodes []struct {
-					Number   int    `json:"episode_number"`
-					Name     string `json:"name"`
-					Overview string `json:"overview"`
-					Air      string `json:"air_date"`
-					Still    string `json:"still_path"`
-					Runtime  int    `json:"runtime"`
-					Crew     []struct {
-						Job        string `json:"job"`
-						Department string `json:"department"`
-						Name       string `json:"name"`
-						Profile    string `json:"profile_path"`
-					} `json:"crew"`
-				} `json:"episodes"`
-				seasonImages
-			}
-			err := t.season(ctx, id, season, &r)
+			r, err := t.season(ctx, id, season)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -334,11 +338,33 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 
 // season reads one season file of a TV show, which EpisodesAndPosters, SeasonOverview
 // and SeasonArt share: the season's images come appended to it (TMDB's
-// append_to_response), so its posters cost no request of their own.
-func (t *TMDB) season(ctx context.Context, id, season int, out any) error {
+// append_to_response), so its posters cost no request of their own. It is
+// decoded once per file and shared (TMDB.seasons): read it, don't change it.
+func (t *TMDB) season(ctx context.Context, id, season int) (*tmdbSeasonFile, error) {
 	key := fmt.Sprintf("tmdb/tv-%d-s%d-images.json", id, season) // files from before the images had none: not read
-	return t.get(ctx, fmt.Sprintf("/tv/%d/season/%d", id, season),
-		"&language=en-US&append_to_response=images&include_image_language=en,ja,null", key, 2*24*time.Hour, out)
+	return tmdbShared(ctx, t, t.seasons, fmt.Sprintf("/tv/%d/season/%d", id, season),
+		"&language=en-US&append_to_response=images&include_image_language=en,ja,null", key, 2*24*time.Hour)
+}
+
+// tmdbSeasonFile is what EpisodesAndPosters, SeasonOverview and SeasonArt
+// read of a season file.
+type tmdbSeasonFile struct {
+	Overview string `json:"overview"`
+	Episodes []struct {
+		Number   int    `json:"episode_number"`
+		Name     string `json:"name"`
+		Overview string `json:"overview"`
+		Air      string `json:"air_date"`
+		Still    string `json:"still_path"`
+		Runtime  int    `json:"runtime"`
+		Crew     []struct {
+			Job        string `json:"job"`
+			Department string `json:"department"`
+			Name       string `json:"name"`
+			Profile    string `json:"profile_path"`
+		} `json:"crew"`
+	} `json:"episodes"`
+	seasonImages
 }
 
 // SeasonOverview returns the English overview of a TV show's season, from
@@ -348,11 +374,11 @@ func (t *TMDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 	if ok, err := t.listsSeason(ctx, id, season); !ok {
 		return "", err
 	}
-	var r struct {
-		Overview string `json:"overview"`
+	r, err := t.season(ctx, id, season)
+	if err != nil {
+		return "", err
 	}
-	err := t.season(ctx, id, season, &r)
-	return r.Overview, err
+	return r.Overview, nil
 }
 
 // SeasonArt returns the posters of a TV show's season, English or textless
@@ -362,8 +388,8 @@ func (t *TMDB) SeasonArt(ctx context.Context, id, season int) (Art, error) {
 	if ok, err := t.listsSeason(ctx, id, season); !ok {
 		return Art{}, err
 	}
-	var r seasonImages
-	if err := t.season(ctx, id, season, &r); err != nil {
+	r, err := t.season(ctx, id, season)
+	if err != nil {
 		return Art{}, err
 	}
 	return Art{Posters: r.posters()}, nil

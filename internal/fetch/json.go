@@ -33,16 +33,57 @@ var errNotJSON = errors.New("not JSON")
 // Its error fails the call as a failed download would, with nothing sent:
 // a stale copy answers unless the request it returned has NoStale.
 func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error)) error {
+	_, err := c.getJSON(ctx, r, out, ready, nil)
+	return err
+}
+
+// GetShared is GetJSON for a value its callers share and only read (see
+// Memo). A fresh cached copy is decoded once per file time and kept in m,
+// by r.Key: a later call that finds the file fresh with that same time
+// gets the kept value, without the file being read, and the read is
+// reported as the cache hit it stands for. Whatever else answers (a
+// download, a stale copy) is decoded as GetJSON does, and isn't kept: the
+// next fresh read keeps it. The value returned must not be changed.
+func GetShared[T any](ctx context.Context, c *Client, m *Memo[string, *T], r Request, ready func(Request) (Request, error)) (*T, error) {
+	var kept *T
+	known := func(at time.Time) bool {
+		if v, vat, ok := m.Get(r.Key); ok && vat.Equal(at) {
+			kept = v
+			return true
+		}
+		return false
+	}
+	out := new(T)
+	at, err := c.getJSON(ctx, r, out, ready, known)
+	switch {
+	case err != nil:
+		return nil, err
+	case kept != nil:
+		return kept, nil
+	case !at.IsZero():
+		m.Put(r.Key, at, out)
+	}
+	return out, nil
+}
+
+// getJSON is GetJSON, with freshKnown's known: a fresh copy it knows is not read
+// and out is left as it is. at: the fresh copy's file time, when that copy
+// answered (known, or decoded into out); zero when anything else did.
+func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error), known func(time.Time) bool) (time.Time, error) {
 	start := time.Now()
 	broken := false // the fresh copy doesn't decode: no stale copy to fall back on either
-	if data, ok := c.fresh(ctx, r); ok {
+	if data, at, ok, hit := c.freshKnown(ctx, r, known); ok {
+		if hit {
+			observe(ctx, r, start, KindCache, nil)
+			return at, nil
+		}
 		err := decode(data, out)
 		if err == nil {
 			observe(ctx, r, start, KindCache, nil)
-			return nil
+			return at, nil
 		}
 		if ie := (*json.InvalidUnmarshalError)(nil); errors.As(err, &ie) {
-			return err // the caller's out is wrong (nil, not a pointer), not the copy
+			return time.Time{}, err // the caller's out is wrong (nil, not a pointer), not the copy
 		}
 		broken = true
 		slog.Warn("cached copy doesn't decode; downloading it again", "key", r.Key, "err", err)
@@ -56,9 +97,9 @@ func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Req
 		var err error
 		if r, err = ready(r); err != nil {
 			if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
-				return nil
+				return time.Time{}, nil
 			}
-			return err
+			return time.Time{}, err
 		}
 	}
 	own := r.Validate
@@ -89,10 +130,10 @@ func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Req
 	data, err := c.download(ctx, r)
 	if err != nil {
 		if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
-			return nil
+			return time.Time{}, nil
 		}
 		observe(ctx, r, start, KindFail, err)
-		return err
+		return time.Time{}, err
 	}
 	observe(ctx, r, start, KindNet, nil)
 	// With ctx still live, download waited for this call's download, if it
@@ -100,9 +141,9 @@ func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Req
 	// download joined from another call).
 	if ctx.Err() == nil && decoded.IsValid() {
 		target.Elem().Set(decoded.Elem())
-		return nil
+		return time.Time{}, nil
 	}
-	return decode(data, out)
+	return time.Time{}, decode(data, out)
 }
 
 // staleJSON decodes key's cached copy, however old, into out, for a call

@@ -674,9 +674,7 @@ func TestAniDBFailedCacheWriteNotAskedAgain(t *testing.T) {
 	if a, err := c.Anime(ctx, 69); err != nil || a == nil {
 		t.Fatalf("first call: %v %v", a, err)
 	}
-	c.memoMu.Lock()
-	clear(c.memo) // an hour later
-	c.memoMu.Unlock()
+	c.memo = newAniDBMemo() // an hour later
 	if _, err := c.Anime(ctx, 69); !errors.Is(err, errAniDBUnavailable) || calls.Load() != 1 {
 		t.Fatalf("after the memo expired: %v, %d requests; want unavailable and 1", err, calls.Load())
 	}
