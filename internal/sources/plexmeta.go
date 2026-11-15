@@ -449,7 +449,9 @@ type plexPageSize struct {
 func (s *plexPageSize) UnmarshalJSON(data []byte) error {
 	var items []json.RawMessage
 	err := exactKeys(data, map[string]any{"totalSize": &s.total, "Metadata": &items})
-	s.items = len(items)
+	if items != nil { // a second key that only differs in case mustn't empty the count
+		s.items = len(items)
+	}
 	return err
 }
 
@@ -459,7 +461,7 @@ func (s *plexPageSize) UnmarshalJSON(data []byte) error {
 // incomplete with no request to Plex. Refused, nothing is written and the
 // next build asks again. An empty page with nothing after it (a season
 // without episodes, the page past the last one) is kept like any other.
-func cutShort(start int) func([]byte) error {
+func cutShort(id string, start int) func([]byte) error {
 	return func(data []byte) error {
 		var c struct {
 			MediaContainer plexPageSize `json:"MediaContainer"`
@@ -468,7 +470,7 @@ func cutShort(start int) func([]byte) error {
 			return nil // not a page at all: the decode after this reports it
 		}
 		if m := c.MediaContainer; m.items == 0 && m.total > start {
-			return fmt.Errorf("list cut short: no episodes from %d of %d", start, m.total)
+			return fmt.Errorf("list cut short: no episodes of %s from %d of %d", id, start, m.total)
 		}
 		return nil
 	}
@@ -538,7 +540,7 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 		if page == plexMaxPages {
 			return out, fmt.Errorf("season %d: more than %d pages", season, plexMaxPages)
 		}
-		c, err := p.children(ctx, id, start, cutShort(start))
+		c, err := p.children(ctx, id, start, cutShort(id, start))
 		if err != nil {
 			return out, err
 		}
