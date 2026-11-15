@@ -116,7 +116,7 @@ func main() {
 // setup creates every source. keepLoaded loads the two lists matching
 // depends on, calls firstDone after the first load, and keeps them fresh
 // until ctx ends. It returns TheTVDB too, for the ready line.
-func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *sources.TVDB, keepLoaded func(firstDone func())) {
+func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *sources.TVDB, keepLoaded func(firstDone func(titles bool))) {
 	f := fetch.New(filepath.Join(cfg.DataDir, "cache"))
 	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget)
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
@@ -132,7 +132,7 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 		loadErr(ctx, "AniDB title list", titles.Load(ctx, f))
 		loadErr(ctx, "anime mapping", lists.Load(ctx, f, cfg.DataDir))
 	}
-	keepLoaded = func(firstDone func()) {
+	keepLoaded = func(firstDone func(titles bool)) {
 		keepFresh(ctx, load, func() (bool, []string) { return titles.Ready(), lists.Missing() }, firstDone)
 	}
 	return p, tvdb, keepLoaded
@@ -149,21 +149,23 @@ func loadErr(ctx context.Context, list string, err error) {
 // keepFresh loads the title list and the mapping lists now and then daily.
 // Until each of them has loaded once (first start without a network: no
 // cached copy to fall back on) they are retried every 5 minutes instead:
-// without titles nothing matches, and a mapping list that never loaded leaves
+// without titles nothing matches by name, and a mapping list that never loaded leaves
 // its ids and episode exceptions out, even when the other one loaded. ready
 // says whether the titles loaded and which mapping lists never did.
-// firstDone runs after the first load, unless Kizuna started stopping during
-// it: a load cut short isn't "ready". Returns when ctx ends.
-func keepFresh(ctx context.Context, load func(), ready func() (titles bool, missingLists []string), firstDone func()) {
+// firstDone runs after the first load, told whether the titles loaded,
+// unless Kizuna started stopping during it: a load cut short isn't "ready".
+// Returns when ctx ends.
+func keepFresh(ctx context.Context, load func(), ready func() (titles bool, missingLists []string), firstDone func(titles bool)) {
 	load()
 	if ctx.Err() != nil {
 		return
 	}
-	firstDone()
+	titles, _ := ready()
+	firstDone(titles)
 	for {
 		wait := 24 * time.Hour
 		if titles, missing := ready(); !titles || len(missing) > 0 {
-			wait = 5 * time.Minute
+			wait = retryMissing
 			slog.Warn("a list is missing (download failed, nothing cached yet); retrying", "in", wait,
 				"titles", titles, "mapping_missing", missing)
 		}
@@ -175,6 +177,9 @@ func keepFresh(ctx context.Context, load func(), ready func() (titles bool, miss
 		}
 	}
 }
+
+// retryMissing is how soon keepFresh tries again a list that never loaded.
+const retryMissing = 5 * time.Minute
 
 // after is time.After; tests replace it to see keepFresh's wait.
 var after = time.After
@@ -217,9 +222,9 @@ func serve(cfg config.Config) error {
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
 	loaded := p.Loading()
-	go keepLoaded(func() {
+	go keepLoaded(func(titles bool) {
 		loaded()
-		logReady(cfg, ln, tvdb, start, renamer != nil)
+		logReady(cfg, ln, tvdb, start, renamer != nil, titles)
 	})
 
 	srv := &http.Server{Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second,
@@ -289,12 +294,19 @@ func drain(srv *http.Server, waitBuilds func(context.Context) bool, timeout time
 
 // logReady logs the settings in effect once the first list load is over.
 // extraTitles says whether the opening and ending titles are really on
-// (extraTitles returned a Renamer), not just set.
-func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time, extraTitles bool) {
+// (extraTitles returned a Renamer), not just set. Without the title list
+// (titles false: first start without a network, nothing cached) the line is
+// a warning instead of "ready": no show matches by name until it loads, and
+// /health answers "starting" until then too.
+func logReady(cfg config.Config, ln net.Listener, tvdb *sources.TVDB, start time.Time, extraTitles, titles bool) {
+	level, msg := slog.LevelInfo, "ready"
+	if !titles {
+		level, msg = slog.LevelWarn, "started without AniDB's title list: shows match only by id, not by name, until it loads (retried every "+retryMissing.String()+")"
+	}
 	u := cfg.UsableOf // each list as it works: sources without a key are skipped
 	// The cache cleanup frees at least CACHE_MIN_FREE (fetch.KeepFree raises a
 	// lower target to it): log the target it works with.
-	slog.Info("ready", "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
+	slog.Log(context.Background(), level, msg, "version", provider.Version, "listen", ln.Addr().String(), "allow_from", cfg.AllowFrom, "allowed_hosts", cfg.AllowedHosts, "startup", time.Since(start).Round(time.Millisecond),
 		"tvdb", cmp.Or(tvdb.API(), "off"), "tmdb", cfg.TMDBKey != "", "mal", cfg.MALClientID != "", "plex", cfg.PlexToken != "", "anidb_client", cfg.AniDBClient != "",
 		"titles", u(cfg.TitleSources), "summaries", u(cfg.SummarySources), "posters", u(cfg.PosterSources),
 		"backgrounds", u(cfg.BackgroundSources), "logos", u(cfg.LogoSources), "art_all", cfg.ArtAllSources, "season_art_fallback", cfg.SeasonArtFallback,

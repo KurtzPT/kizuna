@@ -135,7 +135,7 @@ tokens are [never in them](SECURITY.md#%EF%B8%8F-how-kizuna-is-protected).
 
 | [`LOG_LEVEL`](SETTINGS.md#-logging) | Logs |
 |---|---|
-| `info` (default) | the settings in effect as the `ready` line, one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
+| `info` (default) | the settings in effect as the `ready` line (a warning instead if AniDB's title list couldn't be downloaded: shows match only by id until it is), one `match` line per match with how it was decided, one `show built` line per show, and failures: rejected keys, AniDB pauses and bans |
 | `debug` | also every request, the title-search scores, and which source gave each field |
 
 **`show built … complete=false`** means something was missing (AniDB details, part of an episode list, a source
