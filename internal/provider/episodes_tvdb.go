@@ -80,7 +80,7 @@ type tvdbBuild struct {
 	// done with tmdbWG), and start TheTVDB's crew records, when tvdb is
 	// first in EPISODE_CREW_SOURCES (into crew and crewPending, done with
 	// crewWG; crewEarly says it did), and Plex's list for crew (plexRead).
-	tmdbWG, crewWG sync.WaitGroup
+	tmdbWG, crewWG group
 	tmdbOK         bool
 	crew           map[int]sources.Crew
 	crewPending    bool
@@ -149,8 +149,8 @@ func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 
 // wait waits for what startTMDB and start started.
 func (b *tvdbBuild) wait() {
+	defer b.crewWG.Wait() // also when the first Wait panics (group)
 	b.tmdbWG.Wait()
-	b.crewWG.Wait()
 }
 
 // loadTMDB waits for TheMovieDb's episode list in b.tmdbEps (startTMDB

@@ -83,7 +83,7 @@ type showSources struct {
 	// early: warmEarly started TheTVDB's and TheMovieDb's show fields and
 	// art, and Plex's art (in earlyWG), so warm leaves them out.
 	early   bool
-	earlyWG sync.WaitGroup
+	earlyWG group
 }
 
 type text struct{ title, summary string }
@@ -532,7 +532,7 @@ func (ss *showSources) warm() {
 		first(f.order, ss.detailsLazy, func(src string) bool { return f.has(ss.details(src)) })
 	}
 	w.jobs = ss.warmArt(w.jobs, ss.notEarly, true)
-	var wg sync.WaitGroup
+	var wg group
 	for _, job := range w.jobs {
 		wg.Go(job)
 	}
