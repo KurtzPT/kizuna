@@ -79,6 +79,9 @@ func (m *MAL) Anime(ctx context.Context, id int) (MALAnime, error) {
 		Key:     fmt.Sprintf("mal/v2-%d-full.json", id),
 		TTL:     30 * 24 * time.Hour,
 		Headers: map[string]string{"X-MAL-CLIENT-ID": m.clientID},
+		// Go carries a header like this one to whatever host a redirect
+		// names (it drops only its own auth headers there).
+		NoRedirect: true,
 	}, &r)
 	if err != nil {
 		return MALAnime{}, err

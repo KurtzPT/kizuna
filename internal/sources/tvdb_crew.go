@@ -127,44 +127,14 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	bctx, cancel := context.WithTimeout(ctx, crewBudget)
 	defer cancel()
 	var (
-		mu sync.Mutex
-		wg sync.WaitGroup
-		// What the workers report, in one variable: each one they share is
-		// an allocation of the build.
-		res struct {
-			left   []int // not fetched within the budget: the background queue takes them
-			failed bool  // a request failed without an answer from TheTVDB
-		}
+		wg  sync.WaitGroup
+		res crewRun
 	)
 	jobs := make(chan int)
 	for range crewWorkers {
 		wg.Go(func() {
 			for id := range jobs {
-				if bctx.Err() != nil { // don't start downloads nobody waits for: the background queue takes them
-					mu.Lock()
-					res.left = append(res.left, id)
-					mu.Unlock()
-					continue
-				}
-				c, err := t.fetchCrew(bctx, id, false)
-				mu.Lock()
-				switch {
-				case err == nil:
-					crew[id] = c
-				case bctx.Err() != nil:
-					res.left = append(res.left, id)
-				case crewAnswer(err):
-					t.crewFail(id, err)
-				default:
-					// A login or network blip, or an answer that can't be
-					// read: not TheTVDB's answer about the record. Pending,
-					// so the next build comes soon and asks again. Not queued
-					// for the background: that would ask twice per build
-					// while TheTVDB is down.
-					res.failed = true
-					slog.Debug("tvdb: episode record not fetched", "episode", id, "err", err)
-				}
-				mu.Unlock()
+				t.crewJob(bctx, id, crew, &res)
 			}
 		})
 	}
@@ -173,12 +143,55 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	}
 	close(jobs)
 	wg.Wait()
+	res.panics.raise() // a record's panic fails the build, not the process
 	if len(res.left) > 0 {
 		pending = true
 		slog.Debug("tvdb: episode records left for the background", "count", len(res.left), "of", len(missing))
 	}
 	t.queueCrew(append(res.left, stale...))
 	return crew, pending || res.failed
+}
+
+// crewRun is what EpisodeCrew's workers report, in one variable: each one
+// they share is an allocation of the build. mu guards the rest, and the
+// crew map the workers fill.
+type crewRun struct {
+	mu     sync.Mutex
+	left   []int  // not fetched within the budget: the background queue takes them
+	failed bool   // a request failed without an answer from TheTVDB
+	panics caught // a record's panic, raised again by EpisodeCrew once the workers are done
+}
+
+// crewJob fetches one record for EpisodeCrew's workers and notes how it
+// went in crew and res. A panic ends only this record: the worker goes on
+// taking records, so the sender is never left waiting for one, and mu is
+// never left held for the others.
+func (t *TVDB) crewJob(ctx context.Context, id int, crew map[int]Crew, res *crewRun) {
+	defer res.panics.keep()
+	if ctx.Err() != nil { // don't start downloads nobody waits for: the background queue takes them
+		res.mu.Lock()
+		res.left = append(res.left, id)
+		res.mu.Unlock()
+		return
+	}
+	c, err := t.fetchCrew(ctx, id, false)
+	res.mu.Lock()
+	defer res.mu.Unlock()
+	switch {
+	case err == nil:
+		crew[id] = c
+	case ctx.Err() != nil:
+		res.left = append(res.left, id)
+	case crewAnswer(err):
+		t.crewFail(id, err)
+	default:
+		// A login or network blip, or an answer that can't be read: not
+		// TheTVDB's answer about the record. Pending, so the next build comes
+		// soon and asks again. Not queued for the background: that would ask
+		// twice per build while TheTVDB is down.
+		res.failed = true
+		slog.Debug("tvdb: episode record not fetched", "episode", id, "err", err)
+	}
 }
 
 // fetchCrew gets an episode record. background: a fetch nobody waits for.
@@ -234,12 +247,25 @@ func (t *TVDB) queueCrew(ids []int) {
 	}
 	t.crewQueue.Go(func() {
 		for _, id := range todo {
-			if _, err := t.fetchCrew(context.Background(), id, true); crewAnswer(err) {
-				t.crewFail(id, err)
-			}
-			t.crewMu.Lock()
-			delete(t.crewQueued, id)
-			t.crewMu.Unlock()
+			t.backgroundCrew(id)
 		}
 	})
+}
+
+// backgroundCrew fetches one record for queueCrew. Nobody waits for it to
+// raise a panic on, so a panic is logged and ends only this record: it
+// leaves the queue all the same (a later build may queue it again), and the
+// batch goes on with the next one.
+func (t *TVDB) backgroundCrew(id int) {
+	defer func() {
+		if r := recover(); r != nil {
+			logPanic("tvdb: background episode record panicked", r, "episode", id)
+		}
+		t.crewMu.Lock()
+		delete(t.crewQueued, id)
+		t.crewMu.Unlock()
+	}()
+	if _, err := t.fetchCrew(context.Background(), id, true); crewAnswer(err) {
+		t.crewFail(id, err)
+	}
 }

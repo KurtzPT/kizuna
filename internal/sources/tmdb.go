@@ -64,6 +64,20 @@ const (
 	findNoneTTL = 24 * time.Hour
 )
 
+// askNoneAgain says whether an empty answer just read from the cache file
+// key (kept ttl) is old enough to be asked again, with the shorter life
+// none. Only when the cache answered: a copy ttl old or more was just asked
+// for (and answers stale when that failed), and one just downloaded is
+// new, so asking again would only repeat the request.
+func askNoneAgain(f *fetch.Client, key string, none, ttl time.Duration) bool {
+	at, ok := f.CachedAt(key)
+	if !ok {
+		return false
+	}
+	age := time.Since(at)
+	return age >= none && age < ttl
+}
+
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).
 func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	type found struct {
@@ -74,19 +88,12 @@ func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	var r found
 	path, query, key := fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb)
 	err := t.get(ctx, path, query, key, findTTL, &r)
-	if err == nil && len(r.TV) == 0 {
-		// Only when the cache answered: a copy findTTL old or more was just
-		// asked for (and answers stale when that failed), so asking again
-		// would only repeat the request.
-		if at, ok := t.f.CachedAt(key); ok {
-			if age := time.Since(at); age >= findNoneTTL && age < findTTL {
-				// A failed re-ask (the copy pruned in between) keeps the empty
-				// answer: it is still TMDB's, and the show stays complete.
-				var again found
-				if t.get(ctx, path, query, key, findNoneTTL, &again) == nil {
-					r = again
-				}
-			}
+	if err == nil && len(r.TV) == 0 && askNoneAgain(t.f, key, findNoneTTL, findTTL) {
+		// A failed re-ask (the copy pruned in between) keeps the empty
+		// answer: it is still TMDB's, and the show stays complete.
+		var again found
+		if t.get(ctx, path, query, key, findNoneTTL, &again) == nil {
+			r = again
 		}
 	}
 	if len(r.TV) == 0 {
@@ -286,11 +293,13 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 		posters map[int][]string
 		failed  []int // seasons that could not be had
 		last    error
+		panics  caught // a season's panic, raised again here: it fails the build, not the process
 	)
 	for _, s := range show.Seasons {
 		wg.Add(1)
 		go func(season int) {
 			defer wg.Done()
+			defer panics.keep()
 			r, err := t.season(ctx, id, season)
 			mu.Lock()
 			defer mu.Unlock()
@@ -328,6 +337,7 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 		}(s.Number)
 	}
 	wg.Wait()
+	panics.raise()
 	sortEpisodes(out)
 	if len(failed) > 0 {
 		sort.Ints(failed)

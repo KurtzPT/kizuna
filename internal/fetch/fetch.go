@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -312,19 +313,7 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	if !running {
 		cl = &call{done: make(chan struct{}), ticket: c.enqueue(r)}
 		c.inflight[id] = cl
-		go func() {
-			cl.data, cl.err = c.fetch(r, cl.ticket)
-			// Out of inflight before Done: a caller arriving once Done has
-			// run must start its own download, not join this ended one
-			// (AniDB counts each call in Done's caller).
-			c.mu.Lock()
-			delete(c.inflight, id)
-			c.mu.Unlock()
-			if r.Done != nil {
-				r.Done(cl.err)
-			}
-			close(cl.done) // after Done: a waiter sees the outcome already recorded
-		}()
+		go c.run(id, r, cl)
 	}
 	c.mu.Unlock()
 	select {
@@ -333,6 +322,55 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// run is a download's own goroutine. No caller waits on this goroutine
+// itself, so a panic here would end the whole process. A panic in the
+// download (the caller's Before or Validate, the transport) is logged and
+// becomes the download's error, which every waiting caller gets; one in
+// Done is logged. Either way the download leaves inflight and its waiters
+// wake up.
+func (c *Client) run(id string, r Request, cl *call) {
+	defer close(cl.done) // after Done: a waiter sees the outcome already recorded
+	cl.data, cl.err = c.fetchSafe(r, cl.ticket)
+	// Out of inflight before Done: a caller arriving once Done has run must
+	// start its own download, not join this ended one (AniDB counts each
+	// call in Done's caller).
+	c.mu.Lock()
+	delete(c.inflight, id)
+	c.mu.Unlock()
+	if r.Done != nil {
+		defer func() {
+			if p := recover(); p != nil {
+				logPanic("download's Done panicked", r, p)
+			}
+		}()
+		r.Done(cl.err)
+	}
+}
+
+// ErrPanicked: the download panicked. Whether the request went out, or
+// was answered, isn't known.
+var ErrPanicked = errors.New("download panicked")
+
+// fetchSafe is fetch, with a panic in it logged and returned as its error
+// (ErrPanicked). Done still gets that error: a source that tracks its calls
+// there (AniDB) must see this one end.
+func (c *Client) fetchSafe(r Request, t *ticket) (data []byte, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			logPanic("download panicked", r, p)
+			data, err = nil, fmt.Errorf("%w: %v", ErrPanicked, p)
+		}
+	}()
+	return c.fetch(r, t)
+}
+
+// logPanic logs a panic recovered on a download's goroutine, the way a
+// show build's panic is logged. Call it from the deferred function that
+// recovered p: the stack is then still the one that panicked.
+func logPanic(msg string, r Request, p any) {
+	slog.Error(msg, "url", Redact(r.URL), "key", r.Key, "err", p, "stack", string(debug.Stack()))
 }
 
 func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
@@ -360,12 +398,7 @@ func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
 
 func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.Duration, err error) {
 	waited = t.wait()
-	var stop error
-	if r.Before != nil {
-		stop = r.Before()
-	}
-	t.sent() // the next request on the host waits until gap from now
-	if stop != nil {
+	if stop := before(r, t); stop != nil {
 		return nil, 0, waited, stop
 	}
 
@@ -448,6 +481,19 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 		}
 	}
 	return data, resp.StatusCode, waited, nil
+}
+
+// before runs r.Before, if set, once t's turn came, then notes that the
+// request goes out now: the next request on the host waits until gap from
+// then. The note is deferred so that a panic in Before (it ends as the
+// download's error, in fetchSafe) doesn't leave the host's queue waiting
+// forever for a request that never goes out.
+func before(r Request, t *ticket) error {
+	defer t.sent()
+	if r.Before == nil {
+		return nil
+	}
+	return r.Before()
 }
 
 // revalidation returns the saved ETag when r may be revalidated; "" when it

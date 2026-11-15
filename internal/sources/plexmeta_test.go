@@ -726,3 +726,127 @@ func TestPlexEpisodeCrewAndPhotos(t *testing.T) {
 		t.Errorf("show crew photos %+v directors %q", d.CrewPhotos, d.Directors)
 	}
 }
+
+// An empty season list whose totalSize says there are seasons is a list cut
+// short, like an episode page: it isn't cached, so the next call asks Plex
+// again and gets the seasons once Plex sends them. Cached, it would answer
+// every rebuild for 2 days and the show would stay incomplete. An older copy
+// of the list, expired, answers instead and is kept.
+func TestPlexEmptySeasonListNotCached(t *testing.T) {
+	list := "GET /library/metadata/" + frierenShow + "/children"
+	answers := frieren()
+	answers[list] = `200 {"MediaContainer":{"totalSize":2,"Metadata":[]}}`
+	p, n, dir := newPlexTest(t, answers)
+	ctx := context.Background()
+	if seasons, err := p.Seasons(ctx, PlexSeries(424536)); err == nil || len(seasons) != 0 {
+		t.Fatalf("seasons %v, err %v; want none and an error", seasons, err)
+	}
+	file := filepath.Join(dir, "plex", "children-"+frierenShow+".json")
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the empty season list is in the cache (stat: %v)", err)
+	}
+	// Plex is whole again: the next call asks, and the list is cached.
+	answers[list] = "children-frieren.json"
+	for call := 1; call <= 2; call++ {
+		if seasons, err := p.Seasons(ctx, PlexSeries(424536)); err != nil || len(seasons) != 2 {
+			t.Fatalf("call %d: seasons %v, err %v; want both and no error", call, seasons, err)
+		}
+	}
+	if c := n.count("GET", frierenShow+"/children"); c != 2 {
+		t.Errorf("season list asked %d times, want 2: again after the empty one, then from the cache", c)
+	}
+	// The copy expires, and Plex cuts the list short again: the copy answers.
+	whole, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-3 * 24 * time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	answers[list] = `200 {"MediaContainer":{"totalSize":2,"Metadata":[]}}`
+	if seasons, err := p.Seasons(ctx, PlexSeries(424536)); err != nil || len(seasons) != 2 {
+		t.Errorf("seasons %v, err %v; want the older copy's two and no error", seasons, err)
+	}
+	if data, err := os.ReadFile(file); err != nil || string(data) != string(whole) {
+		t.Errorf("the older copy was replaced: %s (%v)", data, err)
+	}
+}
+
+// An empty match is asked again only when the cache answered with a copy
+// between a day and 30 days old. One just downloaded isn't asked for twice
+// (one request, one trace row), nor is one 30 days old or more that
+// answered stale for a failed request (one request while Plex is down).
+func TestPlexMatchNoneAskedOnce(t *testing.T) {
+	match := "POST 2 tvdb://1"
+	answers := frieren()
+	answers[match] = "match-none.json"
+	p, n, dir := newPlexTest(t, answers)
+	var mu sync.Mutex
+	var rows []fetch.Kind
+	ctx := fetch.WithObserver(context.Background(), func(e fetch.Event) {
+		if strings.HasSuffix(e.Key, "match-show-tvdb-1.json") {
+			mu.Lock()
+			rows = append(rows, e.Kind)
+			mu.Unlock()
+		}
+	})
+	if id, err := p.match(ctx, PlexSeries(1)); id != "" || err != nil {
+		t.Fatalf("%q %v, want nothing and no error", id, err)
+	}
+	if c := n.count("POST", "/matches"); c != 1 || len(rows) != 1 || rows[0] != fetch.KindNet {
+		t.Fatalf("no copy: %d requests, trace %v; want one request and one net row", c, rows)
+	}
+	at := time.Now().Add(-31 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "plex", "match-show-tvdb-1.json"), at, at); err != nil {
+		t.Fatal(err)
+	}
+	answers[match] = "503 {}"
+	if id, err := p.match(ctx, PlexSeries(1)); id != "" || err != nil {
+		t.Fatalf("%q %v, want the stale empty answer and no error", id, err)
+	}
+	if c := n.count("POST", "/matches"); c != 2 {
+		t.Errorf("a copy 31 days old with Plex down: %d requests in all, want 2 (one for this call)", c)
+	}
+}
+
+// When the re-ask of an empty match fails with no copy left to answer for it
+// (the cache cleanup took it in between), the empty answer stands: it is
+// still Plex's, and the show stays complete.
+func TestPlexMatchNoneReaskFailing(t *testing.T) {
+	match := "POST 2 tvdb://1"
+	answers := frieren()
+	answers[match] = "match-none.json"
+	p, n, dir := newPlexTest(t, answers)
+	ctx := context.Background()
+	if id, err := p.match(ctx, PlexSeries(1)); id != "" || err != nil {
+		t.Fatalf("%q %v, want nothing and no error", id, err)
+	}
+	file := filepath.Join(dir, "plex", "match-show-tvdb-1.json")
+	at := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(file, at, at); err != nil {
+		t.Fatal(err)
+	}
+	answers[match] = "503 {}"
+	p.f.SetTransport(plexPruneThenFail{t, n, file}) // test code removing its own file
+	if id, err := p.match(ctx, PlexSeries(1)); id != "" || err != nil {
+		t.Errorf("%q %v, want the empty answer and no error", id, err)
+	}
+	if c := n.count("POST", "/matches"); c != 2 {
+		t.Errorf("%d requests in all, want 2 (the re-ask once)", c)
+	}
+}
+
+// plexPruneThenFail removes a cache file, then answers as the fake does.
+type plexPruneThenFail struct {
+	t    *testing.T
+	n    *plexNet
+	path string
+}
+
+func (p plexPruneThenFail) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := os.Remove(p.path); err != nil {
+		p.t.Error(err)
+	}
+	return p.n.RoundTrip(r)
+}

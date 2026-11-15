@@ -671,3 +671,87 @@ func TestRevalidateCopyGoneBy304(t *testing.T) {
 		t.Fatalf("next call: %q %v, If-None-Match %q; want a full download", data, err, srv.sent(2))
 	}
 }
+
+// A panic on a download's goroutine (in the caller's Before or Validate, in
+// the transport) would end the whole process: nobody can recover it there.
+// It is logged, and every caller waiting for the download gets it as an
+// error, not a hang. The download leaves inflight and its host's turn, so
+// the next call on the same key and host goes out; Done still gets the
+// outcome. A panic in Done itself is logged, and the callers get the answer.
+func TestDownloadPanic(t *testing.T) {
+	const host = "api.example"
+	ok := func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("good")), Header: http.Header{}}, nil
+	}
+	boom := func() { panic("boom") }
+	for _, tc := range []struct {
+		name      string
+		transport func(*http.Request) (*http.Response, error)
+		before    func() error
+		validate  func([]byte) error
+		done      func(error)
+		wantErr   bool // the waiting caller's error; else it gets the answer
+		logged    string
+	}{
+		{name: "transport", transport: func(*http.Request) (*http.Response, error) { boom(); return nil, nil }, wantErr: true, logged: "download panicked"},
+		{name: "Before", before: func() error { boom(); return nil }, wantErr: true, logged: "download panicked"},
+		{name: "Validate", validate: func([]byte) error { boom(); return nil }, wantErr: true, logged: "download panicked"},
+		{name: "Done", done: func(error) { boom() }, logged: "download's Done panicked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			c := New(t.TempDir())
+			c.Throttle(host, 0)
+			transport := ok
+			if tc.transport != nil {
+				transport = tc.transport
+			}
+			c.SetTransport(roundTrip(transport))
+			var outcome []error // Done runs before the caller wakes up
+			done := func(err error) { outcome = append(outcome, err) }
+			r := Request{URL: "http://" + host + "/x?api_key=SECRET", Key: "x.json", TTL: time.Hour, Before: tc.before, Validate: tc.validate,
+				Done: func(err error) {
+					done(err)
+					if tc.done != nil {
+						tc.done(err)
+					}
+				}}
+			data, err := c.Get(context.Background(), r)
+			switch {
+			case tc.wantErr && (err == nil || !strings.Contains(err.Error(), "download panicked: boom")):
+				t.Fatalf("got %q %v, want the panic as the error", data, err)
+			case !tc.wantErr && (err != nil || string(data) != "good"):
+				t.Fatalf("got %q %v, want the answer", data, err)
+			}
+			if len(outcome) != 1 || (outcome[0] != nil) != tc.wantErr {
+				t.Fatalf("Done got %v, want the download's outcome once", outcome)
+			}
+			if n := logs.count(tc.logged); n != 1 {
+				t.Fatalf("%q logged %d times, want once:\n%s", tc.logged, n, logs.String())
+			}
+			if s := logs.String(); strings.Contains(s, "SECRET") || !strings.Contains(s, "goroutine") {
+				t.Fatalf("the log line must redact the URL and carry the stack:\n%s", s)
+			}
+			c.mu.Lock()
+			left := len(c.inflight)
+			l := c.limits[host]
+			c.mu.Unlock()
+			if left != 0 {
+				t.Fatalf("%d downloads left in inflight", left)
+			}
+			l.mu.Lock()
+			taken := l.going || len(l.fg)+len(l.bg) != 0
+			l.mu.Unlock()
+			if taken {
+				t.Fatal("the host's turn is still taken: the next request would wait forever")
+			}
+
+			// The next call on the same key goes out and gets its answer.
+			c.SetTransport(roundTrip(ok))
+			r.Before, r.Validate, r.Done = nil, nil, nil
+			if data, err := c.Get(context.Background(), r); err != nil || string(data) != "good" {
+				t.Fatalf("next call: %q %v, want the answer", data, err)
+			}
+		})
+	}
+}
