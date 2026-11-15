@@ -352,7 +352,7 @@ type UnmatchedDoc struct {
 	Schema   int       `json:"schema"`
 	Key      string    `json:"key"`
 	Match    Match     `json:"match"` // the newest no-match answer
-	Last     time.Time `json:"last"`  // last asked; the page goes after unmatchedMaxAge without a request
+	Last     time.Time `json:"last"`  // last asked; the page goes after pageMaxAge without a request
 	Requests []Request `json:"requests"`
 }
 

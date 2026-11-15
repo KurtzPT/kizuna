@@ -359,6 +359,9 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		// this build is then never written (or flushed at shutdown) without it.
 		if rec != nil {
 			safeReport(root, func() {
+				if p.noPage(root, b.err) {
+					return
+				}
 				p.finishReport(rec, root, b.show, b.err, time.Since(start))
 				p.reports.AddBuild(p.reportKey(root), rec)
 			})

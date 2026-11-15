@@ -1321,7 +1321,7 @@ function renderIndex() {
   <div class="filters"><label class="sr" for="ix-find">Filter by title or id</label><input class="find" id="ix-find" type="search" placeholder="Filter by title or id" autocomplete="off" value="${esc(f.q)}">
     <div class="seg" role="group" aria-label="Filter by provider"><button aria-pressed="${!f.mode}" data-ixm="">Any provider</button>${IX_MODES.map(m => `<button aria-pressed="${f.mode === m}" data-ixm="${m}">/${m}</button>`).join("")}</div>
     <span class="count" id="ix-count" role="status"></span></div>
-  <section id="ix-shows"><h2>Shows</h2><p class="lede">Open a show to see what each source offered and what Plex received.</p>
+  <section id="ix-shows"><h2>Shows</h2><p class="lede">Open a show to see what each source offered and what Plex received. A page goes after 30 days without a request for its show.</p>
   <div class="panel"><div class="tools"><div class="seg" role="group" aria-label="Filter shows by their newest build">${IX_STATES.map(([s, l]) => `<button aria-pressed="${f.state === s}" data-ixs="${s}">${l} ${nState(s)}</button>`).join("")}</div></div><div id="ix-shows-body"></div></div></section>
   <section id="ix-un"><h2>Unmatched</h2><p class="lede">Titles Plex asked about that Kizuna could not match. Each page says how to fix it. A page goes once its title matches, or after 30 days without a request.</p>
   <div class="panel" id="ix-un-body"></div></section>

@@ -290,6 +290,9 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 			writeUnavailable(w, err)
 			return
 		}
+		if rq := report.RequestFrom(ctx); rq != nil && p.noPage(m[1], err) {
+			rq.Key = "" // on no page, or every key asked for would leave one
+		}
 		http.NotFound(w, r)
 		return
 	}
