@@ -670,6 +670,18 @@ func (ss *showSources) recordField(name string, order []string, used string, val
 	ss.record(name, order, list, false, value)
 }
 
+// recordShowField is recordField for a field of showFields.
+func (ss *showSources) recordShowField(f *showField, order []string, used string) {
+	if ss.rec == nil {
+		return
+	}
+	cfg := &ss.p.cfg
+	ss.recordField(f.name, order, used, func(src string) string {
+		v, _ := f.of(ss, src, false)
+		return f.describe(v, cfg)
+	})
+}
+
 // recordArt is recordField for images: used is images()'s count per source,
 // and with all every source was asked (their images are joined).
 func (ss *showSources) recordArt(name string, order []string, used []sourceCount, all bool, value func(src string) string) {
