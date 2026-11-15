@@ -546,12 +546,14 @@ func (ss *showSources) warm() {
 // One that can't apply (not the entry that starts the series on the site,
 // no id, not set up) isn't asked for: fill wouldn't read it. With
 // CAST_PHOTOS_FROM_PLEX, Plex's show too, whatever the lists say: its cast
-// gives the photos. /anidb must call this after setAniDB, because AniDB's
-// answer can change which Plex item is meant (a movie by its IMDb id).
-// /tvdb can call it first: there AniDB never changes it.
+// gives the photos. Not with CAST_SOURCES=none: there is no cast to put a
+// photo on, and fill never reads it for that. /anidb must call this after
+// setAniDB, because AniDB's answer can change which Plex item is meant (a
+// movie by its IMDb id). /tvdb can call it first: there AniDB never changes
+// it.
 func (ss *showSources) siteFields(w *warmSet) {
 	cfg := ss.p.cfg
-	if cfg.CastPhotosFromPlex {
+	if cfg.CastPhotosFromPlex && len(cfg.CastSources) > 0 {
 		w.add(&ss.plexShow) // nothing to ask (no id, no token): add skips it
 	}
 	for _, src := range [...]string{"tvdb", "tmdb"} {

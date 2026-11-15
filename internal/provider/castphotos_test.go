@@ -220,6 +220,41 @@ func TestCastPhotosBuild(t *testing.T) {
 	}
 }
 
+// With CAST_SOURCES=none there is no cast to put a photo on: Plex, in no
+// other list, gets no request. Listed for another field, it is still asked.
+// In both modes.
+func TestCastPhotosNoCastSources(t *testing.T) {
+	defaultLists(t)
+	for _, studio := range []bool{false, true} {
+		for _, root := range []string{"tvdb-500", "anidb-100"} {
+			net := castNet(castXML, nil)
+			p := newTestProvider(t, net)
+			withPlex(t, p, net)
+			noPlexLists(t, p)
+			p.cfg.CastSources = nil // CAST_SOURCES=none
+			p.cfg.CastPhotosFromPlex = true
+			asked := 0
+			if studio {
+				p.cfg.StudioSources = []string{"plex"}
+				asked = 1
+			}
+			s, err := p.buildShow(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(s.Roles) != 0 {
+				t.Errorf("%s, studio from plex %v: cast %+v, want none", root, studio, s.Roles)
+			}
+			if c, all := plexAsked(net, "/library/metadata/p500"), plexAsked(net, ""); c != asked || all != 2*asked {
+				t.Errorf("%s, studio from plex %v: Plex's show asked %d times (%d requests in all), want %d", root, studio, c, all, asked)
+			}
+			if !s.Complete {
+				t.Errorf("%s, studio from plex %v: want complete", root, studio)
+			}
+		}
+	}
+}
+
 // In /tvdb, Plex's show starts with TheTVDB's and TheMovieDb's values,
 // before AniDB has answered.
 func TestCastPhotosEarlyInTVDB(t *testing.T) {
