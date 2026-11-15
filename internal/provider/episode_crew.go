@@ -38,7 +38,8 @@ func (p *Provider) plexCrewRead(tvdb int) bool {
 // episodeCrew sets an /anidb show's episode crew from TheTVDB, TheMovieDb's
 // list (tm) and Plex's (px, read here for crew when its read for titles or
 // fill values didn't happen), and adds their photos to cp. Returns false
-// while TheTVDB's records are still being fetched.
+// while TheTVDB's records are still being fetched, or when one's request
+// failed (TVDB.EpisodeCrew's pending).
 func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *plexFill, cp *crewPhotos) bool {
 	if len(p.cfg.EpisodeCrewSources) == 0 {
 		applyCrew(s, nil, nil, tm, px.list) // takes TheTVDB's list's crew off: no crew at all

@@ -305,7 +305,8 @@ func (b *tvdbBuild) readPlex(ctx context.Context, p *Provider) bool {
 // here for the episodes with a gap: tvdbCrew), TheMovieDb's list, paired
 // through AniDB like the titles (pr), and Plex's, which start read for crew
 // (plexCrewRead). Returns false while episode crew is still being fetched,
-// or when Plex's list failed.
+// or when a record's request (TVDB.EpisodeCrew's pending) or Plex's list
+// failed.
 func (p *Provider) tvdbEpisodeCrew(ctx context.Context, s *Show, b *tvdbBuild, pr tvdbPairing) bool {
 	tm := pairedList{b.tmdbEps, pr.otherAt}
 	if len(p.cfg.EpisodeCrewSources) == 0 {

@@ -58,17 +58,20 @@ func TestEpisodePages(t *testing.T) {
 	}
 }
 
-// A failed login blocks no episode record: the next call asks for them as
-// soon as TheTVDB is back. A record TheTVDB answers 404 for is blocked, and
-// forgotten once its time is up.
+// A failed login blocks no episode record and leaves the crew pending: the
+// next call asks for them as soon as TheTVDB is back. A record TheTVDB
+// answers 404 for is blocked, not pending, and forgotten once its time is up.
 func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 	tv, n := newTVDBTest(t, map[string]string{
 		v4 + "/login":               `503 {}`,
 		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D","peopleType":"Director"}]}}`,
 	}, "v4key", "", "")
 	ctx := context.Background()
-	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}); len(crew) != 0 || pending {
-		t.Fatalf("login down: crew %v pending %v, want none", crew, pending)
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}); len(crew) != 0 || !pending {
+		t.Fatalf("login down: crew %v pending %v, want none, pending", crew, pending)
+	}
+	if c := n.count(v4+"/login") + n.count(v4+"/episodes/1/extended") + n.count(v4+"/episodes/3/extended"); c != 1 {
+		t.Errorf("login down: %d requests, want 1 (the login; no record is asked without a token)", c)
 	}
 	n.mu.Lock()
 	n.answers[v4+"/login"] = `{"data":{"token":"t4"}}`
@@ -98,6 +101,73 @@ func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 	tv.crewMu.Unlock()
 	if left != 0 {
 		t.Errorf("%d expired failures kept, want 0", left)
+	}
+}
+
+// downNet is tvdbNet with paths that fail the way a dead connection does:
+// an error, no answer from TheTVDB.
+type downNet struct {
+	*tvdbNet
+	down map[string]bool // by "host/path"; under tvdbNet's mu
+}
+
+func (n *downNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	u := r.URL.Host + r.URL.Path
+	n.mu.Lock()
+	down := n.down[u]
+	if down {
+		n.asked = append(n.asked, u)
+	}
+	n.mu.Unlock()
+	if down {
+		return nil, errors.New("connection reset")
+	}
+	return n.tvdbNet.RoundTrip(r)
+}
+
+// A record whose request failed without an answer from TheTVDB (a network
+// error) leaves the crew pending, so the show is rebuilt soon. The other
+// records' crew is returned. The record isn't blocked, and nothing asks for
+// it again before the next call, which gets it once the network is back.
+func TestTVDBEpisodeCrewNetworkError(t *testing.T) {
+	f := fetch.New(t.TempDir())
+	n := &downNet{tvdbNet: &tvdbNet{answers: map[string]string{
+		v4 + "/login":               `{"data":{"token":"t4"}}`,
+		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D1","peopleType":"Director"}]}}`,
+		v4 + "/episodes/2/extended": `{"data":{"characters":[{"personName":"D2","peopleType":"Director"}]}}`,
+		v4 + "/episodes/3/extended": `{"data":{"characters":[{"personName":"D3","peopleType":"Director"}]}}`,
+	}}, down: map[string]bool{v4 + "/episodes/2/extended": true}}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
+	ctx := context.Background()
+
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	if !pending {
+		t.Error("record 2 failed on the network: want pending, so the show is rebuilt soon")
+	}
+	if _, ok := crew[2]; ok || strings.Join(crew[1].Directors, ",") != "D1" || strings.Join(crew[3].Directors, ",") != "D3" {
+		t.Errorf("crew %+v, want records 1 and 3 only", crew)
+	}
+	tv.crewQueue.Wait() // a retry in the background would be counted too
+	tv.crewMu.Lock()
+	_, blocked := tv.crewFailed[2]
+	tv.crewMu.Unlock()
+	if c := n.count(v4 + "/episodes/2/extended"); c != 1 || blocked {
+		t.Errorf("record 2 asked %d times, blocked %v; want 1, not blocked", c, blocked)
+	}
+
+	n.mu.Lock()
+	n.down = nil // the network is back
+	n.mu.Unlock()
+	crew, pending = tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	if pending || strings.Join(crew[2].Directors, ",") != "D2" {
+		t.Errorf("network back: crew %+v pending %v, want record 2's, not pending", crew, pending)
+	}
+	if c := n.count(v4 + "/episodes/2/extended"); c != 2 {
+		t.Errorf("record 2 asked %d times in two calls, want 2", c)
+	}
+	if c := n.count(v4 + "/episodes/1/extended"); c != 1 {
+		t.Errorf("record 1 asked %d times, want 1 (cached)", c)
 	}
 }
 
