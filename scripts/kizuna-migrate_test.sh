@@ -538,6 +538,88 @@ check_contains "depth limit: a video at the limit" "$out" "+ ep: S00E01: 1/2/3/4
 check "depth limit: a video below it" "$(grep -c 'Deep - SP2' <<<"$out")" "0"
 check_contains "depth limit: a .plexmatch below it isn't read" "$out" "1 .plexmatch files to write, 1 hints in all"
 
+# several files of one show on the same number are reported, once per number,
+# when a planned hint is one of them, and the hints are planned all the same.
+# Not reported: a version of the same file (SP3v2), two files the user's own
+# hints put on one number, and a bare number in a season folder's .plexmatch,
+# which is that season's.
+lib=$WORK/same
+mkdir -p "$lib/Coll [anidb-1]" "$lib/Kept [anidb-2]/Season 02"
+for f in "Coll - SP1" "Coll - OVA1" "Coll - Special 1" "Coll - SP3" "Coll - SP3v2 [1080p]"; do
+	: >"$lib/Coll [anidb-1]/$f.mkv"
+done
+for f in "Kept - 08" "Kept - 09" "Kept - SP2" "Kept - SP3" "Season 02/Kept - Bonus"; do : >"$lib/Kept [anidb-2]/$f.mkv"; done
+printf 'ep: s0e3: Kept - SP2.mkv\nep: S01E09: Kept - 08.mkv\nep: S01E09: Kept - 09.mkv\n' >"$lib/Kept [anidb-2]/.plexmatch"
+printf 'ep: 03: Kept - Bonus.mkv\n' >"$lib/Kept [anidb-2]/Season 02/.plexmatch"
+# same DIR NUMBER FILES: the warning for files on one number
+same() {
+	printf '%s' "WARNING: $1: more than one file is on $2, and Plex shows them as one episode: $3. If they are different episodes, give each its own number: rename the file, or set its ep: line in the show's .plexmatch by hand"
+}
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "same number: exit" "$?" "0"
+check "same number: three specials planned on one number" "$(grep -F 'is on S00E01' <<<"$out")" \
+	"$(same "$lib/Coll [anidb-1]" S00E01 '"Coll - OVA1.mkv", "Coll - SP1.mkv", "Coll - Special 1.mkv"')"
+check "same number: a planned hint and one already there" "$(grep -F 'is on S00E03' <<<"$out")" \
+	"$(same "$lib/Kept [anidb-2]" S00E03 '"Kept - SP2.mkv" (already hinted), "Kept - SP3.mkv"')"
+check "same number: no other number is reported" "$(grep -c 'more than one file is on' <<<"$out")" "2"
+check "same number: the hints are planned all the same" "$(grep '^  + ' <<<"$out")" \
+	"  + ep: S00E01: Coll - OVA1.mkv
+  + ep: S00E01: Coll - SP1.mkv
+  + ep: S00E03: Coll - SP3.mkv
+  + ep: S00E03: Coll - SP3v2 [1080p].mkv
+  + ep: S00E01: Coll - Special 1.mkv
+  + ep: S00E03: Kept - SP3.mkv"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
+check "same number, apply: exit" "$?" "0"
+check "same number, apply: reported again" "$(grep -c 'more than one file is on' <<<"$out")" "2"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "same number, next run: the written hints are the user's now, nothing is reported" \
+	"$(grep -c 'more than one file is on' <<<"$out")" "0"
+
+# Two specials in a season folder are told apart by their names, not by the
+# folder's season and the number at the end of the name. A file Plex numbers
+# by its own name or folder counts too. One episode in two versions stays
+# silent, also with an underscore name in a folder with a space. A file Plex
+# makes an extra or leaves out isn't counted, whatever its hint says. A lone
+# movie, trailers and the first number of a range hint are compared too.
+lib=$WORK/same2
+mkdir -p "$lib/Sea [anidb-1]/Season 01" "$lib/Sea [anidb-1]/Bonus" "$lib/Nm [anidb-1]/Specials" \
+	"$lib/Two [anidb-1]/Season 02" "$lib/Ex [anidb-1]" "$lib/Film [anidb-1]" "$lib/Tr [anidb-1]" "$lib/Rg [anidb-1]"
+for f in "Sea [anidb-1]/Season 01/Sea - OVA 2" "Sea [anidb-1]/Season 01/Sea - Special 2" \
+	"Sea [anidb-1]/Bonus/Sea - OVA 3" "Sea [anidb-1]/Bonus/Sea - Special 3" \
+	"Nm [anidb-1]/Nm - SP1" "Nm [anidb-1]/Nm - S00E01" "Nm [anidb-1]/Specials/Nm - 01" \
+	"Two [anidb-1]/Two - SP1 [720p]" "Two [anidb-1]/Two - SP1 [1080p]" \
+	"Two [anidb-1]/Season 02/Two_-_SP2" "Two [anidb-1]/Season 02/Two - SP2 [1080p]" \
+	"Ex [anidb-1]/Ex - PV1" "Ex [anidb-1]/Ex - PV1v2" "Ex [anidb-1]/Ex-trailer" \
+	"Ex [anidb-1]/Ex - SP3" "Ex [anidb-1]/Ex - Special 3" \
+	"Film [anidb-1]/Film" "Film [anidb-1]/Film - SP1" \
+	"Tr [anidb-1]/Tr - PV1" "Tr [anidb-1]/Tr - Trailer 1" \
+	"Rg [anidb-1]/Rg - SP4" "Rg [anidb-1]/Rg - SP5" "Rg [anidb-1]/Rg - OVA"; do
+	: >"$lib/$f.mkv"
+done
+printf 'season: 1\n' >"$lib/Sea [anidb-1]/Bonus/.plexmatch"
+printf 'ep: S00E201: Ex-trailer.mkv\nep: sp03: Ex - Special 3.mkv\n' >"$lib/Ex [anidb-1]/.plexmatch"
+printf 'ep: S01E01: Film - SP1.mkv\n' >"$lib/Film [anidb-1]/.plexmatch"
+printf 'ep: S00E04-E05: Rg - OVA.mkv\n' >"$lib/Rg [anidb-1]/.plexmatch"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "same number 2: exit" "$?" "0"
+check "same number: two specials in a season folder" "$(grep -F 'is on S00E02' <<<"$out")" \
+	"$(same "$lib/Sea [anidb-1]" S00E02 '"Season 01/Sea - OVA 2.mkv", "Season 01/Sea - Special 2.mkv"')"
+check "same number: two specials in a folder with a season: hint" "$(grep -F 'is on S00E03' <<<"$out")" \
+	"$(same "$lib/Sea [anidb-1]" S00E03 '"Bonus/Sea - OVA 3.mkv", "Bonus/Sea - Special 3.mkv"')"
+check "same number: files Plex numbers by their name or folder" "$(grep -F "$lib/Nm [anidb-1]: more" <<<"$out")" \
+	"$(same "$lib/Nm [anidb-1]" S00E01 '"Nm - S00E01.mkv" (numbered by its name), "Nm - SP1.mkv", "Specials/Nm - 01.mkv" (numbered by its name)')"
+check "same number: two versions, also with an underscore name, are one episode" \
+	"$(grep -cF "$lib/Two [anidb-1]: more" <<<"$out")" "0"
+check "same number: an extra and an SPxx hint aren't counted" "$(grep -cF "$lib/Ex [anidb-1]: more" <<<"$out")" "0"
+check "same number: a lone movie" "$(grep -F "$lib/Film [anidb-1]: more" <<<"$out")" \
+	"$(same "$lib/Film [anidb-1]" S01E01 '"Film - SP1.mkv" (already hinted), "Film.mkv"')"
+check "same number: trailers" "$(grep -F "$lib/Tr [anidb-1]: more" <<<"$out")" \
+	"$(same "$lib/Tr [anidb-1]" S00E201 '"Tr - PV1.mkv", "Tr - Trailer 1.mkv"')"
+check "same number: a range hint, with its first number" "$(grep -F "$lib/Rg [anidb-1]: more" <<<"$out")" \
+	"$(same "$lib/Rg [anidb-1]" S00E04 '"Rg - OVA.mkv" (already hinted), "Rg - SP4.mkv"')"
+check "same number 2: no other number is reported" "$(grep -c 'more than one file is on' <<<"$out")" "6"
+
 # --- HAMA .id files --------------------------------------------------------------
 
 ids=$WORK/ids
@@ -801,6 +883,48 @@ WARNING: $lib/Loose [tvdb3-200]/Loose Recap.mkv: no episode number found"
 	check_contains "auto: untagged, Kizuna says tvdb: season" "$out" "+ ep: S02E05: Untagged - 05.mkv"
 	check_contains "auto: other tag, Kizuna says anidb" "$out" "+ ep: S00E01: Other - SP1.mkv"
 	check_contains "auto: no match" "$out" "$lib/Nomatch: no match from Kizuna at $FAKE/auto; skipped"
+
+	# tvdb rules: the same episode in two layouts or two versions is one
+	# episode on purpose; a planned hint on the number of a file's own hint is
+	# reported
+	lib=$WORK/tvdb-same
+	mkdir -p "$lib/Rel [tvdb-100]/Season 02" "$lib/Abs [tvdb3-200]"
+	for f in "Rel [tvdb-100]/Rel - S02E02" "Rel [tvdb-100]/Season 02/Rel - 02" "Abs [tvdb3-200]/Abs - 05" \
+		"Abs [tvdb3-200]/Abs - 05v2" "Abs [tvdb3-200]/Abs - 06" "Abs [tvdb3-200]/Abs Extra"; do
+		: >"$lib/$f.mkv"
+	done
+	printf 'ep: S02E06: Abs Extra.mkv\n' >"$lib/Abs [tvdb3-200]/.plexmatch"
+	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
+	check "tvdb same number: exit" "$?" "0"
+	check "tvdb same number: the hints" "$(grep '^  + ' <<<"$out")" \
+		"  + ep: S02E05: Abs - 05.mkv
+  + ep: S02E05: Abs - 05v2.mkv
+  + ep: S02E06: Abs - 06.mkv
+  + ep: S02E05: Rel - S02E02.mkv
+  + ep: S02E05: Season 02/Rel - 02.mkv"
+	check "tvdb same number: only the two different files are reported" "$(grep '^WARNING' <<<"$out")" \
+		"$(same "$lib/Abs [tvdb3-200]" S02E06 '"Abs - 06.mkv", "Abs Extra.mkv" (already hinted)')"
+
+	# a planned hint on the number Plex reads from another file's own name:
+	# S02E05 left alone as already absolute, S02E06 in an absolute folder; the
+	# same episode in two versions in a season folder is silent
+	lib=$WORK/tvdb-same2
+	mkdir -p "$lib/Rel2 [tvdb-100]/Season 02" "$lib/Abs2 [tvdb3-200]"
+	for f in "Rel2 [tvdb-100]/Rel2 - S02E02" "Rel2 [tvdb-100]/Rel2 - S02E05" \
+		"Rel2 [tvdb-100]/Season 02/Rel2 - 03 [720p]" "Rel2 [tvdb-100]/Season 02/Rel2 - 03 [1080p]" \
+		"Abs2 [tvdb3-200]/Abs2 - 06" "Abs2 [tvdb3-200]/Abs2 - S02E06"; do
+		: >"$lib/$f.mkv"
+	done
+	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
+	check "tvdb same number 2: exit" "$?" "0"
+	check "tvdb same number 2: the hints" "$(grep '^  + ' <<<"$out")" \
+		"  + ep: S02E06: Abs2 - 06.mkv
+  + ep: S02E05: Rel2 - S02E02.mkv
+  + ep: S02E06: Season 02/Rel2 - 03 [1080p].mkv
+  + ep: S02E06: Season 02/Rel2 - 03 [720p].mkv"
+	check "tvdb same number 2: files Plex numbers by their names are reported" "$(grep '^WARNING' <<<"$out")" \
+		"$(same "$lib/Abs2 [tvdb3-200]" S02E06 '"Abs2 - 06.mkv", "Abs2 - S02E06.mkv" (numbered by its name)')
+$(same "$lib/Rel2 [tvdb-100]" S02E05 '"Rel2 - S02E02.mkv", "Rel2 - S02E05.mkv" (numbered by its name)')"
 
 	# anidb mode with Kizuna: openings and endings are reported with AniDB's
 	# own numbers, and none is hinted, however it is spelled

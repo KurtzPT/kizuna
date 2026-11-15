@@ -117,6 +117,7 @@ it carries on, with a `note:` at the top saying what it can't plan.
 |---|---|---|
 | an episode number that doesn't match the file | the script read the name differently | write that hint [by hand](#-your-own-plexmatch-files) |
 | a special, opening or ending on an unexpected `S00E` number | AniDB numbers them its own way | check the [variants](#openings-and-endings-with-variants) |
+| several files on one number, `SP1` and `OVA1` both on `S00E01` | Plex shows them as one episode; the script warns | if they are different episodes, give each its own number: rename the files, or write their hints [by hand](#-your-own-plexmatch-files) |
 | a `tvdb` season that's off, `S03` where you expect `S02` | TheTVDB's seasons differ, or the mapping is wrong | [fix the mapping](MAPPING.md) |
 | renumbered `[tvdb-…]` files off by one, or one with no hint | see [plain `tvdb` folders](#plain-tvdb-folders-per-season-numbers) | compare with TheTVDB |
 | a show with no hints at all | already fine, a plain `tvdb` folder without its tag, or not matched | read its `WARNING` lines |
