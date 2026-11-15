@@ -184,6 +184,8 @@ Kizuna's messages are in its log: `docker logs kizuna`, or `logs/kizuna.log` in 
 |---|---|
 | `port 32600 is already in use`, or Docker says *port is already allocated* | Another program (often a second Kizuna) has the port. Stop it, or change the host port: the first number in `32600:32600` (*Port* on Unraid) |
 | `no mode can build shows` | Set `ANIDB_CLIENT` or a TheTVDB key ([step 1](#-1-get-your-keys)). Already set? The `settings file` log line shows which file Kizuna read |
+| `holds a character it can't have` | The named key has quotes around it, a comment after it, or was copied wrong. Keep only the key itself: letters, digits and `-` `.` `_` `~` |
+| `ANIDB_CLIENTVER is not a whole number` | Set the version you registered with your AniDB client, such as `1` |
 | `can't read the settings file` | Kizuna's user can't read `kizuna.env` (or `KIZUNA_CONFIG` names a missing file) |
 | `can't write the log file` | The data folder isn't writable by Kizuna's user: `1000:1000`, on Unraid `nobody:users`. No logs or cache until then |
 

@@ -54,7 +54,7 @@ func TestCheckKeysRefuses(t *testing.T) {
 	for _, name := range []string{"ANIDB_CLIENT", "TMDB_API_KEY", "MAL_CLIENT_ID", "PLEX_TOKEN"} {
 		for _, v := range bad {
 			err := checkKeys(t, name, v)
-			if err == nil || !strings.HasPrefix(err.Error(), name+" holds a character no key has") {
+			if err == nil || !strings.HasPrefix(err.Error(), name+" holds a character it can't have") {
 				t.Errorf("%s=%q: %v, want it refused", name, v, err)
 			}
 		}

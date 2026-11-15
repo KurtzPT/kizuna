@@ -28,7 +28,7 @@ func (c Config) CheckKeys() error {
 	var bad []string
 	for _, s := range c.keySettings() {
 		if s.value != "" && !plainKey(s.value) {
-			bad = append(bad, s.name+" holds a character no key has (only letters, digits and - . _ ~): copy it again from the site that gave it")
+			bad = append(bad, s.name+" holds a character it can't have (only letters, digits and - . _ ~): remove quotes or a comment after it, or copy it again")
 		}
 	}
 	// The version goes into AniDB's URL next to the client name. Without a
