@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"kizuna/internal/config"
 	"kizuna/internal/fetch"
 	"kizuna/internal/report"
 )
@@ -61,7 +60,7 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 		// A mode without its source answers 503 (Plex keeps what it has)
 		// with the reason. Its description still answers, so Plex can add
 		// the provider before the key is set.
-		if why := p.modeOff(mode); why != "" && r.URL.Path != "/"+mode.Path {
+		if why := p.matcher().modeOff(mode); why != "" && r.URL.Path != "/"+mode.Path {
 			if p.offLogged.due(mode.Path) {
 				slog.Warn("a request for a mode that is off; set its key or use another mode", "mode", "/"+mode.Path, "why", why)
 			}
@@ -91,12 +90,6 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 			p.reports.AddRequest(*rq)
 		}
 	}
-}
-
-// modeOff says why a mode can't build shows ("" = it can), from the sources
-// as set up: the same rule as the startup check (config.ModeOff).
-func (p *Provider) modeOff(m Mode) string {
-	return config.ModeOff(m.Path, p.anidb.Enabled(), p.tvdb.Enabled())
 }
 
 // everyTenMinutes reports a key as due at most once every 10 minutes, so a

@@ -110,7 +110,7 @@ func TestManualMatchListsTitleResults(t *testing.T) {
 			[]string{"anidb-69"}, 0, 0, "guid " + guid},
 	}
 	for _, c := range cases {
-		d := c.m.decide(c.mode, c.r, false)
+		d := c.m.decide(c.mode, c.r, false, nil)
 		got, how := d.cands, d.how()
 		rs := roots(got)
 		if c.first > 0 {

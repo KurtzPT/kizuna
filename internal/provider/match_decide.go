@@ -38,8 +38,8 @@ func (p *Provider) matcher() matcher {
 		anidbOn: p.anidb.Enabled(), tvdbOn: p.tvdb.Enabled(), peek: p.anidb}
 }
 
-// modeOff says why a mode can't build shows ("" = it can): Provider.modeOff's
-// rule.
+// modeOff says why a mode can't build shows ("" = it can), from the sources
+// as set up: the same rule as the startup check (config.ModeOff).
 func (m matcher) modeOff(mode Mode) string {
 	return config.ModeOff(mode.Path, m.anidbOn, m.tvdbOn)
 }
@@ -62,61 +62,21 @@ func (r MatchRequest) showTitle() string {
 }
 
 // decision is what a match request came to: the candidates, and what the
-// id and the title search said, from which how words the reason.
+// id and the title search said, from which how words the reason. The facts
+// are kept in the report's own types, so the match report takes them as
+// they are.
 type decision struct {
-	title  string        // the show title the request named
-	query  string        // title without its id tags: what the searches look for
-	cands  []candidate   // ordered; empty = no match
-	id     idOutcome     // what an id tag or GUID said
-	search searchOutcome // what the title search said, if it ran
-	found  []foundTitle  // the first title search results (only with note)
-	warn   matchWarning  // at most one warning for the caller to log
-}
-
-type idKind uint8
-
-const (
-	idNone     idKind = iota // no id tag or GUID, or none the mapping knows
-	idTag                    // an id tag named the show
-	idGUID                   // the GUID Plex already has named the show
-	idManyTags               // more than one id tag: no match
-	idModeOff                // an /auto id tag whose mode is off: no match
-)
-
-// idOutcome is what an id tag or GUID said.
-type idOutcome struct {
-	kind idKind
-	text string // the tag, the GUID, or for idManyTags every tag
-	// idModeOff: the mode the tag needs and the setting that turns it on
-	path, need string
-	// an entry picked by name inside a TheTVDB id (aid 0 = not so): the
-	// entry and the id tags that name it exactly
-	aid  int
-	sure string
-}
-
-// stops: a tag rule says the show gets no match.
-func (o idOutcome) stops() bool { return o.kind == idManyTags || o.kind == idModeOff }
-
-type searchKind uint8
-
-const (
-	searchNotRun   searchKind = iota
-	searchFound               // at least one candidate
-	searchNothing             // no similar title
-	searchBelowMin            // the best result is below MIN_SCORE
-)
-
-// searchOutcome is what the title search said.
-type searchOutcome struct {
-	kind      searchKind
-	best, min int // the best result's score (0 = no result) and MIN_SCORE
-}
-
-// foundTitle is one title search result, for the match report.
-type foundTitle struct {
-	aid, score int
-	title      string
+	title string         // the show title the request named
+	query string         // title without its id tags: what the searches look for
+	cands []candidate    // ordered; empty = no match
+	by    report.MatchBy // what the id and the title search said; its ByName stays nil
+	// named is the entry picked by name inside a TheTVDB id (AID 0 = not
+	// so). A value, not by.ByName's pointer: with the reports off a
+	// pointer would be an allocation nobody reads.
+	named report.ByName
+	min   int                // MIN_SCORE, when the title search ran
+	found []report.Candidate // the first title search results (only with note)
+	warn  matchWarning       // at most one warning for the caller to log
 }
 
 type warningKind uint8
@@ -148,18 +108,19 @@ type matchWarning struct {
 // typed title's results. A manual season or episode match isn't a list: an
 // id match is the answer, and a tag that gives no match stays no match.
 // note: keep the first title search results, for the match report.
-func (m matcher) decide(mode Mode, r MatchRequest, note bool) decision {
-	return m.bySearch(mode, r, note, m.byID(mode, r))
+// warn, if not nil, gets the decision's warning between the two steps,
+// where it always went out: the title search's debug lines follow it.
+func (m matcher) decide(mode Mode, r MatchRequest, note bool, warn func(matchWarning)) decision {
+	d := m.byID(mode, r)
+	if warn != nil {
+		warn(d.warn)
+	}
+	return m.bySearch(mode, r, note, d)
 }
 
-// decide is the matcher's decision, with its warning logged. The warning
-// goes out between the two steps, where it always was: the title search's
-// debug lines follow it.
+// decide is the matcher's decision, with its warning logged.
 func (p *Provider) decide(mode Mode, r MatchRequest, note bool) decision {
-	m := p.matcher()
-	d := m.byID(mode, r)
-	p.warn(d.warn)
-	return m.bySearch(mode, r, note, d)
+	return p.matcher().decide(mode, r, note, p.warn)
 }
 
 // warn logs a decision's warning, unless its key had one in the last 10
@@ -196,24 +157,24 @@ func (m matcher) byID(mode Mode, r MatchRequest) decision {
 			names[i] = t[0]
 		}
 		list := strings.Join(names, " ")
-		d.id = idOutcome{kind: idManyTags, text: list}
+		d.by = report.MatchBy{ID: report.MatchManyTags, Text: list}
 		d.warn = matchWarning{kind: warnTags, title: d.title, id: list}
 		return d
 	case len(tags) == 1:
 		t := tags[0]
 		rules, need := m.tagRules(mode, t[1])
 		if need != "" { // the tag is the user's choice: no other mode, GUID or title search
-			d.id = idOutcome{kind: idModeOff, text: t[0], path: rules.Path, need: need}
+			d.by = report.MatchBy{ID: report.MatchTagOff, Text: t[0], Off: rules.Path, Need: need}
 			d.warn = matchWarning{kind: warnModeOff, id: t[0], path: rules.Path, need: need}
 			return d
 		}
 		if strings.EqualFold(t[1], "tvdb") {
 			if b, ok := m.specialRoot(t[2], d.query, r.Filename, r.Year); ok {
-				return d.namedBy(idTag, t[0], b)
+				return d.namedBy(report.MatchTag, t[0], b)
 			}
 		}
 		if root := m.rootForID(rules, t[1], t[2], d.query, r.Year); root != "" {
-			d.id = idOutcome{kind: idTag, text: t[0]}
+			d.by = report.MatchBy{ID: report.MatchTag, Text: t[0]}
 			d.cands = []candidate{{root, 100}}
 			return d
 		}
@@ -227,11 +188,11 @@ func (m matcher) byID(mode Mode, r MatchRequest) decision {
 			// own (and HAMA's) GUID is an earlier match or a Fix Match: kept.
 			if re == otherGUIDRe && (strings.EqualFold(g[1], "thetvdb") || strings.EqualFold(g[1], "tvdb")) {
 				if b, ok := m.specialRoot(g[2], d.query, r.Filename, r.Year); ok {
-					return d.namedBy(idGUID, r.GUID, b)
+					return d.namedBy(report.MatchGUID, r.GUID, b)
 				}
 			}
 			if root := m.rootForID(m.rules(mode, g[1]), g[1], g[2], d.query, r.Year); root != "" {
-				d.id = idOutcome{kind: idGUID, text: r.GUID}
+				d.by = report.MatchBy{ID: report.MatchGUID, Text: r.GUID}
 				d.cands = []candidate{{root, 100}}
 				return d
 			}
@@ -246,8 +207,9 @@ func (m matcher) byID(mode Mode, r MatchRequest) decision {
 // namedBy is d with the entry picked by name inside the TheTVDB id that src
 // (a tag or GUID) names: the entry's show, and a warning that it may be
 // wrong.
-func (d decision) namedBy(kind idKind, src string, b byName) decision {
-	d.id = idOutcome{kind: kind, text: src, aid: b.aid, sure: b.sure}
+func (d decision) namedBy(id report.MatchID, src string, b byName) decision {
+	d.by = report.MatchBy{ID: id, Text: src}
+	d.named = report.ByName{AID: b.aid, Sure: b.sure}
 	d.cands = []candidate{{fmt.Sprintf("anidb-%d", b.aid), b.score}}
 	d.warn = matchWarning{kind: warnByName, title: d.title, id: src, aid: b.aid, score: b.score, sure: b.sure}
 	return d
@@ -260,7 +222,7 @@ func (d decision) namedBy(kind idKind, src string, b byName) decision {
 // MIN_SCORE holds, as for an automatic one.
 func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) decision {
 	list := r.fixMatchList()
-	if !list && (len(d.cands) > 0 || d.id.stops()) {
+	if !list && (len(d.cands) > 0 || d.by.TagRule()) { // no search has run yet, so TagRule is the tag rule alone
 		return d
 	}
 	debug := debugOn(context.Background())
@@ -284,7 +246,7 @@ func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) deci
 				slog.Debug("match: title search result", "query", d.query, "year", r.Year, "rank", i+1, "aid", res.AID, "score", res.Score, "title", t)
 			}
 			if note {
-				d.found = append(d.found, foundTitle{aid: res.AID, score: res.Score, title: t})
+				d.found = append(d.found, report.Candidate{AID: res.AID, Title: t, Score: res.Score})
 			}
 		}
 	}
@@ -304,15 +266,14 @@ func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) deci
 			out = append(out, candidate{root, res.Score})
 		}
 	}
-	d.cands = out
-	d.search = searchOutcome{kind: searchFound, min: m.minScore}
+	d.cands, d.min = out, m.minScore
 	switch {
 	case len(results) == 0:
-		d.search.kind = searchNothing
+		d.by.Search = report.SearchNone
 	case len(out) == 0:
-		d.search.kind, d.search.best = searchBelowMin, results[0].Score
+		d.by.Search, d.by.Best = report.SearchLow, results[0].Score
 	default:
-		d.search.best = results[0].Score
+		d.by.Search, d.by.Best = report.SearchFound, results[0].Score
 	}
 	return d
 }
@@ -321,50 +282,46 @@ func (m matcher) bySearch(mode Mode, r MatchRequest, note bool, d decision) deci
 // here and nowhere else: the log, the request's note and the match report
 // all show it.
 func (d decision) how() string {
+	id, search := d.idHow(), d.searchHow()
 	switch {
-	case d.id.kind == idNone:
-		return d.search.how()
-	case d.search.kind == searchNotRun:
-		return d.id.how()
+	case id == "":
+		return search
+	case search == "":
+		return id
 	}
-	return d.id.how() + "; " + d.search.how() // a Fix Match list: both
+	return id + "; " + search // a Fix Match list: both
 }
 
-// how is the id's part of decision.how ("" for none).
-func (o idOutcome) how() string {
+// idHow is the id's part of how ("" for none).
+func (d decision) idHow() string {
 	var s string
-	switch o.kind {
-	case idManyTags:
-		return "id tags " + o.text + ": only one is allowed"
-	case idModeOff:
-		return fmt.Sprintf("tag %s: /%s is off, set %s", o.text, o.path, o.need)
-	case idTag:
-		s = "tag " + o.text
-	case idGUID:
-		s = "guid " + o.text
+	switch by := d.by; by.ID {
+	case report.MatchManyTags:
+		return "id tags " + by.Text + ": only one is allowed"
+	case report.MatchTagOff:
+		return fmt.Sprintf("tag %s: /%s is off, set %s", by.Text, by.Off, by.Need)
+	case report.MatchTag:
+		s = "tag " + by.Text
+	case report.MatchGUID:
+		s = "guid " + by.Text
 	default:
 		return ""
 	}
-	if o.aid > 0 {
-		s += ", by name: " + o.nameNote()
+	if d.named.AID > 0 {
+		s += ", by name: " + d.named.Note()
 	}
 	return s
 }
 
-// nameNote says which entry was picked by name and which tag makes it sure.
-func (o idOutcome) nameNote() string {
-	return report.ByName{AID: o.aid, Sure: o.sure}.Note()
-}
-
-// how is the title search's part of decision.how ("" when it didn't run).
-func (o searchOutcome) how() string {
-	switch o.kind {
-	case searchFound:
+// searchHow is the title search's part of how ("" when it didn't run).
+func (d decision) searchHow() string {
+	switch d.by.Search {
+	case report.SearchFound:
 		return "title search"
-	case searchNothing:
+	case report.SearchNone:
 		return "title search: no similar title"
-	case searchBelowMin:
-		return fmt.Sprintf("title search: best score %d below MIN_SCORE %d", o.best, o.min)
+	case report.SearchLow:
+		return fmt.Sprintf("title search: best score %d below MIN_SCORE %d", d.by.Best, d.min)
 	}
 	return ""
 }

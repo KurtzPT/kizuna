@@ -468,7 +468,7 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 			err = noShowError{err}
 		}
 	default:
-		if off := p.modeOff(Modes["tvdb"]); off != "" {
+		if off := p.matcher().modeOff(Modes["tvdb"]); off != "" {
 			// A tvdb-N key asked through /anidb or /auto, with TheTVDB not set
 			// up: like /tvdb itself (withMode), a 503 with the reason.
 			return nil, fmt.Errorf("%s needs TheTVDB, which is off: %s", root, off)

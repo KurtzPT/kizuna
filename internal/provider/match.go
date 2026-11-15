@@ -68,7 +68,7 @@ func (p *Provider) Match(ctx context.Context, mode Mode, r MatchRequest) (items 
 	attrs := []any{"mode", mode.Path, "type", matchType(r.Type), "title", title, "year", r.Year, "file", r.Filename, "guid", r.GUID, "manual", r.Manual == 1}
 	var m *report.Match
 	if p.reports != nil && !list {
-		m = p.recordMatch(mode, r, d)
+		m = p.recordMatch(mode, r, d, how)
 	}
 	rq := report.RequestFrom(ctx) // nil with the reports off
 	if len(cands) == 0 {

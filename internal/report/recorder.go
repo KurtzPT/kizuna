@@ -3,7 +3,6 @@ package report
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -212,20 +211,14 @@ func (r *Recorder) Facts() Facts {
 }
 
 // Result is what a finished build adds to its report. A failed build has
-// only Head and Mapping.
+// only Head and Mapping. Mapping and Complete stay out of Sent: their keys
+// come earlier in the saved JSON.
 type Result struct {
 	Head     ShowHead
 	Mapping  []MapRow
 	Complete bool
-	Seasons  []Season
-	Episodes []Episode
-	EpsTotal int
-	// CrewPhotos: the episodes' crew photo count (Build.CrewPhotos).
-	CrewPhotos string
-	Art        []ArtGroup
-	Item       json.RawMessage
-	ItemSrc    map[string]string
-	Checks     []Check // go after the ones recorded while the build ran
+	Sent
+	Checks []Check // go after the ones recorded while the build ran
 }
 
 // Finish ends the build: took is how long it ran, err its failure.
@@ -240,9 +233,7 @@ func (r *Recorder) Finish(took time.Duration, err error, res Result) {
 		r.b.Error = err.Error()
 	}
 	r.head = res.Head
-	r.b.Mapping, r.b.Complete, r.b.Seasons = res.Mapping, res.Complete, res.Seasons
-	r.b.Episodes, r.b.EpsTotal, r.b.Art, r.b.Item, r.b.ItemSrc = res.Episodes, res.EpsTotal, res.Art, res.Item, res.ItemSrc
-	r.b.CrewPhotos = res.CrewPhotos
+	r.b.Mapping, r.b.Complete, r.b.Sent = res.Mapping, res.Complete, res.Sent
 	r.b.Checks = append(r.b.Checks, res.Checks...)
 	r.finished = time.Now()
 }
