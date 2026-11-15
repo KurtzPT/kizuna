@@ -171,7 +171,7 @@ func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 // episode). For titles and fill values, Plex's list is read only when it can
 // add something (plexListNeeded); for crew, always (plexCrewRead). Returns
 // false when a list it needed failed or came back partial, or episode crew
-// is still being fetched.
+// is still being fetched or a record's request failed.
 func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists episodeLists, photos *crewPhotos) bool {
 	wantTVDB := p.tvdbEpisodesListed(entry) && entry.TVDB.ID > 0
 	wantTMDB := p.tmdbEpisodesListed(false) && entry.TMDB.ID > 0

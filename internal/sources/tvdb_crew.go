@@ -156,7 +156,8 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 				case crewAnswer(err):
 					t.crewFail(id, err)
 				default:
-					// A login or network blip, not TheTVDB's answer: pending,
+					// A login or network blip, or an answer that can't be
+					// read: not TheTVDB's answer about the record. Pending,
 					// so the next build comes soon and asks again. Not queued
 					// for the background: that would ask twice per build
 					// while TheTVDB is down.
