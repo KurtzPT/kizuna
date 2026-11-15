@@ -67,11 +67,19 @@ Show Episode 7 (BD)|7
 Show 12|12
 Show - S01E05|0
 Show|0
+Tails Ep 13 - Christmas Special|13
+Tails Episode 7 - Preview|7
+Tails E08 Trailer|8
+Tails 07 - The Last Special|0
 EOF
 
 while IFS='|' read -r name want; do
 	check "credit_of \"$name\"" "$(credit_of "$name")" "$want"
 done <<'EOF'
+Show - OP1|op 1 - OP1
+Show - NCED2|ed 2 - NCED2
+Show Ep 05 - ED|
+Show E05 NCOP1|
 Show - NCOP1|op 1 - NCOP1
 Show - OP1b|op 1 b OP1b
 Show - ED|ed 1 - ED
@@ -111,7 +119,23 @@ Show - PV|201
 Show - Trailer 2|202
 Show - 05|0
 Show - S01E05|0
+Show - SP1|1
+Show - Special 2|2
+Show OVA 2|2
+Show - Trailer|201
+Show - PV1|201
+[Group] Show - 05 [1080p]|0
+Show - S01E05 - The Special|0
+Show - 13 - Christmas Special|0
+Tails Ep 13 - Christmas Special|0
+Tails Episode 7 - Preview|0
+Tails E08 Trailer|0
+Tails 07 - The Last Special|1
 EOF
+# A numbered episode is no special, whatever its title ends in. The last name
+# is the form the script can't tell apart: a number before the dash is part of
+# many titles ("Show 2 - Special", "Mob Psycho 100 - OVA"), so it stays a
+# special, and the user renames it or hints it by hand.
 
 while IFS='|' read -r name want; do
 	check "plex_credit \"$name\"" "$(plex_credit "$name")" "$want"
@@ -337,6 +361,29 @@ check_contains "plex credits: summary" "$out" "0 .plexmatch files to write, 0 hi
 out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
 check "plex credits, apply: exit" "$?" "0"
 check "plex credits, apply: no .plexmatch written, no file renamed" "$(ls -A "$show" | wc -l | tr -d ' ')" "13"
+
+# a numbered episode whose title ends in a word for a special, trailer or
+# ending is an episode: no hint. Real specials next to it keep theirs.
+lib=$WORK/numbered
+show="$lib/Tails [anidb-1]"
+mkdir -p "$show"
+for f in "Tails Ep 13 - Christmas Special" "Tails Episode 7 - Preview" "Tails E08 Trailer" "Tails Ep 09 - OVA" \
+	"Tails - 10 - The Special" "Tails - S01E05 - The Special" "[Group] Tails - 05 [1080p]" \
+	"Tails 07 - The Last Special" "Tails - SP2" "Tails - Special 3" "Tails OVA 4" "Tails - Trailer" "Tails - PV2" \
+	"Tails - OP1" "Tails - NCED2"; do
+	: >"$show/$f.mkv"
+done
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check "numbered: exit" "$?" "0"
+check "numbered: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
+	"  + ep: S00E202: Tails - PV2.mkv
+  + ep: S00E02: Tails - SP2.mkv
+  + ep: S00E03: Tails - Special 3.mkv
+  + ep: S00E201: Tails - Trailer.mkv
+  + ep: S00E01: Tails 07 - The Last Special.mkv
+  + ep: S00E04: Tails OVA 4.mkv"
+check "numbered: openings and endings are still reported" "$(grep -c '^WARNING: .*opening/ending extras' <<<"$out")" "2"
+check_contains "numbered: summary" "$out" "1 .plexmatch files to write, 6 hints in all, 0 files already have a hint, 2 warnings"
 
 # a show folder named Extras: its .plexmatch is read like any other show's
 mkdir -p "$WORK/extras/Extras"
