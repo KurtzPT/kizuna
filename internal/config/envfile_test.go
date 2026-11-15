@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"slices"
@@ -218,6 +219,54 @@ func TestPortUnderListenNotUnknown(t *testing.T) {
 	}
 	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "setting=PORT") {
 		t.Errorf("PORT reported as unknown: %q", log)
+	}
+}
+
+// MAPPING_SOURCES is no setting any more (the two lists have one order). One
+// left in the environment, in the settings file, or in both changes nothing
+// and is never named in a warning: not as a bad value, not as a typo.
+func TestLeftoverMappingSourcesIgnored(t *testing.T) {
+	writeEnvFile(t, "MIN_SCORE=70\n")
+	unset(t, "MIN_SCORE", "MAPPING_SOURCES")
+	forgetRead(t)
+	if _, err := LoadEnvFile(); err != nil {
+		t.Fatal(err)
+	}
+	want := Load() // without it
+
+	for _, c := range []struct{ name, env, file string }{
+		{"environment", "fribb", ""},
+		{"environment, no list", "none", ""},
+		{"settings file", "", "MAPPING_SOURCES=fribb,animelists\n"},
+		{"both", "fribb", "MAPPING_SOURCES=nonsense\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			writeEnvFile(t, "MIN_SCORE=70\n"+c.file)
+			unset(t, "MIN_SCORE", "MAPPING_SOURCES")
+			if c.env != "" {
+				t.Setenv("MAPPING_SOURCES", c.env)
+			}
+			forgetRead(t)
+			f, err := LoadEnvFile()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got Config
+			log := warnings(t, func() { got = Load(); f.Log() })
+			want := want
+			want.DataDir = got.DataDir // each case has its own folder
+			if !reflect.DeepEqual(got, want) || got.MinScore != 70 {
+				t.Errorf("settings changed:\n got %+v\nwant %+v", got, want)
+			}
+			for _, line := range strings.Split(log, "\n") {
+				if strings.Contains(line, "level=WARN") && strings.Contains(line, "MAPPING_SOURCES") {
+					t.Errorf("warning about it: %s", line)
+				}
+			}
+			if len(f.Problems) > 0 || len(f.Ignored) > 0 {
+				t.Errorf("problems %v, ignored %v", f.Problems, f.Ignored)
+			}
+		})
 	}
 }
 

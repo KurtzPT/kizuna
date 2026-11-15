@@ -1,12 +1,16 @@
 // Package mapping links AniDB ids to the ids of other sites (TVDB, TMDB,
-// IMDb, MyAnimeList, AniList, Kitsu, Anime News Network). Two lists are merged, in the order of
-// MAPPING_SOURCES; a later list only fills ids the earlier ones lack:
+// IMDb, MyAnimeList, AniList, Kitsu, Anime News Network). Two lists are merged, always in this
+// order; the second only fills ids the first lacks:
 //
 //	animelists  Anime-Lists anime-list-master.xml: TVDB/TMDB/IMDb ids plus
 //	            TVDB and TMDB season, episode offset and per-episode exceptions
 //	fribb       Fribb/anime-lists anime-list-mini.json: Anime-Lists merged with
 //	            anime-offline-database (MAL, AniList, Kitsu, ANN ids) and ids looked
 //	            up on TMDB (many extra IMDb/TMDB ids)
+//
+// The order is fixed: Fribb has an id for nearly every anime, so ahead of
+// Anime-Lists it would hide that list's seasons, offsets and per-episode
+// exceptions (merge takes a placement only for an id the entry lacks).
 //
 // An optional anime-list-custom.xml in the data folder (Anime-Lists format)
 // replaces whole entries and always wins, also while no list has loaded yet.
@@ -58,13 +62,18 @@ func (l *Lists) get() *snapshot {
 	return empty
 }
 
-// listSources: how each MAPPING_SOURCES list is downloaded and parsed.
-var listSources = map[string]struct {
+// listSource is one mapping list: how it is downloaded and parsed.
+type listSource struct {
+	name  string
 	get   func(context.Context, *fetch.Client, func([]byte) error) ([]byte, error)
 	parse func([]byte) (map[int]Entry, error)
-}{
-	"animelists": {getAnimeLists, parseAnimeLists},
-	"fribb":      {getFribb, parseFribb},
+}
+
+// listSources: the lists, in the order they are merged (the package comment
+// says why Anime-Lists is first).
+var listSources = []listSource{
+	{"animelists", getAnimeLists, parseAnimeLists},
+	{"fribb", getFribb, parseFribb},
 }
 
 // nonEmpty parses a list and rejects one without entries.
@@ -78,7 +87,7 @@ func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]E
 	}
 }
 
-// Load downloads (daily) the lists named in order and merges them.
+// Load downloads (daily) both lists and merges them, Anime-Lists first.
 // On the first load, a list that fails is skipped as long as another one
 // loads. Once the mapping is Ready, a failed list it was built from keeps it
 // as loaded (the lists fill each other's gaps, so one alone would lose ids
@@ -87,21 +96,19 @@ func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]E
 // the last load (most days: the lists answer 304 and the custom file is the
 // same), the loaded mapping is kept as is. A load cancelled while Kizuna
 // stops changes nothing.
-func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order []string) error {
+func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error {
 	type downloaded struct {
-		src  string
-		data []byte
-		list map[int]Entry // already parsed by fetch.Checked; nil = parse data
+		src   string
+		data  []byte
+		list  map[int]Entry // already parsed by fetch.Checked; nil = parse data
+		parse func([]byte) (map[int]Entry, error)
 	}
 	var got []downloaded
 	var errs []error
 	var failed []string
 	h := sha256.New()
-	for _, src := range order {
-		ls, ok := listSources[src]
-		if !ok {
-			continue
-		}
+	for _, ls := range listSources {
+		src := ls.name
 		c := &fetch.Checked[map[int]Entry]{Parse: nonEmpty(ls.parse)}
 		data, err := ls.get(ctx, f, c.Validate)
 		if err != nil {
@@ -114,7 +121,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		if ok {
 			data = nil // parsed already: don't hold on to the download
 		}
-		got = append(got, downloaded{src, data, list})
+		got = append(got, downloaded{src, data, list, ls.parse})
 	}
 	if err := ctx.Err(); err != nil { // stopping: fetch may still answer with cached copies
 		return err
@@ -142,7 +149,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string, order
 		list := g.list
 		if list == nil {
 			var err error
-			list, err = listSources[g.src].parse(g.data)
+			list, err = g.parse(g.data)
 			g.data = nil
 			if err != nil {
 				errs, failed = append(errs, fmt.Errorf("%s: %w", g.src, err)), append(failed, g.src)
@@ -219,7 +226,9 @@ func (l *Lists) loadedFrom(sum [32]byte) bool {
 }
 
 // merge adds src's entries to dst: unknown AniDB ids are added, known ones
-// only get the ids they lack. Returns how many were added / filled.
+// only get the ids they lack. So dst's list wins: a placement (season,
+// offset, exceptions) comes from src only with an id dst has none for.
+// Returns how many were added / filled.
 func merge(dst, src map[int]Entry) (added, filled int) {
 	for aid, s := range src {
 		d, ok := dst[aid]
@@ -305,18 +314,18 @@ func (l *Lists) Ready() bool {
 	return s != nil && !s.customOnly
 }
 
-// Missing returns the lists of order that no loaded mapping has had yet (all
-// of them before the first load): one that failed at the first start with
+// Missing returns the lists that no loaded mapping has had yet (both
+// before the first load): one that failed at the first start with
 // nothing cached, while another loaded. Ready is true then, but the mapping
 // lacks that list's ids and episode exceptions, so it is worth retrying soon.
 // A list that loaded once stays in the mapping even when a later download
 // fails (see Load), so it isn't missing then.
-func (l *Lists) Missing(order []string) []string {
+func (l *Lists) Missing() []string {
 	from := l.get().from
 	var out []string
-	for _, src := range order {
-		if _, known := listSources[src]; known && !slices.Contains(from, src) {
-			out = append(out, src)
+	for _, ls := range listSources {
+		if !slices.Contains(from, ls.name) {
+			out = append(out, ls.name)
 		}
 	}
 	return out

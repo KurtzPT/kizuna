@@ -80,33 +80,16 @@ func warnings(t *testing.T, f func()) string {
 // A list with no known source left falls back to the default with a
 // warning instead of turning the field off.
 func TestSourceListWithNothingKnownUsesDefault(t *testing.T) {
-	for _, v := range []string{"animelist", "foo,bar", ","} {
-		t.Setenv("MAPPING_SOURCES", v)
+	for _, v := range []string{"tvdbb", "foo,bar", ","} {
+		t.Setenv("LOGO_SOURCES", v)
 		var got []string
-		log := warnings(t, func() { got = Load().MappingSources })
-		if !slices.Equal(got, []string{"animelists", "fribb"}) {
-			t.Errorf("MAPPING_SOURCES=%q: %v, want the default", v, got)
+		log := warnings(t, func() { got = Load().LogoSources })
+		if !slices.Equal(got, []string{"tvdb", "tmdb", "plex"}) {
+			t.Errorf("LOGO_SOURCES=%q: %v, want the default", v, got)
 		}
 		if !strings.Contains(log, "no known source left") {
-			t.Errorf("MAPPING_SOURCES=%q: no warning in %q", v, log)
+			t.Errorf("LOGO_SOURCES=%q: no warning in %q", v, log)
 		}
-	}
-}
-
-// MAPPING_SOURCES can't be turned off: without a list the mapping never
-// becomes ready. "none" warns and uses the default.
-func TestMappingSourcesNoneUsesDefault(t *testing.T) {
-	for _, v := range []string{"none", "NONE"} {
-		t.Setenv("MAPPING_SOURCES", v)
-		var got []string
-		log := warnings(t, func() { got = Load().MappingSources })
-		if !slices.Equal(got, []string{"animelists", "fribb"}) || !strings.Contains(log, "setting=MAPPING_SOURCES") {
-			t.Errorf("MAPPING_SOURCES=%s: %v (log %q), want the default with a warning", v, got, log)
-		}
-	}
-	t.Setenv("MAPPING_SOURCES", "fribb")
-	if got := Load().MappingSources; !slices.Equal(got, []string{"fribb"}) {
-		t.Errorf("fribb: %v", got)
 	}
 }
 
@@ -267,9 +250,6 @@ func TestPlexSource(t *testing.T) {
 		if got := strings.Join(l.got, ","); got != l.want {
 			t.Errorf("%s default %q, want %q", l.name, got, l.want)
 		}
-	}
-	if !slices.Equal(c.MappingSources, []string{"animelists", "fribb"}) {
-		t.Errorf("MAPPING_SOURCES %v", c.MappingSources)
 	}
 	t.Setenv("LOGO_SOURCES", "plex,tmdb")
 	c = Load()
