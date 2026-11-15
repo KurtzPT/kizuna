@@ -74,7 +74,7 @@ func longShow() *Recorder {
 	return r
 }
 
-// One flush of a long show's page, as Run does it every flushEvery while
+// One flush of a long show's page, as Run does it every requestsEvery while
 // Plex asks about the show: the saved data is read, one request is added,
 // and the page and its data are written again. The index is not written.
 // It also reports the size of the two files.
@@ -98,7 +98,7 @@ func BenchmarkFlushLongShow(b *testing.B) {
 	b.ResetTimer()
 	for i := range b.N {
 		s.AddRequest(request(maxRequests + i))
-		s.flush(false)
+		s.flush(false, s.now().Add(requestsEvery)) // the request is due
 	}
 	b.StopTimer()
 	for name, unit := range map[string]string{key + ".html": "html-bytes", filepath.Join("data", key+".json"): "json-bytes"} {

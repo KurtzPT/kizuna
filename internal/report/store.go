@@ -24,13 +24,15 @@ import (
 // Store writes the report pages to a folder: <key>.html per show or
 // unmatched title, index.html, and their data in data/<key>.json, which the
 // next update of a page starts from. Updates are batched: Plex asks many
-// things at once, so a page is written at most every flushEvery, and the
-// index (which lists every page) at most every indexEvery.
+// things at once, so a page is written flushEvery after a build or a
+// no-match answer for it, requestsEvery after a request when it has only
+// those, and the index (which lists every page) at most every indexEvery.
 //
 // All methods do nothing on a nil Store.
 type Store struct {
 	dir     string
 	version string
+	now     func() time.Time // when updates are due; the tests set it
 
 	flushMu    sync.Mutex // one flush at a time: they write the same files
 	mu         sync.Mutex
@@ -45,6 +47,11 @@ type Store struct {
 const (
 	// flushEvery is how long updates wait to be written together.
 	flushEvery = 2 * time.Second
+	// requestsEvery is how long a page waits when only Plex requests were
+	// added to it. A long show's page is about a megabyte, and Plex pages
+	// through the show with a request every few hundred milliseconds: at
+	// flushEvery that page would be written again and again.
+	requestsEvery = 10 * time.Second
 	// unmatchedMaxAge: an unmatched title's page goes once Plex hasn't asked
 	// about the title for this long (renamed, matched another way, or gone
 	// from the library). page.html says it in words ("after 30 days");
@@ -69,19 +76,23 @@ const maxFails = 5
 type pending struct {
 	builds    []*Recorder
 	requests  []Request
-	unmatched *Match // a new no-match answer for the title
-	drop      bool   // the title matched after all: remove its page
-	fails     int    // failed writes of these updates
+	unmatched *Match    // a new no-match answer for the title
+	drop      bool      // the title matched after all: remove its page
+	fails     int       // failed writes of these updates
+	due       time.Time // when they are to be written
 }
 
 // merge adds the updates queued after p, which failed to write.
 func (p *pending) merge(later *pending) {
 	if later.drop {
-		*p = pending{drop: true, fails: p.fails}
+		*p = pending{drop: true, fails: p.fails, due: p.due}
 		return
 	}
 	p.builds = append(p.builds, later.builds...)
 	p.requests = append(p.requests, later.requests...)
+	if later.due.Before(p.due) {
+		p.due = later.due
+	}
 	if later.unmatched != nil {
 		p.unmatched, p.drop = later.unmatched, false
 	}
@@ -93,7 +104,7 @@ func Open(dir, version string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, version: version, pending: map[string]*pending{}, index: map[string]IndexRow{}, wake: make(chan struct{}, 1)}
+	s := &Store{dir: dir, version: version, now: time.Now, pending: map[string]*pending{}, index: map[string]IndexRow{}, wake: make(chan struct{}, 1)}
 	var rows []IndexRow
 	if data, err := os.ReadFile(s.dataPath("index")); err == nil {
 		if err := json.Unmarshal(data, &rows); err != nil {
@@ -171,7 +182,7 @@ func (s *Store) rowFromData(key string) (row IndexRow, ok, old bool) {
 		doc.Key = key
 		return unmatchedRow(doc), true, false
 	}
-	var doc ShowDoc
+	var doc showFile
 	if old, err := decode(data, &doc); old || err != nil {
 		return IndexRow{}, false, old
 	}
@@ -186,8 +197,8 @@ type saved interface {
 	clear()
 }
 
-func (d *ShowDoc) current() bool      { return d.Schema == schemaVersion }
-func (d *ShowDoc) clear()             { *d = ShowDoc{} }
+func (d *showFile) current() bool     { return d.Schema == schemaVersion }
+func (d *showFile) clear()            { *d = showFile{} }
 func (d *UnmatchedDoc) current() bool { return d.Schema == schemaVersion }
 func (d *UnmatchedDoc) clear()        { *d = UnmatchedDoc{} }
 
@@ -204,39 +215,68 @@ func decode(data []byte, doc saved) (old bool, err error) {
 	return false, err
 }
 
-// Run writes pending updates every flushEvery until ctx ends, then
+// Run writes pending updates as they fall due until ctx ends, then
 // everything once more.
 func (s *Store) Run(ctx context.Context) {
 	if s == nil {
 		return
 	}
+	for s.wait(ctx) {
+		s.flush(false, s.now())
+	}
+	s.Flush()
+}
+
+// wait returns true when a page or the index is due to be written, false
+// when ctx ends. A new update may be due sooner than what it waits for, so
+// each one makes it look again.
+func (s *Store) wait(ctx context.Context) bool {
 	for {
-		var indexDue <-chan time.Time // an index change left for later
 		s.mu.Lock()
-		if s.indexDirty {
-			indexDue = time.After(indexEvery - time.Since(s.indexAt))
-		}
+		next, ok := s.nextDue()
 		s.mu.Unlock()
+		var due <-chan time.Time // nil: nothing to wait for but a new update
+		var timer *time.Timer
+		if ok {
+			timer = time.NewTimer(next.Sub(s.now()))
+			due = timer.C
+		}
 		select {
 		case <-ctx.Done():
-			s.Flush()
-			return
-		case <-indexDue:
+			return false
+		case <-due:
+			return true
 		case <-s.wake:
-			select {
-			case <-ctx.Done():
-			case <-time.After(flushEvery):
-			}
 		}
-		s.flush(false)
+		if timer != nil {
+			timer.Stop()
+		}
 	}
 }
 
-func (s *Store) touch(key string) *pending {
+// nextDue is when the next page, or the index, is due to be written; ok
+// false when nothing is. Caller holds s.mu.
+func (s *Store) nextDue() (next time.Time, ok bool) {
+	if s.indexDirty {
+		next, ok = s.indexAt.Add(indexEvery), true
+	}
+	for _, p := range s.pending {
+		if !ok || p.due.Before(next) {
+			next, ok = p.due, true
+		}
+	}
+	return next, ok
+}
+
+// touch returns key's pending updates, due wait from now at the latest.
+func (s *Store) touch(key string, wait time.Duration) *pending {
+	due := s.now().Add(wait)
 	p := s.pending[key]
 	if p == nil {
-		p = &pending{}
+		p = &pending{due: due}
 		s.pending[key] = p
+	} else if due.Before(p.due) {
+		p.due = due
 	}
 	s.signal()
 	return p
@@ -259,18 +299,19 @@ func (s *Store) AddBuild(key string, r *Recorder) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.touch(key)
+	p := s.touch(key, flushEvery)
 	p.builds = append(p.builds, r)
 }
 
-// AddRequest queues a Plex request for the page rq.Key.
+// AddRequest queues a Plex request for the page rq.Key. It waits up to
+// requestsEvery, or goes with the page's next build if that comes first.
 func (s *Store) AddRequest(rq Request) {
 	if s == nil || rq.Key == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.touch(rq.Key)
+	p := s.touch(rq.Key, requestsEvery)
 	p.requests = append(p.requests, rq)
 }
 
@@ -283,7 +324,7 @@ func (s *Store) Unmatched(m Match) string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.touch(key)
+	p := s.touch(key, flushEvery)
 	p.unmatched, p.drop = &m, false
 	return key
 }
@@ -299,8 +340,8 @@ func (s *Store) Matched(title string) {
 	if !s.hasPage(key) {
 		return
 	}
-	p := s.touch(key)
-	*p = pending{drop: true}
+	p := s.touch(key, flushEvery)
+	*p = pending{drop: true, due: p.due}
 }
 
 // HasPage reports whether key has a page, written or about to be.
@@ -367,11 +408,17 @@ func UnmatchedKey(title string) string {
 }
 
 // Flush writes every pending update and the index now.
-func (s *Store) Flush() { s.flush(true) }
+func (s *Store) Flush() {
+	if s == nil {
+		return
+	}
+	s.flush(true, s.now())
+}
 
-// flush writes the pending updates, and the index if it changed and index
-// is set or it was last written indexEvery ago.
-func (s *Store) flush(index bool) {
+// flush writes the pending updates due by now, or all of them if all is
+// set, and the index if it changed and all is set or it was last written
+// indexEvery before now.
+func (s *Store) flush(all bool, now time.Time) {
 	if s == nil {
 		return
 	}
@@ -379,7 +426,18 @@ func (s *Store) flush(index bool) {
 	defer s.flushMu.Unlock()
 	s.mu.Lock()
 	work := s.pending
-	s.pending, s.writing = map[string]*pending{}, work
+	if !all {
+		work = map[string]*pending{}
+		for key, p := range s.pending {
+			if !p.due.After(now) {
+				work[key] = p
+				delete(s.pending, key)
+			}
+		}
+	} else {
+		s.pending = map[string]*pending{}
+	}
+	s.writing = work
 	s.mu.Unlock()
 
 	keys := make([]string, 0, len(work))
@@ -401,11 +459,11 @@ func (s *Store) flush(index bool) {
 
 	s.mu.Lock()
 	s.writing = nil
-	due := s.indexDirty && (index || time.Since(s.indexAt) >= indexEvery)
+	due := s.indexDirty && (all || now.Sub(s.indexAt) >= indexEvery)
 	rows := []IndexRow{}
 	var old []string
 	if due {
-		s.indexDirty, s.indexAt = false, time.Now()
+		s.indexDirty, s.indexAt = false, now
 		for key, r := range s.index {
 			if expired(r) {
 				old = append(old, key)
@@ -444,6 +502,7 @@ func (s *Store) retry(key string, p *pending, err error) {
 	slog.Warn("reports: can't write a report page; trying again", "page", key, "err", err)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	p.due = s.now().Add(flushEvery)
 	if later := s.pending[key]; later != nil {
 		p.merge(later)
 	}
@@ -483,26 +542,32 @@ func (s *Store) setIndex(r IndexRow, remove bool) {
 }
 
 func (s *Store) writeShow(key string, p *pending) error {
-	var doc ShowDoc
+	var doc showFile
 	if err := s.readData(key, &doc); err != nil {
 		return err
 	}
 	doc.Schema, doc.Key = schemaVersion, key
 	for _, r := range p.builds {
 		b, head := r.snapshot(func() { s.AddBuild(key, r) })
-		if i := slices.IndexFunc(doc.Builds, func(x Build) bool { return x.ID == b.ID }); i >= 0 {
-			doc.Builds[i] = b // written before; a download came in after
+		sb, err := newSavedBuild(b)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(doc.Builds, func(x savedBuild) bool { return x.ID == b.ID }); i >= 0 {
+			doc.Builds[i] = sb // written before; a download came in after
 		} else {
-			doc.Builds = append(doc.Builds, b)
+			doc.Builds = append(doc.Builds, sb)
 		}
 		if head.Title != "" {
 			doc.ShowHead = head
 		}
 	}
-	slices.SortStableFunc(doc.Builds, func(a, b Build) int { return b.Start.Compare(a.Start) })
+	slices.SortStableFunc(doc.Builds, func(a, b savedBuild) int { return b.Start.Compare(a.Start) })
 	doc.Builds = doc.Builds[:min(len(doc.Builds), maxBuilds)]
 	for i := 1; i < len(doc.Builds); i++ { // episode and image lists are long: the newest build's only
-		doc.Builds[i].Episodes, doc.Builds[i].Art = nil, nil
+		if err := doc.Builds[i].lean(); err != nil {
+			return err
+		}
 	}
 	for _, rq := range p.requests {
 		if m := rq.Match; m != nil && (doc.LastMatch == nil || !m.Time.Before(doc.LastMatch.Time)) {
@@ -515,7 +580,7 @@ func (s *Store) writeShow(key string, p *pending) error {
 	}
 	// Never null in the page's data: the page lists both.
 	if doc.Builds == nil {
-		doc.Builds = []Build{}
+		doc.Builds = []savedBuild{}
 	}
 	if doc.Requests == nil {
 		doc.Requests = []Request{}
@@ -562,7 +627,7 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 }
 
 // showRow is a show page's index row.
-func showRow(doc ShowDoc) IndexRow {
+func showRow(doc showFile) IndexRow {
 	row := IndexRow{Schema: doc.Schema, Key: doc.Key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
 	for _, b := range doc.Builds {
 		if !slices.Contains(row.Roots, b.Root) {

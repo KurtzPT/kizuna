@@ -754,9 +754,9 @@ func TestIndexEvery(t *testing.T) {
 		return len(rows)
 	}
 	s.AddBuild("anidb-1", finished("anidb-1"))
-	s.flush(false) // the first write is due
+	s.flush(false, s.now().Add(flushEvery)) // the page and the first index write are due
 	s.AddBuild("anidb-2", finished("anidb-2"))
-	s.flush(false)
+	s.flush(false, s.now().Add(flushEvery))
 	if _, err := os.Stat(filepath.Join(dir, "anidb-2.html")); err != nil {
 		t.Fatal(err)
 	}
@@ -875,13 +875,13 @@ func TestOpenListsUnindexedPages(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir, "test")
 	s.AddBuild("anidb-1", finished("anidb-1"))
-	s.flush(false) // the first index write is due: it lists anidb-1
+	s.flush(false, s.now().Add(flushEvery)) // the first index write is due: it lists anidb-1
 	failed := NewRecorder("anidb-2", "anidb")
 	failed.Finish(time.Second, errors.New("AniDB is down"), Result{Head: ShowHead{Title: "Second"}})
 	s.AddBuild("anidb-2", failed)
 	newKey := s.Unmatched(Match{Mode: "anidb", Title: "New Title", MinScore: 80, Candidates: []Candidate{{AID: 9, Title: "Close", Score: 60}}})
 	oldKey := s.Unmatched(Match{Mode: "anidb", Title: "Old Title"})
-	s.flush(false) // the pages, not the index: then the process dies
+	s.flush(false, s.now().Add(flushEvery)) // the pages, not the index: then the process dies
 	var old UnmatchedDoc
 	readDoc(t, dir, oldKey, &old)
 	old.Last = time.Now().Add(-unmatchedMaxAge - time.Hour) // and its title isn't asked about for a month
@@ -930,8 +930,14 @@ func TestOpenListsUnindexedPages(t *testing.T) {
 
 // The index says a failed newest build failed, as the show page does.
 func TestIndexRowFailed(t *testing.T) {
-	ok := showRow(ShowDoc{Builds: []Build{{Complete: true}}})
-	failed := showRow(ShowDoc{Builds: []Build{{Complete: true, Error: "boom"}}})
+	row := func(b Build) IndexRow {
+		sb, err := newSavedBuild(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return showRow(showFile{Builds: []savedBuild{sb}})
+	}
+	ok, failed := row(Build{Complete: true}), row(Build{Complete: true, Error: "boom"})
 	if !ok.Complete || ok.Failed || failed.Complete || !failed.Failed {
 		t.Errorf("rows %+v and %+v", ok, failed)
 	}
