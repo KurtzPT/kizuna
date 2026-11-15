@@ -279,6 +279,61 @@ printf 'pattern: {show} - {episode}\n' >"$show/.plexmatch"
 read_plexmatches "$show"
 check "pattern: hint" "$HAS_PATTERN" "1"
 
+# A hint is known by the same key as the file it names (hint_key), however
+# it's written: a byte order mark is no part of the first line, "./" names the
+# same folder, the spaces at the start of a name are dropped on both sides.
+for c in " a.mkv|a.mkv" "./a.mkv|a.mkv" ".\\ a.mkv|a.mkv" "././a.mkv|a.mkv" "Season 02/ ./b.mkv|Season 02/b.mkv" \
+	" Season 02/ b.mkv|Season 02/b.mkv" "a\\b.mkv|a/b.mkv" "Show .mkv|Show .mkv" "Case.MKV|Case.MKV" "./|"; do
+	hint_key "${c%%|*}"
+	check "hint_key \"${c%%|*}\"" "$HINT_KEY" "${c#*|}"
+done
+show=$WORK/read-names/Show
+mkdir -p "$show/Season 03"
+printf '\357\273\277ep: S00E01: bom.mkv\r\nep: S00E02: ./dot.mkv\r\nep: S00E03: .\\Season 03\\back.mkv\r\nep: S00E04:   pad.mkv \t \r\nEP:s00e05:tight.mkv\r\nep: S00E06: Case.MKV\r\n' >"$show/.plexmatch"
+printf '\357\273\277title: Ignored Below\nep: 07: ./ sub.mkv\n' >"$show/Season 03/.plexmatch"
+read_plexmatches "$show"
+check "ep: hint on a first line with a byte order mark" "${USER_EP[bom.mkv]:-}" "S00E01"
+check "ep: hint with ./" "${USER_EP[dot.mkv]:-}" "S00E02"
+check "ep: hint with .\\ and a backslash" "${USER_EP[Season 03/back.mkv]:-}" "S00E03"
+check "ep: hint with spaces around the name" "${USER_EP[pad.mkv]:-}" "S00E04"
+check "EP: hint without any space, small letters in the number" "${USER_EP[tight.mkv]:-}" "s00e05"
+check "ep: hint keeps its letter case" "${USER_EP[Case.MKV]:-}${USER_EP[case.mkv]:-}" "S00E06"
+check "ep: hint with ./ and a space in a subfolder, after a byte order mark" "${USER_EP[Season 03/sub.mkv]:-}" "07"
+check "ep: hints read, and no other" "${#USER_EP[@]}" "7"
+printf '\357\273\277title: Marked\nyear: 2001\n' >"$show/.plexmatch"
+read_plexmatches "$show"
+check "title: hint on a first line with a byte order mark" "$SHOW_TITLE" "Marked"
+
+# user_ep finds a hint whose name differs only in letter case, unless another
+# video of the show has that name in other letters (two files on Linux), and
+# says how the hint writes a name that isn't the file's plain path
+show=$WORK/read-user-ep/Show
+mkdir -p "$show/Sub"
+printf 'ep: S00E06: Case.MKV\nep: S00E01: x.mkv\nep: S00E02: ./dot.mkv\n' >"$show/.plexmatch"
+printf 'ep: 3: .\\sub.mkv\nep: 4: plain.mkv\n' >"$show/Sub/.plexmatch"
+read_plexmatches "$show"
+VIDEO_LC=([case.mkv]=1 [x.mkv]=1)
+user_ep "x.mkv"
+check "user_ep: exact name" "$HAVE|$HAVE_AS|$HAVE_IN" "S00E01||"
+user_ep " x.mkv"
+check "user_ep: a name that starts with a space, written plainly" "$HAVE|$HAVE_AS|$HAVE_IN" "S00E01||"
+user_ep "case.mkv"
+check "user_ep: other letter case" "$HAVE|$HAVE_AS|$HAVE_IN" "S00E06|Case.MKV|"
+user_ep "dot.mkv"
+check "user_ep: written ./" "$HAVE|$HAVE_AS|$HAVE_IN" "S00E02|./dot.mkv|"
+user_ep "Sub/sub.mkv"
+check "user_ep: written .\\ in a subfolder's .plexmatch" "$HAVE|$HAVE_AS|$HAVE_IN" "3|.\\sub.mkv|Sub"
+user_ep "Sub/plain.mkv"
+check "user_ep: written plainly in a subfolder's .plexmatch" "$HAVE|$HAVE_AS|$HAVE_IN" "4||"
+VIDEO_LC=([case.mkv]=2)
+user_ep "case.mkv"
+check "user_ep: other letter case, two such videos" "$HAVE|$HAVE_AS" "|"
+user_ep "Case.MKV"
+check "user_ep: exact name, two such videos" "$HAVE|$HAVE_AS" "S00E06|"
+# shellcheck disable=SC2034 # read by the sourced script
+USER_EP=() USER_EP_LC=() USER_EP_AS=() USER_EP_DIR=() USER_EP_SK=() VIDEO_LC=()
+WARNINGS=()
+
 # --- writing .plexmatch files --------------------------------------------------
 
 dir=$WORK/write
@@ -660,6 +715,145 @@ check "auto offline: exit" "$?" "0"
 check_contains "auto offline: [anidb-N] planned" "$out" "+ ep: S00E01: A - SP1.mkv"
 check_contains "auto offline: [tvdb-N] skipped" "$out" "$lib/T [tvdb-100]: tvdb rules need Kizuna for the seasons; Kizuna not reachable, skipped"
 check_contains "auto offline: untagged skipped" "$out" "$lib/Untagged: its first id tag (if any) isn't [anidb-N] or [tvdb-N], so Kizuna's AUTO_DEFAULT decides; Kizuna not reachable, skipped"
+
+# --- running it again --------------------------------------------------------------
+
+# A hint already there is recognised however it or its file is written, so the
+# script adds no line next to it, and a second run changes nothing. Each case
+# is a library of one show, "Show [anidb-1]"; the last has them all at once.
+# hex: the bytes on stdin, spaces included (bytes drops them)
+hex() { od -An -tx1 | tr -d ' \n'; }
+# again CASE WANT: runs -a twice on $WORK/again/CASE. The first run must leave
+# the show's .plexmatch as WANT, the second must write nothing and leave it
+# byte for byte, and a dry run after them must plan nothing. The first run's
+# output is left in $first_out, the dry run's in $out.
+again() {
+	local lib=$WORK/again/$1 pm="$WORK/again/$1/Show [anidb-1]/.plexmatch" first=$WORK/again/$1.first
+	# shellcheck disable=SC2034 # read by name, through ${!run}
+	first_out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
+	check "again, $1: first run exit" "$?" "0"
+	check "again, $1: first run adds only the missing hints" "$(hex <"$pm")" "$(printf '%s' "$2" | hex)"
+	cp -p "$pm" "$first"
+	out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
+	check_contains "again, $1: second run writes nothing" "$out" "0 .plexmatch files to write, 0 hints in all"
+	check "again, $1: second run leaves the file byte for byte" "$(cmp "$first" "$pm" && echo same)" "same"
+	out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+	check "again, $1: a dry run after them plans nothing" "$(grep -c '^  + ' <<<"$out")" "0"
+}
+# videos CASE NAME...: empty videos in the case's show folder
+videos() {
+	local s="$WORK/again/$1/Show [anidb-1]" f
+	shift
+	for f in "$@"; do mkdir -p "$(dirname "$s/$f")"; : >"$s/$f"; done
+}
+BOM=$'\357\273\277'
+# A hint that names its file in a way Plex may not read counts as the file's,
+# and the script warns to correct it. The warnings:
+# bom_warn PLEXMATCH: one per such file
+bom_warn() {
+	printf '%s' "WARNING: $1: starts with a byte order mark, and Plex may not read its first line. Save the file without it (UTF-8 without BOM)"
+}
+# as_warn CASE FILE AS EP FOLDER PLAIN: a hint written differently (./, a
+# backslash, other capital letters), in FOLDER's .plexmatch
+as_warn() {
+	printf '%s' "WARNING: $WORK/again/$1/Show [anidb-1]/$2: kept the hint for \"$3\" (ep: $4) in ${5:+$5/}.plexmatch as this file's, so it gets no other: that name is written differently from the file's (./, a backslash or other capital letters), and Plex may not take the line for this file. Write it as \"$6\" by hand"
+}
+# lead_warn CASE FILE: a name or folder that starts with a space
+lead_warn() {
+	printf '%s' "WARNING: $WORK/again/$1/Show [anidb-1]/$2: its name or folder starts with a space, and Plex may not match its ep: hint to it. Rename it without the space"
+}
+NEW_WARNINGS='byte order mark|written differently|starts with a space'
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$WORK/library" 2>&1)
+check "again: an ordinary library gets none of these warnings" "$(grep -cE "$NEW_WARNINGS" <<<"$out")" "0"
+
+videos lead " Show - SP1.mkv" "Specials/ Show - SP2.mkv" "Show - SP3.mkv"
+printf 'ep: S00E03: Show - SP3.mkv\n' >"$WORK/again/lead/Show [anidb-1]/.plexmatch"
+again lead $'ep: S00E03: Show - SP3.mkv\nep: S00E01:  Show - SP1.mkv\nep: S00E02: Specials/ Show - SP2.mkv\n'
+for run in first_out out; do # planned on the first run, recognised after it
+	check "again, lead ($run): a name that starts with a space is reported" \
+		"$(grep -F 'starts with a space' <<<"${!run}")" "$(lead_warn lead " Show - SP1.mkv")"$'\n'"$(lead_warn lead "Specials/ Show - SP2.mkv")"
+done
+check "again, lead: no other of these warnings" "$(grep -cE 'byte order mark|written differently' <<<"$out")" "0"
+
+# a name that ends in a space before its extension
+videos trail "Show - SP1 .mkv" "Show - SP2.mkv"
+if [[ $(ls -A "$WORK/again/trail/Show [anidb-1]") == *"SP1 .mkv"* ]]; then
+	again trail $'ep: S00E01: Show - SP1 .mkv\nep: S00E02: Show - SP2.mkv\n'
+else
+	echo "SKIP check of a name with a space before its extension: this filesystem can't hold one"
+fi
+
+videos bom "Show - SP1.mkv" "Show - SP2.mkv"
+printf '%sep: S00E01: Show - SP1.mkv\r\ntitle: Show\r\n' "$BOM" >"$WORK/again/bom/Show [anidb-1]/.plexmatch"
+again bom "${BOM}"$'ep: S00E01: Show - SP1.mkv\r\ntitle: Show\r\nep: S00E02: Show - SP2.mkv\r\n'
+check "again, bom: reported once for the file" "$(grep -F 'byte order mark' <<<"$out")" \
+	"$(bom_warn "$WORK/again/bom/Show [anidb-1]/.plexmatch")"
+videos bom-title "Show - SP1.mkv"
+printf '%stitle: Show\n' "$BOM" >"$WORK/again/bom-title/Show [anidb-1]/.plexmatch"
+again bom-title "${BOM}"$'title: Show\nep: S00E01: Show - SP1.mkv\n'
+
+videos dot "Show - SP1.mkv" "Show - SP2.mkv" "Season 01/Show - SP3.mkv" "Show - SP4.mkv"
+printf 'ep: S00E01: ./Show - SP1.mkv\nep: S00E02: .\\Show - SP2.mkv\nep: S00E03: ./Season 01/./Show - SP3.mkv\n' \
+	>"$WORK/again/dot/Show [anidb-1]/.plexmatch"
+again dot $'ep: S00E01: ./Show - SP1.mkv\nep: S00E02: .\\Show - SP2.mkv\nep: S00E03: ./Season 01/./Show - SP3.mkv\nep: S00E04: Show - SP4.mkv\n'
+check "again, dot: each hint written differently is reported" "$(grep -F 'written differently' <<<"$out")" \
+	"$(as_warn dot "Season 01/Show - SP3.mkv" "./Season 01/./Show - SP3.mkv" S00E03 "" "Season 01/Show - SP3.mkv")
+$(as_warn dot "Show - SP1.mkv" "./Show - SP1.mkv" S00E01 "" "Show - SP1.mkv")
+$(as_warn dot "Show - SP2.mkv" ".\\Show - SP2.mkv" S00E02 "" "Show - SP2.mkv")"
+
+videos case "Show - SP1.mkv" "Show - SP2.mkv" "Show - SP3.mkv"
+printf 'EP: s00e01: Show - SP1.mkv\nEp:S00E02:show - sp2.MKV\n' >"$WORK/again/case/Show [anidb-1]/.plexmatch"
+again case $'EP: s00e01: Show - SP1.mkv\nEp:S00E02:show - sp2.MKV\nep: S00E03: Show - SP3.mkv\n'
+check "again, case: a hint in other letters is reported" "$(grep -F 'written differently' <<<"$out")" \
+	"$(as_warn case "Show - SP2.mkv" "show - sp2.MKV" S00E02 "" "Show - SP2.mkv")"
+
+videos crlf "Show - SP1.mkv" "Show - SP2.mkv" " Show - SP3.mkv"
+printf 'title: Show\r\nep: S00E01: Show - SP1.mkv' >"$WORK/again/crlf/Show [anidb-1]/.plexmatch" # no line end at the end
+again crlf $'title: Show\r\nep: S00E01: Show - SP1.mkv\r\nep: S00E03:  Show - SP3.mkv\r\nep: S00E02: Show - SP2.mkv\r\n'
+
+# all at once, with a subfolder .plexmatch that has a byte order mark too
+videos mixed " Show - SP1.mkv" "Show - SP3.mkv" "Show - SP4.mkv" "Show - SP5.mkv" \
+	"Specials/ Show - SP6.mkv" "Specials/Show - SP7.mkv" "Show - SP8.mkv"
+printf '%sEP:S00E03: ./Show - SP3.mkv\r\nep: s00e04: show - sp4.mkv\r\n' "$BOM" >"$WORK/again/mixed/Show [anidb-1]/.plexmatch"
+printf '%sep: S00E07: .\\Show - SP7.mkv\r\n' "$BOM" >"$WORK/again/mixed/Show [anidb-1]/Specials/.plexmatch"
+again mixed "${BOM}"$'EP:S00E03: ./Show - SP3.mkv\r\nep: s00e04: show - sp4.mkv\r\nep: S00E01:  Show - SP1.mkv\r\nep: S00E05: Show - SP5.mkv\r\nep: S00E08: Show - SP8.mkv\r\nep: S00E06: Specials/ Show - SP6.mkv\r\n'
+check "again, mixed: the subfolder's .plexmatch untouched" "$(hex <"$WORK/again/mixed/Show [anidb-1]/Specials/.plexmatch")" \
+	"$(printf '%sep: S00E07: .\\Show - SP7.mkv\r\n' "$BOM" | hex)"
+check "again, mixed: the warnings" "$(grep -E "$NEW_WARNINGS" <<<"$out" | LC_ALL=C sort)" \
+	"$(printf '%s\n' "$(bom_warn "$WORK/again/mixed/Show [anidb-1]/.plexmatch")" \
+		"$(bom_warn "$WORK/again/mixed/Show [anidb-1]/Specials/.plexmatch")" \
+		"$(lead_warn mixed " Show - SP1.mkv")" "$(lead_warn mixed "Specials/ Show - SP6.mkv")" \
+		"$(as_warn mixed "Show - SP3.mkv" "./Show - SP3.mkv" S00E03 "" "Show - SP3.mkv")" \
+		"$(as_warn mixed "Show - SP4.mkv" "show - sp4.mkv" s00e04 "" "Show - SP4.mkv")" \
+		"$(as_warn mixed "Specials/Show - SP7.mkv" ".\\Show - SP7.mkv" S00E07 Specials "Show - SP7.mkv")" |
+		LC_ALL=C sort)"
+
+# a hint the script doesn't read as the file's ("../" from a subfolder): it
+# adds one plain line, once
+videos up "Show - SP1.mkv"
+mkdir -p "$WORK/again/up/Show [anidb-1]/Specials"
+printf 'ep: S00E01: ../Show - SP1.mkv\n' >"$WORK/again/up/Show [anidb-1]/Specials/.plexmatch"
+again up $'ep: S00E01: Show - SP1.mkv\n'
+
+# same_numbers reads a hint the same way: one written "./" after a byte order
+# mark is on the number of a planned one
+videos numbers "Show - 05.mkv" "Show - SP1.mkv"
+printf '%sep: S00E01: ./Show - 05.mkv\n' "$BOM" >"$WORK/again/numbers/Show [anidb-1]/.plexmatch"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$WORK/again/numbers" 2>&1)
+check "again, numbers: a hint written ./ counts" "$(grep -F 'is on S00E01' <<<"$out")" \
+	"$(same "$WORK/again/numbers/Show [anidb-1]" S00E01 '"Show - 05.mkv" (already hinted), "Show - SP1.mkv"')"
+
+# two files whose names differ only in letter case (Linux): a hint is the one
+# file's it names exactly, and the other gets its own
+videos two "show - sp1.mkv" "Show - SP1.mkv"
+if [[ -e "$WORK/again/two/Show [anidb-1]/show - sp1.mkv" ]] &&
+	(($(ls -A "$WORK/again/two/Show [anidb-1]" | wc -l) == 2)); then
+	printf 'ep: S00E01: show - sp1.mkv\n' >"$WORK/again/two/Show [anidb-1]/.plexmatch"
+	again two $'ep: S00E01: show - sp1.mkv\nep: S00E01: Show - SP1.mkv\n'
+	check "again, two: no warning about how the hint is written" "$(grep -c 'written differently' <<<"$out")" "0"
+else
+	echo "SKIP letter case check with two files: this filesystem ignores letter case"
+fi
 
 # --- symlinks (followed, as Plex does) ---------------------------------------------
 

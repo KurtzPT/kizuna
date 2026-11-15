@@ -397,20 +397,55 @@ SHOW_TITLE="" SHOW_YEAR=0 # what Plex sends to Kizuna for the current show
 ID_HINT=""                # an id hint (tvdbid:, guid:...) in the show's .plexmatch: not supported
 ROOT_SEASON=""                        # a season: hint in the show folder's .plexmatch
 HAS_PATTERN=0                         # a pattern: hint anywhere in the show
-declare -A USER_EP=()                 # show-relative file -> episode from an ep: hint already there
+declare -A USER_EP=()                 # hint_key of a file -> episode from an ep: hint already there
+declare -A USER_EP_LC=()              # a USER_EP key in small letters -> that key (the first hint's)
+declare -A USER_EP_AS=()              # a USER_EP key -> the file name as its line writes it
+declare -A USER_EP_DIR=()             # a USER_EP key -> the show-relative folder of its .plexmatch
+declare -A USER_EP_SK=()              # a USER_EP key -> space_key of the name as written, with its folder
 declare -A DIR_SEASON=()              # show-relative folder -> season from its own season: hint
+UTF8_BOM=$'\xEF\xBB\xBF'              # what some Windows editors put at the start of a file
+
+# space_key sets SPACE_KEY to the show-relative path $1 without the spaces at
+# the start of its name and folders: what an ep: line keeps of a path written
+# plainly. A hint whose name, read that way, isn't the file's is written in
+# another way (./, a backslash, other capital letters) that Plex may not read.
+space_key() {
+	local k=${1#"${1%%[![:space:]]*}"}
+	while [[ $k =~ ^(.*/)[[:space:]]+(.*)$ ]]; do k=${BASH_REMATCH[1]}${BASH_REMATCH[2]}; done
+	SPACE_KEY=$k
+}
+
+# hint_key sets HINT_KEY to the key a show-relative file is known by in
+# USER_EP, the same for the file and for the ep: line that names it: "./" and
+# the spaces at the start of a name are dropped (a line loses them when it's
+# read, the script's own included), a backslash is a slash. Letter case is
+# kept. No subshell: it runs for every video.
+hint_key() {
+	local k=${1//\\//}
+	k=${k#"${k%%[![:space:]]*}"}
+	while [[ $k == ./* ]]; do k=${k#./} k=${k#"${k%%[![:space:]]*}"}; done
+	while [[ $k =~ ^(.*/)(\./|[[:space:]]+)(.*)$ ]]; do k=${BASH_REMATCH[1]}${BASH_REMATCH[3]}; done
+	HINT_KEY=$k
+}
 
 # read_plexmatches reads every .plexmatch in the show folder $1 and below,
 # in the folders list_videos looks in. Hints in subfolders only count for
 # their own folder, like in Plex. Every ep: line counts as the user's, also
 # those an earlier run wrote.
 read_plexmatches() {
-	local dir=$1 pm reldir line name value file
+	local dir=$1 pm reldir line name value file top as
 	SHOW_TITLE=$(basename "$dir") SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
-	USER_EP=() DIR_SEASON=()
+	USER_EP=() USER_EP_LC=() USER_EP_AS=() USER_EP_DIR=() USER_EP_SK=() DIR_SEASON=()
 	while IFS= read -r pm; do
 		reldir=${pm%/"$PLEXMATCH"} reldir=${reldir#"$dir"} reldir=${reldir#/} # "" = the show folder
+		top=1
 		while IFS= read -r line || [[ -n $line ]]; do
+			if ((top)) && [[ $line == "$UTF8_BOM"* ]]; then
+				# read as if it weren't there; the file keeps it (add_hints copies its lines)
+				line=${line#"$UTF8_BOM"}
+				warn "$pm: starts with a byte order mark, and Plex may not read its first line. Save the file without it (UTF-8 without BOM)"
+			fi
+			top=0
 			line=$(trim "${line%$'\r'}")
 			if [[ -z $line || $line == \#* || $line != *:* ]]; then continue; fi
 			name=$(trim "${line%%:*}") value=$(trim "${line#*:}")
@@ -429,11 +464,16 @@ read_plexmatches() {
 			episode | ep)
 				# "NUMBER: file", the number directly followed by the colon
 				if [[ $value =~ ^([A-Za-z0-9-]+):(.*)$ ]]; then
-					file=$(trim "${BASH_REMATCH[2]}")
-					file=${file//\\//}
-					if [[ -z $file ]]; then continue; fi # "ep: 5:" names no file
-					if [[ -n $reldir ]]; then file="$reldir/$file"; fi
-					USER_EP[$file]=${BASH_REMATCH[1]}
+					value=${BASH_REMATCH[1]} as=${BASH_REMATCH[2]}
+					as=${as#"${as%%[![:space:]]*}"}
+					hint_key "$as"
+					if [[ -z $HINT_KEY ]]; then continue; fi # "ep: 5:" names no file
+					if [[ -n $reldir ]]; then hint_key "$reldir/$HINT_KEY"; fi
+					file=$HINT_KEY
+					USER_EP[$file]=$value USER_EP_AS[$file]=$as USER_EP_DIR[$file]=$reldir
+					space_key "${reldir:+$reldir/}$as"
+					USER_EP_SK[$file]=$SPACE_KEY
+					if [[ -z ${USER_EP_LC[${file,,}]:-} ]]; then USER_EP_LC[${file,,}]=$file; fi
 				fi
 				;;
 			esac
@@ -738,6 +778,32 @@ SHOW_SKIPPED=0
 declare -A HINT_SRC=()      # show-relative file -> the season and episode its hint was planned from (S02E01)
 declare -A NAME_KEY=()      # show-relative file -> the episode Plex reads from its folder and name, when no hint is planned for it
 declare -A FOLDER_SEASON=() # show-relative folder -> its season, as dir_season gives it ("" for none)
+declare -A VIDEO_LC=()      # hint_key of a video in small letters -> how many of the show's videos have it
+
+# user_ep sets HAVE to the episode of the ep: hint the show's .plexmatch files
+# already have for the show-relative file $1, "" for none. When that hint
+# writes the name in a way Plex may not read as this file's (./, a backslash,
+# other capital letters), it still counts as the file's, so that no second
+# line is added next to it, and HAVE_AS is the name as the line writes it,
+# HAVE_IN the folder of its .plexmatch ("" otherwise). Other capital letters
+# count only when no other video of the show has that name in other letters:
+# on Linux "a.mkv" and "A.mkv" are two files, and each hint is the one file's
+# it names exactly. No subshell: it runs for every video.
+user_ep() {
+	local k lc
+	hint_key "$1"
+	k=$HINT_KEY HAVE=${USER_EP[$HINT_KEY]:-} HAVE_AS="" HAVE_IN=""
+	if [[ -z $HAVE ]]; then
+		lc=${HINT_KEY,,}
+		if [[ -n ${USER_EP_LC[$lc]:-} && ${VIDEO_LC[$lc]:-0} == 1 ]]; then
+			k=${USER_EP_LC[$lc]} HAVE=${USER_EP[${USER_EP_LC[$lc]}]}
+		fi
+	fi
+	if [[ -n $HAVE ]]; then
+		space_key "$1"
+		if [[ ${USER_EP_SK[$k]:-} != "$SPACE_KEY" ]]; then HAVE_AS=${USER_EP_AS[$k]:-} HAVE_IN=${USER_EP_DIR[$k]:-}; fi
+	fi
+}
 
 # hint plans "ep: $2: $1" for the show-relative file $1, unless the file
 # already has a hint (yours, or from an earlier run): that one is kept, with a
@@ -746,7 +812,8 @@ declare -A FOLDER_SEASON=() # show-relative folder -> its season, as dir_season 
 # two files read from the same one are one episode in two layouts.
 hint() {
 	if [[ -n ${3:-} ]]; then HINT_SRC[$1]=$3; fi
-	local have=${USER_EP[$1]:-} rd ds
+	user_ep "$1"
+	local have=$HAVE rd ds
 	shopt -s nocasematch
 	if [[ $have =~ ^sp[0-9] ]]; then # Plex 1.43 drops files hinted "SPxx"
 		shopt -u nocasematch
@@ -765,7 +832,15 @@ hint() {
 		KEPT=$((KEPT + 1))
 		return
 	fi
+	if [[ $1 =~ (^|/)[[:space:]] ]]; then lead_space "$1"; fi # one already hinted: plan_show reports it
 	PLAN_REL+=("$1") PLAN_VAL+=("$2")
+}
+
+# lead_space warns about the show-relative file $1, whose name or folder
+# starts with a space, when it has a hint or gets one: the line is written
+# with the space, and whether Plex keeps it or trims it isn't known.
+lead_space() {
+	warn "$SHOW_DIR/$1: its name or folder starts with a space, and Plex may not match its ep: hint to it. Rename it without the space"
 }
 
 # main_videos prints how many of the videos ($@) are no special, trailer,
@@ -788,9 +863,9 @@ main_videos() {
 
 plan_show() {
 	local dir=$1 sub videos=() v rel rd ds stem n abs loaded=0 season rules=$MODE ckind cnum cletter order
-	local relative=0 se rs re pk pe numbered ctext mains="" byhand
+	local relative=0 se rs re pk pe numbered ctext mains="" byhand have plain
 	SHOW_DIR=$dir PLAN_REL=() PLAN_VAL=() SHOW_SKIPPED=0 ID_FILE_TAG=""
-	HINT_SRC=() NAME_KEY=() FOLDER_SEASON=()
+	HINT_SRC=() NAME_KEY=() FOLDER_SEASON=() VIDEO_LC=()
 	for sub in "$dir"/*/; do
 		sub=$(basename "$sub")
 		if [[ $sub =~ $GROUP_DIR ]]; then warn "$dir: grouping folder \"$sub\" - move it to the library root as its own show"; fi
@@ -820,6 +895,8 @@ plan_show() {
 	fi
 	shopt -u nocasematch
 	for v in "${videos[@]}"; do
+		hint_key "${v#"$dir"/}"
+		VIDEO_LC[${HINT_KEY,,}]=$((${VIDEO_LC[${HINT_KEY,,}]:-0} + 1))
 		stem=$(basename -- "${v%.*}")
 		if ! plex_numbered "$stem" && read -r ckind cnum cletter ctext < <(credit_of "$stem") && [[ $cletter != - ]]; then
 			SHOW_VARIANTS+=" $ckind"
@@ -848,6 +925,14 @@ plan_show() {
 	for v in "${videos[@]}"; do
 		rel=${v#"$dir"/} stem=$(basename -- "${v%.*}") rd=$(dirname -- "$rel")
 		if [[ $rd == . ]]; then rd=""; fi
+		user_ep "$rel"
+		have=$HAVE
+		if [[ -n $HAVE_AS ]]; then
+			plain=$rel
+			if [[ -n $HAVE_IN ]]; then plain=${rel#"$HAVE_IN/"}; fi # the name as its own .plexmatch writes it
+			warn "$v: kept the hint for \"$HAVE_AS\" (ep: $have) in ${HAVE_IN:+$HAVE_IN/}$PLEXMATCH as this file's, so it gets no other: that name is written differently from the file's (./, a backslash or other capital letters), and Plex may not take the line for this file. Write it as \"$plain\" by hand"
+		fi
+		if [[ -n $have && $rel =~ (^|/)[[:space:]] ]]; then lead_space "$rel"; fi
 		ds=""
 		if [[ -n $rd ]]; then ds=$(dir_season "$rd"); FOLDER_SEASON[$rd]=$ds; fi # a subfolder's season, if it has one
 		if plex_extra "$stem"; then # an extra to Plex, like those in extras/
@@ -911,7 +996,7 @@ plan_show() {
 				continue
 			fi
 			if [[ $rules != tvdb ]]; then # tvdb rules report it below
-				if [[ -n ${USER_EP[$rel]:-} ]]; then
+				if [[ -n $have ]]; then
 					KEPT=$((KEPT + 1)) # numbered by a hint of its own
 				elif [[ -z $pk ]] && ! number_like "$stem" "$ds"; then # pk: reported above
 					if [[ -n $ds ]]; then # in a season folder: no movie
@@ -956,7 +1041,7 @@ plan_show() {
 			continue # Plex's scanner reads these fine
 		fi
 		shopt -u nocasematch
-		if ((abs == 0)) && [[ -n ${USER_EP[$rel]:-} ]]; then
+		if ((abs == 0)) && [[ -n $have ]]; then
 			KEPT=$((KEPT + 1))
 			continue # numbered by a hint of its own
 		fi
@@ -973,7 +1058,7 @@ plan_show() {
 			warn "$v: absolute episode $abs not in $SHOW_KEY"
 			continue
 		fi
-		if ((season == ${ROOT_SEASON:-1})) && [[ -z ${USER_EP[$rel]:-} ]]; then
+		if ((season == ${ROOT_SEASON:-1})) && [[ -z $have ]]; then
 			printf -v se 'S%02dE%02d' "$season" "$abs"
 			NAME_KEY[$rel]=$se
 			continue # the scanner already reads "Show - 05" in the show folder as S01E05
@@ -1008,7 +1093,9 @@ same_numbers() {
 	n=0
 	for v in "$@"; do
 		rel=${v#"$SHOW_DIR"/} stem=${rel##*/} stem=${stem%.*}
-		key=${planned[$rel]:-} have=${USER_EP[$rel]:-} kind=planned
+		key=${planned[$rel]:-} kind=planned
+		user_ep "$rel" # the hint the file has, read as plan_show and hint read it
+		have=$HAVE
 		if [[ -n $key ]]; then
 			fresh[$key]=1
 		elif plex_extra "$stem"; then

@@ -329,7 +329,9 @@ The script only **adds `ep:` lines** at the end, and reads the rest the way Plex
 |---|---|
 | no `.plexmatch` | creates one with just its hints |
 | `title:` / `show:`, `year:` in the show folder | sends them to Kizuna as the show's title and year, like Plex |
-| `ep:` lines, yours or from an earlier run | **keeps them** and writes no hint for that file. Warns if Kizuna numbers it differently, or about `ep: SPxx:`: change those to `ep: S00Exx:` |
+| `ep:` lines, yours or from an earlier run | **keeps them** and writes no hint for that file. Warns if Kizuna numbers it differently, or about `ep: SPxx:`: change those to `ep: S00Exx:`. Warns if a line writes the file name differently (other capital letters, `./`, `\`): correct it |
+| a `.plexmatch` saved with a byte order mark (UTF-8 with BOM) | warns: Plex may not read its first line. Save it as UTF-8 without BOM |
+| a video whose name or folder starts with a space | warns: Plex may not match its hint. Rename it without the space |
 | `season:` in a subfolder | treats that folder as that season |
 | `season:` in the show folder | warns: every file without its own hint is read as that season |
 | `tvdbid:`, `tmdbid:`, `imdbid:`, `guid:` in the show folder | ⚠️ warns and ignores them: put the id in the folder name |
