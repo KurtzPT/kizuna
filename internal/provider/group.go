@@ -39,18 +39,38 @@ func (g *group) run(f func()) {
 	f()
 }
 
+// fetcher is a value a group fetches ahead (lazy.start).
+type fetcher interface{ fetch() }
+
+// goFetch runs f.fetch like Go, without the closure a method value would
+// allocate (the budgets of TestReportsOffAllocs).
+func (g *group) goFetch(f fetcher) {
+	g.wg.Add(1)
+	go g.runFetch(f)
+}
+
+func (g *group) runFetch(f fetcher) {
+	defer g.wg.Done()
+	defer g.keepPanic()
+	f.fetch()
+}
+
 // keepPanic keeps the panic the goroutine is ending with, for Wait. One
 // that came from another group's Wait keeps its first stack.
 func (g *group) keepPanic() {
-	r := recover()
-	if r == nil {
-		return
+	if r := recover(); r != nil {
+		g.first.CompareAndSwap(nil, asGoroutinePanic(r))
 	}
-	p, ok := r.(*goroutinePanic)
-	if !ok {
-		p = &goroutinePanic{r, debug.Stack()}
+}
+
+// asGoroutinePanic is a recovered value as a goroutinePanic, with the stack
+// of the goroutine recovering it, unless it is one already: it keeps its
+// first stack.
+func asGoroutinePanic(r any) *goroutinePanic {
+	if p, ok := r.(*goroutinePanic); ok {
+		return p
 	}
-	g.first.CompareAndSwap(nil, p)
+	return &goroutinePanic{r, debug.Stack()}
 }
 
 // keepStack, deferred in a function whose result several goroutines share (a
@@ -58,14 +78,9 @@ func (g *group) keepPanic() {
 // panics with the same value for every later caller, so whichever group is
 // waited last, the build's log shows where the panic started.
 func keepStack() {
-	r := recover()
-	if r == nil {
-		return
+	if r := recover(); r != nil {
+		panic(asGoroutinePanic(r))
 	}
-	if _, ok := r.(*goroutinePanic); !ok {
-		r = &goroutinePanic{r, debug.Stack()}
-	}
-	panic(r)
 }
 
 // Wait waits for every goroutine started so far, then panics with the first

@@ -127,6 +127,38 @@ func TestEpisodeCrewWithoutTVDB(t *testing.T) {
 	}
 }
 
+// With no crew list, Plex's episode list read for its titles, and
+// CREW_PHOTOS_FROM_PLEX on, the episodes still get no crew: no TheTVDB crew
+// record is asked for, Plex's list is read once (for the titles), and no
+// photo is learned. Both modes.
+func TestNoCrewListWithPlexTitles(t *testing.T) {
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		p, net := photoProvider(t, nil)
+		p.cfg.EpisodeCrewSources, p.cfg.CrewPhotosFromPlex = nil, true
+		p.cfg.EpisodeTitles = []string{"plex", "anidb", "tvdb"}
+		s, err := p.buildShow(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.tvdb.WaitIdle() // a record asked in the background would be counted too
+		if ep := s.Episode(1, 1); ep == nil || ep.titles["plex"] != "Plex One" {
+			t.Fatalf("%s: S01E01 %+v, want Plex's title: its list read", root, ep)
+		}
+		if n, reads := tvdbCrewAsked(net), plexAsked(net, "p500s1/children"); n != 0 || reads != 1 || !s.Complete {
+			t.Errorf("%s: %d TheTVDB crew records asked, Plex's list read %d times, complete %v; want none, once, complete",
+				root, n, reads, s.Complete)
+		}
+		s.eachEpisode(func(ep *Ep) {
+			if len(ep.Directors)+len(ep.Writers)+len(ep.Producers) > 0 {
+				t.Errorf("%s S%02dE%02d: crew %v %v %v, want none", root, ep.Season, ep.Index, ep.Directors, ep.Writers, ep.Producers)
+			}
+		})
+		if s.crew != nil || p.crewMemory.photo(nameKey("Kamegaki Hajime")) != "" {
+			t.Errorf("%s: crew %+v, Kamegaki's photo learned %q; want none", root, s.crew, p.crewMemory.photo(nameKey("Kamegaki Hajime")))
+		}
+	}
+}
+
 // legacyCrew: TheTVDB with the legacy key, whose v3 episode list carries
 // the crew; AniDB and TheMovieDb as in testSeries.
 func legacyCrew(path string, q map[string][]string) (int, string) {

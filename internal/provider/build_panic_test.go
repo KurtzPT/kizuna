@@ -66,6 +66,36 @@ func TestKeepStackThroughAOnce(t *testing.T) {
 	}
 }
 
+// A lazy value fetched ahead (start) whose fetch panics panics again for
+// every reader, with the same panic and the stack of the run that panicked:
+// a reader on another goroutine stops there, instead of going on with an
+// empty value.
+func TestLazyPanicsForEveryReader(t *testing.T) {
+	var l lazy[int]
+	l.from(1, true, func() (int, error) {
+		panicsInGroup()
+		return 0, nil
+	})
+	waitPanic := func(g *group) (p *goroutinePanic) {
+		defer func() { p, _ = recover().(*goroutinePanic) }()
+		g.Wait()
+		return nil
+	}
+	var ahead group
+	l.start(&ahead)
+	first := waitPanic(&ahead)
+	if first == nil || first.value != "boom" || !strings.Contains(string(first.stack), "panicsInGroup") {
+		t.Fatalf("fetched ahead: got %+v, want the panic and its stack", first)
+	}
+	for _, reader := range []string{"first", "later"} {
+		var g group
+		g.Go(func() { l.get() })
+		if p := waitPanic(&g); p != first {
+			t.Errorf("%s reader: got %+v, want the fetch's own panic", reader, p)
+		}
+	}
+}
+
 // A panic in a goroutine a build starts (a show value fetched ahead, an
 // episode list, the episode fill) must end as that build's failure, like a
 // panic on the build's own goroutine (TestPanickingBuildIsReleased): a
@@ -89,10 +119,20 @@ func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 		{"anidb: TheTVDB's episode list", "/anidb/library/metadata/anidb-100", "anidb-100", "tvdb/500/episodes-0.json", false},
 		{"anidb: a show value", "/anidb/library/metadata/anidb-100", "anidb-100", "tvdb/500/artworks.json", false},
 		{"anidb: the episode fill's crew", "/anidb/library/metadata/anidb-100", "anidb-100", "tvdb/episodes/11.json", true},
+		{"tvdb: Plex's episode list", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "plex/children-p500s1.json", false},
+		{"anidb: Plex's episode list", "/anidb/library/metadata/anidb-100", "anidb-100", "plex/children-p500s1.json", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p := newTestProvider(t, &fakeNet{answer: testSeries})
+			net := &fakeNet{answer: testSeries}
+			plex := strings.HasPrefix(c.key, "plex/") // Plex's service set up: its episode list is fetched ahead, for crew
+			if plex {
+				net.answer = plexService(testSeries)
+			}
+			p := newTestProvider(t, net)
+			if plex {
+				withPlex(t, p, net)
+			}
 			forget := func() {
 				p.mu.Lock()
 				clear(p.shows)
