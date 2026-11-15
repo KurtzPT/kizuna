@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -310,8 +314,8 @@ func TestDrainWaitsForBuilds(t *testing.T) {
 // usable: anything less is off, with a warning that never shows the token.
 // PLEX_TOKEN alone is a valid setup (the plex source uses it): one info
 // line says the titles need PLEX_URL too. PLEX_TLS_NAME needs an https://
-// PLEX_URL and one host name; without PLEX_URL or PLEX_TOKEN it changes
-// nothing in what is logged.
+// PLEX_URL and one host name; without PLEX_URL it is a warning, never a
+// silent no-op (without PLEX_TOKEN, PLEX_URL's own warning covers it).
 func TestExtraTitles(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
@@ -335,8 +339,8 @@ func TestExtraTitles(t *testing.T) {
 		{"https://192.168.1.20:32400", "s3cret", "https://plex.example.com", false, "WARN"},
 		{"https://192.168.1.20:32400", "s3cret", "192.168.1.20", false, "WARN"},
 		{"https://s3cret@192.168.1.20:32400", "s3cret", "plex.example.com", false, "WARN"}, // PLEX_URL's own warning, once
-		{"", "", "plex.example.com", false, ""},
-		{"", "s3cret", "plex.example.com", false, "INFO"},
+		{"", "", "plex.example.com", false, "WARN"},
+		{"", "s3cret", "plex.example.com", false, "WARN"},
 		{"https://192.168.1.20:32400", "", "plex.example.com", false, "WARN"},
 	} {
 		logs.Reset()
@@ -345,6 +349,61 @@ func TestExtraTitles(t *testing.T) {
 		if (r != nil) != c.on || strings.Contains(logs.String(), "s3cret") || strings.Contains(logs.String(), "192.168.1.20:32400") ||
 			c.log == "" && lines != 0 || c.log != "" && (lines != 1 || !strings.Contains(logs.String(), "level="+c.log)) {
 			t.Errorf("PLEX_URL=%q PLEX_TOKEN=%q PLEX_TLS_NAME=%q: on=%v, log %q", c.url, c.token, c.name, r != nil, logs.String())
+		}
+		if c.url == "" && c.name != "" && !strings.Contains(logs.String(), "PLEX_TLS_NAME is ignored") {
+			t.Errorf("PLEX_TLS_NAME without PLEX_URL (PLEX_TOKEN=%q): log %q, want it named as ignored", c.token, logs.String())
+		}
+	}
+}
+
+// runMainMarker after "--" makes TestRunMain run main with the arguments
+// that follow it, in a child process.
+const runMainMarker = "-kizuna-run-main"
+
+// TestRunMain is main in a child process (started by
+// TestArguments); in a normal test run it does nothing.
+func TestRunMain(t *testing.T) {
+	for i, a := range os.Args {
+		if a == "--" && i+1 < len(os.Args) && os.Args[i+1] == runMainMarker {
+			os.Args = append([]string{"kizuna"}, os.Args[i+2:]...)
+			main()
+			os.Exit(0) // main returned: the provider would be running
+		}
+	}
+}
+
+// Only "health" or nothing runs: a typo or an extra argument prints the
+// usage to stderr and exits 2 before anything starts (no log folder in the
+// data folder), and -h / --help print it to stdout with exit 0. Without
+// keys, a start that went on would exit 1.
+func TestArguments(t *testing.T) {
+	for _, c := range []struct {
+		args         []string
+		exit         int
+		stdout, errs string
+	}{
+		{[]string{"helath"}, 2, "", "kizuna: unknown argument\n" + usage},
+		{[]string{"health", "now"}, 2, "", "kizuna: unknown argument\n" + usage},
+		{[]string{"--port=1"}, 2, "", "kizuna: unknown argument\n" + usage},
+		{[]string{"--help"}, 0, usage, ""},
+		{[]string{"-h"}, 0, usage, ""},
+	} {
+		dir := t.TempDir()
+		cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestRunMain$", "--", runMainMarker}, c.args...)...)
+		cmd.Env = []string{"DATA_DIR=" + dir} // nothing from this machine: no keys, no settings file
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		exit := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			exit = ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		_, logsErr := os.Stat(filepath.Join(dir, "logs"))
+		if exit != c.exit || stdout.String() != c.stdout || stderr.String() != c.errs || !errors.Is(logsErr, fs.ErrNotExist) {
+			t.Errorf("kizuna %v: exit %d, stdout %q, stderr %q, logs folder: %v; want exit %d, stdout %q, stderr %q, no logs folder",
+				c.args, exit, stdout.String(), stderr.String(), logsErr, c.exit, c.stdout, c.errs)
 		}
 	}
 }

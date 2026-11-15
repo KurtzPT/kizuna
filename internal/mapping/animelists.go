@@ -76,9 +76,11 @@ func parseAnimeListsFile(data []byte, file string) (map[int]Entry, error) {
 	}
 	out := make(map[int]Entry, len(doc.Anime))
 	var conflicts []pairConflict
-	for _, a := range doc.Anime {
+	var skipped []string // entries without a usable anidbid
+	for i, a := range doc.Anime {
 		aid := atoi(a.AID)
-		if aid == 0 {
+		if aid <= 0 {
+			skipped = append(skipped, skippedEntry(i+1, a.AID))
 			continue
 		}
 		tvdb := strings.TrimSpace(a.TVDB)
@@ -118,7 +120,27 @@ func parseAnimeListsFile(data []byte, file string) (map[int]Entry, error) {
 			"the first is used. Fix the entry (your own in anime-list-custom.xml; the list's by reporting it to Anime-Lists, "+
 			"or with a corrected entry in anime-list-custom.xml)", "file", file, "episodes", len(conflicts), "first", shown)
 	}
+	// Only the user's own file: an odd entry in the downloaded list is not
+	// theirs to fix, and would warn every day. One line per parse, with the
+	// first few: enough to find them without a line per entry.
+	if len(skipped) > 0 && file == customFile {
+		slog.Warn("mapping: skipped entries without a usable anidbid (it must be a number above 0)",
+			"file", file, "entries", len(skipped), "first", strings.Join(skipped[:min(len(skipped), 5)], "; "))
+	}
 	return out, nil
+}
+
+// skippedEntry names the n-th <anime> of a file and the anidbid written
+// there, so the user can find it. A long value is cut: it is a typo either way.
+func skippedEntry(n int, aid string) string {
+	aid = strings.TrimSpace(aid)
+	if aid == "" {
+		return fmt.Sprintf("anime %d: no anidbid", n)
+	}
+	if r := []rune(aid); len(r) > 20 {
+		aid = string(r[:20]) + "…"
+	}
+	return fmt.Sprintf("anime %d: anidbid=%s", n, aid)
 }
 
 // listSeason reads a TVDB or TMDB season attribute ("a" = absolute: -1).

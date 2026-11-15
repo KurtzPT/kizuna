@@ -1,8 +1,11 @@
 package mapping
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -343,6 +346,138 @@ func TestLoadKeepsCustomEntriesWhileTheFileIsBroken(t *testing.T) {
 	}
 	if l.ByAID(1).TVDB.ID != 400 {
 		t.Errorf("fixed custom file not applied: %+v", l.ByAID(1))
+	}
+}
+
+// captureWarnings sends slog's lines to a buffer for the test.
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	return &buf
+}
+
+// Custom entries without a usable anidbid are skipped with one warning per
+// load that counts them and names the first few, by place and value. The
+// other entries apply. An odd entry in the downloaded list stays quiet: it
+// is not the user's to fix.
+func TestLoadWarnsAboutCustomEntriesWithoutAniDBID(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: `<anime-list><anime anidbid="1" tvdbid="100" defaulttvdbseason="1"/>` +
+		`<anime tvdbid="101"/></anime-list>`, fribbURL: goodFribb})
+	custom := `<anime-list>
+<anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/>
+<anime tvdbid="600" defaulttvdbseason="1"/>
+<anime anidbid="12a" tvdbid="700" defaulttvdbseason="1"/>
+<anime anidbid="-3" tvdbid="800" defaulttvdbseason="1"/>
+</anime-list>`
+	if err := os.WriteFile(filepath.Join(dir, "anime-list-custom.xml"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureWarnings(t)
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir); err != nil {
+		t.Fatal(err)
+	}
+	if l.ByAID(5).TVDB.ID != 500 || l.ByAID(-3).AID != 0 || l.AIDFor("tvdb", "800") != 0 {
+		t.Errorf("entry 5 %+v, entry -3 %+v: want only the good custom entry", l.ByAID(5), l.ByAID(-3))
+	}
+	log := logs.String()
+	if strings.Count(log, "level=WARN") != 1 || !strings.Contains(log, "usable anidbid") ||
+		!strings.Contains(log, "file=anime-list-custom.xml") || !strings.Contains(log, "entries=3") ||
+		!strings.Contains(log, `first="anime 2: no anidbid; anime 3: anidbid=12a; anime 4: anidbid=-3"`) {
+		t.Errorf("want one warning counting and naming the three custom entries, got:\n%s", log)
+	}
+}
+
+// An empty anime-list-custom.xml (0 bytes, or only blanks) has no entries:
+// no error at each load, and the entries of an earlier version are gone.
+func TestLoadEmptyCustomFile(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	path := filepath.Join(dir, "anime-list-custom.xml")
+	if err := os.WriteFile(path, []byte(`<anime-list><anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir); err != nil || l.ByAID(5).TVDB.ID != 500 {
+		t.Fatalf("custom file: %v, entry 5 %+v", err, l.ByAID(5))
+	}
+	for _, content := range []string{"", " \r\n\t"} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Load(context.Background(), f, dir); err != nil {
+			t.Errorf("custom file %q: %v, want no error", content, err)
+		}
+		if l.ByAID(5).AID != 0 || l.ByAID(1).TVDB.ID != 100 || !l.Ready() {
+			t.Errorf("custom file %q: entry 5 %+v, entry 1 %+v; want the lists alone", content, l.ByAID(5), l.ByAID(1))
+		}
+	}
+}
+
+// fribbRows is a Fribb list of n good rows (AniDB ids 1 to n) and the given
+// rows after them.
+func fribbRows(n int, more ...string) string {
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, `{"anidb_id": %d, "mal_id": %d},`, i, i+1000)
+	}
+	b.WriteString(strings.Join(more, ","))
+	return strings.TrimSuffix(b.String(), ",") + "]"
+}
+
+// A Fribb row with a field of the wrong type is skipped, with one warning
+// counting such rows; the rest of the list is used. Rows that a format change
+// would break (more than 1 in 100) refuse the download instead, so the cached
+// copy and the mapping stay. Broken JSON still fails the whole list.
+func TestFribbSkipsBadRows(t *testing.T) {
+	bad := `{"anidb_id": 500, "tvdb_id": "81797", "mal_id": 9}`
+	logs := captureWarnings(t)
+	list, err := parseFribb([]byte(fribbRows(199, bad, `{"anidb_id": 600, "mal_id": 6}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 200 || list[600].MAL != 6 || list[199].MAL != 1199 || list[500].AID != 0 {
+		t.Errorf("got %d entries, 600 %+v, 199 %+v, 500 %+v; want every row but the bad one", len(list), list[600], list[199], list[500])
+	}
+	if log := logs.String(); strings.Count(log, "level=WARN") != 1 || !strings.Contains(log, "list=fribb") ||
+		!strings.Contains(log, "rows=1 of=201") || strings.Contains(log, "81797") {
+		t.Errorf("want one warning counting the bad row, got:\n%s", log)
+	}
+
+	// Two bad rows in 101: more than 1 in 100.
+	if _, err := parseFribb([]byte(fribbRows(99, bad, bad))); err == nil || !strings.Contains(err.Error(), "2 of 101 rows") {
+		t.Errorf("too many bad rows: %v, want the list refused", err)
+	}
+	for _, broken := range []string{fribbRows(5)[:20], fribbRows(5) + "x", `{"anidb_id": 1}`} {
+		if _, err := parseFribb([]byte(broken)); err == nil {
+			t.Errorf("%q: want an error", broken)
+		}
+	}
+
+	// Refused while downloading: the cached copy stays, and so does the mapping.
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	l := &Lists{}
+	if err := l.Load(context.Background(), f, dir); err != nil {
+		t.Fatal(err)
+	}
+	cached := filepath.Join(dir, "cache", "mapping", "fribb-anime-list-mini.json")
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(cached, old, old); err != nil {
+		t.Fatal(err)
+	}
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: fribbRows(1, bad)})
+	_ = l.Load(context.Background(), f, dir)
+	if b, _ := os.ReadFile(cached); string(b) != goodFribb || l.ByAID(2).MAL != 7 {
+		t.Errorf("mostly broken download: cached %q, entry 2 %+v; want the good copy kept", b, l.ByAID(2))
 	}
 }
 

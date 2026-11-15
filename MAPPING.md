@@ -99,9 +99,8 @@ S01E26". Two *different* episodes is a mistake: Kizuna uses the first and logs `
 different episodes`, naming the file and the entry.
 
 > [!WARNING]
-> **Ignored without a message:** an `<anime>` without a numeric `anidbid`, a pair with AniDB episode 0, and a range
-> with `end` but no `start`, `end` before `start`, or 5000 episodes or more. Check the result in the log
-> ([checking a correction](#-checking-a-correction)).
+> **Ignored without a message:** a pair with AniDB episode 0, and a range with `end` but no `start`, `end` before
+> `start`, or 5000 episodes or more. Check the result in the log ([checking a correction](#-checking-a-correction)).
 
 ## 🧩 Use cases
 
@@ -276,6 +275,7 @@ details:
 | Log line | Tells you |
 |---|---|
 | `anime-list-custom.xml ignored` | the file has an XML error: after a restart, none of its entries are used until it is fixed |
+| `skipped entries without a usable anidbid … first="anime 3: anidbid=12a"` | those entries are not used. `anime 3` is the file's third `<anime>`: give it the AniDB number |
 | `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` only: how many AniDB episodes the entry's TVDB pairs and `start…end` ranges cover (use case 5 has 18; open ranges aren't counted) and how many were paired with TheTVDB |
 | `episode titles: source used … anidb=24 tvdb=0` | both modes: where each episode title came from |
 

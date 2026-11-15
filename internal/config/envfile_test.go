@@ -72,10 +72,14 @@ func TestParseEnvFile(t *testing.T) {
 			t.Errorf("%s=%q, want %q (known %v)", s.key, s.value, w, ok)
 		}
 	}
-	for _, p := range []string{"line 11: no '='", `line 12: "1BAD"`, "line 13: H: missing closing quote",
-		"line 14: I: text after", "line 15: KIZUNA_CONFIG only works in the environment"} {
-		if !slices.ContainsFunc(problems, func(s string) bool { return strings.HasPrefix(s, p) }) {
-			t.Errorf("no problem %q in %q", p, problems)
+	var texts []string
+	for _, p := range problems {
+		texts = append(texts, p.text(func(string) bool { return true }))
+	}
+	for _, p := range []string{"line 11: no '='", "line 12: no setting name before '='", "line 13: H: missing closing quote",
+		"line 14: I: text after", "line 15: KIZUNA_CONFIG: only works in the environment"} {
+		if !slices.ContainsFunc(texts, func(s string) bool { return strings.HasPrefix(s, p) }) {
+			t.Errorf("no problem %q in %q", p, texts)
 		}
 	}
 }
@@ -159,6 +163,41 @@ func TestEnvFileLog(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"secret-key", "setting=TZ", "setting=TVDB_API_KEY"} {
+		if strings.Contains(log, bad) {
+			t.Errorf("%q in %q", bad, log)
+		}
+	}
+}
+
+// A line that isn't NAME=value may hold a key, as in a YAML-style line. Its
+// warning gives the line number and, at most, the setting name it starts
+// with when Kizuna knows that setting; never any other text of the line.
+func TestBrokenLineNeverShowsItsText(t *testing.T) {
+	writeEnvFile(t, "TMDB_API_KEY: abc123secret=x\n"+ // YAML style, an '=' in the value
+		"MAL_CLIENT_ID: def456secret\n"+ // YAML style, no '='
+		"ABC123SECRET: more=x\n"+ // starts like a name, but no setting has it
+		"ghi789secret\n"+
+		"jkl012 secret=x\n"+
+		"TVDB-PIN=mno345secret\n")
+	unset(t, "TMDB_API_KEY", "MAL_CLIENT_ID")
+	f, err := LoadEnvFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := warnings(t, func() { Load(); f.Log() })
+	for _, want := range []string{
+		`problem="line 1: TMDB_API_KEY: no setting name before '='`,
+		`problem="line 2: MAL_CLIENT_ID: no '='`,
+		`problem="line 3: no setting name before '='`,
+		`problem="line 4: no '='`,
+		`problem="line 5: no setting name before '='`,
+		`problem="line 6: no setting name before '='`,
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("no %q in %q", want, log)
+		}
+	}
+	for _, bad := range []string{"secret", "ABC123", "jkl", "TVDB-PIN"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}

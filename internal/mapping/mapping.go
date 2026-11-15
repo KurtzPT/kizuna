@@ -17,6 +17,7 @@
 package mapping
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -61,6 +62,9 @@ func (l *Lists) get() *snapshot {
 	}
 	return empty
 }
+
+// customFile is the user's own corrections, in the data folder.
+const customFile = "anime-list-custom.xml"
 
 // listSource is one mapping list: how it is downloaded and parsed.
 type listSource struct {
@@ -126,7 +130,7 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	if err := ctx.Err(); err != nil { // stopping: fetch may still answer with cached copies
 		return err
 	}
-	custom, customErr := os.ReadFile(filepath.Join(dataDir, "anime-list-custom.xml"))
+	custom, customErr := os.ReadFile(filepath.Join(dataDir, customFile))
 	if customErr == nil {
 		fmt.Fprintf(h, "custom:%d:", len(custom))
 		h.Write(custom)
@@ -179,9 +183,12 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	// nor the custom entries it held the last time it parsed.
 	var extra map[int]Entry
 	switch {
+	case customErr == nil && len(bytes.TrimSpace(custom)) == 0:
+		// An empty file (one just created, or emptied to turn the
+		// corrections off) has no entries; it isn't broken XML.
 	case customErr == nil:
 		var err error
-		if extra, err = parseAnimeListsFile(custom, "anime-list-custom.xml"); err != nil {
+		if extra, err = parseAnimeListsFile(custom, customFile); err != nil {
 			extra = l.get().custom
 			errs = append(errs, fmt.Errorf("anime-list-custom.xml ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", len(extra), err))
 		}
