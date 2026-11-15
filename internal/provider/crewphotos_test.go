@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -522,6 +524,246 @@ func TestCrewMemoryFile(t *testing.T) {
 	readJSON(t, path, &f)
 	if f.Photos[nameKey("Hajime Kamegaki")] != "b.jpg" {
 		t.Errorf("a new photo: file %+v", f)
+	}
+}
+
+// crewDir is a data folder named after the test, so crewLogged can tell
+// this test's log lines from others': the logger is global, and other
+// tests' background work may write to it.
+func crewDir(t *testing.T) string {
+	dir := filepath.Join(t.TempDir(), t.Name())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// crewLogged reports whether a captured line has msg and names dir (by its
+// base name: the text handler escapes the full path on Windows).
+func crewLogged(logs, dir, msg string) bool {
+	for line := range strings.Lines(logs) {
+		if strings.Contains(line, msg) && strings.Contains(line, filepath.Base(dir)) {
+			return true
+		}
+	}
+	return false
+}
+
+// loadLogged loads the memory from dir and returns the log it wrote.
+func loadLogged(dir string) (*crewMemory, string) {
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	defer restore()
+	return loadCrewMemory(dir), logs.String()
+}
+
+// saveLogged learns photo for key, saves, and returns the log it wrote.
+func saveLogged(m *crewMemory, key, photo string) string {
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	defer restore()
+	m.learn(key, photo)
+	m.save()
+	return logs.String()
+}
+
+// unreadableLoad loads the memory from dir with a folder in the file's
+// place: a read error, standing in for a sharing violation or a NAS error.
+func unreadableLoad(t *testing.T, dir string) *crewMemory {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, crewMemoryFile, "inside"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m, logs := loadLogged(dir)
+	if !crewLogged(logs, dir, "crew photos file not read") {
+		t.Errorf("no warning for the unreadable file: %q", logs)
+	}
+	return m
+}
+
+// healFile replaces the folder unreadableLoad put in the file's place with
+// a good file holding photos: the read that failed would work now.
+func healFile(t *testing.T, dir string, photos map[string]string) {
+	t.Helper()
+	path := filepath.Join(dir, crewMemoryFile)
+	if err := os.Rename(path, filepath.Join(dir, "folder")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(crewMemoryJSON{Photos: photos})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A read that failed at the start but works at the first save (the
+// transient case) loses nothing: the file's photos are remembered again,
+// the saved file holds them and the new one, and nothing is moved aside.
+func TestCrewMemoryRereadMerges(t *testing.T) {
+	dir := crewDir(t)
+	m := unreadableLoad(t, dir)
+	healFile(t, dir, map[string]string{"old": "old.jpg"})
+	logs := saveLogged(m, "new", "new.jpg")
+	if !crewLogged(logs, dir, "crew photos file read after all") || crewLogged(logs, dir, "aside") {
+		t.Errorf("log: %q, want only the read after all", logs)
+	}
+	var f crewMemoryJSON
+	readJSON(t, filepath.Join(dir, crewMemoryFile), &f)
+	if len(f.Photos) != 2 || f.Photos["old"] != "old.jpg" || f.Photos["new"] != "new.jpg" {
+		t.Errorf("saved file: %+v, want old and new", f)
+	}
+	if m.photo("old") != "old.jpg" {
+		t.Errorf("the file's photo isn't sent: %q", m.photo("old"))
+	}
+	if _, err := os.Stat(filepath.Join(dir, crewMemoryFile+crewMemoryAside)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a file was moved aside: %v", err)
+	}
+	// Merged once: the next save neither reads nor logs again.
+	if logs := saveLogged(m, "later", "later.jpg"); crewLogged(logs, dir, "crew photos") {
+		t.Errorf("second save logged: %q", logs)
+	}
+}
+
+// When the file read again has a photo for a key learned since the start,
+// the learned one wins: it is the newer.
+func TestCrewMemoryRereadLearnedWins(t *testing.T) {
+	dir := crewDir(t)
+	m := unreadableLoad(t, dir)
+	healFile(t, dir, map[string]string{"both": "file.jpg", "only file": "f.jpg"})
+	saveLogged(m, "both", "learned.jpg")
+	var f crewMemoryJSON
+	readJSON(t, filepath.Join(dir, crewMemoryFile), &f)
+	if f.Photos["both"] != "learned.jpg" || f.Photos["only file"] != "f.jpg" {
+		t.Errorf("saved file: %+v, want the learned photo and the file's other one", f)
+	}
+	if m.photo("both") != "learned.jpg" {
+		t.Errorf("memory: %q, want the learned photo", m.photo("both"))
+	}
+}
+
+// A memory file that still can't be read at the first save isn't
+// replaced: it is moved aside, the warning says where and what to do, and
+// a new file is written. Later saves leave the kept-aside file alone.
+func TestCrewMemoryUnreadableKeptAside(t *testing.T) {
+	dir := crewDir(t)
+	path := filepath.Join(dir, crewMemoryFile)
+	m := unreadableLoad(t, dir)
+	logs := saveLogged(m, "a", "a.jpg")
+	aside := path + crewMemoryAside
+	if !crewLogged(logs, dir, "moved aside") || !crewLogged(logs, dir, crewMemoryFile+crewMemoryAside) ||
+		!crewLogged(logs, dir, "rename it to "+crewMemoryFile) {
+		t.Errorf("no warning naming the kept-aside file and what to do: %q", logs)
+	}
+	if fi, err := os.Stat(filepath.Join(aside, "inside")); err != nil || !fi.IsDir() {
+		t.Errorf("old file not kept aside: %v", err)
+	}
+	var f crewMemoryJSON
+	readJSON(t, path, &f)
+	if f.Photos["a"] != "a.jpg" || len(f.Photos) != 1 {
+		t.Errorf("new file: %+v", f)
+	}
+	// The next save writes over the new file only, without a word.
+	if logs := saveLogged(m, "b", "b.jpg"); crewLogged(logs, dir, "crew photos") {
+		t.Errorf("second save logged: %q", logs)
+	}
+	readJSON(t, path, &f)
+	if f.Photos["b"] != "b.jpg" {
+		t.Errorf("second save: %+v", f)
+	}
+	if _, err := os.Stat(filepath.Join(aside, "inside")); err != nil {
+		t.Errorf("second save touched the kept-aside file: %v", err)
+	}
+}
+
+// A memory file with bad JSON, still bad at the first save, is kept aside
+// the same way, replacing an older kept-aside file: one copy, never a pile.
+func TestCrewMemoryBadJSONKeptAside(t *testing.T) {
+	dir := crewDir(t)
+	path := filepath.Join(dir, crewMemoryFile)
+	const bad = `{"photos": {"broken`
+	if err := os.WriteFile(path, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+crewMemoryAside, []byte("older"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := loadLogged(dir)
+	saveLogged(m, "a", "a.jpg")
+	if data, err := os.ReadFile(path + crewMemoryAside); err != nil || string(data) != bad {
+		t.Errorf("kept-aside file: %q %v, want the bad file", data, err)
+	}
+	var f crewMemoryJSON
+	readJSON(t, path, &f)
+	if f.Photos["a"] != "a.jpg" || len(f.Photos) != 1 {
+		t.Errorf("new file: %+v", f)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("data folder holds %d entries, want the file and one kept aside", len(entries))
+	}
+}
+
+// When the unreadable file can't be moved aside (a folder holds the name),
+// the save is skipped: the old file stays as it was, and the memory keeps
+// the photo. The next save tries again.
+func TestCrewMemoryAsideFails(t *testing.T) {
+	dir := crewDir(t)
+	path := filepath.Join(dir, crewMemoryFile)
+	const bad = `not json`
+	if err := os.WriteFile(path, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(path+crewMemoryAside, "blocker")
+	if err := os.MkdirAll(blocker, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := loadLogged(dir)
+	logs := saveLogged(m, "a", "a.jpg")
+	if !crewLogged(logs, dir, "not moved aside") {
+		t.Errorf("no warning for the failed move: %q", logs)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != bad {
+		t.Errorf("old file overwritten: %q %v", data, err)
+	}
+	if m.photo("a") != "a.jpg" {
+		t.Errorf("photo forgotten")
+	}
+	if err := os.Rename(path+crewMemoryAside, filepath.Join(dir, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	saveLogged(m, "b", "b.jpg")
+	if data, err := os.ReadFile(path + crewMemoryAside); err != nil || string(data) != bad {
+		t.Errorf("retried move: kept-aside file %q %v", data, err)
+	}
+	var f crewMemoryJSON
+	readJSON(t, path, &f)
+	if f.Photos["a"] != "a.jpg" || f.Photos["b"] != "b.jpg" {
+		t.Errorf("new file: %+v", f)
+	}
+}
+
+// No file yet is the first start: no warning, nothing kept aside.
+func TestCrewMemoryMissingFile(t *testing.T) {
+	dir := crewDir(t)
+	m, logs := loadLogged(dir)
+	if crewLogged(logs, dir, "crew photos") {
+		t.Errorf("first start logged: %q", logs)
+	}
+	if logs := saveLogged(m, "a", "a.jpg"); crewLogged(logs, dir, "crew photos") {
+		t.Errorf("first save logged: %q", logs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, crewMemoryFile+crewMemoryAside)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a file was kept aside on the first start: %v", err)
+	}
+	var f crewMemoryJSON
+	readJSON(t, filepath.Join(dir, crewMemoryFile), &f)
+	if f.Photos["a"] != "a.jpg" {
+		t.Errorf("file: %+v", f)
 	}
 }
 
