@@ -86,7 +86,7 @@ func TestMatchByOtherIDs(t *testing.T) {
 		{"One Piece", "imdb://tt0388629", tvdbMode, "tvdb-81797"},
 	}
 	for _, c := range cases {
-		got := m.decide(c.mode, MatchRequest{Title: c.title, GUID: c.guid}, false).cands
+		got := m.decide(c.mode, MatchRequest{Title: c.title, GUID: c.guid}, false, nil).cands
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v, want %s", c.title, c.guid, got, c.want)
 		}
@@ -123,7 +123,7 @@ func TestMatchTMDBMovieOrTV(t *testing.T) {
 		{"Anything", "com.plexapp.agents.themoviedb://88?lang=en", "anidb-300"},
 	}
 	for _, c := range cases {
-		d := m.decide(Modes["anidb"], MatchRequest{Title: c.title, GUID: c.guid}, false)
+		d := m.decide(Modes["anidb"], MatchRequest{Title: c.title, GUID: c.guid}, false, nil)
 		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q %q: got %v (%s), want %s", c.title, c.guid, got, how, c.want)
@@ -188,7 +188,7 @@ func TestAutoModePerFolder(t *testing.T) {
 	}
 	for _, c := range cases {
 		m := matcher{lists: l, titles: titles, anidbOn: true, tvdbOn: true, autoDefault: c.def}
-		got := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false).cands
+		got := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false, nil).cands
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("default %s, %q %q: got %v, want %s", c.def, c.title, c.guid, got, c.want)
 		}
@@ -207,7 +207,7 @@ func TestAutoModePerFolder(t *testing.T) {
 	}
 	for _, c := range only {
 		m := matcher{lists: l, titles: titles, anidbOn: c.on == "anidb", tvdbOn: c.on == "tvdb", autoDefault: c.def}
-		d := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false)
+		d := m.decide(auto, MatchRequest{Title: c.title, GUID: c.guid}, false, nil)
 		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("only %s on, default %s, %q %q: got %v (%s), want %s", c.on, c.def, c.title, c.guid, got, how, c.want)
@@ -588,7 +588,7 @@ func TestSpecialOnlyIsItsOwnShow(t *testing.T) {
 	}
 	for _, c := range cases {
 		m := matcher{lists: l, titles: titles, anidbOn: true, tvdbOn: true, autoDefault: c.def, minScore: 80}
-		d := m.decide(Modes[c.mode], MatchRequest{Title: c.title, GUID: c.guid}, false)
+		d := m.decide(Modes[c.mode], MatchRequest{Title: c.title, GUID: c.guid}, false, nil)
 		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("/%s %q %q: got %v (%s), want %s", c.mode, c.title, c.guid, got, how, c.want)
@@ -686,7 +686,7 @@ func TestTVDBTagNameSearchTies(t *testing.T) {
 		{"Something Else [tvdb-900]", 0, "tvdb-900"},          //
 	}
 	for _, c := range cases {
-		d := m.decide(Modes["tvdb"], MatchRequest{Title: c.title, Year: c.year}, false)
+		d := m.decide(Modes["tvdb"], MatchRequest{Title: c.title, Year: c.year}, false, nil)
 		got, how := d.cands, d.how()
 		if len(got) != 1 || got[0].root != c.want {
 			t.Errorf("%q year %d: got %v (%s), want %s", c.title, c.year, got, how, c.want)

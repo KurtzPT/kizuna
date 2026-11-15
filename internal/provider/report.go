@@ -147,47 +147,21 @@ func sourceOfKey(key string) string {
 }
 
 // recordMatch turns a match request and its outcome into the report form.
-func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision) *report.Match {
+// how is d.how(), which the caller has already worded.
+func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision, how string) *report.Match {
 	m := &report.Match{Time: time.Now(), Mode: mode.Path, Type: matchType(r.Type), Title: d.title, Year: r.Year, File: r.Filename, GUID: r.GUID,
-		Manual: r.Manual == 1, How: d.how(), By: matchBy(d), MinScore: p.cfg.MinScore}
-	for _, f := range d.found {
-		m.Candidates = append(m.Candidates, report.Candidate{AID: f.aid, Title: f.title, Score: f.score})
+		Manual: r.Manual == 1, How: how, By: d.by, MinScore: p.cfg.MinScore, Candidates: d.found}
+	if d.named.AID > 0 {
+		named := d.named
+		m.By.ByName = &named
 	}
 	if len(d.cands) > 0 {
 		m.Root, m.Score = d.cands[0].root, d.cands[0].score
 	}
-	if q := strings.TrimSpace(tagRe.ReplaceAllString(d.title, "")); q != d.title {
+	if q := strings.TrimSpace(d.query); q != d.title {
 		m.Query = q
 	}
 	return m
-}
-
-// matchBy is what decided, as the report's facts: what decision.how says
-// in words.
-func matchBy(d decision) report.MatchBy {
-	by := report.MatchBy{Text: d.id.text, Best: d.search.best}
-	switch d.id.kind {
-	case idTag:
-		by.ID = report.MatchTag
-	case idGUID:
-		by.ID = report.MatchGUID
-	case idManyTags:
-		by.ID = report.MatchManyTags
-	case idModeOff:
-		by.ID, by.Off, by.Need = report.MatchTagOff, d.id.path, d.id.need
-	}
-	if d.id.aid > 0 {
-		by.ByName = &report.ByName{AID: d.id.aid, Sure: d.id.sure}
-	}
-	switch d.search.kind {
-	case searchFound:
-		by.Search = report.SearchFound
-	case searchNothing:
-		by.Search = report.SearchNone
-	case searchBelowMin:
-		by.Search = report.SearchLow
-	}
-	return by
 }
 
 // --- end of a build ----------------------------------------------------------

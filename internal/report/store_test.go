@@ -960,3 +960,37 @@ func TestPageRepeatsLimits(t *testing.T) {
 		}
 	}
 }
+
+// A build's saved JSON keeps its keys, their order and their omitempty
+// rules: pages saved before a change read back the same, and a diff of two
+// saved pages stays readable. Every field is set, so each key is here.
+func TestBuildJSON(t *testing.T) {
+	season := 2
+	b := Build{ID: "id", Root: "anidb-1", Mode: "auto", Start: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), TookMS: 7,
+		Complete: true, Error: "e", Match: &Match{Title: "m"}, Trace: []Span{{Src: "kizuna"}},
+		Mapping: []MapRow{{AID: 1}}, Fields: []Field{{Name: "f"}}}
+	b.Art = []ArtGroup{{Level: "Season 2", Season: &season, Kind: "poster"}}
+	b.Seasons = []Season{{Name: "s"}}
+	b.Episodes = []Episode{{Title: "ep"}}
+	b.EpsTotal, b.CrewPhotos = 3, "crew photos: 1 of 2"
+	b.Item, b.ItemSrc = json.RawMessage(`{"title":"t"}`), map[string]string{"title": "tvdb"}
+	b.Checks = []Check{{Level: LevelInfo, Title: "c"}}
+	got, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"id":"id","root":"anidb-1","mode":"auto","start":"2026-01-02T03:04:05Z","tookMs":7,"complete":true,"error":"e",` +
+		`"match":{"time":"0001-01-01T00:00:00Z","mode":"","type":"","title":"m","how":"","by":{},"min":0},` +
+		`"trace":[{"src":"kizuna","label":"","kind":"","start":0,"end":0}],"mapping":[{"aid":1,"name":""}],` +
+		`"fields":[{"name":"f","order":null,"asked":null,"offered":null,"used":null}],` +
+		`"art":[{"level":"Season 2","season":2,"kind":"poster","images":null}],` +
+		`"seasons":[{"name":"s","count":0,"index":0}],"episodes":[{"s":0,"e":0,"title":"ep"}],"epsTotal":3,` +
+		`"crewPhotos":"crew photos: 1 of 2","item":{"title":"t"},"itemSrc":{"title":"tvdb"},"checks":[{"level":"info","title":"c"}]}`
+	if string(got) != want {
+		t.Errorf("build JSON\n%s\nwant\n%s", got, want)
+	}
+	// An empty build: only the keys without omitempty.
+	if got, _ := json.Marshal(Build{}); string(got) != `{"id":"","root":"","mode":"","start":"0001-01-01T00:00:00Z","tookMs":0,"complete":false,"trace":null,"epsTotal":0}` {
+		t.Errorf("empty build JSON %s", got)
+	}
+}

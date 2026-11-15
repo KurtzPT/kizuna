@@ -127,20 +127,22 @@ func TestAutoTagModeOffReport(t *testing.T) {
 func TestRecordMatchTagRule(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
 	const title = "Show [anidb-1] [tvdb-2]"
-	tags := idOutcome{kind: idManyTags, text: "[anidb-1] [tvdb-2]"}
-	off := idOutcome{kind: idModeOff, text: "[tvdb-500]", path: "tvdb", need: "TVDB_API_KEY or TVDB_LEGACY_API_KEY"}
-	nothing := searchOutcome{kind: searchNothing}
+	query := tagRe.ReplaceAllString(title, "") // as byID sets it
+	tags := report.MatchBy{ID: report.MatchManyTags, Text: "[anidb-1] [tvdb-2]"}
+	off := report.MatchBy{ID: report.MatchTagOff, Text: "[tvdb-500]", Off: "tvdb", Need: "TVDB_API_KEY or TVDB_LEGACY_API_KEY"}
+	offNothing := off
+	offNothing.Search = report.SearchNone
 	for _, c := range []struct {
 		d    decision
 		how  string
 		want bool
 	}{
-		{decision{title: title, id: tags}, "id tags [anidb-1] [tvdb-2]: only one is allowed", true},
-		{decision{title: title, id: off}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY", true},
-		{decision{title: title, id: off, search: nothing}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY; title search: no similar title", false},
-		{decision{title: title, search: nothing}, "title search: no similar title", false},
+		{decision{title: title, query: query, by: tags}, "id tags [anidb-1] [tvdb-2]: only one is allowed", true},
+		{decision{title: title, query: query, by: off}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY", true},
+		{decision{title: title, query: query, by: offNothing}, "tag [tvdb-500]: /tvdb is off, set TVDB_API_KEY or TVDB_LEGACY_API_KEY; title search: no similar title", false},
+		{decision{title: title, query: query, by: report.MatchBy{Search: report.SearchNone}}, "title search: no similar title", false},
 	} {
-		m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, c.d)
+		m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, c.d, c.d.how())
 		if m.How != c.how {
 			t.Errorf("how %q, want %q", m.How, c.how)
 		}
@@ -148,10 +150,17 @@ func TestRecordMatchTagRule(t *testing.T) {
 			t.Errorf("%s: tag rule %v query %q, want %v and %q", c.how, m.By.TagRule(), m.Query, c.want, "Show")
 		}
 	}
-	byTag := decision{title: "Show [anidb-1]", id: idOutcome{kind: idTag, text: "[anidb-1]"}, cands: []candidate{{"anidb-1", 100}}}
-	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, byTag); m.By.TagRule() || m.How != "tag [anidb-1]" || m.Root != "anidb-1" || m.Score != 100 ||
+	byTag := decision{title: "Show [anidb-1]", query: "Show ", by: report.MatchBy{ID: report.MatchTag, Text: "[anidb-1]"}, cands: []candidate{{"anidb-1", 100}}}
+	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, byTag, byTag.how()); m.By.TagRule() || m.How != "tag [anidb-1]" || m.Root != "anidb-1" || m.Score != 100 ||
 		m.By != (report.MatchBy{ID: report.MatchTag, Text: "[anidb-1]"}) {
 		t.Errorf("a match by tag: %+v, want no tag rule no-match", m)
+	}
+	// An entry picked by name reaches the report as By.ByName; the decision
+	// holds it as a value, so the record has its own copy.
+	named := byTag
+	named.named = report.ByName{AID: 16983, Sure: "[anidb-16983]"}
+	if m := p.recordMatch(Modes["auto"], MatchRequest{Type: 2}, named, named.how()); m.By.ByName == nil || *m.By.ByName != named.named {
+		t.Errorf("a match by name: by %+v, want ByName %+v", m.By, named.named)
 	}
 }
 

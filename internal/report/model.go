@@ -76,10 +76,19 @@ type Build struct {
 	Complete bool      `json:"complete"`
 	Error    string    `json:"error,omitempty"`
 
-	Match    *Match     `json:"match,omitempty"` // the match request that started the build, if one did
-	Trace    []Span     `json:"trace"`
-	Mapping  []MapRow   `json:"mapping,omitempty"`
-	Fields   []Field    `json:"fields,omitempty"`
+	Match   *Match   `json:"match,omitempty"` // the match request that started the build, if one did
+	Trace   []Span   `json:"trace"`
+	Mapping []MapRow `json:"mapping,omitempty"`
+	Fields  []Field  `json:"fields,omitempty"`
+	// Embedded here, between Fields and Checks, so the saved JSON keeps its
+	// key order (TestBuildJSON).
+	Sent
+	Checks []Check `json:"checks,omitempty"`
+}
+
+// Sent is what a finished build sent to Plex. Finish copies it whole from
+// Result, so a new value needs no copy of its own there.
+type Sent struct {
 	Art      []ArtGroup `json:"art,omitempty"` // kept for the newest build only
 	Seasons  []Season   `json:"seasons,omitempty"`
 	Episodes []Episode  `json:"episodes,omitempty"` // kept for the newest build only
@@ -96,7 +105,6 @@ type Build struct {
 	// knows no single source for (ratingKey, guid, Guid, duration) has none.
 	// Builds recorded before it have no ItemSrc at all.
 	ItemSrc map[string]string `json:"itemSrc,omitempty"`
-	Checks  []Check           `json:"checks,omitempty"`
 }
 
 // Match is what Plex sent to .../matches and how Kizuna decided.
