@@ -3,12 +3,13 @@ package sources
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -18,14 +19,15 @@ import (
 // panicOn is a log handler that panics with "boom" when msg is logged, on
 // the goroutine that logs it: a panic on a goroutine this package starts,
 // where only that goroutine can recover it. Every other line (debug too)
-// goes to logs.
+// goes to logs. from, if set, limits the panic to msg logged from within
+// that function (a part of its name in the stack).
 type panicOn struct {
-	msg string
+	msg, from string
 	slog.Handler
 }
 
 func (h panicOn) Handle(ctx context.Context, r slog.Record) error {
-	if r.Message == h.msg {
+	if r.Message == h.msg && (h.from == "" || strings.Contains(string(debug.Stack()), h.from)) {
 		panic("boom")
 	}
 	return h.Handler.Handle(ctx, r)
@@ -33,10 +35,13 @@ func (h panicOn) Handle(ctx context.Context, r slog.Record) error {
 
 // panicLogs makes msg panic until the test ends, and returns the rest of
 // what is logged.
-func panicLogs(t *testing.T, msg string) *logBuffer {
+func panicLogs(t *testing.T, msg string) *logBuffer { return panicLogsFrom(t, msg, "") }
+
+// panicLogsFrom is panicLogs, for msg logged from within from only.
+func panicLogsFrom(t *testing.T, msg, from string) *logBuffer {
 	logs := &logBuffer{}
 	old := slog.Default()
-	slog.SetDefault(slog.New(panicOn{msg, slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})}))
+	slog.SetDefault(slog.New(panicOn{msg, from, slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})}))
 	t.Cleanup(func() { slog.SetDefault(old) })
 	return logs
 }
@@ -213,64 +218,96 @@ func TestTVDBRenewalPanicLogged(t *testing.T) {
 	}
 }
 
-// MyAnimeList's request carries the client id in a header, which Go would
-// carry to whatever host a redirect names: a redirect isn't followed.
-func TestMALNoRedirect(t *testing.T) {
-	f := fetch.New(t.TempDir())
-	var mu sync.Mutex
-	var asked []string
-	f.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		mu.Lock()
-		asked = append(asked, r.URL.Host+" "+r.Header.Get("X-MAL-CLIENT-ID"))
-		mu.Unlock()
-		h := http.Header{}
-		if r.URL.Host == "api.myanimelist.net" {
-			h.Set("Location", "https://elsewhere.example/x")
-			return &http.Response{StatusCode: http.StatusFound, Header: h, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(`{"synopsis":"x"}`)), Request: r}, nil
-	}))
-	m := NewMAL(f, "client-secret")
-	f.ThrottleAll(0)
-	if a, err := m.Anime(context.Background(), 1); err == nil {
-		t.Errorf("%+v, want the redirect as an error", a)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(asked) != 1 || asked[0] != "api.myanimelist.net client-secret" {
-		t.Errorf("asked %q, want MyAnimeList only", asked)
-	}
-}
-
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// aniDBState is what the fair use rules hold about anime aid.
+type aniDBState struct {
+	calls, failures int
+	backoff         bool // RetryAt is ahead
+	calling         *anidbCall
+	blocked         bool // in its 24 h block
+}
+
+func (c *AniDB) stateOf(aid int) aniDBState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return aniDBState{len(c.state.Sent), c.state.Failures, time.Now().Before(c.state.RetryAt), c.calling[aid], !c.state.Failed[aid].IsZero()}
+}
+
+// endBackoff lets the next call out, as once the backoff is over.
+func (c *AniDB) endBackoff() {
+	c.mu.Lock()
+	c.state.RetryAt = time.Time{}
+	c.mu.Unlock()
+}
+
 // A panic in an AniDB call's download (here its transport; it could come
-// after AniDB answered) is the call's error, and not one the backoff takes
-// as AniDB being down: the call stays counted, the backoff doesn't move,
-// and the anime waits its 24 h as after an error about it, so a panic that
-// comes back doesn't ask AniDB again.
-func TestAniDBCallPanicStaysCounted(t *testing.T) {
-	c, _ := fakeAniDB(t, [2]string{"200", anidbSample})
+// after AniDB answered) is handled as a network error is (DECISIONS.md,
+// "AniDB fair use"): the call isn't counted, the anime isn't blocked, the
+// backoff steps up. The process goes on, and the next call goes out once
+// the backoff allows it.
+func TestAniDBCallPanicIsANetworkFailure(t *testing.T) {
+	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
 	_ = captureLogs(t)
-	var sent int
+	var panicked int
 	c.f.SetTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
-		sent++
+		panicked++
 		panic("boom")
 	}))
 	ctx := context.Background()
 	if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
 		t.Fatalf("err %v, want the panic", err)
 	}
-	c.mu.Lock()
-	calls, failures, retryAt, calling, blocked := len(c.state.Sent), c.state.Failures, c.state.RetryAt, c.calling[1], !c.state.Failed[1].IsZero()
-	c.mu.Unlock()
-	if calls != 1 || failures != 0 || !retryAt.IsZero() || calling != nil || !blocked {
-		t.Fatalf("calls %d, failures %d, retry at %v, call under way %v, blocked %v; want 1 call counted, no backoff, the call ended, the anime blocked",
-			calls, failures, retryAt, calling, blocked)
+	if st := c.stateOf(1); st.calls != 0 || st.failures != 1 || !st.backoff || st.calling != nil || st.blocked {
+		t.Fatalf("state %+v; want no call counted, one failure and its backoff, the call ended, the anime not blocked", st)
 	}
-	if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) || sent != 1 {
-		t.Errorf("again: %v, %d requests; want the 24 h block and no request", err, sent)
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) || panicked != 1 {
+		t.Fatalf("in the backoff: %v, %d requests; want the backoff and no request", err, panicked)
+	}
+	c.f.SetTransport(&http.Transport{}) // the fake AniDB server again
+	c.endBackoff()
+	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 {
+		t.Errorf("after the backoff: %v, %d requests; want the entry, asked once", err, requests.Load())
+	}
+}
+
+// A panic in an AniDB call's Before (sending, here once it marked the call
+// sent: its state write fails and the log line panics) sends nothing, and
+// is a network failure (the backoff). The call leaves the calls under way
+// all the same, so once the backoff is over the anime is asked again under
+// the usual rules. Kept, the next call would join it and be refused until a
+// restart ("the last call for this anime just ended"), or, not marked sent
+// yet, skip admit's checks. Marked sent, its count stays: another caller's
+// download could have gone out with it.
+func TestAniDBSendingPanic(t *testing.T) {
+	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
+	notDir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notDir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good := c.statePath
+	c.mu.Lock()
+	c.statePath = filepath.Join(notDir, "anidb-state.json") // every state write fails
+	c.mu.Unlock()
+	_ = panicLogsFrom(t, "AniDB state not saved; a restart now would forget the latest calls", "(*AniDB).sending")
+	ctx := context.Background()
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
+		t.Fatalf("err %v, want the panic", err)
+	}
+	c.mu.Lock()
+	c.statePath = good
+	c.mu.Unlock()
+	if st := c.stateOf(1); st.calling != nil || st.calls != 1 || st.failures != 1 || !st.backoff || st.blocked || requests.Load() != 0 {
+		t.Fatalf("state %+v, %d requests; want the call ended, still counted (it was marked sent), the backoff, "+
+			"the anime not blocked, nothing sent", st, requests.Load())
+	}
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 0 {
+		t.Fatalf("in the backoff: %v, %d requests; want the backoff and no request", err, requests.Load())
+	}
+	c.endBackoff()
+	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 {
+		t.Errorf("after the backoff: %v, %d requests; want the entry, asked once", err, requests.Load())
 	}
 }

@@ -3,7 +3,10 @@ package sources
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"kizuna/internal/fetch"
@@ -52,5 +55,34 @@ func TestMALAnime(t *testing.T) {
 	}
 	if _, err := NewMAL(f, "").Anime(ctx, 1); err == nil {
 		t.Error("no client id: want an error")
+	}
+}
+
+// MyAnimeList's request carries the client id in a header, which Go would
+// carry to whatever host a redirect names: a redirect isn't followed.
+func TestMALNoRedirect(t *testing.T) {
+	f := fetch.New(t.TempDir())
+	var mu sync.Mutex
+	var asked []string
+	f.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		asked = append(asked, r.URL.Host+" "+r.Header.Get("X-MAL-CLIENT-ID"))
+		mu.Unlock()
+		h := http.Header{}
+		if r.URL.Host == "api.myanimelist.net" {
+			h.Set("Location", "https://elsewhere.example/x")
+			return &http.Response{StatusCode: http.StatusFound, Header: h, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(`{"synopsis":"x"}`)), Request: r}, nil
+	}))
+	m := NewMAL(f, "client-secret")
+	f.ThrottleAll(0)
+	if a, err := m.Anime(context.Background(), 1); err == nil {
+		t.Errorf("%+v, want the redirect as an error", a)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != 1 || asked[0] != "api.myanimelist.net client-secret" {
+		t.Errorf("asked %q, want MyAnimeList only", asked)
 	}
 }

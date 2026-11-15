@@ -329,17 +329,26 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		}
 		slog.Warn("AniDB has no usable entry; not asking again for 24 h", "aid", aid,
 			"retry_anime_at", now.Add(anidbRetry).Format(time.RFC3339), "err", err)
-	case errors.Is(err, fetch.ErrPanicked):
-		// A bug of ours, maybe once AniDB had answered: the call stays
-		// counted, and the anime waits its 24 h as after an error about it,
-		// so a panic that comes back can't ask AniDB again and again.
-		c.state.Failed[aid] = now
 	default:
 		// No answer from AniDB about the anime: a network error, an HTTP
 		// error (not a ban), a redirect not followed, a broken or oversized
 		// answer. Most likely AniDB, or the connection to it, is down. Not
 		// this anime's fault, so it isn't blocked, and the call isn't one of
 		// the day's: the backoff keeps every call away until it ends.
+		if call == nil {
+			// sending (fetch's Before) panicked, so nothing went out, but
+			// the call admit counted is still under way: it must end here,
+			// or a later call would join it and skip admit's checks, or be
+			// refused until a restart once it is marked sent. Its count goes
+			// back only while not marked sent: once marked, another caller's
+			// download may have taken it and gone out with it.
+			if cl := c.calling[aid]; cl != nil {
+				if !cl.sent {
+					c.uncount(cl)
+				}
+				delete(c.calling, aid)
+			}
+		}
 		if call != nil {
 			c.uncount(call)
 			if call.at.Before(c.backedOffAt) {
