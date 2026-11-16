@@ -183,6 +183,11 @@ func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 					if !strings.Contains(line, "fetch.Observe") || strings.Contains(line, "runBuild") {
 						t.Errorf("stack:\n%s\nwant the child goroutine's", line)
 					}
+					// A source's own panic is unwrapped like the build's: its
+					// value is the error, not a field inside one.
+					if !strings.Contains(line, `err="boom: `) || strings.Contains(line, "err.panic=") {
+						t.Errorf("error:\n%s\nwant the panic's value as err", line)
+					}
 				}
 			}
 			if !logged {

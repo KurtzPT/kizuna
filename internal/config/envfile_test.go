@@ -290,7 +290,7 @@ func TestPortUnderListenNotUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "setting=PORT") {
+	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "unknown setting") { // PORT is the file's only line
 		t.Errorf("PORT reported as unknown: %q", log)
 	}
 }
@@ -332,7 +332,9 @@ func TestLeftoverMappingSourcesIgnored(t *testing.T) {
 				t.Errorf("settings changed:\n got %+v\nwant %+v", got, want)
 			}
 			for _, line := range strings.Split(log, "\n") {
-				if strings.Contains(line, "level=WARN") && strings.Contains(line, "MAPPING_SOURCES") {
+				// The typo warning gives a line, not the name: any of them is about it.
+				if strings.Contains(line, "level=WARN") &&
+					(strings.Contains(line, "MAPPING_SOURCES") || strings.Contains(line, "unknown setting")) {
 					t.Errorf("warning about it: %s", line)
 				}
 			}
