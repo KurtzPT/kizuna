@@ -475,3 +475,123 @@ func TestGetJSONBadOutNotABrokenCopy(t *testing.T) {
 		t.Errorf("cached %q, want the good copy kept", got)
 	}
 }
+
+// A NotFound answer is remembered for NotFoundTTL: the builds after it get
+// it back as a cache hit, with no request and no ready (no login), until
+// its time is up. A 200 stored later forgets it.
+func TestNotFoundRemembered(t *testing.T) {
+	c := New(t.TempDir())
+	net := &bodyNet{status: http.StatusNotFound, body: `{"Error": "Resource not found"}`}
+	c.SetTransport(net)
+	r := Request{URL: "https://api.example/a?api_key=secret", Key: "a.json", TTL: time.Hour,
+		NotFoundTTL: 24 * time.Hour, NotFound: []int{http.StatusNotFound}}
+	readies := 0
+	ready := func(r Request) (Request, error) { readies++; return r, nil }
+	ctx, events := traced()
+	for build := 1; build <= 3; build++ {
+		var out struct{ A int }
+		if err := c.GetJSON(ctx, r, &out, ready); !IsNotFound(err) {
+			t.Fatalf("build %d: %v, want the 404", build, err)
+		}
+		if n := net.sent.Load(); n != 1 {
+			t.Errorf("build %d: %d requests sent, want 1", build, n)
+		}
+	}
+	if readies != 1 {
+		t.Errorf("ready ran %d times, want 1 (not for a remembered answer)", readies)
+	}
+	ev := events()
+	if got := kinds(ev); !slices.Equal(got, []Kind{KindFail, KindCache, KindCache}) {
+		t.Errorf("kinds %v, want fail, then cache hits", got)
+	}
+	if err := ev[2].Err; !IsNotFound(err) || strings.Contains(err.Error(), "secret") {
+		t.Errorf("remembered error %v, want the 404 with its URL redacted", err)
+	}
+	if _, err := c.Get(context.Background(), r); !IsNotFound(err) || net.sent.Load() != 1 {
+		t.Errorf("Get: %v, %d sent; want the remembered 404 and no request", err, net.sent.Load())
+	}
+
+	// Its time is up: asked again, and remembered again.
+	backdate(t, c.notFoundPath(r.Key), r.NotFoundTTL)
+	var out struct{ A int }
+	if err := c.GetJSON(context.Background(), r, &out, nil); !IsNotFound(err) || net.sent.Load() != 2 {
+		t.Errorf("after NotFoundTTL: %v, %d sent; want the 404 asked again", err, net.sent.Load())
+	}
+	if err := c.GetJSON(context.Background(), r, &out, nil); !IsNotFound(err) || net.sent.Load() != 2 {
+		t.Errorf("then: %v, %d sent; want it remembered again", err, net.sent.Load())
+	}
+
+	// The source has it now: the 200 is stored and the 404 forgotten.
+	backdate(t, c.notFoundPath(r.Key), r.NotFoundTTL)
+	net.status, net.body = http.StatusOK, `{"A": 1}`
+	if err := c.GetJSON(context.Background(), r, &out, nil); err != nil || out.A != 1 {
+		t.Fatalf("200: %+v %v", out, err)
+	}
+	if _, err := os.Stat(c.notFoundPath(r.Key)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the 404 is still remembered after a 200 (stat: %v)", err)
+	}
+}
+
+// Only the listed statuses are remembered, and only with NotFoundTTL, Key
+// and TTL.
+func TestNotFoundOnlyListed(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		r      Request
+	}{
+		{"status not listed", http.StatusInternalServerError, Request{Key: "b.json", TTL: time.Hour, NotFoundTTL: time.Hour, NotFound: []int{404}}},
+		{"no NotFoundTTL", http.StatusNotFound, Request{Key: "b.json", TTL: time.Hour, NotFound: []int{404}}},
+		{"no TTL", http.StatusNotFound, Request{Key: "b.json", NotFoundTTL: time.Hour, NotFound: []int{404}}},
+		{"no Key", http.StatusNotFound, Request{TTL: time.Hour, NotFoundTTL: time.Hour, NotFound: []int{404}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(t.TempDir())
+			net := &bodyNet{status: tc.status}
+			c.SetTransport(net)
+			r := tc.r
+			r.URL, r.Quiet = "https://api.example/b", true
+			for range 2 {
+				_, _ = c.Get(context.Background(), r)
+			}
+			if n := net.sent.Load(); n != 2 {
+				t.Errorf("%d requests sent, want 2 (nothing remembered)", n)
+			}
+		})
+	}
+}
+
+// An expired copy still answers when the source now says "nothing there"
+// (a deleted record): the remembered 404 never hides it. The source is
+// asked again at each build, as for any failed download.
+func TestNotFoundStaleCopyAnswers(t *testing.T) {
+	c := New(t.TempDir())
+	net := &bodyNet{body: `{"A": 1}`}
+	c.SetTransport(net)
+	r := Request{URL: "https://api.example/c", Key: "c.json", TTL: time.Hour, NotFoundTTL: 24 * time.Hour, NotFound: []int{404}}
+	var out struct{ A int }
+	if err := c.GetJSON(context.Background(), r, &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	expire(t, c, r.Key)
+	net.status = http.StatusNotFound
+	for build := 1; build <= 3; build++ {
+		out.A = 0
+		if err := c.GetJSON(context.Background(), r, &out, nil); err != nil || out.A != 1 {
+			t.Errorf("build %d: %+v %v, want the stale copy", build, out, err)
+		}
+		if n := net.sent.Load(); n != int32(1+build) {
+			t.Errorf("build %d: %d requests sent, want %d", build, n, 1+build)
+		}
+	}
+}
+
+// backdate makes the file at path older than age, by an hour: no clock or
+// file system rounding leaves it younger.
+func backdate(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	old := time.Now().Add(-age - time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -382,3 +382,51 @@ func TestTVDBLegacySeasonArt(t *testing.T) {
 		t.Errorf("asked %d times, want 1", c)
 	}
 }
+
+// v3 answers a list it has nothing in (fanart, a season's posters, the
+// actors) with a 404. That answer is kept a day: the builds after the first
+// ask nothing, and once its day is up the lists are asked again.
+func TestTVDBLegacyNoneRemembered(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
+		v3 + "/login":    `{"token":"t3"}`,
+		v3 + "/series/9": `{"data":{"seriesName":"Show","poster":"p.jpg","fanart":"f.jpg"}}`,
+		v3 + "/series/9/images/query?keyType=poster": `{"data":[{"fileName":"x.jpg"}]}`,
+		// fanart, season 1's posters and the actors: 404
+	}}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "", "", "legacy")
+	ctx := context.Background()
+	none := []string{v3 + "/series/9/images/query?keyType=fanart", v3 + "/series/9/images/query?keyType=season&subKey=1",
+		v3 + "/series/9/actors"}
+	build := func() {
+		t.Helper()
+		if a, err := tv.Art(ctx, 9); err != nil || len(a.Posters) != 2 || len(a.Backgrounds) != 1 {
+			t.Errorf("art %+v %v", a, err)
+		}
+		if a, err := tv.SeasonArt(ctx, 9, 1, 0); err != nil || len(a.Posters) != 0 {
+			t.Errorf("season 1 art %+v %v, want none", a, err)
+		}
+		if d, _, err := tv.DetailsAndSeasons(ctx, 9); err != nil || len(d.Cast) != 0 {
+			t.Errorf("details %+v %v, want no cast and no error", d, err)
+		}
+	}
+	for b := 1; b <= 3; b++ {
+		build()
+		for _, u := range none {
+			if c := n.count(u); c != 1 {
+				t.Errorf("build %d: %s asked %d times, want 1", b, u, c)
+			}
+		}
+	}
+	for _, key := range []string{"fanart.json", "season-1.json", "actors.json"} {
+		backdate(t, filepath.Join(dir, "tvdb3", "9", key+".notfound"), 24*time.Hour)
+	}
+	build()
+	for _, u := range none {
+		if c := n.count(u); c != 2 {
+			t.Errorf("after a day: %s asked %d times in all, want 2", u, c)
+		}
+	}
+}

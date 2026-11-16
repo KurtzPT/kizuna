@@ -107,7 +107,8 @@ func (t *TVDB) details3(ctx context.Context, id int) (Details, error) {
 			Sort  int    `json:"sortOrder"`
 		} `json:"data"`
 	}
-	if err = t.get(ctx, true, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), seriesTTL, &r); fetch.IsNotFound(err) {
+	err = t.getAs(ctx, true, v3None, fmt.Sprintf("/series/%d/actors", id), fmt.Sprintf("%d/actors.json", id), seriesTTL, &r)
+	if fetch.IsNotFound(err) {
 		err = nil // no actors
 	}
 	sort.SliceStable(r.Data, func(i, j int) bool { return r.Data[i].Sort < r.Data[j].Sort })
@@ -155,6 +156,12 @@ func (t *TVDB) seasonArt3(ctx context.Context, id, season int) (Art, error) {
 	return Art{Posters: posters}, err
 }
 
+// v3None: how v3's lists are asked. v3 answers an empty list (no actors, no
+// images of a kind) with a 404, which is no cached copy: kept a day, so a
+// series without fanart or season posters isn't asked again at every build.
+// A day, not the week a list is kept: new art shows up soon.
+var v3None = getOpts{notFound: only404, notFoundTTL: 24 * time.Hour}
+
 // images3 reads one v3 image query, cached for ttl, best rated first. A 404
 // means no images of the kind: none, and no error.
 func (t *TVDB) images3(ctx context.Context, path, key string, ttl time.Duration) ([]string, error) {
@@ -166,7 +173,7 @@ func (t *TVDB) images3(ctx context.Context, path, key string, ttl time.Duration)
 			} `json:"ratingsInfo"`
 		} `json:"data"`
 	}
-	if err := t.get(ctx, true, path, key, ttl, &r); err != nil {
+	if err := t.getAs(ctx, true, v3None, path, key, ttl, &r); err != nil {
 		if fetch.IsNotFound(err) {
 			return nil, nil
 		}

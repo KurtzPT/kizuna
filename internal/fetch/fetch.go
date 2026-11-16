@@ -19,6 +19,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +92,14 @@ type Request struct {
 	// redirect is a second request the throttle and the caller's Before
 	// never see.
 	NoRedirect bool
+	// NotFoundTTL, NotFound: an answer with one of the NotFound statuses
+	// (the source's "nothing there", such as 404) is remembered for
+	// NotFoundTTL, so it isn't asked again at every build. Needs Key and
+	// TTL. It answers only when no cached copy exists: a stale copy still
+	// answers a failed download, as always. A remembered answer is the
+	// call's error, reported as a cache hit. A 200 stored later forgets it.
+	NotFoundTTL time.Duration
+	NotFound    []int
 }
 
 func New(cacheDir string) *Client {
@@ -222,9 +232,14 @@ func modTime(path string) (time.Time, bool) {
 // a stale cached copy is returned instead (sources go down; old data beats none).
 func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	start := time.Now()
-	if data, ok := c.fresh(ctx, r); ok {
+	data, at, ok, _ := c.freshKnown(ctx, r, nil)
+	if ok {
 		observe(ctx, r, start, KindCache, nil)
 		return data, nil
+	}
+	if err := c.knownNotFound(r, at); err != nil {
+		observe(ctx, r, start, KindCache, err)
+		return nil, err
 	}
 	data, err := c.download(ctx, r)
 	if err != nil {
@@ -263,16 +278,10 @@ func usedStale(ctx context.Context, key string, at, start time.Time, err error) 
 	Observe(ctx, key, KindStale, start, err)
 }
 
-// fresh returns r's cached copy when it is younger than r.TTL. The file's
-// age is checked first: an expired copy is not read.
-func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
-	data, _, ok, _ := c.freshKnown(ctx, r, nil)
-	return data, ok
-}
-
-// freshKnown is fresh, and also gives the file's time. When known (if set)
-// says the caller has already parsed the file of that time, the file is
-// not read: it returns no bytes, the time, ok and hit.
+// freshKnown returns r's cached copy when it is younger than r.TTL, and the
+// file's time. The age is checked first: an expired copy is not read. When
+// known (if set) says the caller has already parsed the file of that time,
+// the file is not read: it returns no bytes, the time, ok and hit.
 func (c *Client) freshKnown(ctx context.Context, r Request, known func(time.Time) bool) (data []byte, at time.Time, ok, hit bool) {
 	if r.TTL <= 0 || r.Key == "" {
 		return nil, time.Time{}, false, false
@@ -455,7 +464,11 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 		return cached, resp.StatusCode, waited, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, waited, &StatusError{Code: resp.StatusCode, URL: Redact(r.URL), Body: bytes.Clone(data[:min(len(data), maxErrorBody)])}
+		se := &StatusError{Code: resp.StatusCode, URL: Redact(r.URL), Body: bytes.Clone(data[:min(len(data), maxErrorBody)])}
+		if remembers(r, se.Code) {
+			c.rememberNotFound(r.Key, se)
+		}
+		return nil, resp.StatusCode, waited, se
 	}
 	if data, err = gunzip(data, maxBody); err != nil { // AniDB always gzips, even when not asked to
 		return nil, resp.StatusCode, waited, err
@@ -479,6 +492,11 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 				_ = os.WriteFile(c.etagPath(r.Key), []byte(tag), 0o644)
 			}
 		}
+	}
+	if r.Key != "" && r.NotFoundTTL > 0 {
+		// The source has it now. Also when the copy couldn't be written:
+		// the next call asks again instead of trusting the old answer.
+		_ = os.Remove(c.notFoundPath(r.Key))
 	}
 	return data, resp.StatusCode, waited, nil
 }
@@ -581,6 +599,45 @@ func (c *Client) path(key string) string {
 
 // etagPath: where a Revalidate request keeps its ETag, next to the file.
 func (c *Client) etagPath(key string) string { return c.path(key) + ".etag" }
+
+// notFoundPath: where a NotFound answer of key is remembered, next to the
+// file the key's copy would be.
+func (c *Client) notFoundPath(key string) string { return c.path(key) + ".notfound" }
+
+// remembers: r's answer with this status is kept as its "nothing there".
+func remembers(r Request, code int) bool {
+	return r.Key != "" && r.TTL > 0 && r.NotFoundTTL > 0 && slices.Contains(r.NotFound, code)
+}
+
+// rememberNotFound keeps se as key's answer. Not synced to disk: one lost
+// or cut short in a crash only costs a request.
+func (c *Client) rememberNotFound(key string, se *StatusError) {
+	path := c.notFoundPath(key)
+	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
+		_ = os.WriteFile(path, []byte(strconv.Itoa(se.Code)+" "+se.URL), 0o644)
+	}
+}
+
+// knownNotFound returns r's remembered "nothing there", younger than
+// r.NotFoundTTL, as an error; nil when there is none. Only when no copy of
+// r is cached (at, its time, is zero): an expired copy must still answer a
+// failed download. A status no longer in r.NotFound is no answer.
+func (c *Client) knownNotFound(r Request, at time.Time) error {
+	if r.NotFoundTTL <= 0 || r.Key == "" || r.TTL <= 0 || !at.IsZero() {
+		return nil
+	}
+	now := time.Now()
+	data, _, ok := readCache(c.notFoundPath(r.Key), func(at time.Time) bool { return now.Sub(at) < r.NotFoundTTL })
+	if !ok {
+		return nil
+	}
+	code, url, _ := strings.Cut(string(data), " ")
+	n, err := strconv.Atoi(code)
+	if err != nil || !slices.Contains(r.NotFound, n) {
+		return nil
+	}
+	return fmt.Errorf("%w (remembered)", &StatusError{Code: n, URL: url})
+}
 
 // StatusError is a non-200 HTTP answer.
 type StatusError struct {

@@ -44,13 +44,6 @@ type TVDB struct {
 	crewFailed map[int]time.Time
 	crewQueue  sync.WaitGroup // background fetches under way (tests wait on it)
 
-	// noEnglish, noEnglishSeries: season and series ids TheTVDB has no
-	// English text for, and until when that answer stands (seasonTTL), so
-	// they aren't asked on every build.
-	seasonMu        sync.Mutex
-	noEnglish       map[int]time.Time
-	noEnglishSeries map[int]time.Time
-
 	// series: extended series records decoded lately (DetailsAndSeasons and
 	// SeasonOverview both read one in the same build), by series id. One
 	// stands for its cache file while the file keeps the time it had when
@@ -128,7 +121,7 @@ func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
-		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{}, noEnglish: map[int]time.Time{}, noEnglishSeries: map[int]time.Time{},
+		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{},
 		series: fetch.NewMemo[int, *tvdbSeries](seriesMemoFor, 0), pages: fetch.NewMemo[string, *tvdbEpisodePage](sharedFor, 0)}
 }
 
@@ -382,7 +375,20 @@ type getOpts struct {
 	// background: nobody waits for the answer now; it waits behind every
 	// request a build waits for.
 	background bool
+	// notFound, notFoundTTL: the statuses that mean TheTVDB has nothing
+	// there, and how long that answer stands (fetch.Request's NotFound and
+	// NotFoundTTL).
+	notFound    []int
+	notFoundTTL time.Duration
 }
+
+// Status lists for fetch.Request.NotFound (TheTVDB's and TheMovieDb's), made
+// once: a list built per call would be allocated per call.
+var (
+	only404      = []int{http.StatusNotFound}
+	only400      = []int{http.StatusBadRequest}
+	status400404 = []int{http.StatusBadRequest, http.StatusNotFound}
+)
 
 // getAs is get, asked the way o says. Its twin is tvdbShared: the two must
 // keep the same Enabled check and the same retry after a 401.
@@ -419,7 +425,8 @@ func tvdbShared[T any](ctx context.Context, t *TVDB, m *fetch.Memo[string, *T], 
 // request is how getAs asks for path: the request, and the ready that logs
 // in once the cache has no fresh answer.
 func (t *TVDB) request(ctx context.Context, legacy bool, o getOpts, path, key string, ttl time.Duration) (fetch.Request, func(fetch.Request) (fetch.Request, error)) {
-	r := fetch.Request{Key: cacheFolder(legacy) + key, TTL: ttl, Quiet: o.quiet, NoStale: o.noStale, Background: o.background}
+	r := fetch.Request{Key: cacheFolder(legacy) + key, TTL: ttl, Quiet: o.quiet, NoStale: o.noStale, Background: o.background,
+		NotFound: o.notFound, NotFoundTTL: o.notFoundTTL}
 	// The login runs only when the cache has no fresh answer.
 	ready := func(req fetch.Request) (fetch.Request, error) {
 		token, tokenLegacy, err := t.login(ctx)
@@ -553,20 +560,19 @@ func (t *TVDB) Overview(ctx context.Context, id int) (name, overview string, err
 	if t.useLegacy(ctx, key, seriesFilesTTL) {
 		return t.overview3(ctx, id)
 	}
-	if t.knownNoEnglish(t.noEnglishSeries, id) {
-		return "", "", nil
-	}
 	var r struct {
 		Data struct {
 			Name     string `json:"name"`
 			Overview string `json:"overview"`
 		} `json:"data"`
 	}
-	err = t.getAs(ctx, false, getOpts{quiet: true}, fmt.Sprintf("/series/%d/translations/eng", id), key, seriesFilesTTL, &r)
+	o := getOpts{quiet: true, notFound: only400, notFoundTTL: seasonTTL}
+	err = t.getAs(ctx, false, o, fmt.Sprintf("/series/%d/translations/eng", id), key, seriesFilesTTL, &r)
 	switch {
 	case noLanguage(err):
-		t.noEnglishUntil(t.noEnglishSeries, id)
-		slog.Debug("tvdb: no English series text", "series", id, "retry_in", seasonTTL, "err", err)
+		if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+			slog.Debug("tvdb: no English series text", "series", id, "err", err)
+		}
 		return "", "", nil
 	case err != nil && !fetch.IsNotFound(err) && worthWarning(ctx, err):
 		slog.Warn("tvdb: series text not fetched", "series", id, "err", err) // quiet request: logged here
@@ -585,7 +591,7 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 		return "", nil
 	}
 	sid, err := t.seasonID(ctx, id, season)
-	if sid == 0 || t.knownNoEnglish(t.noEnglish, sid) {
+	if sid == 0 {
 		return "", err
 	}
 	var r struct {
@@ -594,11 +600,13 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 		} `json:"data"`
 	}
 	path, key := fmt.Sprintf("/seasons/%d/translations/eng", sid), fmt.Sprintf("%d/season-%d-eng.json", id, sid)
-	err = t.getAs(ctx, false, getOpts{quiet: true}, path, key, seasonTTL, &r)
+	o := getOpts{quiet: true, notFound: status400404, notFoundTTL: seasonTTL}
+	err = t.getAs(ctx, false, o, path, key, seasonTTL, &r)
 	switch {
 	case noTranslation(err):
-		t.noEnglishUntil(t.noEnglish, sid)
-		slog.Debug("tvdb: no English season text", "series", id, "season", season, "retry_in", seasonTTL, "err", err)
+		if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+			slog.Debug("tvdb: no English season text", "series", id, "season", season, "err", err)
+		}
 		return "", nil
 	case err != nil && worthWarning(ctx, err):
 		slog.Warn("tvdb: season text not fetched", "series", id, "season", season, "err", err) // quiet request: logged here
@@ -611,34 +619,6 @@ func (t *TVDB) SeasonOverview(ctx context.Context, id, season int) (string, erro
 // key says nothing about the record.
 func worthWarning(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, errTVDBLogin) && !errors.Is(err, errTVDBSwitched)
-}
-
-// knownNoEnglish: TheTVDB answered, within seasonTTL, that the season or
-// series id in m (noEnglish or noEnglishSeries) has no English text. Expired
-// answers are dropped here, and when one is kept.
-func (t *TVDB) knownNoEnglish(m map[int]time.Time, id int) bool {
-	t.seasonMu.Lock()
-	defer t.seasonMu.Unlock()
-	until, ok := m[id]
-	if ok && !time.Now().Before(until) {
-		delete(m, id)
-		return false
-	}
-	return ok
-}
-
-// noEnglishUntil keeps TheTVDB's answer that id in m has no English text,
-// for seasonTTL. Answers past their time, of ids not asked again, go here.
-func (t *TVDB) noEnglishUntil(m map[int]time.Time, id int) {
-	t.seasonMu.Lock()
-	defer t.seasonMu.Unlock()
-	now := time.Now()
-	for id, until := range m {
-		if !now.Before(until) {
-			delete(m, id)
-		}
-	}
-	m[id] = now.Add(seasonTTL)
 }
 
 // seasonID finds a season's aired-order id in the extended series record

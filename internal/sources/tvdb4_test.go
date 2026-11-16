@@ -219,14 +219,19 @@ func TestTVDBSeasonOverview(t *testing.T) {
 }
 
 // A season with no English text is asked once per seasonTTL, not on every
-// build, and its 400 is no warning: it's an answer, not a failure.
+// build nor after a restart, and its 400 is no warning: it's an answer, not
+// a failure.
 func TestTVDBSeasonWithoutEnglishOnce(t *testing.T) {
 	logs := captureLogs(t)
-	tv, n := newTVDBTest(t, map[string]string{
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
 		v4 + "/login":                        `{"data": {"token": "t4"}, "status": "success"}`,
 		v4 + "/series/267440/extended":       v4SeriesExtended,
 		v4 + "/seasons/501/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
-	}, "v4key", "", "")
+	}}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
 	ctx := context.Background()
 	const u = v4 + "/seasons/501/translations/eng"
 	for range 2 { // two builds of the same entry
@@ -240,13 +245,25 @@ func TestTVDBSeasonWithoutEnglishOnce(t *testing.T) {
 	if s := logs.String(); s != "" {
 		t.Errorf("logged above debug:\n%s", s)
 	}
+	// The answer is kept on disk: a restart doesn't ask again either.
+	if got, err := NewTVDB(f, "v4key", "", "").SeasonOverview(ctx, 267440, 1); got != "" || err != nil || n.count(u) != 1 {
+		t.Errorf("after a restart: %q %v, asked %d times in all, want none and 1", got, err, n.count(u))
+	}
 
-	tv.seasonMu.Lock()
-	tv.noEnglish[501] = time.Now().Add(-time.Second) // its time is up
-	tv.seasonMu.Unlock()
+	backdate(t, filepath.Join(dir, "tvdb", "267440", "season-501-eng.json.notfound"), seasonTTL) // its time is up
 	_, _ = tv.SeasonOverview(ctx, 267440, 1)
 	if c := n.count(u); c != 2 {
 		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
+	}
+}
+
+// backdate makes the file at path older than age, by an hour: no clock or
+// file system rounding leaves it younger.
+func backdate(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	old := time.Now().Add(-age - time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -299,28 +316,6 @@ func TestTVDBSeriesRecordOnce(t *testing.T) {
 	}
 	if _, _, ok := tv.series.Get(267440); ok || tv.series.Len() != 1 {
 		t.Errorf("%d records kept, want only the new one", tv.series.Len())
-	}
-}
-
-// Past their time, answers of seasons not asked again are dropped when the
-// next one is kept.
-func TestTVDBNoEnglishSwept(t *testing.T) {
-	tv, _ := newTVDBTest(t, map[string]string{
-		v4 + "/login":                        `{"data": {"token": "t4"}, "status": "success"}`,
-		v4 + "/series/267440/extended":       v4SeriesExtended,
-		v4 + "/seasons/501/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
-	}, "v4key", "", "")
-	tv.seasonMu.Lock()
-	tv.noEnglish[900] = time.Now().Add(-time.Second) // its time is up
-	tv.noEnglish[901] = time.Now().Add(time.Hour)
-	tv.seasonMu.Unlock()
-	if _, err := tv.SeasonOverview(context.Background(), 267440, 1); err != nil {
-		t.Fatal(err)
-	}
-	tv.seasonMu.Lock()
-	defer tv.seasonMu.Unlock()
-	if _, ok := tv.noEnglish[900]; ok || len(tv.noEnglish) != 2 {
-		t.Errorf("noEnglish %v, want 901 and 501", tv.noEnglish)
 	}
 }
 
@@ -451,10 +446,14 @@ func TestTVDBSeasonArt(t *testing.T) {
 // asked once per seasonTTL. An unknown series stays a 404.
 func TestTVDBSeriesWithoutEnglish(t *testing.T) {
 	logs := captureLogs(t)
-	tv, n := newTVDBTest(t, map[string]string{
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
 		v4 + "/login":                          `{"data": {"token": "t4"}, "status": "success"}`,
 		v4 + "/series/400100/translations/eng": `400 {"status": "failure", "message": "language not found"}`,
-	}, "v4key", "", "")
+	}}
+	f.SetTransport(n)
+	tv := NewTVDB(f, "v4key", "", "")
 	ctx := context.Background()
 	const u = v4 + "/series/400100/translations/eng"
 	for range 2 { // two builds of the same show
@@ -465,16 +464,19 @@ func TestTVDBSeriesWithoutEnglish(t *testing.T) {
 	if c := n.count(u); c != 1 {
 		t.Errorf("asked %d times, want 1", c)
 	}
-	if _, _, err := tv.Overview(ctx, 99); !fetch.IsNotFound(err) {
-		t.Errorf("unknown series: %v, want its 404", err)
+	for range 2 { // only the 400 is remembered: an unknown series is asked each time
+		if _, _, err := tv.Overview(ctx, 99); !fetch.IsNotFound(err) {
+			t.Errorf("unknown series: %v, want its 404", err)
+		}
+	}
+	if c := n.count(v4 + "/series/99/translations/eng"); c != 2 {
+		t.Errorf("unknown series asked %d times, want 2", c)
 	}
 	if s := logs.String(); s != "" {
 		t.Errorf("logged above debug:\n%s", s)
 	}
 
-	tv.seasonMu.Lock()
-	tv.noEnglishSeries[400100] = time.Now().Add(-time.Second) // its time is up
-	tv.seasonMu.Unlock()
+	backdate(t, filepath.Join(dir, "tvdb", "400100", "eng.json.notfound"), seasonTTL) // its time is up
 	_, _, _ = tv.Overview(ctx, 400100)
 	if c := n.count(u); c != 2 {
 		t.Errorf("after seasonTTL: asked %d times in all, want 2", c)
