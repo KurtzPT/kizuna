@@ -539,7 +539,7 @@ hint_key() {
 # in Plex. Every ep: line counts as the user's, also those an earlier run
 # wrote.
 read_plexmatches() {
-	local dir=$1 pm reldir line name value file top as
+	local dir=$1 pm reldir line name value file top as prev
 	SHOW_TITLE=${dir##*/} SHOW_YEAR=0 ID_HINT="" ROOT_SEASON="" HAS_PATTERN=0
 	USER_EP=() USER_EP_LC=() USER_EP_AS=() USER_EP_DIR=() USER_EP_SK=() DIR_SEASON=()
 	show_files "$dir"
@@ -582,12 +582,14 @@ read_plexmatches() {
 					if [[ -z $HINT_KEY ]]; then continue; fi # "ep: 5:" names no file
 					if [[ -n $reldir ]]; then hint_key "$reldir/$HINT_KEY"; fi
 					file=$HINT_KEY
+					prev=${USER_EP[$file]:-}
 					USER_EP[$file]=$value
 					# A later line for the file wins, but not over how an earlier
 					# one wrote its name when that one was plain (its space_key is
-					# the file's key): Plex reads that line, so the name needs no
-					# warning
-					if [[ ${USER_EP_SK[$file]:-} != "$file" ]]; then
+					# the file's key) and gave the same number: Plex reads that
+					# line, so the name needs no warning. With another number the
+					# later line's name stays: the warning says which line to fix
+					if [[ ${USER_EP_SK[$file]:-} != "$file" || $prev != "$value" ]]; then
 						USER_EP_AS[$file]=$as USER_EP_DIR[$file]=$reldir
 						space_key "${reldir:+$reldir/}$as"
 						USER_EP_SK[$file]=$SPACE_KEY

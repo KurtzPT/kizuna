@@ -971,6 +971,15 @@ for run in first_out out; do
 	check "again, plainfirst ($run): no warning about how the hint is written" "$(grep -c 'written differently' <<<"${!run}")" "0"
 done
 
+# the two lines give different numbers: the later one is the file's hint, and
+# the warning about how it is written stays
+videos plaindiffer "Show - SP1.mkv"
+printf 'ep: S00E01: Show - SP1.mkv
+ep: S00E05: ./Show - SP1.mkv
+' >"$WORK/again/plaindiffer/Show [anidb-1]/.plexmatch"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$WORK/again/plaindiffer" 2>&1)
+check "again, plaindiffer: the later line's number, and its warning" "$(grep -F 'written differently' <<<"$out")" 	"$(as_warn plaindiffer "Show - SP1.mkv" "./Show - SP1.mkv" S00E05 "" "Show - SP1.mkv")"
+
 videos crlf "Show - SP1.mkv" "Show - SP2.mkv" " Show - SP3.mkv"
 printf 'title: Show\r\nep: S00E01: Show - SP1.mkv' >"$WORK/again/crlf/Show [anidb-1]/.plexmatch" # no line end at the end
 again crlf $'title: Show\r\nep: S00E01: Show - SP1.mkv\r\nep: S00E03:  Show - SP3.mkv\r\nep: S00E02: Show - SP2.mkv\r\n'
