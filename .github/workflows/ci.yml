@@ -9,6 +9,10 @@
 #              the code, each runs as its own "fuzz (<package> <target>)"
 #              job, and "fuzz" passes only when the list and all of them did
 #   script     bash syntax, ShellCheck and the behaviour tests of the scripts
+#   script (bash 4.4), script (macOS)
+#              the migration script's tests under the oldest bash it supports
+#              with busybox's tools, and on macOS: not required, and not in
+#              docker's needs (yet: see the jobs)
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
 #   gate       (dev and v* tags only, never a pull request) does this run
 #              publish an image? Fails on a v* tag that isn't a version
@@ -330,6 +334,57 @@ jobs:
       # runner's own Node: the test uses no packages
       - name: report page test
         run: node scripts/report-page_test.js
+
+  # MIGRATION.md says the migration script runs on bash 4.4 and up, on macOS
+  # and with busybox's tools (Unraid, Synology...), and script only tests it on
+  # Ubuntu's bash and GNU tools. These two runs cover the rest. They aren't in
+  # docker's needs, so they don't hold back :dev or a release: add them there
+  # (and as required checks) once they have run a while without failing for
+  # reasons of their own.
+  script-bash44:
+    name: script (bash 4.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The official bash image, by digest: bash 4.4.23 on Alpine 3.22, whose
+      # tools are busybox's. jq and curl are the current ones of the Alpine
+      # branch the image is built on (an exact apk version breaks as soon as
+      # Alpine ships a fix: it keeps only the newest). The checkout is mounted
+      # read-only: the tests write only in their own temp folder.
+      - name: script tests (bash 4.4, busybox)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src \
+            bash:4.4@sha256:2ae8e461b944ae9b7cb036aabc93bb5d1e6c9fc324c943efded4403db252cfe9 \
+            bash -euc 'apk add --no-cache jq curl; bash --version; bash scripts/kizuna-migrate_test.sh'
+
+  script-macos:
+    name: script (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # macOS's own bash is 3.2, which the script refuses: Homebrew's bash
+      # and jq, started the way MIGRATION.md tells macOS users to (Homebrew
+      # installs its current versions; it has no pins)
+      - name: install bash and jq
+        run: brew install bash jq
+
+      - name: script tests (Homebrew bash)
+        run: |
+          bash=$(brew --prefix)/bin/bash
+          "$bash" --version
+          "$bash" scripts/kizuna-migrate_test.sh
 
   workflows:
     name: workflows

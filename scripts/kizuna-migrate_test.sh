@@ -15,6 +15,9 @@
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SCRIPT=$HERE/kizuna-migrate.sh
+# The runs below start "bash": the one running these tests, not the first on
+# PATH (on macOS /bin/bash is 3.2, which the script refuses).
+PATH=${BASH%/*}:$PATH
 # shellcheck source=kizuna-migrate.sh
 source "$SCRIPT"
 set +e # the script sets -e: a failing check must not end the run
@@ -120,6 +123,30 @@ EOF
 season_episode "Show - S02E01" "" 0
 season_episode "Show - 05" "" 5
 check "season_episode: an answer, then none" "${#SEASON_EPISODE[@]}" "0"
+
+# A folder's season, as Plex's scanner reads its name: Specials is season 0,
+# "Season 02" season 2, at any depth; other folders have none. The show
+# folder itself ("") is season 1 without a season: hint.
+while IFS='|' read -r rd want; do
+	season_of_dir "$rd"
+	check "season_of_dir \"$rd\"" "$SEASON_OF_DIR" "$want"
+done <<'EOF'
+Season 02|2
+season_3|3
+Season.04|4
+Series 5|5
+Saison 6|6
+Staffel 7|7
+Temporada 8|8
+S09|9
+Specials|0
+SPECIAL|0
+Disc 1/Season 10|10
+Season 10/Disc 1|
+Season 1 Extras|
+Bonus|
+|1
+EOF
 
 # A name without spaces once its tags are gone uses underscores for them, and
 # is read like the same name with spaces, also when spaces are left around the
@@ -490,6 +517,9 @@ header_usage=$(sed -n '6,7p' "$SCRIPT" | sed 's/^# \{0,1\}//')
 out=$(bash "$SCRIPT" 2>&1)
 check "no LIBRARY: exit" "$?" "2"
 check "no LIBRARY: the usage" "$out" "$header_usage"
+out=$(bash "$SCRIPT" -h 2>&1)
+check "-h: exit" "$?" "2"
+check "-h: the usage" "$out" "$header_usage"
 # shellcheck disable=SC2002
 out=$(cat "$SCRIPT" | bash -s 2>&1)
 check "piped to bash -s, no LIBRARY: exit" "$?" "2"
@@ -747,6 +777,73 @@ check_contains "depth limit: a video at the limit" "$out" "+ ep: S00E01: 1/2/3/4
 check "depth limit: a video below it" "$(grep -c 'Deep - SP2' <<<"$out")" "0"
 check_contains "depth limit: a .plexmatch below it isn't read" "$out" "1 .plexmatch files to write, 1 hints in all"
 
+# What the rest of a .plexmatch does, and grouping folders. A pattern: or pt:
+# hint in any folder of the show skips the show: no hint, nothing written. An
+# id hint in the show folder is reported and ignored, the show planned all the
+# same; one in a subfolder is no id hint. A season: hint in the show folder
+# other than 1 is reported. A grouping folder ("[2] Sequel") is reported, and
+# its files are planned as the show's, as Plex merges them into it.
+lib=$WORK/plexmatch-hints
+for f in "Group [anidb-1]/[2] Sequel/Sequel - SP1" "Group [anidb-1]/(3) Third/Third - 01" \
+	"Group [anidb-1]/Season 01/Group - 01" "Group [anidb-1]/[Grp] Raws/Group - 02" \
+	"Pat [anidb-2]/Pat - SP1" "Pt [anidb-3]/Pt - SP1" "Pt [anidb-3]/Season 01/Pt - 01" \
+	"Tvdbid [anidb-4]/Tvdbid - SP1" "Tmdbid [anidb-5]/Tmdbid - SP1" "Imdbid [anidb-6]/Imdbid - SP1" \
+	"Guid [anidb-7]/Guid - SP1" "SubId [anidb-8]/SubId - SP1" "SubId [anidb-8]/Season 01/SubId - 01" \
+	"Root [anidb-9]/Root - SP1" "One [anidb-10]/One - SP1"; do
+	mkdir -p "$lib/${f%/*}"
+	: >"$lib/$f.mkv"
+done
+printf 'title: Pat\npattern: {show} - {episode}\n' >"$lib/Pat [anidb-2]/.plexmatch"
+printf 'pt: x\n' >"$lib/Pt [anidb-3]/Season 01/.plexmatch"
+printf 'tvdbid: 81797\n' >"$lib/Tvdbid [anidb-4]/.plexmatch"
+printf 'tmdbid: 5\n' >"$lib/Tmdbid [anidb-5]/.plexmatch"
+printf 'IMDBID: tt1\n' >"$lib/Imdbid [anidb-6]/.plexmatch"
+printf 'guid: tvdb://81797\n' >"$lib/Guid [anidb-7]/.plexmatch"
+printf 'tvdbid: 1\n' >"$lib/SubId [anidb-8]/Season 01/.plexmatch"
+printf 'season: 2\n' >"$lib/Root [anidb-9]/.plexmatch"
+printf 'season: 1\n' >"$lib/One [anidb-10]/.plexmatch"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" "$lib" 2>&1)
+check ".plexmatch hints: exit" "$?" "0"
+check ".plexmatch hints: the hints, and no other" "$(grep '^  + ' <<<"$out")" \
+	"  + ep: S00E01: [2] Sequel/Sequel - SP1.mkv
+  + ep: S00E01: Guid - SP1.mkv
+  + ep: S00E01: Imdbid - SP1.mkv
+  + ep: S00E01: One - SP1.mkv
+  + ep: S00E01: Root - SP1.mkv
+  + ep: S00E01: SubId - SP1.mkv
+  + ep: S00E01: Tmdbid - SP1.mkv
+  + ep: S00E01: Tvdbid - SP1.mkv"
+# grouping DIR SUB: the warning for a grouping folder
+grouping() {
+	printf '%s' "WARNING: $lib/$1: grouping folder \"$2\" - move it to the library root as its own show"
+}
+check ".plexmatch hints: grouping folders" "$(grep -F 'grouping folder' <<<"$out" | LC_ALL=C sort)" \
+	"$(grouping "Group [anidb-1]" "(3) Third")"$'\n'"$(grouping "Group [anidb-1]" "[2] Sequel")"
+# skipped DIR: the warning for a show with a pattern: hint
+skipped() {
+	printf '%s' "WARNING: $lib/$1: a .plexmatch has pattern: hints, which the script can't evaluate. Show skipped: number its files by hand"
+}
+check ".plexmatch hints: pattern: and pt: skip the show" "$(grep -F 'pattern: hints' <<<"$out")" \
+	"$(skipped "Pat [anidb-2]")"$'\n'"$(skipped "Pt [anidb-3]")"
+# ignored DIR HINT: the warning for an id hint
+ignored() {
+	printf '%s' "WARNING: $lib/$1/.plexmatch: \"$2\" is ignored: id hints aren't supported, the show is matched by its folder tag or title. Put a [anidb-N] or [tvdb-N] tag in the folder name instead"
+}
+check ".plexmatch hints: id hints in the show folder, and no other" "$(grep -F 'is ignored: id hints' <<<"$out")" \
+	"$(ignored "Guid [anidb-7]" "guid: tvdb://81797")
+$(ignored "Imdbid [anidb-6]" "IMDBID: tt1")
+$(ignored "Tmdbid [anidb-5]" "tmdbid: 5")
+$(ignored "Tvdbid [anidb-4]" "tvdbid: 81797")"
+check ".plexmatch hints: season: in the show folder" "$(grep -F '" puts every file' <<<"$out")" \
+	"WARNING: $lib/Root [anidb-9]/.plexmatch: \"season: 2\" puts every file without a hint of its own in season 2"
+check_contains ".plexmatch hints: summary" "$out" "8 .plexmatch files to write, 8 hints in all, 0 files already have a hint, 9 warnings"
+out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
+check ".plexmatch hints, apply: exit" "$?" "0"
+check_contains ".plexmatch hints, apply: says so" "$out" "wrote 8 .plexmatch files"
+check "pattern:, apply: its .plexmatch untouched" "$(bytes "$lib/Pat [anidb-2]/.plexmatch")" 'title:Pat\npattern:{show}-{episode}\n'
+check "pt:, apply: no .plexmatch written" "$(ls -A "$lib/Pt [anidb-3]" | tr '\n' '|')" "Pt - SP1.mkv|Season 01|"
+check "pt:, apply: its subfolder's .plexmatch untouched" "$(bytes "$lib/Pt [anidb-3]/Season 01/.plexmatch")" 'pt:x\n'
+
 # several files of one show on the same number are reported, once per number,
 # when a planned hint is one of them, and the hints are planned all the same.
 # Not reported: a version of the same file (SP3v2), two files the user's own
@@ -839,6 +936,8 @@ printf '7\n' >"$ids/Both/AniDB.id"
 : >"$ids/Empty/tvdb.id"
 printf '9\n' >"$ids/Tagged [anidb-5]/tvdb.id"
 printf '0133093\n' >"$ids/Imdb/imdb.id"
+mkdir -p "$ids/Abs3"
+printf '200\n' >"$ids/Abs3/tvdb3.id"
 # id_file DIR: ID_FILE_TAG and the warnings, one per line
 id_file() {
 	WARNINGS=()
@@ -856,6 +955,9 @@ check ".id: empty file gives no tag" "$(head -n 1 <<<"$out")" ""
 check_contains ".id: empty file warned" "$out" "$ids/Empty/tvdb.id: no id in it; ignored"
 check ".id: a tag in the folder name wins" "$(id_file "$ids/Tagged [anidb-5]")" ""
 check ".id: imdb.id" "$(head -n 1 <<<"$(id_file "$ids/Imdb")")" "[imdb-tt0133093]"
+out=$(id_file "$ids/Abs3")
+check ".id: tvdb3.id keeps its digit" "$(head -n 1 <<<"$out")" "[tvdb3-200]"
+check_contains ".id: tvdb3.id says to rename" "$out" "Rename the folder to \"Abs3 [tvdb3-200]\""
 
 # --- whole runs (auto mode, Kizuna not reachable) ---------------------------------
 
@@ -864,8 +966,16 @@ mkdir -p "$lib/A [anidb-1]" "$lib/T [tvdb-100]" "$lib/Untagged"
 : >"$lib/A [anidb-1]/A - SP1.mkv"
 : >"$lib/T [tvdb-100]/T - S02E01.mkv"
 : >"$lib/Untagged/Untagged - SP1.mkv"
+# an untagged folder takes the rules of the tag in its first video's name
+mkdir -p "$lib/Fa" "$lib/Ft"
+: >"$lib/Fa/Fa - SP1 [anidb-11].mkv"
+: >"$lib/Fa/Fa - SP2.mkv"
+: >"$lib/Ft/Ft - S02E01 [tvdb-100].mkv"
 out=$(bash "$SCRIPT" -m auto -u "$NO_KIZUNA" "$lib" 2>&1)
 check "auto offline: exit" "$?" "0"
+check_contains "auto offline: [anidb-N] in a file name planned" "$out" \
+	"  + ep: S00E01: Fa - SP1 [anidb-11].mkv"$'\n'"  + ep: S00E02: Fa - SP2.mkv"
+check_contains "auto offline: [tvdb-N] in a file name skipped" "$out" "$lib/Ft: tvdb rules need Kizuna for the seasons; Kizuna not reachable, skipped"
 check_contains "auto offline: [anidb-N] planned" "$out" "+ ep: S00E01: A - SP1.mkv"
 check_contains "auto offline: [tvdb-N] skipped" "$out" "$lib/T [tvdb-100]: tvdb rules need Kizuna for the seasons; Kizuna not reachable, skipped"
 check_contains "auto offline: untagged skipped" "$out" "$lib/Untagged: its first id tag (if any) isn't [anidb-N] or [tvdb-N], so Kizuna's AUTO_DEFAULT decides; Kizuna not reachable, skipped"
@@ -1196,6 +1306,11 @@ if ((have_jq)); then
 	for f in "Abs - 01.mkv" "Abs - 05.mkv" "Abs - 99.mkv"; do : >"$lib/Abs [tvdb3-200]/$f"; done
 	printf '100\n' >"$lib/Ided/tvdb.id"
 	: >"$lib/Ided/Ided - S02E01.mkv"
+	# tvdb3.id: absolute numbers, so its S02E01 is no per-season number
+	mkdir -p "$lib/Ided3"
+	printf '200\n' >"$lib/Ided3/tvdb3.id"
+	: >"$lib/Ided3/Ided3 - 05.mkv"
+	: >"$lib/Ided3/Ided3 - S02E01.mkv"
 	: >"$lib/Nomatch [tvdb3-999]/Nomatch - 05.mkv"
 	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
 	check "tvdb: exit" "$?" "0"
@@ -1210,8 +1325,10 @@ if ((have_jq)); then
 	check "tvdb: absolute season 1 episode left alone" "$(grep -c 'ep: .*Abs - 01.mkv' <<<"$out")" "0"
 	check_contains "tvdb: absolute episode Kizuna doesn't have" "$out" "Abs - 99.mkv: absolute episode 99 not in tvdb-200"
 	check_contains "tvdb: .id file's tag used for the match" "$out" "+ ep: S02E04: Ided - S02E01.mkv"
+	check_contains "tvdb: tvdb3.id's tag used for the match" "$out" "+ ep: S02E05: Ided3 - 05.mkv"
+	check "tvdb: tvdb3.id's S02E01 left alone" "$(grep -c 'Ided3 - S02E01' <<<"$out")" "0"
 	check_contains "tvdb: no match" "$out" "$lib/Nomatch [tvdb3-999]: no match from Kizuna at $FAKE; skipped"
-	check_contains "tvdb: summary" "$out" "3 .plexmatch files to write, 4 hints in all"
+	check_contains "tvdb: summary" "$out" "4 .plexmatch files to write, 5 hints in all"
 
 	out=$(bash "$SCRIPT" -m tvdb -u "$NO_KIZUNA" "$lib" 2>&1)
 	check "tvdb, Kizuna unreachable: exit" "$?" "1"
@@ -1237,6 +1354,20 @@ if ((have_jq)); then
 WARNING: $lib/Loose [tvdb3-200]/Loose - 033 - Love-scene.mkv: Plex's scanner makes it an extra, not an episode or a movie: its name ends in \"-scene\". Rename it without that
 WARNING: $lib/Loose [tvdb3-200]/Loose Recap.mkv: no episode number found"
 
+	# a season: hint in the show folder is the season Plex reads its files
+	# in: an episode of that season needs no hint, one of season 1 gets one,
+	# and a bare number in a hint already there is in that season
+	lib=$WORK/tvdb-season
+	mkdir -p "$lib/Rs [tvdb3-200]"
+	for f in "Rs - 01" "Rs - 05" "Rs - 06"; do : >"$lib/Rs [tvdb3-200]/$f.mkv"; done
+	printf 'season: 2\nep: 06: Rs - 06.mkv\n' >"$lib/Rs [tvdb3-200]/.plexmatch"
+	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
+	check "tvdb root season: exit" "$?" "0"
+	check "tvdb root season: the hints, and no other" "$(grep '^  + ' <<<"$out")" "  + ep: S01E01: Rs - 01.mkv"
+	check "tvdb root season: the warnings" "$(grep '^WARNING' <<<"$out")" \
+		"WARNING: $lib/Rs [tvdb3-200]/.plexmatch: \"season: 2\" puts every file without a hint of its own in season 2"
+	check_contains "tvdb root season: summary" "$out" "1 .plexmatch files to write, 1 hints in all, 1 files already have a hint, 1 warnings"
+
 	# auto mode: rules per folder, by tag or from Kizuna's /auto match
 	lib=$WORK/auto
 	mkdir -p "$lib/A [anidb-1]" "$lib/T [tvdb-100]" "$lib/Untagged" "$lib/Other [tmdb-5]" "$lib/Nomatch"
@@ -1256,25 +1387,29 @@ WARNING: $lib/Loose [tvdb3-200]/Loose Recap.mkv: no episode number found"
 	check_contains "auto: no match" "$out" "$lib/Nomatch: no match from Kizuna at $FAKE/auto; skipped"
 
 	# tvdb rules: the same episode in two layouts or two versions is one
-	# episode on purpose; a planned hint on the number of a file's own hint is
-	# reported
+	# episode on purpose, also when one of the two already has its hint; a
+	# planned hint on the number of a file's own hint is reported
 	lib=$WORK/tvdb-same
-	mkdir -p "$lib/Rel [tvdb-100]/Season 02" "$lib/Abs [tvdb3-200]"
+	mkdir -p "$lib/Rel [tvdb-100]/Season 02" "$lib/Abs [tvdb3-200]" "$lib/Kept [tvdb-100]/Season 02"
 	for f in "Rel [tvdb-100]/Rel - S02E02" "Rel [tvdb-100]/Season 02/Rel - 02" "Abs [tvdb3-200]/Abs - 05" \
-		"Abs [tvdb3-200]/Abs - 05v2" "Abs [tvdb3-200]/Abs - 06" "Abs [tvdb3-200]/Abs Extra"; do
+		"Abs [tvdb3-200]/Abs - 05v2" "Abs [tvdb3-200]/Abs - 06" "Abs [tvdb3-200]/Abs Extra" \
+		"Kept [tvdb-100]/Kept - S02E02" "Kept [tvdb-100]/Season 02/Kept - 02"; do
 		: >"$lib/$f.mkv"
 	done
 	printf 'ep: S02E06: Abs Extra.mkv\n' >"$lib/Abs [tvdb3-200]/.plexmatch"
+	printf 'ep: S02E05: Kept - S02E02.mkv\n' >"$lib/Kept [tvdb-100]/.plexmatch"
 	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
 	check "tvdb same number: exit" "$?" "0"
 	check "tvdb same number: the hints" "$(grep '^  + ' <<<"$out")" \
 		"  + ep: S02E05: Abs - 05.mkv
   + ep: S02E05: Abs - 05v2.mkv
   + ep: S02E06: Abs - 06.mkv
+  + ep: S02E05: Season 02/Kept - 02.mkv
   + ep: S02E05: Rel - S02E02.mkv
   + ep: S02E05: Season 02/Rel - 02.mkv"
 	check "tvdb same number: only the two different files are reported" "$(grep '^WARNING' <<<"$out")" \
 		"$(same "$lib/Abs [tvdb3-200]" S02E06 '"Abs - 06.mkv", "Abs Extra.mkv" (already hinted)')"
+	check_contains "tvdb same number: summary" "$out" "3 .plexmatch files to write, 6 hints in all, 2 files already have a hint, 1 warnings"
 
 	# a planned hint on the number Plex reads from another file's own name:
 	# S02E05 left alone as already absolute, S02E06 in an absolute folder; the
