@@ -586,6 +586,78 @@ func TestNotFoundStaleCopyAnswers(t *testing.T) {
 	}
 }
 
+// TestNotFoundStaleCopyAnswers through Get, the other read function: the
+// owner's rule holds for both.
+func TestNotFoundStaleCopyAnswersGet(t *testing.T) {
+	c := New(t.TempDir())
+	net := &bodyNet{body: `{"A": 1}`}
+	c.SetTransport(net)
+	r := Request{URL: "https://api.example/c", Key: "c.json", TTL: time.Hour, NotFoundTTL: 24 * time.Hour, NotFound: []int{404}}
+	if _, err := c.Get(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	expire(t, c, r.Key)
+	net.status = http.StatusNotFound
+	for build := 1; build <= 3; build++ {
+		data, err := c.Get(context.Background(), r)
+		if err != nil || string(data) != `{"A": 1}` {
+			t.Errorf("build %d: %q %v, want the stale copy", build, data, err)
+		}
+		if n := net.sent.Load(); n != int32(1+build) {
+			t.Errorf("build %d: %d requests sent, want %d", build, n, 1+build)
+		}
+	}
+}
+
+// A fresh copy answers even with a remembered "nothing there" beside it (a
+// file left behind, say by a crash before a 200 removed it): the copy is
+// read first, and the .notfound file is not even looked at. Both read
+// functions.
+func TestFreshCopyBesideNotFound(t *testing.T) {
+	const msg = "remembered not found"
+	for _, name := range []string{"Get", "GetJSON"} {
+		t.Run(name, func(t *testing.T) {
+			c := New(t.TempDir())
+			net := &bodyNet{status: http.StatusNotFound}
+			c.SetTransport(net)
+			r := Request{URL: "https://api.example/f", Key: "f.json", TTL: time.Hour,
+				NotFoundTTL: 24 * time.Hour, NotFound: []int{http.StatusNotFound}}
+			if err := WriteFile(c.path(r.Key), []byte(`{"A": 1}`)); err != nil {
+				t.Fatal(err)
+			}
+			if err := WriteFile(c.notFoundPath(r.Key), []byte("404 https://api.example/f")); err != nil {
+				t.Fatal(err)
+			}
+			logs := &lockedBuffer{}
+			old := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+			t.Cleanup(func() { slog.SetDefault(old) })
+			ctx, events := traced()
+			if name == "Get" {
+				data, err := c.Get(ctx, r)
+				if err != nil || string(data) != `{"A": 1}` {
+					t.Errorf("Get: %q %v, want the fresh copy", data, err)
+				}
+			} else {
+				var out struct{ A int }
+				if err := c.GetJSON(ctx, r, &out, nil); err != nil || out.A != 1 {
+					t.Errorf("GetJSON: %+v %v, want the fresh copy", out, err)
+				}
+			}
+			if n := net.sent.Load(); n != 0 {
+				t.Errorf("%d requests sent, want none", n)
+			}
+			ev := events()
+			if len(ev) != 1 || ev[0].Kind != KindCache || ev[0].Err != nil {
+				t.Errorf("events %+v, want one cache hit without an error", ev)
+			}
+			if n := logs.count(msg); n != 0 {
+				t.Errorf("%d %q lines, want none (the .notfound not consulted):\n%s", n, msg, logs)
+			}
+		})
+	}
+}
+
 // At debug level, each use of a remembered "nothing there" logs one line
 // with the key, the status and when it is asked again, never the URL, so
 // never its api key.

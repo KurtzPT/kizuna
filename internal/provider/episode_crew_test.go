@@ -707,6 +707,14 @@ func TestWarmedTMDBFailureOnlyWhenNeeded(t *testing.T) {
 // refreshed for a series still airing and not for one finished long ago,
 // one 31 days old for both. The dates are the episode list's (/anidb: the
 // entry's episodes, filled from it).
+//
+// The latest date decides, whatever its season: a series whose season 1
+// ended long ago and whose season 2 aired days ago is still airing in
+// /tvdb, and so is its mirror (season 1 aired days ago, season 2 long ago).
+// In /anidb the entry is season 1 alone: with only season 2 recent it has
+// ended (DECISIONS.md: a finished entry of a franchise still airing gets 30
+// days there). AniDB's own air dates win over TheTVDB's in /anidb, in both
+// directions.
 func TestCrewRecordLifeBySeriesEnd(t *testing.T) {
 	defaultLists(t)
 	const day = 24 * time.Hour
@@ -714,20 +722,45 @@ func TestCrewRecordLifeBySeriesEnd(t *testing.T) {
 	date := func(ago time.Duration) string { return now.Add(-ago).Format("2006-01-02") }
 	airing := [...]string{date(30 * day), date(23 * day), date(3 * day)} // TheTVDB 11, 12, 13
 	ended := [...]string{date(1010 * day), date(1003 * day), date(1000 * day)}
+	type lifeCase struct {
+		name      string
+		aired     [3]string
+		anidb     [2]string // AniDB's air dates of its episodes 1 and 2; blank: none
+		age       time.Duration
+		refreshed bool
+	}
+	cases := map[string][]lifeCase{}
 	for _, root := range []string{"tvdb-500", "anidb-100"} {
-		for _, c := range []struct {
-			name      string
-			aired     [3]string
-			age       time.Duration
-			refreshed bool
-		}{
-			{"airing, 8 days old", airing, 8 * day, true},
-			{"ended long ago, 8 days old", ended, 8 * day, false},
-			{"airing, 31 days old", airing, 31 * day, true},
-			{"ended long ago, 31 days old", ended, 31 * day, true},
-		} {
+		cases[root] = []lifeCase{
+			{name: "airing, 8 days old", aired: airing, age: 8 * day, refreshed: true},
+			{name: "ended long ago, 8 days old", aired: ended, age: 8 * day},
+			{name: "airing, 31 days old", aired: airing, age: 31 * day, refreshed: true},
+			{name: "ended long ago, 31 days old", aired: ended, age: 31 * day, refreshed: true},
+			{name: "season 1 ended long ago, season 2 airing, 8 days old",
+				aired: [3]string{ended[0], ended[1], airing[2]}, age: 8 * day, refreshed: root == "tvdb-500"},
+			{name: "season 1 airing, season 2 ended long ago, 8 days old",
+				aired: [3]string{ended[0], airing[2], ended[2]}, age: 8 * day, refreshed: true},
+		}
+	}
+	cases["anidb-100"] = append(cases["anidb-100"],
+		lifeCase{name: "AniDB's dates ended, TheTVDB's airing, 8 days old", aired: airing,
+			anidb: [2]string{ended[0], ended[1]}, age: 8 * day},
+		lifeCase{name: "AniDB's dates airing, TheTVDB's ended, 8 days old", aired: ended,
+			anidb: [2]string{airing[0], airing[2]}, age: 8 * day, refreshed: true})
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		for _, c := range cases[root] {
 			name := root + ", " + c.name
+			anidbAnswer := anidbXML
+			for i, d := range c.anidb {
+				if d != "" {
+					epno := fmt.Sprintf(`<epno type="1">%d</epno>`, i+1)
+					anidbAnswer = strings.Replace(anidbAnswer, epno, epno+"<airdate>"+d+"</airdate>", 1)
+				}
+			}
 			net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+				if path == "api.anidb.net/httpapi" {
+					return 200, anidbAnswer
+				}
 				if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
 					return 200, `{"data":{"episodes":[
 						{"id":11,"seasonNumber":1,"number":1,"name":"TVDB One","aired":"` + c.aired[0] + `"},

@@ -592,6 +592,22 @@ check "interrupt: temp file deleted" "$(ls -A "$dir")" ".plexmatch"
 check "interrupt: old file whole" "$(bytes "$dir/.plexmatch")" 'title:KeepMe\n'
 { (on_signal TERM); } 2>/dev/null # bash's "Terminated" notice
 check "kill, nothing being written: ends the script as TERM does" "$?" "143"
+# a hangup (the terminal closed) the same, as HUP does
+printf 'title: Keep Me\nep: S0' >"$dir/.plexmatch.kizuna-tmp"
+# shellcheck disable=SC2034 # read by the sourced script's on_signal
+{ (WRITING=$dir/.plexmatch.kizuna-tmp && on_signal HUP); } 2>/dev/null # bash's "Hangup" notice
+check "hangup: ends the script as HUP does" "$?" "129"
+check "hangup: temp file deleted" "$(ls -A "$dir")" ".plexmatch"
+check "hangup: old file whole" "$(bytes "$dir/.plexmatch")" 'title:KeepMe\n'
+# HUP ignored when the script started (run under nohup): the signal can't
+# end it, so on_signal exits with HUP's status itself
+printf 'title: Keep Me\nep: S0' >"$dir/.plexmatch.kizuna-tmp"
+(
+	trap '' HUP
+	bash -c 'source "$1"; set +e; WRITING=$2; on_signal HUP' _ "$SCRIPT" "$dir/.plexmatch.kizuna-tmp"
+)
+check "hangup ignored at the start: exits as HUP does" "$?" "129"
+check "hangup ignored at the start: temp file deleted" "$(ls -A "$dir")" ".plexmatch"
 # A whole run, killed by the move that would replace the file (a fake mv,
 # the script's last step for each file): the temp file is already written
 lib=$WORK/signal-run

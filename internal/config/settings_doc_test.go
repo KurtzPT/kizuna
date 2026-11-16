@@ -63,3 +63,26 @@ func TestSettingsDocMatchesSettings(t *testing.T) {
 		}
 	}
 }
+
+// The settings file's own variable (envFileVar, which LoadEnvFile reads:
+// TestExplicitEnvFile) has no table row: SETTINGS.md and .env.sample name it
+// in their text. Neither sync test above sees it, so this one keeps the
+// name in both: renamed in the code alone, the docs would point users at a
+// variable Kizuna no longer reads.
+func TestSettingsFileVarDocumented(t *testing.T) {
+	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(envFileVar) + `\b`)
+	for _, name := range []string{".env.sample", "SETTINGS.md"} {
+		t.Run(name, func(t *testing.T) {
+			b, err := os.ReadFile(filepath.Join("..", "..", name))
+			if name == "SETTINGS.md" && errors.Is(err, fs.ErrNotExist) {
+				t.Skip("no SETTINGS.md here (the image's build context)") // .env.sample is always there
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !word.Match(b) {
+				t.Errorf("%s doesn't name %s, the variable LoadEnvFile reads", name, envFileVar)
+			}
+		})
+	}
+}

@@ -1000,3 +1000,50 @@ func TestBuildJSON(t *testing.T) {
 		t.Errorf("empty build JSON %s", got)
 	}
 }
+
+// TestBuildJSON's twin for the parts inside a build: the match, the trace,
+// the mapping, the fields, the art, the seasons, the episodes and the
+// checks, each with every field set. page.html reads these keys from the
+// saved data, so a renamed JSON tag must fail here, not leave a blank on
+// every page saved before it.
+func TestBuildJSONNested(t *testing.T) {
+	season := 2
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	b := Build{
+		Match: &Match{Time: at, Mode: "auto", Type: "show", Title: "T", Year: 2009, File: "/a/T.mkv", GUID: "g", Manual: true,
+			How: "h", By: MatchBy{ID: MatchTag, Text: "x", Off: "o", Need: "n", ByName: &ByName{AID: 1, Sure: "s"},
+				Search: SearchFound, Best: 90, Missing: "m"},
+			MinScore: 80, Root: "anidb-1", Score: 95, Candidates: []Candidate{{AID: 1, Title: "c", Score: 95}}, Query: "q"},
+		Trace:   []Span{{Src: "tvdb", Label: "l", Note: "n", Kind: SpanNet, Start: 1, End: 2}},
+		Mapping: []MapRow{{AID: 1, Name: "n", TVDB: 2, TVDBSeason: "1", TVDBOffset: 3, TMDB: 4, TMDBSeason: "2", Exceptions: 5}},
+		Fields: []Field{{Name: "title", Order: []string{"anidb"}, Asked: []string{"tvdb"}, Offered: map[string]string{"anidb": "T"},
+			Used: []string{"anidb"}}},
+		Checks: []Check{{Level: LevelWarn, Title: "c", Text: "x", Section: SectionMatch, Cause: true}},
+	}
+	b.Art = []ArtGroup{{Level: "Season 2", Season: &season, Kind: "poster", Images: []ArtImage{{URL: "u", Src: "tvdb", Primary: true}}}}
+	b.Seasons = []Season{{Name: "Season 2", Count: 1, Index: 2, Thumb: "t", Art: "a", Date: "2009-04-01"}}
+	b.Episodes = []Episode{{Season: 2, Index: 1, Title: "ep", From: "anidb", Titles: map[string]string{"anidb": "ep"},
+		Pairs: map[string]string{"tvdb": "S02E01"}, Summary: "su", Date: "2009-04-08", Thumb: "th", Minutes: 24,
+		Directors: []string{"di"}, Writers: []string{"wr"}, Producers: []string{"pr"}, Guids: []string{"tvdb://9"},
+		Src: map[string]string{"summary": "tvdb"}, Issue: "i"}}
+	got, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"id":"","root":"","mode":"","start":"0001-01-01T00:00:00Z","tookMs":0,"complete":false,` +
+		`"match":{"time":"2026-01-02T03:04:05Z","mode":"auto","type":"show","title":"T","year":2009,"file":"/a/T.mkv","guid":"g",` +
+		`"manual":true,"how":"h","by":{"id":"tag","text":"x","off":"o","need":"n","byName":{"aid":1,"sure":"s"},"search":"found",` +
+		`"best":90,"missing":"m"},"min":80,"root":"anidb-1","score":95,"candidates":[{"aid":1,"title":"c","score":95}],"query":"q"},` +
+		`"trace":[{"src":"tvdb","label":"l","note":"n","kind":"net","start":1,"end":2}],` +
+		`"mapping":[{"aid":1,"name":"n","tvdb":2,"tvdbSeason":"1","tvdbOffset":3,"tmdb":4,"tmdbSeason":"2","exceptions":5}],` +
+		`"fields":[{"name":"title","order":["anidb"],"asked":["tvdb"],"offered":{"anidb":"T"},"used":["anidb"]}],` +
+		`"art":[{"level":"Season 2","season":2,"kind":"poster","images":[{"url":"u","src":"tvdb","primary":true}]}],` +
+		`"seasons":[{"name":"Season 2","count":1,"index":2,"thumb":"t","art":"a","date":"2009-04-01"}],` +
+		`"episodes":[{"s":2,"e":1,"title":"ep","from":"anidb","titles":{"anidb":"ep"},"pairs":{"tvdb":"S02E01"},"summary":"su",` +
+		`"date":"2009-04-08","thumb":"th","minutes":24,"directors":["di"],"writers":["wr"],"producers":["pr"],"guids":["tvdb://9"],` +
+		`"src":{"summary":"tvdb"},"issue":"i"}],"epsTotal":0,` +
+		`"checks":[{"level":"warn","title":"c","text":"x","section":"match"}]}`
+	if string(got) != want {
+		t.Errorf("build JSON\n%s\nwant\n%s", got, want)
+	}
+}

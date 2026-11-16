@@ -574,6 +574,20 @@ func TestSharedNamesAsBefore(t *testing.T) {
 	if it := p.episodeItem(Modes["tvdb"], s, &s.Episodes[0][0]); it.ParentTitle != "Specials" || it.ParentKey != "/library/metadata/tvdb-500-s0" {
 		t.Errorf("a special: parent %q %q, want Specials, /library/metadata/tvdb-500-s0", it.ParentTitle, it.ParentKey)
 	}
+	// A numbered season's names, spelled out: the comparison above can't see
+	// a wrong name that both ways make alike.
+	if len(s.Episodes[2]) == 0 {
+		t.Fatalf("no season 2 in %v", s.Episodes)
+	}
+	ep := &s.Episodes[2][0]
+	it := p.episodeItem(Modes["tvdb"], s, ep)
+	got := []string{it.RatingKey, it.Key, it.ParentRatingKey, it.ParentKey, it.ParentTitle, it.GrandparentRatingKey, it.GrandparentKey}
+	e := strconv.Itoa(ep.Index) // the episode's own number is not what this pins
+	want := []string{"tvdb-500-s2-e" + e, "/library/metadata/tvdb-500-s2-e" + e, "tvdb-500-s2", "/library/metadata/tvdb-500-s2",
+		"Season 2", "tvdb-500", "/library/metadata/tvdb-500"}
+	if !slices.Equal(got, want) {
+		t.Errorf("season 2: rating key, key, parent rating key, key, title, grandparent rating key, key\n%q\nwant\n%q", got, want)
+	}
 }
 
 // pagedShow is a show of 45 episodes in season 1 and 2 specials, cached in
