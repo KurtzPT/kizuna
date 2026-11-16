@@ -110,7 +110,8 @@ check "fractional seconds: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< 
 # The real API and registry paths, with curl and gh faked by exported
 # functions: curl answers from FAKE_MANIFESTS, needs the token, and fails for
 # the token when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken)
-# or for the manifest FAKE_FAIL names, and logs its arguments to CURL_LOG; gh
+# or for the manifest FAKE_FAIL names (a 500) or FAKE_404 lists (a 404, as
+# the status probe says), and logs its arguments to CURL_LOG; gh
 # lists the versions in two pages, FAKE_PAGE1 and FAKE_PAGE2 (failing after
 # the first when FAKE_FAIL=list), and prints and logs every other call to
 # GH_LOG (the script sends its output to /dev/null).
@@ -127,8 +128,19 @@ curl() {
 		echo '{"token":"T"}'
 		;;
 	*/manifests/*)
-		[[ $* == *"Bearer T"* && ${url##*/} != "${FAKE_FAIL:-}" ]] || return 22
-		printf '%s' "$FAKE_MANIFESTS" | "${JQ:-jq}" -c --arg d "${url##*/}" '.[$d] // {}'
+		local d=${url##*/} code=200
+		[[ $* == *"Bearer T"* ]] || code=401
+		[[ $d == "${FAKE_FAIL:-}" ]] && code=500
+		[[ " ${FAKE_404:-} " == *" $d "* ]] && code=404
+		# the status probe (-w '%{http_code}', no -f) prints the status
+		if [[ $* == *"%{http_code}"* ]]; then
+			echo "$code"
+			return
+		fi
+		[[ $code == 200 ]] || return 22
+		# a string in FAKE_MANIFESTS is a raw body (not JSON, say)
+		printf '%s' "$FAKE_MANIFESTS" |
+			"${JQ:-jq}" -r --arg d "$d" '.[$d] // {} | if type == "string" then . else tojson end'
 		;;
 	*) return 22 ;;
 	esac
@@ -156,6 +168,9 @@ check "registry: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | t
 check "registry: curl called" "$(($(wc -l <"$CURL_LOG") > 0))" 1
 check "registry: every curl call has time limits" \
 	"$(($(grep -cv -- '--connect-timeout [0-9]' "$CURL_LOG") + $(grep -cv -- '--max-time [0-9]' "$CURL_LOG")))" 0
+# a manifest read retries twice (the token call and the status probe don't)
+check "registry: manifest reads retry" \
+	"$(grep -F '/manifests/' "$CURL_LOG" | grep -Fv '%{http_code}' | grep -cv -- '--retry 2')" 0
 
 # the versions from the API, two pages joined, plan the same
 out=$(run '' '')
@@ -179,7 +194,8 @@ for fail in token notoken sha256:dev sha256:devatt; do
 	check "registry fails ($fail): nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")" 0
 	case $fail in
 	*token) want="::error::no registry token for someone/kizuna: stopping (nothing deleted)" ;;
-	*) want="::error::manifest $fail: lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" ;;
+	sha256:dev) want="::error::manifest sha256:dev (version 1): lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" ;;
+	sha256:devatt) want="::error::manifest sha256:devatt (version 3): lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" ;;
 	esac
 	check "registry fails ($fail): says why" "$(tail -n 1 <<< "$out")" "$want"
 done
@@ -270,7 +286,7 @@ out=$(FAKE_MANIFESTS=$ref_manifests FAKE_FAIL=sha256:kref DELETE=true run "$ref_
 check "subject unreadable: stopped" "$(($? != 0))" 1
 check "subject unreadable: nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")" 0
 check "subject unreadable: says why" "$(tail -n 1 <<< "$out")" \
-	"::error::manifest sha256:kref: lookup failed (an untagged version, read for its subject): stopping (nothing deleted)"
+	"::error::manifest sha256:kref (version 7): lookup failed (an untagged version, read for its subject): stopping (nothing deleted)"
 check "subject unreadable: gh never called" "$(cat "$GH_LOG")" ""
 
 # an untagged version younger than MIN_AGE_HOURS stays without being read
@@ -280,6 +296,67 @@ out=$(run "$(list "$(
 )")" '{"sha256:a": {}}')
 check "fresh untagged: kept" "$(grep -c '^delete ' <<< "$out")" 0
 check "fresh untagged: not read" "$(sed -n 's/^manifests read: //p' <<< "$out")" 1
+
+# Read failures around the subject pass, through the registry. r is kept by
+# its subject (a, :dev) and lists two parts nothing read before the repeat
+# loop: rpart is tagged (sha256-zz, no root), ryoung is under a day old. gone
+# is a leftover the registry has no manifest for (404 when FAKE_404 says so),
+# other a plain leftover.
+loop_versions=$(list "$(
+	version 1 sha256:a 2026-09-01T00:00:00Z dev
+	version 2 sha256:r 2026-09-01T00:00:00Z
+	version 3 sha256:rpart 2026-09-01T00:00:00Z sha256-zz
+	version 4 sha256:ryoung 2026-11-08T20:00:00Z
+	version 5 sha256:gone 2026-09-01T00:00:00Z
+	version 6 sha256:other 2026-09-01T00:00:00Z
+)")
+loop_manifests='{
+  "sha256:a": {},
+  "sha256:r": {"subject": {"digest": "sha256:a"},
+    "manifests": [{"digest": "sha256:rpart"}, {"digest": "sha256:ryoung"}]},
+  "sha256:rpart": {},
+  "sha256:ryoung": {},
+  "sha256:other": {}
+}'
+loop_run() { FAKE_MANIFESTS=${LOOP_MANIFESTS:-$loop_manifests} DELETE=true run "$loop_versions" ''; }
+gone_warning="::warning::manifest sha256:gone (version 5): the registry has none (404): no subject to keep it by, so it is deleted like any untagged leftover"
+
+# a 404 in the subject pass: that leftover goes, with a warning naming it,
+# and the parts of the version kept by subject are read and kept
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(FAKE_404=sha256:gone loop_run)
+check "404 leftover: exit" "$?" 0
+check "404 leftover: warned" "$(grep -cxF "$gone_warning" <<< "$out")" 1
+check "404 leftover: deleted" "$(cat "$GH_LOG")" \
+	"$(printf 'gh api -X DELETE /users/Someone/packages/container/kizuna/versions/%s\n' 5 6)"
+check "repeat loop: the tagged and the young part read" \
+	"$(grep -cE '/manifests/sha256:(rpart|ryoung)$' "$CURL_LOG")" 2
+check "repeat loop: manifests read" "$(sed -n 's/^manifests read: //p' <<< "$out")" 5
+
+# any other failure in the subject pass stops the run, naming the version
+for fail in "FAKE_FAIL=sha256:gone" "LOOP_MANIFESTS={\"sha256:gone\":\"<html>\"}"; do
+	: >"$GH_LOG"
+	out=$(export "${fail?}" && loop_run)
+	check "subject pass fails ($fail): stopped" "$(($? != 0))" 1
+	check "subject pass fails ($fail): nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")$(cat "$GH_LOG")" 0
+	case $fail in
+	FAKE_FAIL=*) want="::error::manifest sha256:gone (version 5): lookup failed (an untagged version, read for its subject): stopping (nothing deleted)" ;;
+	*) want="::error::manifest sha256:gone (version 5): the registry's answer is not a manifest (an untagged version, read for its subject): stopping (nothing deleted)" ;;
+	esac
+	check "subject pass fails ($fail): says why" "$(tail -n 1 <<< "$out")" "$want"
+done
+
+# a failure while following a version kept by subject (a 404 included)
+# stops the run: that part is needed
+for fail in "FAKE_FAIL=sha256:rpart" "FAKE_404=sha256:rpart"; do
+	: >"$GH_LOG"
+	out=$(export "${fail?}" && loop_run)
+	check "repeat loop fails ($fail): stopped" "$(($? != 0))" 1
+	check "repeat loop fails ($fail): nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")$(cat "$GH_LOG")" 0
+	check "repeat loop fails ($fail): says why" "$(tail -n 1 <<< "$out")" \
+		"::error::manifest sha256:rpart (version 3): lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)"
+done
 
 echo "$CHECKS checks, $FAILS failed"
 ((FAILS == 0))

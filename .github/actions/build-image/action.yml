@@ -21,7 +21,7 @@ inputs:
     description: The image tags, as docker/metadata-action tag rules (one per line)
     required: true
   cache:
-    description: "true: read and write the GitHub Actions build cache. false: build from scratch (a release)"
+    description: "true: read and write the GitHub Actions build cache (unless cache-write is false). false: build from scratch (a release)"
     required: true
   cache-write:
     description: "With cache true: false reads the build cache but saves nothing to it (a pull request). Ignored when cache is false"
