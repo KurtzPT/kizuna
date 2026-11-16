@@ -120,7 +120,7 @@ func testSeries(path string, q map[string][]string) (int, string) {
 }
 
 // newTestProvider wires every source to net, with the default settings.
-func newTestProvider(t *testing.T, net *fakeNet) *Provider {
+func newTestProvider(t testing.TB, net *fakeNet) *Provider {
 	t.Helper()
 	net.hits = map[string]int{}
 	dir := t.TempDir()

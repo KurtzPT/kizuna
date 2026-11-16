@@ -545,7 +545,7 @@ func TestPlexAllArtCountsWhenRead(t *testing.T) {
 // defaultLists clears the settings these tests read, so they run with the
 // default source lists whatever the machine's environment holds. Call it
 // before newTestProvider.
-func defaultLists(t *testing.T) {
+func defaultLists(t testing.TB) {
 	for _, name := range []string{"TITLE_SOURCES", "SUMMARY_SOURCES", "POSTER_SOURCES", "BACKGROUND_SOURCES",
 		"LOGO_SOURCES", "EPISODE_FILL_SOURCES", "EPISODE_CREW_SOURCES", "EPISODE_TITLES", "GENRE_SOURCES",
 		"CAST_SOURCES", "STUDIO_SOURCES", "CREW_SOURCES", "RATING_SOURCES", "DATE_SOURCES", "RATING_COUNTRY",

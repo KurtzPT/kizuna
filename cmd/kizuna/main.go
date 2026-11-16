@@ -243,6 +243,7 @@ func serve(cfg config.Config) error {
 		return err
 	}
 	p, tvdb, keepLoaded := setup(ctx, cfg)
+	defer p.Flush() // after the drain below: the builds it waits for may replace crew photos
 	// Match reports (MATCH_REPORTS=true): an HTML page per show in <DATA_DIR>/reports.
 	if cfg.MatchReports {
 		if reports, err := report.Open(filepath.Join(cfg.DataDir, "reports"), provider.Version); err == nil {

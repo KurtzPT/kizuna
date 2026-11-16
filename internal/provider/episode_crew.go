@@ -287,7 +287,10 @@ type crewRef struct {
 // TheTVDB's and TheMovieDb's details, Plex's show), each in its source's
 // place when that source is in the walk, then gives each distinct name on
 // the episodes its key and photo source (s.crew), and tells the memory every
-// photo found. Nothing is fetched here.
+// photo found. A person's first photo is on disk before this returns (the
+// owner's rule: Kizuna always remembers what photos it sent); a photo that
+// only replaces one is saved soon after (crewSaveDelay). Nothing is fetched
+// here.
 func (p *Provider) finishCrew(s *Show, ss *showSources, cp *crewPhotos) {
 	order := p.cfg.EpisodeCrewSources
 	named := false
@@ -308,7 +311,7 @@ func (p *Provider) finishCrew(s *Show, ss *showSources, cp *crewPhotos) {
 		cp.add(srcPlex, sh.Details.CrewPhotos)
 	}
 	s.crew = map[string]crewRef{}
-	changed := false
+	changed, first := false, false
 	s.eachEpisode(func(ep *Ep) {
 		for _, names := range [...][]string{ep.Directors, ep.Writers, ep.Producers} {
 			for _, n := range names {
@@ -318,13 +321,17 @@ func (p *Provider) finishCrew(s *Show, ss *showSources, cp *crewPhotos) {
 				k := cp.lastKey(n)
 				ph, src := cp.photo(k, order, plexFirst)
 				s.crew[n] = crewRef{k, src}
-				if ph != "" && p.crewMemory.learn(k, ph) {
-					changed = true
+				if ph != "" {
+					c, f := p.crewMemory.learn(k, ph)
+					changed, first = changed || c, first || f
 				}
 			}
 		}
 	})
-	if changed {
-		p.crewMemory.save()
+	switch {
+	case first:
+		p.crewMemory.save() // a pending save's photos go with it
+	case changed:
+		p.crewMemory.saveSoon() // written a few seconds later, outside the build
 	}
 }

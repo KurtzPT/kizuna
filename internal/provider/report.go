@@ -189,7 +189,8 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 		show := p.showItem(mode, s, false)
 		res.Item = itemJSON(show)
 		res.Art = artGroups(nil, "show", nil, show, s.artBy.of(nil))
-		res.ItemSrc = itemSources(show, rec.Facts().Fields, res.Art)
+		facts := rec.Facts() // a copy: once is enough, nothing records while the report is filled in
+		res.ItemSrc = itemSources(show, facts.Fields, res.Art)
 		for _, n := range plexSeasons(s) {
 			it := p.seasonItem(mode, s, n, false)
 			if it == nil {
@@ -204,9 +205,10 @@ func (p *Provider) finishReport(rec *report.Recorder, root string, s *Show, err 
 			res.EpsTotal += len(s.Episodes[n])
 		}
 		var with [][]string
-		res.Episodes, with = p.episodeRows(mode, s)
-		res.CrewPhotos = p.crewPhotoCount(mode, s)
-		res.Checks = buildChecks(s, rec.Facts(), with)
+		var crew map[string]bool
+		res.Episodes, with, crew = p.episodeRows(mode, s)
+		res.CrewPhotos = crewPhotoCount(s, crew)
+		res.Checks = buildChecks(s, facts, with)
 	}
 	rec.Finish(took, err, res)
 }
@@ -413,15 +415,23 @@ func itemSources(it Item, fields []report.Field, art []report.ArtGroup) map[stri
 }
 
 // episodeRows lists the episodes as Plex gets them (what episodeItem sends,
-// each value with its source) and, per episodeProblems, the episodes with
-// that problem ("S01E05").
-func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string) {
+// each value with its source), per episodeProblems the episodes with that
+// problem ("S01E05"), and the distinct crew names the items send, true for
+// those sent with a photo (crewPhotoCount). One item per episode: building
+// them is most of a long show's report.
+func (p *Provider) episodeRows(mode Mode, s *Show) (_ []report.Episode, with [][]string, crew map[string]bool) {
 	var out []report.Episode
-	with := make([][]string, len(episodeProblems))
+	with = make([][]string, len(episodeProblems))
+	crew = map[string]bool{}
 	for _, n := range s.Seasons() {
 		for i := range s.Episodes[n] {
 			ep := &s.Episodes[n][i]
 			it := p.episodeItem(mode, s, ep)
+			for _, tags := range [...][]Tag{it.Director, it.Writer, it.Producer} {
+				for _, t := range tags {
+					crew[t.Tag] = crew[t.Tag] || t.Thumb != ""
+				}
+			}
 			var issues []string
 			for j, pr := range episodeProblems {
 				if text := pr.issue(ep, &it); text != "" {
@@ -432,25 +442,15 @@ func (p *Provider) episodeRows(mode Mode, s *Show) ([]report.Episode, [][]string
 			out = append(out, sentEpisode(it, ep, strings.Join(issues, "; ")))
 		}
 	}
-	return out, with
+	return out, with, crew
 }
 
 // crewPhotoCount counts the distinct crew names the episodes' items send
-// and those sent with a photo, by the source this build found it at (s.crew),
-// "remembered" for a photo no source of this build gave: "crew photos: 41 of
-// 64 (tmdb 30, plex 9, remembered 2)". "" without crew.
-func (p *Provider) crewPhotoCount(mode Mode, s *Show) string {
-	withPhoto := map[string]bool{}
-	for _, n := range s.Seasons() {
-		for i := range s.Episodes[n] {
-			it := p.episodeItem(mode, s, &s.Episodes[n][i])
-			for _, tags := range [...][]Tag{it.Director, it.Writer, it.Producer} {
-				for _, t := range tags {
-					withPhoto[t.Tag] = withPhoto[t.Tag] || t.Thumb != ""
-				}
-			}
-		}
-	}
+// and those sent with a photo (withPhoto, from episodeRows), by the source
+// this build found it at (s.crew), "remembered" for a photo no source of
+// this build gave: "crew photos: 41 of 64 (tmdb 30, plex 9, remembered 2)".
+// "" without crew.
+func crewPhotoCount(s *Show, withPhoto map[string]bool) string {
 	if len(withPhoto) == 0 {
 		return ""
 	}

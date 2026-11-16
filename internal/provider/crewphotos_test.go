@@ -447,6 +447,7 @@ func TestCrewPhotosMovie(t *testing.T) {
 func TestCrewMemory(t *testing.T) {
 	dir := t.TempDir()
 	p := &Provider{crewMemory: loadCrewMemory(dir)}
+	manualSaves(p.crewMemory)
 	p.cfg.EpisodeCrewSources = []string{"tvdb", "tmdb"}
 	show := func(root, name string, photo string) *Show {
 		s := &Show{Root: root, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1, Directors: []string{name}}}}}
@@ -475,6 +476,7 @@ func TestCrewMemory(t *testing.T) {
 	if sent(a) != "Kamegaki Hajime=new.jpg" || sent(b) != "Kamegaki Hajime=new.jpg" {
 		t.Errorf("newer photo: %q %q, want new.jpg on both", sent(a), sent(b))
 	}
+	p.Flush() // the shutdown's save
 	restarted := &Provider{crewMemory: loadCrewMemory(dir)}
 	if got := restarted.crewMemory.photo(nameKey("Hajime Kamegaki")); got != "new.jpg" {
 		t.Errorf("after a restart: %q, want new.jpg", got)
@@ -498,12 +500,14 @@ func TestCrewMemoryFile(t *testing.T) {
 		t.Errorf("no warning for the broken file: %q", logs.String())
 	}
 	p := &Provider{crewMemory: m}
+	timers := manualSaves(m)
 	p.cfg.EpisodeCrewSources = []string{"tmdb"}
 	build := func(photo string) {
 		s := &Show{Root: "tvdb-1", Episodes: map[int][]Ep{1: {{Season: 1, Index: 1, Directors: []string{"Hajime Kamegaki"}}}}}
 		var cp crewPhotos
 		cp.add(srcTMDB, []sources.Person{{Name: "Hajime Kamegaki", Photo: photo}})
 		p.finishCrew(s, &showSources{}, &cp)
+		timers.fire()
 	}
 	build("a.jpg")
 	var f crewMemoryJSON
@@ -773,8 +777,13 @@ func TestCrewMemoryFileFromBuild(t *testing.T) {
 	p, _ := photoProvider(t, nil)
 	dir := t.TempDir()
 	p.crewMemory = loadCrewMemory(dir)
+	timers := manualSaves(p.crewMemory)
 	if _, err := p.buildShow(context.Background(), "tvdb-500"); err != nil {
 		t.Fatal(err)
+	}
+	// First photos: on disk when the build ends, with no save left for later.
+	if n := timers.fire(); n != 0 {
+		t.Errorf("%d delayed saves asked for, want 0", n)
 	}
 	var f crewMemoryJSON
 	readJSON(t, filepath.Join(dir, crewMemoryFile), &f)
@@ -842,4 +851,43 @@ func TestCrewPhotosReport(t *testing.T) {
 	if e := b.Episodes[i]; strings.Join(e.Producers, ",") != "Exec Person" || e.Src["producers"] != "tvdb" {
 		t.Errorf("S01E01 producers %v from %q", e.Producers, e.Src["producers"])
 	}
+}
+
+// The report's crew photo count comes from the episode rows' items. It says
+// what a count over items built for it alone says (crewCountApart): on a
+// show with photos from three sources and one remembered, in both modes.
+func TestCrewPhotoCountFromRows(t *testing.T) {
+	p, _ := photoProvider(t, nil)
+	p.crewMemory.learn(nameKey("Second Writer"), "https://elsewhere/second.jpg")
+	check := func(p *Provider, root string, mode Mode) {
+		t.Helper()
+		s, err := p.buildShow(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, crew := p.episodeRows(mode, s)
+		got, want := crewPhotoCount(s, crew), crewCountApart(p, mode, s)
+		if got != want || want == "" {
+			t.Errorf("%s in %s: %q, want %q", root, mode.Path, got, want)
+		}
+	}
+	check(p, "tvdb-500", Modes["tvdb"])
+	check(p, "anidb-100", Modes["anidb"])
+}
+
+// crewCountApart is the crew photo count from the episodes' items built for
+// the count alone.
+func crewCountApart(p *Provider, mode Mode, s *Show) string {
+	withPhoto := map[string]bool{}
+	for _, n := range s.Seasons() {
+		for i := range s.Episodes[n] {
+			it := p.episodeItem(mode, s, &s.Episodes[n][i])
+			for _, tags := range [...][]Tag{it.Director, it.Writer, it.Producer} {
+				for _, t := range tags {
+					withPhoto[t.Tag] = withPhoto[t.Tag] || t.Thumb != ""
+				}
+			}
+		}
+	}
+	return crewPhotoCount(s, withPhoto)
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"kizuna/internal/fetch"
 )
@@ -37,7 +38,34 @@ type crewMemory struct {
 	// path+crewMemoryAside before writing: one bad read (a sharing
 	// violation, a NAS error) never costs the photos it holds. Under saveMu.
 	keepAside bool
+
+	// A build that only replaced photos (a person the file already has a
+	// photo for) asks for a save (saveSoon), which runs crewSaveDelay later
+	// on its own timer, outside every build: two series whose sources
+	// disagree swap a photo at each build, and each would otherwise rewrite
+	// and fsync the whole file before its waiters wake. A build that
+	// learned a person's first photo saves at once (save).
+	// Lock order: saveMu, then timerMu or mu; never timerMu and mu together.
+	timerMu sync.Mutex
+	pending bool          // a save was asked for and hasn't taken the photos yet
+	unsaved bool          // the last save failed: the file may lack a person the memory has
+	timer   crewTimer     // the pending save's timer; nil when none runs
+	after   crewAfterFunc // nil = time.AfterFunc; tests run the saves themselves
 }
+
+// crewSaveDelay is how long after a build replaced a photo the memory is
+// saved: every photo learned meanwhile goes in the same write. A crash in
+// that time leaves the older photos in the file: no person is without one,
+// and the newer comes back at the next build that finds it.
+const crewSaveDelay = 5 * time.Second
+
+// crewTimer is a pending save's timer: a *time.Timer, or a test's.
+type crewTimer interface{ Stop() bool }
+
+// crewAfterFunc starts a timer that calls f after d, as time.AfterFunc.
+type crewAfterFunc func(d time.Duration, f func()) crewTimer
+
+func afterFunc(d time.Duration, f func()) crewTimer { return time.AfterFunc(d, f) }
 
 // crewMemoryAside is the suffix of an unreadable memory file kept aside.
 // One name: a later unreadable file replaces it, so copies don't pile up.
@@ -143,33 +171,109 @@ func (m *crewMemory) photo(key string) string {
 }
 
 // learn remembers photo for key, replacing an older one. changed: it wasn't
-// remembered already.
-func (m *crewMemory) learn(key, photo string) (changed bool) {
+// remembered already. first: the key had no photo at all before, so the
+// file may hold none for it either.
+func (m *crewMemory) learn(key, photo string) (changed, first bool) {
 	if m == nil || key == "" || photo == "" {
-		return false
+		return false, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.photos[key] == photo {
-		return false
+	old := m.photos[key]
+	if old == photo {
+		return false, false
 	}
 	m.photos[key] = photo
-	return true
+	return true, old == ""
 }
 
-// save writes the memory to its file. Saves run one at a time, each taking
-// the photos as they are once its turn comes, so an older snapshot never
-// lands last. A failed write is a warning: the memory still works, and the
-// next save tries again.
+// saveSoon asks for a save crewSaveDelay from now, unless one is pending:
+// that one takes the photos as they are when it runs, this build's too.
+// After a failed save it saves at once instead: the file may lack a person
+// whose first photo that save held, and waiting would leave it so.
+func (m *crewMemory) saveSoon() {
+	if m == nil || m.path == "" {
+		return
+	}
+	m.timerMu.Lock()
+	if m.unsaved {
+		m.timerMu.Unlock()
+		m.save()
+		return
+	}
+	defer m.timerMu.Unlock()
+	if m.pending {
+		return
+	}
+	m.pending = true
+	after := m.after
+	if after == nil {
+		after = afterFunc
+	}
+	m.timer = after(crewSaveDelay, m.savePending)
+}
+
+// savePending saves when a save is pending: the timer's call. A timer that
+// fires after flush (or save) took its photos finds nothing to do.
+func (m *crewMemory) savePending() {
+	if m == nil || m.path == "" {
+		return
+	}
+	m.saveMu.Lock()
+	defer m.saveMu.Unlock()
+	if m.takePending() {
+		m.wrote(m.write())
+	}
+}
+
+// flush saves a pending save now, at shutdown, once the builds are over.
+// It waits for a save the timer already started: that one may hold the
+// last photos. Nothing pending and no failed save: the file isn't touched.
+func (m *crewMemory) flush() { m.savePending() }
+
+// takePending clears the pending save (under saveMu), stops its timer, and
+// reports whether there is something to save: a pending save, or a save
+// that failed (the shutdown's flush tries it once more). A timer that fired
+// already finds nothing pending. A photo learned after this asks for a
+// save of its own.
+func (m *crewMemory) takePending() bool {
+	m.timerMu.Lock()
+	defer m.timerMu.Unlock()
+	if m.timer != nil {
+		m.timer.Stop()
+	}
+	was := m.pending || m.unsaved
+	m.pending, m.timer = false, nil
+	return was
+}
+
+// wrote notes how a save ended (under saveMu).
+func (m *crewMemory) wrote(ok bool) {
+	m.timerMu.Lock()
+	m.unsaved = !ok
+	m.timerMu.Unlock()
+}
+
+// save writes the memory to its file now, a pending save included. Saves
+// run one at a time, each taking the photos as they are once its turn
+// comes, so an older snapshot never lands last.
 func (m *crewMemory) save() {
 	if m == nil || m.path == "" {
 		return
 	}
 	m.saveMu.Lock()
 	defer m.saveMu.Unlock()
+	m.takePending()
+	m.wrote(m.write())
+}
+
+// write writes the memory to its file (under saveMu) and reports whether
+// the file now holds it. A failed write is a warning: the memory still
+// works, and the next build that learned or replaced a photo saves again.
+func (m *crewMemory) write() bool {
 	// A file not moved aside isn't overwritten: the save waits for the next.
 	if m.keepAside && !m.reread() {
-		return
+		return false
 	}
 	m.mu.RLock()
 	data, err := json.Marshal(crewMemoryJSON{Photos: m.photos}) // map keys sorted: the same photos, the same file
@@ -181,4 +285,5 @@ func (m *crewMemory) save() {
 		slog.Warn("crew photos file not written; the photos stay remembered until a restart, and the next save tries again",
 			"path", m.path, "err", err)
 	}
+	return err == nil
 }
