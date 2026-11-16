@@ -257,10 +257,11 @@ func TestTVDBSeasonWithoutEnglishOnce(t *testing.T) {
 	}
 }
 
-// backdate makes the file at path age old.
+// backdate makes the file at path older than age, by an hour: no clock or
+// file system rounding leaves it younger.
 func backdate(t *testing.T, path string, age time.Duration) {
 	t.Helper()
-	old := time.Now().Add(-age)
+	old := time.Now().Add(-age - time.Hour)
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}

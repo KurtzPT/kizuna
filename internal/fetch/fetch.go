@@ -278,16 +278,10 @@ func usedStale(ctx context.Context, key string, at, start time.Time, err error) 
 	Observe(ctx, key, KindStale, start, err)
 }
 
-// fresh returns r's cached copy when it is younger than r.TTL. The file's
-// age is checked first: an expired copy is not read.
-func (c *Client) fresh(ctx context.Context, r Request) ([]byte, bool) {
-	data, _, ok, _ := c.freshKnown(ctx, r, nil)
-	return data, ok
-}
-
-// freshKnown is fresh, and also gives the file's time. When known (if set)
-// says the caller has already parsed the file of that time, the file is
-// not read: it returns no bytes, the time, ok and hit.
+// freshKnown returns r's cached copy when it is younger than r.TTL, and the
+// file's time. The age is checked first: an expired copy is not read. When
+// known (if set) says the caller has already parsed the file of that time,
+// the file is not read: it returns no bytes, the time, ok and hit.
 func (c *Client) freshKnown(ctx context.Context, r Request, known func(time.Time) bool) (data []byte, at time.Time, ok, hit bool) {
 	if r.TTL <= 0 || r.Key == "" {
 		return nil, time.Time{}, false, false

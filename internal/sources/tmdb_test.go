@@ -16,7 +16,7 @@ import (
 
 // A season's overview comes from the season file the episode list reads:
 // one request for both. A season the show doesn't list gives no text and
-// isn't asked (a 404 isn't cached); one it lists but doesn't have, its 404.
+// isn't asked; one it lists but doesn't have, its 404 (remembered a day).
 func TestTMDBSeasonOverview(t *testing.T) {
 	const q = "?api_key=key&language=en-US"
 	const sq = q + "&append_to_response=images&include_image_language=en,ja,null"
