@@ -52,7 +52,7 @@ DATA_DIR=./data ANIDB_CLIENT=<your client> TVDB_API_KEY=... TMDB_API_KEY=... ./k
 curl http://localhost:32600/health
 ```
 
-Or build the image the way CI does (the build runs the tests first):
+Or build the image (the build runs the tests first):
 
 ```bash
 docker build -t kizuna .
@@ -91,8 +91,8 @@ gofmt -l .                       # must print nothing (fix with gofmt -w .)
 go vet ./...
 GOOS=windows go vet ./...        # Kizuna also builds for Windows and macOS
 GOOS=darwin go vet ./...
-go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+go tool -modfile=.github/tools/go.mod staticcheck ./...   # the version CI runs
+go tool -modfile=.github/tools/go.mod govulncheck ./...
 go test -race -count=1 ./...
 # allocation budgets (skipped under -race):
 go test -count=1 -run '^TestReportsOffAllocs$' ./internal/provider

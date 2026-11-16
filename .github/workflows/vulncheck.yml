@@ -67,6 +67,10 @@ jobs:
           echo "found=true" >> "$GITHUB_OUTPUT"
           go version -m ./kizuna-bin | head -n 1
 
+      # the version is in .github/tools/go.mod (Dependabot updates it).
+      # GOTOOLCHAIN=local: fail rather than fetch a newer Go for the tool
       - name: govulncheck
         if: steps.bin.outputs.found
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary ./kizuna-bin
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod govulncheck -mode=binary ./kizuna-bin

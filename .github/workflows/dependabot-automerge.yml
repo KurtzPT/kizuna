@@ -1,7 +1,8 @@
 # Auto-merges Dependabot version updates against dev (squash) once the
-# required checks pass, except a new major version of anything, or an update
-# it can't classify, which waits for a review. Security updates open against
-# main and are never auto-merged (RELEASING.md, hotfix).
+# required checks pass, except a new major version of anything, an update it
+# can't classify, or an update of the CI tools (.github/tools), which wait for
+# a review. Security updates open against main and are never auto-merged
+# (RELEASING.md, hotfix).
 #
 # A merge done with GITHUB_TOKEN doesn't start the push workflows, so after the
 # merge this job starts ci and codeql on dev itself. ci publishes :dev with the
@@ -59,6 +60,17 @@ jobs:
           # one "name|type|from|to" line per update; fails the job if it can't be read
           rows=$(jq -er '.[] | [.dependencyName, (.updateType // ""), (.prevVersion // ""), (.newVersion // "")] | join("|")' <<< "$DEPS")
           merge=true
+          # Actions and the runtime image only. The other ecosystems are the
+          # CI tools in .github/tools (gomod, pip): actionlint and zizmor
+          # run in the workflows check, which a merge doesn't wait for, so
+          # a new version that fails it would be merged.
+          case $ECOSYSTEM in
+            github_actions | docker) ;;
+            *)
+              echo "::notice::a $ECOSYSTEM update (the CI tools): review and merge it by hand once every check passed"
+              merge=false
+              ;;
+          esac
           while IFS='|' read -r name type from to; do
             case $type in
               version-update:semver-minor | version-update:semver-patch) ;;
@@ -105,11 +117,14 @@ jobs:
             sleep 30
           done
           # ci publishes :dev once its checks pass for an update that changes
-          # the image (the distroless digest, a Go module). An Actions update
-          # alone would only add an identical sha-* image: with publish=false
-          # ci publishes only when :dev is missing an earlier change
+          # the image (the distroless digest). An Actions update alone would
+          # only add an identical sha-* image: with publish=false ci decides
+          # like after a push (an update to docker.yml or the build-image
+          # action changes the image; one that doesn't publishes only when
+          # :dev is missing an earlier change). Only docker and
+          # github_actions updates get here (the check above)
           case $ECOSYSTEM in
-            docker | go_modules | gomod) publish=true ;;
+            docker) publish=true ;;
             *) publish=false ;;
           esac
           gh workflow run ci.yml --ref dev -f publish="$publish"

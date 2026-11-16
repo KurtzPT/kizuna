@@ -1,11 +1,13 @@
 # Checks on every push, release tag and pull request. On a push to dev or a v*
 # tag this workflow also publishes the image, and only once every check passed,
-# so nothing reaches GHCR that failed here (the image build itself only runs
-# `go test`):
+# so nothing reaches GHCR that failed here (the image build itself runs at most
+# `go test`, and for :dev not even that: the go job below already did):
 #   go         Go version in sync, no PORT in the image, gofmt, go vet (also
 #              for Windows and macOS), staticcheck, govulncheck, tests with
 #              the race detector
-#   fuzz       a short run of every fuzz target
+#   fuzz       a short run of every fuzz target: "fuzz list" reads them from
+#              the code, each runs as its own "fuzz (<package> <target>)"
+#              job, and "fuzz" passes only when the list and all of them did
 #   script     bash syntax, ShellCheck and the behaviour tests of the scripts
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
 #   gate       (dev and v* tags only, never a pull request) does this run
@@ -13,6 +15,21 @@
 #   docker     (only when gate says so) the docker workflow, publishing: shows
 #              as "docker / publish"
 # Pull requests get their "image" check (build only) from docker.yml itself.
+# The tools' versions (staticcheck, govulncheck, actionlint, zizmor) are in
+# .github/tools, where Dependabot updates them.
+#
+# Go cache: the jobs go and workflows each have their own entry, the fuzz
+# targets one per package, and fuzz list reads go's (actions/cache, not
+# setup-go's: that is one key for every job, and whichever job saved first
+# left the others' tools out). The key is the job, the exact Go version and
+# the files that decide what that job builds (go.mod, the tools' go.sum, or
+# both): a new Go patch or tool version starts a fresh entry, saved once by the first run that passes; until then
+# an entry never changes. GitHub scopes entries by branch: a run reads what
+# its own branch and the default branch (main) saved, and a pull request's
+# base branch; what a pull request's run saves (a fork's too) only that pull
+# request can read, so nothing a pull request runs reaches dev's or main's
+# runs. Tag runs, which publish a release, use no cache at all, and docker /
+# publish never reads a Go cache.
 name: ci
 
 on:
@@ -62,13 +79,29 @@ jobs:
 
       # check-latest: the newest patch release, not an older one from the
       # runner's cache (govulncheck below checks that version's stdlib).
-      # No Go build cache for a tag: that run publishes a release, and it
-      # shouldn't depend on cache entries other runs wrote (here and below).
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           check-latest: true
-          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          cache: false
+
+      # No Go cache for a tag: that run publishes a release, and it
+      # shouldn't depend on cache entries other runs wrote (here and below).
+      # The key: see the top of this file. "fuzz list" reads this entry too
+      # (same paths and key), so change them together.
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: ci-go-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod', '.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
 
       # the Dockerfile's GO_VERSION default is what a local docker build uses
       - name: Go version in sync
@@ -104,14 +137,21 @@ jobs:
           GOOS=windows GOARCH=amd64 go vet ./...
           GOOS=darwin GOARCH=arm64 go vet ./...
 
+      # The tools' versions are in .github/tools/go.mod. GOTOOLCHAIN=local:
+      # should a tool ever need a newer Go than go.mod's, fail instead of
+      # fetching one (govulncheck would then check that Go's stdlib)
       - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod staticcheck ./...
 
       # known vulnerabilities in the code paths Kizuna actually calls, for the
       # newest patch release of the Go version in go.mod. The weekly vulncheck
       # workflow checks the binaries in the published images.
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod govulncheck ./...
 
       # TestReportsOffAllocs skips itself under -race (the race detector
       # allocates on its own), so it runs here without it
@@ -121,47 +161,145 @@ jobs:
       - name: go test (race detector)
         run: go test -race -count=1 ./...
 
-  fuzz:
-    name: fuzz
+  # go test fuzzes only one target at a time, so each target gets its own
+  # job (and runner): every target still fuzzes for 20 s on all the cores
+  # of a runner, side by side instead of one after the other. The seeds of
+  # every target already run as plain tests in the go job.
+  fuzz-list:
+    name: fuzz list
     runs-on: ubuntu-latest
-    # 20 s per target plus the builds: about 4 minutes with 8 targets
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # check-latest: the go job's Go, so the key below is the same
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          check-latest: true
+          cache: false
 
-      # go test runs only one fuzz target at a time; the seeds of every target
-      # already run as plain tests in the go job. The targets are read from the
-      # code, so a new one is fuzzed without a change here. A crash leaves the
-      # failing input in the log: add it under testdata/fuzz/<target>/ to keep it.
-      - name: fuzz (20s per target)
+      # the go job's entry (the same paths and key), read only: this job
+      # builds the tests but never saves
+      - name: Go cache (read only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: ci-go-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod', '.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # The targets are read from the code, so a new one is fuzzed without a
+      # change here.
+      - name: fuzz targets
+        id: list
         run: |
           set -e
-          count=0
-          for pkg in $(go list ./...); do
+          rows=()
+          # on its own line: a package list that fails stops the step
+          pkgs=$(go list ./...)
+          for pkg in $pkgs; do
             # on its own line, not in a pipe: a package that doesn't build
             # stops the step
             list=$(go test -list '^Fuzz' "$pkg")
             # the names only: the list ends with an "ok <package>" line
             for target in $(grep '^Fuzz' <<< "$list" || true); do
-              echo "::group::$pkg $target"
-              go test -run='^$' -fuzz="^$target\$" -fuzztime=20s "$pkg"
-              echo "::endgroup::"
-              count=$((count + 1))
+              echo "$pkg $target"
+              rows+=("$pkg $target")
             done
           done
-          echo "fuzzed $count targets"
+          echo "${#rows[@]} targets"
           # the code has fuzz targets: none found means the listing broke
-          if [ "$count" -eq 0 ]; then
+          if [ "${#rows[@]}" -eq 0 ]; then
             echo "::error::no fuzz target found"
+            exit 1
+          fi
+          # [{"pkg":"kizuna/internal/anidb","target":"FuzzSearch","name":"anidb FuzzSearch"},...]
+          targets=$(printf '%s\n' "${rows[@]}" |
+            jq -Rnc '[inputs | split(" ") | {pkg: .[0], target: .[1], name: "\(.[0] | split("/") | last) \(.[1])"}]')
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
+  fuzz-run:
+    name: fuzz (${{ matrix.name }})
+    needs: fuzz-list
+    runs-on: ubuntu-latest
+    # 20 s of fuzzing plus the instrumented build
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      # every target runs to the end, so one run shows every crash
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.fuzz-list.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # One entry per package: its targets share the instrumented build (the
+      # first to finish saves it; the others log that the key is taken).
+      # Without the corpus go test -fuzz keeps in the build cache (fuzz/):
+      # every run starts from the seeds, as before. The folder's entries are
+      # listed (/*) because an exclusion only takes away from what a pattern
+      # matched, and the folder alone would be archived whole.
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build/*
+            !~/.cache/go-build/fuzz
+          key: ci-fuzz-${{ matrix.pkg }}-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # A crash leaves the failing input in the log: add it under
+      # testdata/fuzz/<target>/ to keep it.
+      - name: fuzz (20s)
+        env:
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+        run: go test -run='^$' -fuzz="^$TARGET\$" -fuzztime=20s "$PKG"
+
+  # The check the job docker needs and a ruleset can require: one name
+  # however many targets there are. It fails when the list or any target
+  # failed, or was skipped because of an earlier failure.
+  fuzz:
+    name: fuzz
+    needs: [fuzz-list, fuzz-run]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: every target fuzzed
+        env:
+          LIST: ${{ needs.fuzz-list.result }}
+          RUN: ${{ needs.fuzz-run.result }}
+        run: |
+          echo "fuzz list: $LIST, fuzz runs: $RUN"
+          if [ "$LIST" != success ] || [ "$RUN" != success ]; then
+            echo "::error::the fuzz list or a fuzz target didn't pass (see those jobs)"
             exit 1
           fi
 
@@ -204,21 +342,45 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          cache: false
 
-      # syntax, expressions and (with the runner's shellcheck) every run: script
+      # only actionlint is built here: the tools' go.sum is the key
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ci-workflows-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # syntax, expressions and (with the runner's shellcheck) every run:
+      # script. The version is in .github/tools/go.mod
       - name: actionlint
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod actionlint
+
+      # the version and its hashes are in .github/tools/requirements.txt
+      - name: install zizmor
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --disable-pip-version-check \
+            --require-hashes --only-binary=:all: -r .github/tools/requirements.txt
 
       # security: permissions, credential leaks, template injection, dangerous
       # triggers, and (online) pinned SHAs that don't belong to the action's repo
       - name: zizmor
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pipx run zizmor==1.32.0 --format=github .
+        run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --format=github .'
 
   # Publishes: a version tag (v1.2.3, v1.2.3-beta.1); dev, when something that
   # goes into the image changed since the commit :dev was built from; a manual
@@ -291,7 +453,7 @@ jobs:
       packages: write     # push the image to GHCR
       id-token: write     # attestation: sign with the workflow's identity (Sigstore)
       attestations: write # attestation: store it on GitHub
-    # ./ and not the newer $/ form zizmor asks for: actionlint 1.7.12 doesn't know
+    # ./ and not the newer $/ form zizmor asks for: the pinned actionlint doesn't know
     # it. A reusable workflow is read from this commit either way, never from
     # the workspace.
     uses: ./.github/workflows/docker.yml # zizmor: ignore[self-repository]
