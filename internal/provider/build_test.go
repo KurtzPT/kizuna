@@ -248,6 +248,11 @@ func TestBuildTVDBSharedAbsolute(t *testing.T) {
 		// the one reported: it is the one that hides an episode.
 		{"both kinds of pair", []int{1, 2, 1, 1},
 			"tvdb=500 absolute=1 first=S02E01 second=S02E02 same_season=true own=true repeats=2"},
+		// The fill makes S01E01 1, which S01E02 has: that pair comes first,
+		// and is not TheTVDB's own, although S02E01 and S02E02 are an own
+		// repeat (5).
+		{"a filled pair before an own one", []int{0, 1, 5, 5},
+			"tvdb=500 absolute=1 first=S01E01 second=S01E02 same_season=true own=false repeats=2"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, line := build(t, c.abs...)
@@ -288,6 +293,9 @@ func TestBuildTVDBSharedAbsolute(t *testing.T) {
 // Finding no repeat allocates nothing (a build's normal case), in order or
 // not, nor does the warning's check after it.
 func TestSharedAbsoluteNoAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts are off under the race detector")
+	}
 	p := &Provider{}
 	ordered := []sources.Episode{{Season: 1, Number: 1, Absolute: 1}, {Season: 1, Number: 2, Absolute: 2}, {Season: 0, Number: 1},
 		{Season: 2, Number: 1, Absolute: 3}}
