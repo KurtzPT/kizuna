@@ -436,7 +436,7 @@ func anidbTTL(endDate string, now time.Time) time.Duration {
 // LastDay reads a date, such as an end date. Old entries often give only
 // "1989" or "1989-03": that is read as the last day it can mean, so a series
 // is never taken as finished sooner than it was. Empty or unreadable: false
-// (not ended).
+// (no date: for an end date, not ended).
 func LastDay(s string) (time.Time, bool) {
 	if s == "" { // most episodes without a date: no parse, and no error to allocate
 		return time.Time{}, false

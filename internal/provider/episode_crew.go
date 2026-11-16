@@ -111,7 +111,8 @@ func (p *Provider) tvdbCrew(ctx context.Context, s *Show, prior []string, cp *cr
 // read as the last day a partial date can mean. TheTVDB keeps the crew
 // records of a series finished long ago longer (TVDB.EpisodeCrew). The
 // show's own dates are in hand in both modes: no request, and in /anidb they
-// are the entry's, the episodes its records are asked for.
+// are the entry's episodes' (AniDB's, else the filled ones), the episodes
+// its records are asked for.
 func lastAired(s *Show) time.Time {
 	var last time.Time
 	for _, eps := range s.Episodes { // the latest of all: the order doesn't matter
