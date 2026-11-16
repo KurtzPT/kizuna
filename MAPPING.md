@@ -48,6 +48,8 @@ Kizuna learns which AniDB entry is which TVDB series, season and episode from th
 | `tmdbtv` · `tmdbid` · `imdbid` | TheMovieDb TV show (one number) · TheMovieDb movie · IMDb id, `tt…` |
 | `tmdbseason` · `tmdboffset` | the same as `defaulttvdbseason` · `episodeoffset`, for the `tmdbtv` show, whose seasons often differ from TheTVDB's. Without `tmdbseason`, `tmdboffset` is ignored, TheMovieDb is paired at the TVDB season and number in `/anidb` and by absolute number in `/tvdb`, and the entry never [starts](#-how-episodes-are-paired) the TheMovieDb show |
 
+To turn your corrections off, delete the file or leave only `<anime-list/>` in it.
+
 > [!WARNING]
 > **An entry replaces that AniDB id's whole entry from both lists**, including the MyAnimeList, AniList, Kitsu and
 > ANN ids that only the Fribb list has. Those can't be written in this format, so for a corrected show a
@@ -275,6 +277,7 @@ details:
 | Log line | Tells you |
 |---|---|
 | `anime-list-custom.xml ignored` | the file has an XML error: after a restart, none of its entries are used until it is fixed |
+| `anime-list-custom.xml is empty` | the file was empty when Kizuna read it, so its earlier entries are still used. Save it again, or [turn your corrections off](#-the-file) |
 | `skipped entries without a usable anidbid … first="anime 3: anidbid=12a"` | those entries are not used. `anime 3` is the file's third `<anime>`: give it the AniDB number |
 | `episode pairing … exceptions=18 … paired_tvdb=26` | `/anidb` only: how many AniDB episodes the entry's TVDB pairs and `start…end` ranges cover (use case 5 has 18; open ranges aren't counted) and how many were paired with TheTVDB |
 | `episode titles: source used … anidb=24 tvdb=0` | both modes: where each episode title came from |

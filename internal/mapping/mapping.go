@@ -182,15 +182,27 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	// A broken custom file is reported but never costs the downloaded lists,
 	// nor the custom entries it held the last time it parsed.
 	var extra map[int]Entry
+	keptEmpty := false
 	switch {
+	case customErr == nil && len(custom) == 0 && len(l.get().custom) > 0:
+		// Zero bytes after a load that had entries: most likely an editor
+		// that truncates the file before it writes the new version, caught
+		// in between. Keep the last load's custom entries; the next load
+		// reads the file again. Only exactly zero bytes: blanks, a BOM or
+		// a comment were written by someone and still mean no entries.
+		// Deleting the file or leaving <anime-list/> turns them off.
+		extra, keptEmpty = l.get().custom, true
+		slog.Warn("mapping: anime-list-custom.xml is empty, keeping the entries it had until the next load; "+
+			"to turn your corrections off, delete the file or leave <anime-list/> in it", "file", customFile, "entries", len(extra))
 	case customErr == nil:
 		var err error
 		switch extra, err = parseAnimeListsFile(custom, customFile); {
 		case errors.Is(err, io.EOF):
-			// The file ends before any element: empty, blanks, a BOM, only
-			// <?xml?> or a comment (one just created, or emptied to turn the
-			// corrections off). That is no entries, not broken XML; a document
-			// cut off inside an element is a syntax error instead.
+			// The file ends before any element: blanks, a BOM, only <?xml?>
+			// or a comment, or zero bytes with no entries to keep (one just
+			// created, or found empty at the first load). That is no entries,
+			// not broken XML; a document cut off inside an element is a
+			// syntax error instead.
 			extra = nil
 		case err != nil:
 			extra = l.get().custom
@@ -211,7 +223,9 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	}
 	// Custom entries alone are used until a list loads, but don't make the
 	// mapping Ready: /health stays degraded and the lists are retried soon.
-	if len(errs) > 0 { // after a problem, load in full again: its error is logged until it's gone
+	// After a problem, load in full again: its error (or the empty file's
+	// warning) is logged until it's gone.
+	if len(errs) > 0 || keptEmpty {
 		sum = [32]byte{}
 	}
 	l.set(&snapshot{byAID: entries, sum: sum, customOnly: !listsLoaded, from: from, custom: extra})

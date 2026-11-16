@@ -103,7 +103,7 @@ of `OP1` ([how it works](GUIDE.md#readable-titles)).
 | Variable | Default | What it does |
 |---|---|---|
 | `PLEX_URL` | – | Your Plex server's address as Kizuna reaches it: `http://192.168.1.10:32400`, or `http://plex:32400` on a shared Docker network. `https://` works too. Nothing after the port |
-| `PLEX_TLS_NAME` | – | Only for an `https://` `PLEX_URL` whose host isn't in Plex's certificate, such as an IP (needed when Plex's *Secure connections* is *Required*): the one host name the certificate is checked against, such as `plex.example.com` or `192-168-1-10.<hash>.plex.direct`. No `https://`, port or `*` |
+| `PLEX_TLS_NAME` | – | Only for an `https://` `PLEX_URL` whose host isn't in Plex's certificate, such as an IP (needed when Plex's *Secure connections* is *Required*): the one host name the certificate is checked against, such as `plex.example.com` or `192-168-1-10.<hash>.plex.direct`. No `https://`, port or `*`. Needs `PLEX_URL` |
 | `PLEX_TOKEN` | – | See [Accounts & keys](#-accounts--keys) |
 
 With Docker, an `extra_hosts` line that points the certificate's name at the server's IP does the same without
