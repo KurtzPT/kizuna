@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
@@ -695,6 +697,77 @@ func TestWarmedTMDBFailureOnlyWhenNeeded(t *testing.T) {
 			}
 			if needed && !slices.ContainsFunc(b.Checks, func(c report.Check) bool { return c.Title == "A source failed: tmdb details" }) {
 				t.Errorf("%s: checks %+v, want TheMovieDb's details named", name, b.Checks)
+			}
+		}
+	}
+}
+
+// TheTVDB's crew records of a series whose latest episode aired 60 days ago
+// or more are kept 30 days, else 7, in both modes: a record 8 days old is
+// refreshed for a series still airing and not for one finished long ago,
+// one 31 days old for both. The dates are the episode list's (/anidb: the
+// entry's episodes, filled from it).
+func TestCrewRecordLifeBySeriesEnd(t *testing.T) {
+	defaultLists(t)
+	const day = 24 * time.Hour
+	now := time.Now()
+	date := func(ago time.Duration) string { return now.Add(-ago).Format("2006-01-02") }
+	airing := [...]string{date(30 * day), date(23 * day), date(3 * day)} // TheTVDB 11, 12, 13
+	ended := [...]string{date(1010 * day), date(1003 * day), date(1000 * day)}
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		for _, c := range []struct {
+			name      string
+			aired     [3]string
+			age       time.Duration
+			refreshed bool
+		}{
+			{"airing, 8 days old", airing, 8 * day, true},
+			{"ended long ago, 8 days old", ended, 8 * day, false},
+			{"airing, 31 days old", airing, 31 * day, true},
+			{"ended long ago, 31 days old", ended, 31 * day, true},
+		} {
+			name := root + ", " + c.name
+			net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+				if path == "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+					return 200, `{"data":{"episodes":[
+						{"id":11,"seasonNumber":1,"number":1,"name":"TVDB One","aired":"` + c.aired[0] + `"},
+						{"id":12,"seasonNumber":1,"number":2,"name":"TVDB Two","aired":"` + c.aired[1] + `"},
+						{"id":13,"seasonNumber":2,"number":1,"name":"TVDB Three","aired":"` + c.aired[2] + `"}]},"links":{"next":null}}`
+				}
+				return testSeries(path, q)
+			}}
+			p := newTestProvider(t, net)
+			dir := t.TempDir() // TheTVDB's cache, to backdate its records
+			f := fetch.New(dir)
+			f.SetTransport(net)
+			p.tvdb = sources.NewTVDB(f, "key", "", "")
+			f.ThrottleAll(0) // after NewTVDB: it sets its host's gap
+			if _, err := p.buildShow(context.Background(), root); err != nil {
+				t.Fatal(err)
+			}
+			p.tvdb.WaitIdle()
+			for _, id := range []string{"11", "12"} {
+				old := time.Now().Add(-c.age - time.Hour) // an hour more: no rounding leaves it younger
+				if err := os.Chtimes(filepath.Join(dir, "tvdb", "episodes", id+".json"), old, old); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s, err := p.buildShow(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.tvdb.WaitIdle()
+			if ep := s.Episode(1, 1); ep == nil || strings.Join(ep.Directors, ",") != "TVDB Director" {
+				t.Errorf("%s: S01E01 %+v, want the cached record's director at once", name, ep)
+			}
+			want := 1
+			if c.refreshed {
+				want = 2
+			}
+			for _, id := range []string{"11", "12"} {
+				if n := net.count("api4.thetvdb.com/v4/episodes/" + id + "/extended"); n != want {
+					t.Errorf("%s: record %s asked %d times in two builds, want %d", name, id, n, want)
+				}
 			}
 		}
 	}

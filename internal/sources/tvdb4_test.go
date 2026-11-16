@@ -128,7 +128,7 @@ func TestTVDBV4DocumentedAnswers(t *testing.T) {
 		}
 	}
 
-	crew, pending := tv.EpisodeCrew(ctx, []int{3001, 3002, 3003})
+	crew, pending := tv.EpisodeCrew(ctx, []int{3001, 3002, 3003}, time.Time{})
 	if pending {
 		t.Error("pending: everything answered within the budget")
 	}
@@ -524,7 +524,7 @@ func TestTVDBV4CrewProducersAndPhotos(t *testing.T) {
 		v4 + "/series/267440/extended": series,
 	}, "v4key", "", "")
 	ctx := context.Background()
-	crew, _ := tv.EpisodeCrew(ctx, []int{3001})
+	crew, _ := tv.EpisodeCrew(ctx, []int{3001}, time.Time{})
 	c := crew[3001]
 	if got := strings.Join(c.Producers, ","); got != "Prod First,Exec One,Prod Two,Prod Three,Prod Four" {
 		t.Errorf("producers %q", got)

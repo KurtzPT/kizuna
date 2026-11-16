@@ -94,7 +94,7 @@ func TestTVDBLegacyKey(t *testing.T) {
 	if e := eps[0]; strings.Join(e.Directors, ",") != "Dir A" || strings.Join(e.Writers, ",") != "Writer A,Writer B" {
 		t.Errorf("crew: directors %q writers %q", e.Directors, e.Writers)
 	}
-	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2}); crew != nil || pending {
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2}, time.Time{}); crew != nil || pending {
 		t.Errorf("legacy key: EpisodeCrew %v %v, want nothing (v3 lists carry the crew)", crew, pending)
 	}
 	if e := eps[1]; e.Thumb != "https://artworks.thetvdb.com/banners/v4/episode/2/screencap/a.jpg" {
@@ -165,7 +165,7 @@ func TestTVDBEpisodeCrewBackground(t *testing.T) {
 	old := crewBudget
 	crewBudget = 0 // everything goes to the background
 	defer func() { crewBudget = old }()
-	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3, 1}); !pending || len(crew) != 0 {
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3, 1}, time.Time{}); !pending || len(crew) != 0 {
 		t.Fatalf("over budget: crew %v pending %v, want none and pending", crew, pending)
 	}
 	tv.crewQueue.Wait()
@@ -175,7 +175,7 @@ func TestTVDBEpisodeCrewBackground(t *testing.T) {
 	if left != 0 {
 		t.Fatalf("%d records still queued after the background ended", left)
 	}
-	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3}, time.Time{})
 	if pending || strings.Join(crew[1].Directors, ",") != "D1,D2" || strings.Join(crew[1].Writers, ",") != "W" {
 		t.Errorf("after the background: crew %+v pending %v", crew, pending)
 	}

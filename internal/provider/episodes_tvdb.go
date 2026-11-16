@@ -134,8 +134,10 @@ func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() 
 // list is in: Plex's list, when it is read for episode crew (plexCrewRead),
 // and TheTVDB's crew records for every episode, when tvdb is first in
 // EPISODE_CREW_SOURCES. Otherwise the records are asked at crew time, only
-// for the episodes the sources before tvdb left a gap in (tvdbCrew).
-func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
+// for the episodes the sources before tvdb left a gap in (tvdbCrew). s has
+// the list's episodes already (episodesFromList): their dates set how long
+// the records are kept (lastAired).
+func (b *tvdbBuild) start(ctx context.Context, p *Provider, s *Show) {
 	if p.plexEpisodesListed(b.tvdbID, false) { // the closure only when used: it allocates
 		b.plex.at = func(ep *Ep) (spot, bool) { return ep.listed, true } // each at its own TheTVDB spot
 		b.plex.x.from(b.tvdbID, true, func() (episodeIndex, error) { return p.seriesEpisodes(ctx, "plex", b.tvdbID) })
@@ -152,8 +154,9 @@ func (b *tvdbBuild) start(ctx context.Context, p *Provider) {
 			ids = append(ids, e.ID)
 		}
 	}
+	last := lastAired(s) // here: the goroutine mustn't read s while the build writes it
 	b.crew.from(1, true, func() (crewRecords, error) {
-		crew, pending := p.tvdb.EpisodeCrew(ctx, ids)
+		crew, pending := p.tvdb.EpisodeCrew(ctx, ids, last)
 		return crewRecords{crew, pending}, nil
 	})
 	b.crew.start(&b.started)
