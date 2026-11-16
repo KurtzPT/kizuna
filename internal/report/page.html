@@ -486,7 +486,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const name = s => SRC[s] || s;
 const sk = s => SRC[s] ? s : "other";
 // The thread: the source's bar and name. Without a source, a hollow bar.
-const th = (s, label) => s ? `<span class="th" data-s="${esc(sk(s))}">${esc(label ?? name(s))}</span>` : `<span class="th none">${esc(label ?? "none")}</span>`;
+const th = s => s ? `<span class="th" data-s="${esc(sk(s))}">${esc(name(s))}</span>` : `<span class="th none">none</span>`;
 // Tallies down a list: counts is one Map (source, or "" for none, to a count)
 // per row. tallyCols gives the columns every row shares, the biggest first,
 // and tally a row's cells: a source the row lacks keeps its place, empty.
@@ -507,9 +507,16 @@ const clock = t => when(t).slice(11);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one+"s")}`;
 // A URL from a source is a link or an image only when it is http(s); anything else is text.
 const isUrl = u => typeof u === "string" && /^https?:\/\/\S+$/i.test(u);
-const link = (u, text) => isUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(text ?? u)}</a>` : esc(text ?? u);
+// linkOut is the only way a URL becomes a link: one that isn't http(s) gets
+// other instead. inner(u) is the link's content, made only once u passed, so
+// a picture in it never loads anything else. pre and post are the link's
+// other attributes, before and after its href.
+const linkOut = (u, inner, other, pre = "", post = "") => isUrl(u) ? `<a${pre} href="${esc(u)}" target="_blank" rel="noopener noreferrer"${post}>${inner(u)}</a>` : other;
+const link = (u, text) => linkOut(u, () => esc(text ?? u), esc(text ?? u));
+// The only way a URL becomes a picture: nothing when it isn't http(s).
+const img = (u, alt) => isUrl(u) ? `<img src="${esc(u)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer">` : "";
 const bytes = n => n >= 1024*1024 ? (n/1048576).toFixed(1)+" MB" : n >= 1024 ? (n/1024).toFixed(1)+" KB" : n+" B";
-const siteLink = (site, v) => SITE_URL[site] ? `<a href="${esc(SITE_URL[site](encodeURIComponent(v)))}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>` : esc(v);
+const siteLink = (site, v) => SITE_URL[site] ? linkOut(SITE_URL[site](encodeURIComponent(v)), () => esc(v), esc(v)) : esc(v);
 const se = (s, e) => `S${pad(s)}E${pad(e)}`;
 // An AniDB pairing is recorded as "<anime id> ep <episode>"; the episode can
 // carry AniDB's letter for a special, credits and the like ("S1", "C2").
@@ -526,7 +533,7 @@ const pairHTML = (s, v, short) => {
   if (!p) return `<span class="mono">${esc(v)}</span>`;
   const kind = short && p.kind === "episode" ? "ep" : p.kind;
   return short ? `<b class="pair-n">${esc(kind)} ${esc(p.no)}</b> of ${esc(p.aid)}`
-    : `${esc(p.kind[0].toUpperCase() + p.kind.slice(1))} <b class="pair-n">${esc(p.no)}</b> <span class="dim">of anime</span> <a class="mono" href="https://anidb.net/anime/${esc(p.aid)}" target="_blank" rel="noopener noreferrer" title="This show's entry on AniDB">${esc(p.aid)}</a>`;
+    : `${esc(p.kind[0].toUpperCase() + p.kind.slice(1))} <b class="pair-n">${esc(p.no)}</b> <span class="dim">of anime</span> ${linkOut("https://anidb.net/anime/" + p.aid, () => esc(p.aid), esc(p.aid), ' class="mono"', ` title="This show's entry on AniDB"`)}`;
 };
 // Whole seconds as Go prints a duration: 6s, 1m30s, 2m0s, 1h0m5s.
 const dur = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return (h ? h+"h" : "") + (h || m ? m+"m" : "") + (s%60) + "s"; };
@@ -544,6 +551,26 @@ const rec = (rows, cls) => `<div class="rec ${cls || ""}">${rows.map(([k, s, v, 
 const kv = rows => rec(rows.map(([k, v]) => [k, false, v === "" || v == null ? '<span class="dim">empty</span>' : esc(v)]), "plain");
 
 /* ---------- show page ---------- */
+// The store writes a saved build back as it was saved, so a hand-edited
+// value of the wrong type that the store doesn't read (a "trace" that isn't
+// a list) reaches the page, and one would stop the script. The lists the
+// script walks are made lists here, once, as the data is read: a wrong value
+// then shows as nothing, or as text, instead of blanking the page. The
+// timeline's times are made finite too: at 1e400 (Infinity) its scale never
+// ends.
+const isObj = x => x !== null && typeof x === "object";
+const listOf = (v, keep = () => true) => Array.isArray(v) ? v.filter(keep) : [];
+function tidyBuild(b) {
+  for (const k of ["trace", "mapping", "fields", "art", "seasons", "episodes", "checks"]) if (k in b) b[k] = listOf(b[k], isObj);
+  if (!Number.isFinite(b.tookMs)) b.tookMs = 0;
+  for (const r of b.trace || []) for (const k of ["start", "end"]) if (!Number.isFinite(r[k])) r[k] = 0;
+  for (const f of b.fields || []) for (const k of ["order", "asked", "used"]) f[k] = listOf(f[k]);
+  for (const g of b.art || []) g.images = listOf(g.images, isObj);
+  for (const e of b.episodes || []) for (const k of ["directors", "writers", "producers", "guids"]) if (k in e) e[k] = listOf(e[k]);
+  for (const c of b.checks || []) c.title = String(c.title ?? "");
+  if (isObj(b.match) && "candidates" in b.match) b.match.candidates = listOf(b.match.candidates, isObj);
+  if ("crewPhotos" in b) b.crewPhotos = String(b.crewPhotos ?? "");
+}
 function stateTag(b) {
   if (b.error) return `<span class="st fail">failed</span>`;
   return b.complete ? `<span class="st">complete</span>` : `<span class="st half">incomplete</span>`;
@@ -561,7 +588,7 @@ function verdict(b) {
   let t = m ? `Plex asked <code>/${esc(b.mode)}</code> to match the ${esc(m.type)} “${esc(m.title)}”${m.year ? ` (${esc(m.year)})` : ""}. `
     : `Plex asked <code>/${esc(b.mode)}</code> for the details of a show it had already matched. `;
   if (b.error) return t + `Kizuna picked ${esc(rootWords(b.root))}, but the build failed after ${ms(b.tookMs)}, so Plex got no answer for it. <a href="#s-checks">See what to check</a>.`;
-  t += `Kizuna answered with ${esc(rootWords(b.root))}: ${plural(b.epsTotal || 0, "episode")} in ${plural((b.seasons || []).length, "season")}, built ${b.complete ? "complete" : "incomplete"} in ${ms(b.tookMs)}`;
+  t += `Kizuna answered with ${esc(rootWords(b.root))}: ${esc(plural(b.epsTotal || 0, "episode"))} in ${plural((b.seasons || []).length, "season")}, built ${b.complete ? "complete" : "incomplete"} in ${ms(b.tookMs)}`;
   if (!checks.length) return t + ". Nothing to flag.";
   t += warn ? `: ${esc(warn.title.replace(/\.$/, ""))}. ` : ". ";
   return t + `<a href="#s-checks">${plural(checks.length, "thing")} to check</a>.`;
@@ -799,7 +826,7 @@ function epRow(i) {
   const e = EP.eps[i], open = EP.openEps.has(i);
   const pairs = Object.entries(e.pairs || {}).map(([s, v]) => `${esc(name(s))} ${pairHTML(s, v, true)}`).join(", ");
   return `<div class="ep" data-i="${i}"><button class="ep-h" aria-expanded="${open}">
-    <span class="ep-n">${se(e.s, e.e)}</span><span class="ep-f">${th(e.from)}</span>
+    <span class="ep-n">${esc(se(e.s, e.e))}</span><span class="ep-f">${th(e.from)}</span>
     <span class="ep-t">${e.title ? esc(e.title) : `<span class="dim">Episode ${esc(e.e)}: no title was sent</span>`}${e.issue ? `<span class="ep-i">${esc(e.issue)}</span>` : ""}</span>
     <span class="ep-p">${pairs}</span><span class="ep-d">${esc(e.date || "")}</span></button>${open ? episodeDetail(e) : ""}</div>`;
 }
@@ -818,8 +845,9 @@ function episodeDetail(e) {
   if ((e.guids || []).length) rows.push(["GUIDs", false, esc(e.guids.join("\n")), "mono"]);
   titles.forEach(([s, t], n) => rows.push([n ? "" : "Titles offered", s, esc(t) + (s === e.from ? '<span class="sentword">sent</span>' : "")]));
   Object.entries(e.pairs || {}).forEach(([s, v], n) => rows.push([n ? "" : "Paired with", s, pairHTML(s, v)]));
-  const img = isUrl(e.thumb) ? `<figure data-s="${esc(sk(src("thumb") || "other"))}"><a href="${esc(e.thumb)}" target="_blank" rel="noopener noreferrer"><img src="${esc(e.thumb)}" alt="Thumbnail sent for ${se(e.s, e.e)}" loading="lazy" referrerpolicy="no-referrer"></a></figure>` : "";
-  return `<div class="ep-x ${img ? "" : "nothumb"}">${rec(rows)}${img}</div>`;
+  const thumb = linkOut(e.thumb, u => img(u, `Thumbnail sent for ${se(e.s, e.e)}`), "");
+  const fig = thumb && `<figure data-s="${esc(sk(src("thumb") || "other"))}">${thumb}</figure>`;
+  return `<div class="ep-x ${fig ? "" : "nothumb"}">${rec(rows)}${fig}</div>`;
 }
 function renderEpList() {
   const {b, eps, groups} = EP, match = epMatcher(EP.q), filtering = !!EP.q.trim() || EP.only;
@@ -868,6 +896,12 @@ const KINDS = {poster:["poster","posters"], background:["background","background
 // TMDB serves smaller copies of an image; the link still goes to the original.
 const TMDB_W = {poster:"w342", background:"w780", logo:"w300"};
 const thumbUrl = (u, kind) => u.replace(/^(https:\/\/image\.tmdb\.org\/t\/p\/)original\//, (m, p) => p + (TMDB_W[kind] || "w500") + "/");
+// A picture that opens the whole file; a value that is not a web address is shown, never loaded.
+const pic = (u, kind, alt) => linkOut(u, u => img(thumbUrl(u, kind), alt), `<span class="noimg">Not a web address, so not loaded: ${esc(u ?? "")}</span>`, "", ` title="${esc(u)}"`);
+// A list of pictures in the order sent, in Art and in the item's Image list.
+// Each has its place (n), its source's colour (tone, or none) and name (src,
+// or none recorded), what the item used it as (mark), and a note after it.
+const shots = (cls, kind, list) => `<ol class="shots ${esc(cls)}">${list.map(x => `<li class="shot"${x.tone ? ` data-s="${esc(x.tone)}"` : ""}>${pic(x.url, kind, x.alt)}<figcaption>${x.n}<span>${x.src ? esc(name(x.src)) : "source not recorded"}</span>${x.mark ? `<b>${esc(x.mark)}</b>` : ""}</figcaption>${x.note || ""}</li>`).join("")}</ol>`;
 function artLevels(b) {
   const levels = [];
   const at = (label, season) => { let l = levels.find(x => x.label === label); if (!l) levels.push(l = {label, season, groups: []}); return l; };
@@ -878,9 +912,9 @@ function artLevels(b) {
 function artBody(l) {
   let out = l.groups.map(g => {
     const k = KINDS[g.kind] || [g.kind, g.kind+"s"], ims = g.images || [];
-    return `<h4 class="shots-h">${esc(k[1][0].toUpperCase() + k[1].slice(1))}<span>${ims.length > 1 ? "in the order sent" : ""}</span></h4><ol class="shots ${KINDS[g.kind] ? g.kind : "poster"}">${ims.map((im, n) => `<li class="shot" data-s="${esc(sk(im.src || "other"))}">
-      ${isUrl(im.url) ? `<a href="${esc(im.url)}" target="_blank" rel="noopener noreferrer" title="${esc(im.url)}"><img src="${esc(thumbUrl(im.url, g.kind))}" alt="${esc(l.label)} ${esc(k[0])} ${n+1} from ${esc(im.src ? name(im.src) : "an unrecorded source")}" loading="lazy" referrerpolicy="no-referrer"></a>` : `<span class="noimg">Not a web address, so not loaded: ${esc(im.url)}</span>`}
-      <figcaption>${n+1}<span>${esc(im.src ? name(im.src) : "source not recorded")}</span>${im.primary ? `<b>${g.kind === "poster" ? "thumb" : "art"}</b>` : ""}</figcaption></li>`).join("")}</ol>`;
+    return `<h4 class="shots-h">${esc(k[1][0].toUpperCase() + k[1].slice(1))}<span>${ims.length > 1 ? "in the order sent" : ""}</span></h4>${shots(KINDS[g.kind] ? g.kind : "poster", g.kind, ims.map((im, n) => ({
+      url: im.url, n: n + 1, tone: sk(im.src || "other"), src: im.src, mark: im.primary ? (g.kind === "poster" ? "thumb" : "art") : "",
+      alt: `${l.label} ${k[0]} ${n+1} from ${im.src ? name(im.src) : "an unrecorded source"}`})))}`;
   }).join("");
   if (l.borrowed) out += `<p class="borrow">No poster of its own: it uses the show's poster, <span class="mono brk">${link(l.borrowed)}</span></p>`;
   return out;
@@ -904,39 +938,33 @@ function renderArt(b, newest) {
 
 // The show item as sent: every key. Long lists fold after the first few.
 // The threads are the build's itemSrc: item key to source, an image by its
-// place in the list ("Image.0"). A key without one has no single source,
-// and a build recorded before itemSrc has no threads here at all.
+// place in the list ("Image.0"). A key without one has no single source.
 const FOLD_AT = 5, CAST_AT = 12;
 const PLEX_KIND = {coverPoster: "poster", background: "background", clearLogo: "logo"};
-// A picture that opens the whole file; a value that is not a web address is shown, never loaded.
 // Nothing loads with the page: a row with pictures starts closed and loads them when opened.
-const img = (u, alt) => `<img src="${esc(u)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer">`;
-const pic = (u, kind, alt) => isUrl(u)
-  ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}">${img(thumbUrl(u, kind), alt)}</a>`
-  : `<span class="noimg">Not a web address, so not loaded: ${esc(u ?? "")}</span>`;
 let ITEM_B = null;
 const ITEM_OPEN = new Set();
 // The item's Image list, grouped by Plex's type in the order sent. The number
 // is the image's place in the list; the colour, its recorded source.
 function sentImages(v, b) {
-  const src = b.itemSrc, item = b.item, groups = new Map();
+  const src = b.itemSrc || {}, item = b.item, groups = new Map();
   v.forEach((x, i) => { x = x && typeof x === "object" ? x : {url: x}; const t = String(x.type || "other"); if (!groups.has(t)) groups.set(t, []); groups.get(t).push([x, i]); });
   return [...groups].map(([t, list]) => {
     const kind = PLEX_KIND[t] || "poster", k = KINDS[PLEX_KIND[t]] || ["image", "images"];
     const alts = new Set(list.map(([x]) => x.alt || "")), same = alts.size === 1 ? [...alts][0] : null;
     return `<div class="sent-g" data-g="${esc(PLEX_KIND[t] || t)}"><h4 class="shots-h in">${esc(k[1][0].toUpperCase() + k[1].slice(1))}<code>${esc(t)}</code><span>${list.length}</span></h4>${same ? `<p class="alt">Alt text on each: “${esc(same)}”</p>` : ""}
-      <ol class="shots in ${kind}">${list.map(([x, i]) => {
-        const s = src ? (Object.hasOwn(src, "Image." + i) && src["Image." + i]) || null : undefined;
+      ${shots("in " + kind, kind, list.map(([x, i]) => {
+        const s = (Object.hasOwn(src, "Image." + i) && src["Image." + i]) || null;
         const mark = x.url && x.url === item.thumb ? "thumb" : x.url && x.url === item.art ? "art" : "";
-        return `<li class="shot"${s ? ` data-s="${esc(sk(s))}"` : ""}>${pic(x.url, kind, x.alt || `${k[0]} ${i + 1}`)}<figcaption>${i + 1}<span>${s ? esc(name(s)) : s === null ? "source not recorded" : ""}</span>${mark ? `<b>${mark}</b>` : ""}</figcaption>${same === null && x.alt ? `<span class="alt">“${esc(x.alt)}”</span>` : ""}</li>`;
-      }).join("")}</ol></div>`;
+        return {url: x.url, n: i + 1, tone: s && sk(s), src: s, mark, alt: x.alt || `${k[0]} ${i + 1}`, note: same === null && x.alt ? `<span class="alt">“${esc(x.alt)}”</span>` : ""};
+      }))}</div>`;
   }).join("");
 }
 // The item's Role list as the cast: photo, name, character, in Plex's order.
 function sentCast(v) {
   const card = x => {
     x = x && typeof x === "object" ? x : {tag: String(x)};
-    const ph = isUrl(x.thumb) ? `<a class="ph" href="${esc(x.thumb)}" target="_blank" rel="noopener noreferrer" title="${esc(x.thumb)}">${img(x.thumb, x.tag ?? "")}</a>` : `<span class="ph none" title="No photo sent"></span>`;
+    const ph = linkOut(x.thumb, u => img(u, x.tag ?? ""), `<span class="ph none" title="No photo sent"></span>`, ' class="ph"', ` title="${esc(x.thumb)}"`);
     return `<li class="person">${ph}<span class="who"><span class="ord">${esc(x.order ?? "")}</span><span class="nm">${esc(x.tag ?? "")}</span>${x.role ? `<span class="as">as ${esc(x.role)}</span>` : ""}${x.thumb && !isUrl(x.thumb) ? `<span class="mono dim brk">${esc(x.thumb)}</span>` : ""}</span></li>`;
   };
   const more = v.slice(CAST_AT);
@@ -972,14 +1000,14 @@ function itemRows(b) {
       return {key: k, k: `${k} (${v.length})`, s: srcOf(k), v: `<span class="dim">${esc(names.join(", "))}${v.length > names.length ? ` and ${v.length - names.length} more` : ""}</span>`, pr: true};
     }
     if (Array.isArray(v)) {
-      const perItem = k === "Image" && !!b.itemSrc;
-      const li = (x, i) => `<div class="li">${perItem ? th(srcOf(k + "." + i) || null, srcOf(k + "." + i) ? undefined : "") : ""}<span>${one(k, x)}</span></div>`;
+      // A non-empty Image list is the pictures above: here it is an empty one.
+      const li = x => `<div class="li"><span>${one(k, x)}</span></div>`;
       const short = v.every(x => x && typeof x === "object" && "tag" in x && Object.keys(x).length === 1);
       const body = !v.length ? '<span class="dim">empty list</span>' : short ? esc(v.map(x => x.tag).join(", "))
-        : `<div class="list ${perItem ? "" : "nosrc"}">${v.slice(0, FOLD_AT).map(li).join("")}${v.length > FOLD_AT ? `<div class="rest" hidden>${v.slice(FOLD_AT).map((x, i) => li(x, i + FOLD_AT)).join("")}</div><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${FOLD_AT}">Show all ${v.length}</button>` : ""}</div>`;
-      return {k: `${k} (${v.length})`, s: perItem ? null : srcOf(k), v: body, wide: k === "Image"};
+        : `<div class="list nosrc">${v.slice(0, FOLD_AT).map(li).join("")}${v.length > FOLD_AT ? `<div class="rest" hidden>${v.slice(FOLD_AT).map(li).join("")}</div><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${FOLD_AT}">Show all ${v.length}</button>` : ""}</div>`;
+      return {k: `${k} (${v.length})`, s: srcOf(k), v: body, wide: k === "Image"};
     }
-    if ((k === "thumb" || k === "art") && isUrl(v)) return {k, s: srcOf(k), v: `<span class="mono"><a class="peekl" data-kind="${k === "art" ? "background" : "poster"}" href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a></span>`};
+    if ((k === "thumb" || k === "art") && isUrl(v)) return {k, s: srcOf(k), v: `<span class="mono">${linkOut(v, () => esc(v), esc(v), ` class="peekl" data-kind="${k === "art" ? "background" : "poster"}"`)}</span>`};
     if (k === "duration" && typeof v === "number") return {k, s: false, v: `${esc(v)} ms (${Math.round(v/60000)} min)`};
     return {k, s: srcOf(k), v: v === "" ? '<span class="dim">empty</span>' : `<span class="${isUrl(v) || /^(key|guid|ratingKey)$/.test(k) ? "mono" : ""}">${one(k, v)}</span>`};
   });
@@ -1194,7 +1222,7 @@ function renderShow() {
     <h3 id="s-fields">What each source offered</h3><p class="lede">One row per show field, sources in the configured order. The cell with the coloured bar is what Plex got.</p>${renderFields(b)}</section>
   <section id="s-episodes"><h2>Episodes</h2><p class="lede">The list as Plex got it. Open an episode for everything sent for it and the source of each value.</p>${renderEpisodes(b, newest)}</section>
   <section id="s-art"><h2>Art</h2><p class="lede">Every image Plex got for the show and each season, with the source that gave it. Images load when you open a level.</p>${renderArt(b, newest)}</section>
-  <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. ${b.itemSrc ? "A bar names the source of a value; a value without one, like an id, has no single source. " : ""}Its seasons and episodes are separate items: see Episodes and Art.</p><div class="panel">${renderItem(b)}</div></section>
+  <section id="s-output"><h2>Sent to Plex</h2><p class="lede">The show item Kizuna answers with, whole. ${b.itemSrc && typeof b.itemSrc === "object" && Object.keys(b.itemSrc).length ? "A bar names the source of a value; a value without one, like an id, has no single source. " : ""}Its seasons and episodes are separate items: see Episodes and Art.</p><div class="panel">${renderItem(b)}</div></section>
   <section id="s-trace"><h2>Timeline</h2><p class="lede">Everything Kizuna downloaded, read from its cache or had in memory for this build, and when. ${b.complete ? "" : "Striped bars finished after the build, so their data is missing from it; the next build uses them."}</p>${renderTrace(b)}</section>
   <section id="s-requests"><h2>Plex requests</h2><p class="lede">The last ${plural((S.requests || []).length, "request")} about this show, newest first (up to 50 are kept). Rows answered by the selected build are shaded.</p>${renderRequests(S, curBuild)}</section>
   <p class="foot">${written()}</p></main></div>`;
@@ -1397,12 +1425,27 @@ document.addEventListener("click", e => {
     }
   }
 });
+// A search box draws its list again once typing pauses: a long show's list
+// is slow to draw at every key. An empty box (cleared, or Escape) and Enter
+// draw at once. A box gone from the page (another build picked) draws nothing.
+const FIND_WAIT = 150;
+let findTimer = 0, findDraw = null;
+function findRedraw(box, draw, now) {
+  clearTimeout(findTimer);
+  findDraw = null;
+  if (now) { draw(); return; }
+  findDraw = draw;
+  findTimer = setTimeout(() => { findDraw = null; if (box.isConnected) draw(); }, FIND_WAIT);
+}
 document.addEventListener("input", e => {
-  if (e.target.id === "ep-find") { EP.q = e.target.value; EP.shut.clear(); renderEpList(); }
-  else if (e.target.id === "ix-find") { IX.f.q = e.target.value; IX.cap = {show: IX_CAP, un: IX_CAP}; ixSave(); ixDraw(); }
+  if (e.target.id === "ep-find") { EP.q = e.target.value; EP.shut.clear(); findRedraw(e.target, renderEpList, !EP.q); }
+  else if (e.target.id === "ix-find") { IX.f.q = e.target.value; IX.cap = {show: IX_CAP, un: IX_CAP}; ixSave(); findRedraw(e.target, ixDraw, !IX.f.q); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && findDraw && (e.target.id === "ep-find" || e.target.id === "ix-find")) findRedraw(e.target, findDraw, true);
 });
 if (!DATA) app.textContent = "This page has no data.";
-else if (DATA.kind === "show") { const h = location.hash.match(/^#build-(.+)$/); if (h) { try { curBuild = decodeURIComponent(h[1]); } catch (err) {} } renderShow(); }
+else if (DATA.kind === "show") { DATA.show.builds.forEach(tidyBuild); const h = location.hash.match(/^#build-(.+)$/); if (h) { try { curBuild = decodeURIComponent(h[1]); } catch (err) {} } renderShow(); }
 else if (DATA.kind === "unmatched") renderUnmatched();
 else renderIndex();
 </script>
