@@ -30,7 +30,9 @@ function build(kind, doc) {
 }
 
 // load runs a page's script and returns the page: run(code) evaluates code
-// among the script's own names, html() is everything it has written.
+// among the script's own names, html() is everything it has written. fire
+// sends an event to the page's document listeners. Timers wait until flush():
+// a test says when time has passed, so nothing depends on the clock.
 function load(kind, doc) {
   const html = kind ? build(kind, doc) : template; // no kind: the page as it is, without data
   // The first </script> must be the script's own end: nothing in the data
@@ -49,12 +51,15 @@ function load(kind, doc) {
     return made.get(id);
   };
   const app = element("app");
+  const listeners = {}, timers = new Map();
+  let timerId = 0;
   const document = {
     title: "", body: element("body"),
     // Only what the page has written exists, as in a browser.
     getElementById: id => id === "app" || [...made.values()].some(e => e.innerHTML.includes(`id="${id}"`)) ? element(id) : null,
-    querySelector() { return null; }, querySelectorAll() { return []; }, addEventListener() {},
+    querySelector() { return null; }, querySelectorAll() { return []; }, addEventListener(type, f) { (listeners[type] ||= []).push(f); },
   };
+  const setTimeout = f => { timers.set(++timerId, f); return timerId; }, clearTimeout = id => { timers.delete(id); };
   const context = vm.createContext({document, location: {hash: ""}, history: {replaceState() {}}, navigator: {}, setTimeout, clearTimeout, console});
   vm.runInContext(script, context, {filename: "page.html <script>"});
   return {
@@ -62,6 +67,17 @@ function load(kind, doc) {
     html: () => [...made.values()].map(e => e.innerHTML).join("\n"),
     title: () => document.title,
     text: () => app.textContent,
+    document, // a test may give it a querySelector of its own
+    fire: (type, event) => (listeners[type] || []).forEach(f => f(event)),
+    waiting: () => timers.size,
+    flush: () => { for (const [id, f] of [...timers]) { timers.delete(id); f(); } },
+    // draws(id) counts from now how often the element's HTML is replaced.
+    draws: id => {
+      const el = element(id);
+      let v = el.innerHTML, n = 0;
+      Object.defineProperty(el, "innerHTML", {get: () => v, set: x => { n++; v = x; }, configurable: true});
+      return () => n;
+    },
   };
 }
 
@@ -181,6 +197,88 @@ const count = (text, re) => (text.match(re) || []).length;
   page.run(`EP.q = ""; EP.only = true; renderEpList()`);
   check([...page.run(`document.getElementById("ep-list").innerHTML`).matchAll(/class="ep-n">(S\d+E\d+)</g)].map(m => m[1]).join(" ") === "S01E08 S01E12", "the Problems filter shows the 2 episodes with one");
 
+  // The search draws once typing pauses. A click that draws the list before
+  // then already has the new query: the waiting draw is dropped, so the list
+  // is drawn once and the row just clicked stays.
+  {
+    const typed = () => {
+      const p = load("show", doc), draws = p.draws("ep-list");
+      p.fire("input", {target: {id: "ep-find", value: "8", isConnected: true}});
+      check(p.waiting() === 1 && draws() === 0, "episode search: a key draws at once, not after the pause");
+      return {p, draws, rows: () => [...p.run(`document.getElementById("ep-list").innerHTML`).matchAll(/class="ep-n">(S\d+E\d+)</g)].map(m => m[1]).join(" ")};
+    };
+    let {p, draws, rows} = typed();
+    p.flush();
+    check(draws() === 1 && rows() === "S01E08 S02E08", `episode search: the paused search draws once (${draws()} draws, rows ${rows()})`);
+    ({p, draws, rows} = typed());
+    p.fire("keydown", {key: "Enter", target: {id: "ep-find"}});
+    check(draws() === 1 && p.waiting() === 0, "episode search: Enter draws at once, and nothing waits after it");
+    const clicks = {
+      "the Problems filter": [".seg button[data-f]", {dataset: {f: "issue"}, parentNode: {querySelectorAll: () => []}}],
+      "a season header": [".fold-h", {parentNode: {dataset: {season: "1"}}}],
+      "Open all seasons": ["[data-allseasons]", {}],
+    };
+    for (const [what, [sel, el]] of Object.entries(clicks)) {
+      ({p, draws, rows} = typed());
+      p.fire("click", {target: {closest: x => x === sel ? el : null}, preventDefault() {}});
+      p.flush();
+      check(draws() === 1 && p.waiting() === 0, `episode search, then ${what} before the pause: the list is drawn ${draws()} times, want once`);
+    }
+    // An episode row opens in place: with a search waiting, the list is drawn
+    // at the click, with the row open, and nothing waits to draw it again.
+    ({p, draws, rows} = typed());
+    // The row as the page had it before the click, for the page to open in place.
+    const i = p.run("EP.eps.findIndex(e => e.s === 1 && e.e === 8)");
+    const row = {dataset: {i: String(i)}, insertAdjacentHTML() {}, querySelector: () => ({remove() {}}), lastElementChild: {classList: {add() {}}}};
+    const eh = {parentNode: row, setAttribute() {}};
+    p.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}});
+    const atClick = draws(), left = p.waiting();
+    p.flush();
+    const list = p.run(`document.getElementById("ep-list").innerHTML`);
+    check(atClick === 1 && left === 0 && draws() === 1 && rows() === "S01E08 S02E08" && count(list, /class="ep-x/g) === 1 && /aria-expanded="true">\s*<span class="ep-n">S01E08/.test(list),
+      `episode search, then an episode row before the pause: ${atClick} draws at the click and ${left} waiting, want 1 draw with the row open and none waiting`);
+
+    // An open row clicked again with a search waiting: it closes, drawn once.
+    {
+      const q = load("show", doc), n = q.draws("ep-list");
+      const click = () => q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}});
+      click(); // opens in place: nothing waits, nothing is drawn
+      const openedInPlace = n() === 0 && q.run(`EP.openEps.has(${i})`);
+      q.fire("input", {target: {id: "ep-find", value: "8", isConnected: true}});
+      click();
+      q.flush();
+      const l = q.run(`document.getElementById("ep-list").innerHTML`);
+      check(openedInPlace && n() === 1 && count(l, /class="ep-x/g) === 0 && q.run("EP.openEps.size") === 0,
+        `episode search, then an open row clicked again before the pause: ${n()} draws, ${count(l, /class="ep-x/g)} details, ${q.run("EP.openEps.size")} open, want 1 draw and the row closed`);
+    }
+    // A row the new query leaves out: the list is drawn without it, and says so.
+    {
+      const q = load("show", doc);
+      q.fire("input", {target: {id: "ep-find", value: "zzz", isConnected: true}});
+      let threw = "";
+      try { q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}}); q.flush(); } catch (err) { threw = err.message; }
+      check(!threw && q.run(`document.getElementById("ep-list").innerHTML`).includes("No episode matches"), `episode search that leaves the clicked row out: ${threw || "the list doesn't say nothing matches"}`);
+    }
+    // The opened row is found again in the new list, focused, and marked fresh.
+    {
+      const q = load("show", doc), asked = [], focused = [], marked = [];
+      const again = {querySelector: s => s === ".ep-h" ? {focus: o => focused.push(o)} : null, lastElementChild: {classList: {add: c => marked.push(c)}}};
+      q.document.querySelector = s => { asked.push(s); return s === `.ep[data-i="${i}"]` ? again : null; };
+      q.fire("input", {target: {id: "ep-find", value: "8", isConnected: true}});
+      q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}});
+      check(asked.includes(`.ep[data-i="${i}"]`) && focused.length === 1 && focused[0] && focused[0].preventScroll === true && marked.join() === "fresh",
+        `episode search, then an episode row: asked ${JSON.stringify(asked)}, focused ${focused.length}, marked ${JSON.stringify(marked)}; want the row's button focused and its detail fresh`);
+    }
+  }
+
+  // Every kind of show page draws at its first load, not only after another
+  // render: what that draw uses must be declared before it.
+  for (const [what, builds, want] of [["no builds", [], "Kizuna has not built this show yet"], ["only a failed build", [doc.builds[1]], "The build failed"]]) {
+    let html = "";
+    try { html = load("show", {...doc, builds}).html(); } catch (err) { html = "threw: " + err.message; }
+    check(html.includes(want), `show with ${what}, first load: ${html.startsWith("threw") ? html : `"${want}" is missing`}`);
+  }
+
   // More than 40 episodes: the seasons start closed, and a search opens what matches.
   const long = JSON.parse(JSON.stringify(doc));
   long.builds[0].episodes = Array.from({length: 1100}, (_, i) => ({s: 1 + Math.floor(i / 275), e: i % 275 + 1, title: "Episode title " + i, from: "anidb", thumb: "https://img.example/" + i + ".jpg"}));
@@ -286,6 +384,18 @@ const count = (text, re) => (text.match(re) || []).length;
   check(filter({state: "failed", mode: "tvdb"}) === "" && page.html().includes("No show passes these filters."), "index, failed + /tvdb: nothing");
   checkEscaped("index, filtered", page.html());
 
+  // The index filter waits the same way, and a click's draw drops the waiting one.
+  {
+    const p = load("index", rows), draws = p.draws("ix-shows-body");
+    p.fire("input", {target: {id: "ix-find", value: "fog", isConnected: true}});
+    check(p.waiting() === 1 && draws() === 0, "index filter: a key draws at once, not after the pause");
+    const btn = {dataset: {ixs: "check"}, parentNode: {querySelectorAll: () => []}};
+    p.fire("click", {target: {closest: x => x === "[data-ixs]" ? btn : null}, preventDefault() {}});
+    p.flush();
+    check(draws() === 1 && p.waiting() === 0, `index filter, then a state button before the pause: the table is drawn ${draws()} times, want once`);
+    check(/^1 of 5 shows/.test(p.run(`document.getElementById("ix-count").innerHTML`)), "index filter, then a state button: both filters apply");
+  }
+
   // Thousands of rows: a table draws its first rows only.
   const many = Array.from({length: 3000}, (_, i) => ({schema: 3, key: "anidb-" + (i + 1), kind: "show", title: "Show " + i, modes: ["anidb"], last: "2026-11-10T20:00:00Z", complete: true, checks: 0, builds: 1, requests: 1}));
   const big = load("index", many), drawn = count(big.run(`document.getElementById("ix-shows-body").innerHTML`), /<tr>/g);
@@ -293,6 +403,60 @@ const count = (text, re) => (text.match(re) || []).length;
   check(big.html().includes("Show the other 2750"), "big index: the rest is offered");
   const none = load("index", []).html();
   check(none.includes("No shows yet.") && none.includes("Nothing unmatched."), "empty index: both tables say so");
+}
+
+// ---- keys that name a property every object has -----------------------------
+// A saved build can be hand-edited. A key like "constructor" or "__proto__"
+// shows as any unknown key does: nothing inherited is found for it.
+{
+  const odd = ["constructor", "__proto__", "toString", "hasOwnProperty"];
+  const d = JSON.parse(JSON.stringify(fixture("show"))), b = d.builds[0];
+  // The id sites on a page of their own: "__proto__" threw while the page drew.
+  {
+    const withIds = JSON.parse(JSON.stringify(d));
+    withIds.ids = [...odd, "banner"].map(site => ({site, value: site + "-1"}));
+    let ids = "";
+    try { ids = load("show", withIds).html().match(/<ul class="ids">.*?<\/ul>/s)[0]; } catch (err) { check(false, "odd keys: the page with odd id sites threw at load: " + err.message); }
+    for (const k of odd) check(ids.includes(`<li>${k}<span class="v">${k}-1</span></li>`), `odd keys: the id site ${k} is not shown as an unknown site`);
+  }
+  b.art = [...odd, "banner"].map(kind => ({level: "Level " + kind, kind, images: [{url: "https://image.tmdb.org/t/p/original/k.jpg", src: kind}, {url: "https://img.example/k.jpg", src: "tvdb"}]}));
+  b.fields = [{name: "Title", order: ["anidb", ...odd], asked: ["anidb", ...odd], offered: {anidb: "T"}, used: ["anidb"]}];
+  b.checks = odd.map(section => ({level: "warn", title: "Check " + section, text: "Text.", section}));
+  b.trace = odd.map((kind, n) => ({src: kind, label: "row " + kind, kind, start: n, end: n + 1}));
+  b.episodes = [{s: 1, e: 1, title: "One", from: "anidb"}, ...odd.map((s, n) => ({s, e: n + 1, title: "Odd " + s, from: s}))];
+  b.item.Image = [...odd, "banner"].map(type => ({type, url: "https://img.example/" + type + ".jpg"}));
+  let page = null;
+  try { page = load("show", d); } catch (err) { check(false, "odd keys: the page threw at load: " + err.message); }
+  if (page) {
+    const html = page.html();
+    // like is how an unknown word shows: "banner" with the odd word in its place.
+    const like = (h, k) => h.replaceAll("banner", k).replaceAll("Banner", k[0].toUpperCase() + k.slice(1));
+    for (const k of odd) {
+      check(page.run(`th(${JSON.stringify(k)})`) === like(page.run(`th("banner")`), k), `odd keys: the source ${k} is not shown as an unknown source`);
+      check(page.run(`answerText({kind: ${JSON.stringify(k)}})`) === k && page.run(`rootWords(${JSON.stringify(k + "-5")})`) === k + "-5", `odd keys: the answer or root ${k} is not shown as it is`);
+      check(page.run(`fieldGoto(DATA.show.builds[0], ${JSON.stringify(k)})`) === null, `odd keys: the field ${k} leads somewhere`);
+    }
+    let arts = null;
+    try { arts = page.run("ART.map(artBody)"); } catch (err) { check(false, "odd keys: opening an art level threw: " + err.message); }
+    if (arts) {
+      const banner = arts[odd.length];
+      odd.forEach((k, n) => check(arts[n] === like(banner, k), `odd keys: the art kind ${k} does not open as an unknown kind:\n${arts[n].slice(0, 300)}\nwant\n${like(banner, k).slice(0, 300)}`));
+    }
+    // A closed level: its name and counts (the tallies share their columns across levels).
+    const folds = [...html.matchAll(/<div class="fold" data-art="\d+">.*?<span class="fold-t">(.*?)<\/span><span class="fold-m fold-c">(.*?)<\/span>/gs)].map(m => m[1] + "|" + m[2]);
+    odd.forEach((k, n) => check(folds[n] === like(folds[odd.length], k), `odd keys: the closed art level ${k} does not count as an unknown kind: ${folds[n]}`));
+    const sentAs = t => page.run(`sentImages([{type: ${JSON.stringify(t)}, url: "https://img.example/x.jpg"}], {item: {}})`);
+    for (const k of odd) check(sentAs(k) === like(sentAs("banner"), k), `odd keys: the Image type ${k} is not shown as an unknown type: ${sentAs(k)}`);
+    const sent = page.run(`(() => { ITEM_OPEN.add("Image"); const h = renderItem(DATA.show.builds[0]); ITEM_OPEN.clear(); return h; })()`);
+    check(page.run("renderItem(DATA.show.builds[0])").includes('<span class="dim">5 other images</span>'), "odd keys: the closed Image row does not count the odd types as other images");
+    const fields = page.run("renderFields(DATA.show.builds[0])");
+    check(count(fields, /<td class="nil">/g) === odd.length && !/native code|object Object/.test(fields), "odd keys: a source with no value in a field shows something");
+    check(!/Go to|native code/.test(page.run("renderChecks(DATA.show.builds[0])")), "odd keys: a check's odd section links somewhere");
+    check(!/native code|object Object/.test(page.run("renderTrace(DATA.show.builds[0])")), "odd keys: the timeline shows an inherited property");
+    const list = page.run(`document.getElementById("ep-list").innerHTML`);
+    check(count(list, /class="ep-n"/g) === odd.length + 1, `odd keys: ${count(list, /class="ep-n"/g)} episode rows, want ${odd.length + 1} (an odd season's rows are drawn)`);
+    checkEscaped("odd keys", html + (arts || []).join("") + sent);
+  }
 }
 
 // ---- the page file ----------------------------------------------------------

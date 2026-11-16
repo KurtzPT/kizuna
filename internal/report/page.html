@@ -135,8 +135,8 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .rec{margin:0}
 .rec-r{position:relative;display:grid;grid-template-columns:150px 78px minmax(0,1fr);align-items:baseline;gap:0 12px;padding:7px 16px;border-top:1px solid var(--rule)}
 /* A value of several lines has its thread's bar beside all of them. */
-.rec-r>.th,.li>.th{position:static}
-.rec-r>.th::before,.li>.th::before{left:auto;margin-left:-11px}
+.rec-r>.th{position:static}
+.rec-r>.th::before{left:auto;margin-left:-11px}
 .rec-r>.th::before{top:7px;bottom:7px}
 .rec-r.cont>.th::before{top:0}
 .rec-r:first-child{border-top:0}
@@ -146,14 +146,11 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .rec-v{min-width:0;max-width:86ch;overflow-wrap:anywhere;white-space:pre-line}
 .rec.item .rec-r{grid-template-columns:190px 78px minmax(0,1fr)}
 .rec.item .rec-r.wide{grid-template-columns:190px minmax(0,1fr)}
-.rec-r.wide .morebtn{margin-left:90px}
-.rec-r.wide .nosrc .morebtn{margin-left:0}
 .rec-r.wide .rec-v{max-width:none}
 .rec-v.mono{font-size:12.5px;line-height:1.6}
 .list{display:grid;gap:3px;white-space:normal}
 .list .rest{display:grid;gap:3px}
-.list .li{position:relative;display:grid;grid-template-columns:78px minmax(0,1fr);align-items:baseline;gap:0 12px}
-.list.nosrc .li{grid-template-columns:minmax(0,1fr)}
+.list .li{position:relative;display:grid;grid-template-columns:minmax(0,1fr);align-items:baseline;gap:0 12px}
 .rec-r.wide{grid-template-columns:150px minmax(0,1fr)}
 .morebtn{cursor:pointer;background:none;border:0;padding:4px 0;font:600 13px var(--tech);font-stretch:90%;text-decoration:underline;text-decoration-color:var(--edge);text-underline-offset:3px;justify-self:start}
 .morebtn:hover{text-decoration-color:currentColor}
@@ -413,7 +410,6 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
   .rec-r,.rec.plain .rec-r,.rec-r.wide,.ep-x .rec-r,.rec.item .rec-r{grid-template-columns:78px minmax(0,1fr)}
   .rec.plain .rec-r{grid-template-columns:112px minmax(0,1fr)}
   .rec-r.wide,.rec.item .rec-r.wide{grid-template-columns:minmax(0,1fr)}
-  .rec-r.wide .morebtn{margin-left:0}
   .rec:not(.plain) .rec-k{grid-column:1/-1}
   .check{grid-template-columns:minmax(0,1fr)}
   .ep-cols{display:none}
@@ -473,8 +469,11 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
 <script>
 const DATA = /*KIZUNA_DATA*/null;
 
-const SRC = {anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",plex:"Plex",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",show:"Show"};
-const SITE_URL = {
+// The tables looked up by a value from the data have no prototype: a
+// hand-edited key like "constructor" or "__proto__" then finds nothing, as an
+// unknown key does, instead of an inherited property.
+const SRC = {__proto__:null,anidb:"AniDB",tvdb:"TVDB",tmdb:"TMDB",tmdbmovie:"TMDB movie",mal:"MAL",ann:"ANN",plex:"Plex",anilist:"AniList",imdb:"IMDb",kitsu:"Kitsu",map:"Mapping",kizuna:"Kizuna",show:"Show"};
+const SITE_URL = {__proto__:null,
   anidb:v=>"https://anidb.net/anime/"+v, tvdb:v=>"https://thetvdb.com/?tab=series&id="+v,
   tmdb:v=>"https://www.themoviedb.org/tv/"+v, tmdbmovie:v=>"https://www.themoviedb.org/movie/"+v,
   mal:v=>"https://myanimelist.net/anime/"+v, anilist:v=>"https://anilist.co/anime/"+v,
@@ -538,13 +537,31 @@ const pairHTML = (s, v, short) => {
 // Whole seconds as Go prints a duration: 6s, 1m30s, 2m0s, 1h0m5s.
 const dur = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return (h ? h+"h" : "") + (h || m ? m+"m" : "") + (s%60) + "s"; };
 // How a request was answered (report.Answer), in words.
-const ANSWER = {new:"started a new build", joined:"joined a running build", timeout:"timed out before its build ended", unavailable:"not available: the build it waited for failed", nomatch:"no match", list:"Fix Match list"};
+const ANSWER = {__proto__:null, new:"started a new build", joined:"joined a running build", timeout:"timed out before its build ended", unavailable:"not available: the build it waited for failed", nomatch:"no match", list:"Fix Match list"};
 function answerText(a) {
   if (a.kind === "memory") return a.age ? `from memory, built ${dur(a.age)} ago` : "from memory";
   if (a.kind === "failed") return `a build that failed ${dur(a.age || 0)} ago; built again after ${dur(a.after || 0)}`;
   return ANSWER[a.kind] || a.kind || "";
 }
 const app = document.getElementById("app");
+// A search box draws its list again once typing pauses: a long show's list
+// is slow to draw at every key. An empty box (cleared, or Escape) and Enter
+// draw at once. A box gone from the page (another build picked) draws nothing.
+// Declared before the functions that use it.
+const FIND_WAIT = 150;
+let findTimer = 0, findDraw = null;
+// Any draw of a list makes a waiting one stale: a click's draw already has
+// the new query, and a second one would replace the row just clicked.
+function findCancel() {
+  clearTimeout(findTimer);
+  findDraw = null;
+}
+function findRedraw(box, draw, now) {
+  findCancel();
+  if (now) { draw(); return; }
+  findDraw = draw;
+  findTimer = setTimeout(() => { findDraw = null; if (box.isConnected) draw(); }, FIND_WAIT);
+}
 const written = () => `Written ${esc(when(DATA.generated))} by Kizuna ${esc(DATA.version)}.`;
 // rec is a record: rows of [label, source or null, value as HTML]. The caller escapes the values.
 const rec = (rows, cls) => `<div class="rec ${cls || ""}">${rows.map(([k, s, v, c]) => `<div class="rec-r ${k === "" ? "cont" : ""}"><span class="rec-k">${esc(k)}</span>${cls === "plain" ? "" : s === false ? "<span></span>" : th(s)}<div class="rec-v ${c || ""}">${v}</div></div>`).join("")}</div>`;
@@ -578,7 +595,7 @@ function stateTag(b) {
 const stateWord = b => b.error ? "failed" : b.complete ? "complete" : "incomplete";
 function rootWords(root) {
   const m = /^([a-z]+)-(.+)$/.exec(root || "");
-  const what = {tvdb:"TheTVDB series", anidb:"AniDB anime", tmdb:"TheMovieDb show"}[m && m[1]];
+  const what = {__proto__:null, tvdb:"TheTVDB series", anidb:"AniDB anime", tmdb:"TheMovieDb show"}[m && m[1]];
   return what ? `${what} ${m[2]}` : (root || "nothing");
 }
 
@@ -612,7 +629,7 @@ function renderMix(b, newest) {
 }
 
 function renderChecks(b) {
-  const where = {trace: "the timeline", match: "the match", fields: "the fields", episodes: "the episodes"};
+  const where = {__proto__: null, trace: "the timeline", match: "the match", fields: "the fields", episodes: "the episodes"};
   const rows = (b.checks || []).map(c => `<div class="check ${c.level === "warn" ? "warn" : "info"}"><span class="lv">${c.level === "warn" ? "Warning" : "Note"}</span><div><b>${esc(c.title)}</b>${c.text || where[c.section] ? `<p>${esc(c.text || "")}${where[c.section] ? ` <a href="#s-${esc(c.section)}">Go to ${where[c.section]}</a>` : ""}</p>` : ""}</div></div>`);
   if (b.error) rows.unshift(`<div class="check bad"><span class="lv">Failed</span><div><b>The build failed</b><p class="brk">${esc(b.error)}</p></div></div>`);
   return `<div class="panel">${rows.join("")}</div>`;
@@ -630,7 +647,7 @@ function renderTrace(b) {
   const marks = []; for (let v = 0; v <= total + 1e-9; v += step) marks.push(v);
   const ticks = marks.map(v => { const f = v / total; return `<span class="${f > .94 ? "end" : ""}" style="left:${(f*100).toFixed(2)}%">${tickText(v)}</span>`; }).join("");
   const grid = (step / total * 100).toFixed(3) + "%";
-  const kindNote = {net:"downloaded",cache:"from the cache",memory:"from memory",stale:"old copy used",fail:"failed"};
+  const kindNote = {__proto__:null,net:"downloaded",cache:"from the cache",memory:"from memory",stale:"old copy used",fail:"failed"};
   const body = rows.map(r => {
     const late = r.kind !== "step" && r.start > sent;
     const cls = late ? "late" : r.kind;
@@ -704,7 +721,7 @@ function renderMapping(b) {
 
 // A field's value as the sources gave it is one line of text, made by Kizuna.
 // The long ones get a summary: a count first, then the first names.
-const FIELD_ITEM = {Title: "title", Summary: "summary", Genres: "Genre", Cast: "Role", Studio: "studio", Crew: "Director",
+const FIELD_ITEM = {__proto__: null, Title: "title", Summary: "summary", Genres: "Genre", Cast: "Role", Studio: "studio", Crew: "Director",
   "Content rating": "contentRating", "First aired": "originallyAvailableAt", Posters: "Image", Backgrounds: "Image", Logos: "Image"};
 function fieldValue(fname, v) {
   v = String(v ?? "");
@@ -728,7 +745,7 @@ function fieldValue(fname, v) {
 }
 // Where Plex's copy of a field is: a key of the show item (for images, the
 // group of that kind inside it), or a level of the Art section.
-const FIELD_GROUP = {Posters: "poster", Backgrounds: "background", Logos: "logo"};
+const FIELD_GROUP = {__proto__: null, Posters: "poster", Backgrounds: "background", Logos: "logo"};
 function fieldGoto(b, fname) {
   const k = FIELD_ITEM[fname];
   if (k && b.item && typeof b.item === "object" && k in b.item) return {to: "item:" + k + (FIELD_GROUP[fname] ? "/" + FIELD_GROUP[fname] : ""), label: "Open in Sent to Plex"};
@@ -756,7 +773,8 @@ function renderFields(b) {
       const rank = f.order.indexOf(c) + 1;
       const lb = `<span class="lb th" data-s="${esc(sk(c))}">${esc(name(c))}</span>`;
       const rk = `<span class="rk" title="${esc(name(c))} is number ${rank} in this field's order">${rank}</span>`;
-      const v = off[c];
+      // offered is an object from the data: only its own keys are values.
+      const v = Object.hasOwn(off, c) ? off[c] : undefined;
       if (used.includes(c)) return `<td class="used" data-s="${esc(sk(c))}">${lb}${rk}${go ? `<a class="cv goto" href="#s-output" data-goto="${esc(go.to)}" title="${esc(go.label)}">${fieldValue(f.name, v)}</a>` : `<span class="cv">${fieldValue(f.name, v)}</span>`}</td>`;
       if (!asked.includes(c)) return `<td class="skip">${lb}${rk}<span class="cv"><span class="v">not asked</span></span></td>`;
       if (!v) return `<td class="nil">${lb}${rk}<span class="cv"><span class="v">no value</span></span></td>`;
@@ -810,7 +828,7 @@ function epSetup(b) {
     g.from = new Map(); g.issues = 0;
     for (const i of g.idx) { const f = eps[i].from || ""; g.from.set(f, (g.from.get(f) || 0) + 1); if (eps[i].issue) g.issues++; }
   }
-  EP = {b, eps, groups, cols: tallyCols(groups.map(g => g.from)), q: "", only: false, open: new Set(eps.length <= 40 ? groups.map(g => g.s) : []), shut: new Set(), openEps: new Set(), cap: {}};
+  EP = {b, eps, groups, cols: tallyCols(groups.map(g => g.from)), q: "", only: false, open: new Set(eps.length <= 40 ? groups.map(g => g.s) : []), shut: new Set(), openEps: new Set(), cap: {__proto__: null}};
 }
 const epText = e => [e.title, ...Object.values(e.titles || {}), e.issue || ""].join("\n").toLowerCase();
 function epMatcher(q) {
@@ -850,6 +868,7 @@ function episodeDetail(e) {
   return `<div class="ep-x ${fig ? "" : "nothumb"}">${rec(rows)}${fig}</div>`;
 }
 function renderEpList() {
+  findCancel();
   const {b, eps, groups} = EP, match = epMatcher(EP.q), filtering = !!EP.q.trim() || EP.only;
   let shown = 0, out = "";
   for (const g of groups) {
@@ -892,9 +911,9 @@ function renderEpisodes(b, newest) {
    season without a poster group whose item still has a thumb got the show's
    poster. */
 let ART = [];
-const KINDS = {poster:["poster","posters"], background:["background","backgrounds"], logo:["logo","logos"]};
+const KINDS = {__proto__:null, poster:["poster","posters"], background:["background","backgrounds"], logo:["logo","logos"]};
 // TMDB serves smaller copies of an image; the link still goes to the original.
-const TMDB_W = {poster:"w342", background:"w780", logo:"w300"};
+const TMDB_W = {__proto__:null, poster:"w342", background:"w780", logo:"w300"};
 const thumbUrl = (u, kind) => u.replace(/^(https:\/\/image\.tmdb\.org\/t\/p\/)original\//, (m, p) => p + (TMDB_W[kind] || "w500") + "/");
 // A picture that opens the whole file; a value that is not a web address is shown, never loaded.
 const pic = (u, kind, alt) => linkOut(u, u => img(thumbUrl(u, kind), alt), `<span class="noimg">Not a web address, so not loaded: ${esc(u ?? "")}</span>`, "", ` title="${esc(u)}"`);
@@ -940,7 +959,7 @@ function renderArt(b, newest) {
 // The threads are the build's itemSrc: item key to source, an image by its
 // place in the list ("Image.0"). A key without one has no single source.
 const FOLD_AT = 5, CAST_AT = 12;
-const PLEX_KIND = {coverPoster: "poster", background: "background", clearLogo: "logo"};
+const PLEX_KIND = {__proto__: null, coverPoster: "poster", background: "background", clearLogo: "logo"};
 // Nothing loads with the page: a row with pictures starts closed and loads them when opened.
 let ITEM_B = null;
 const ITEM_OPEN = new Set();
@@ -1004,7 +1023,7 @@ function itemRows(b) {
       const li = x => `<div class="li"><span>${one(k, x)}</span></div>`;
       const short = v.every(x => x && typeof x === "object" && "tag" in x && Object.keys(x).length === 1);
       const body = !v.length ? '<span class="dim">empty list</span>' : short ? esc(v.map(x => x.tag).join(", "))
-        : `<div class="list nosrc">${v.slice(0, FOLD_AT).map(li).join("")}${v.length > FOLD_AT ? `<div class="rest" hidden>${v.slice(FOLD_AT).map(li).join("")}</div><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${FOLD_AT}">Show all ${v.length}</button>` : ""}</div>`;
+        : `<div class="list">${v.slice(0, FOLD_AT).map(li).join("")}${v.length > FOLD_AT ? `<div class="rest" hidden>${v.slice(FOLD_AT).map(li).join("")}</div><button class="morebtn" data-rest aria-expanded="false" data-more="Show all ${v.length}" data-less="Show the first ${FOLD_AT}">Show all ${v.length}</button>` : ""}</div>`;
       return {k: `${k} (${v.length})`, s: srcOf(k), v: body, wide: k === "Image"};
     }
     if ((k === "thumb" || k === "art") && isUrl(v)) return {k, s: srcOf(k), v: `<span class="mono">${linkOut(v, () => esc(v), esc(v), ` class="peekl" data-kind="${k === "art" ? "background" : "poster"}"`)}</span>`};
@@ -1325,6 +1344,7 @@ function ixUnRow(r) {
     <td class="modes" data-l="Provider">${ixModes(r)}</td><td class="num" data-l="Requests">${esc(r.requests)}</td><td class="nowrap" data-l="Last asked">${esc(when(r.last))}</td></tr>`;
 }
 function ixDraw() {
+  findCancel();
   const f = IX.f, on = !!(f.q.trim() || f.state || f.mode);
   const clear = '<button class="linkbtn" data-ixclear>Clear the filters</button>';
   const table = (kind, all, head, row, none, noHit) => {
@@ -1405,6 +1425,15 @@ document.addEventListener("click", e => {
   const eh = t.closest(".ep-h");
   if (eh) {
     const row = eh.parentNode, i = +row.dataset.i, open = EP.openEps.has(i);
+    // A search draw is waiting: draw now, with this row's change, so that
+    // draw doesn't replace the row afterwards.
+    if (findDraw === renderEpList) {
+      if (open) EP.openEps.delete(i); else EP.openEps.add(i);
+      renderEpList();
+      const again = document.querySelector(`.ep[data-i="${i}"]`);
+      if (again) { again.querySelector(".ep-h").focus({preventScroll: true}); if (!open) again.lastElementChild.classList.add("fresh"); }
+      return;
+    }
     if (open) { EP.openEps.delete(i); row.querySelector(".ep-x").remove(); }
     else { EP.openEps.add(i); row.insertAdjacentHTML("beforeend", episodeDetail(EP.eps[i])); row.lastElementChild.classList.add("fresh"); }
     eh.setAttribute("aria-expanded", !open);
@@ -1425,18 +1454,6 @@ document.addEventListener("click", e => {
     }
   }
 });
-// A search box draws its list again once typing pauses: a long show's list
-// is slow to draw at every key. An empty box (cleared, or Escape) and Enter
-// draw at once. A box gone from the page (another build picked) draws nothing.
-const FIND_WAIT = 150;
-let findTimer = 0, findDraw = null;
-function findRedraw(box, draw, now) {
-  clearTimeout(findTimer);
-  findDraw = null;
-  if (now) { draw(); return; }
-  findDraw = draw;
-  findTimer = setTimeout(() => { findDraw = null; if (box.isConnected) draw(); }, FIND_WAIT);
-}
 document.addEventListener("input", e => {
   if (e.target.id === "ep-find") { EP.q = e.target.value; EP.shut.clear(); findRedraw(e.target, renderEpList, !EP.q); }
   else if (e.target.id === "ix-find") { IX.f.q = e.target.value; IX.cap = {show: IX_CAP, un: IX_CAP}; ixSave(); findRedraw(e.target, ixDraw, !IX.f.q); }
