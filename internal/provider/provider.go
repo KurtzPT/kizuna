@@ -29,6 +29,7 @@ import (
 
 	"kizuna/internal/anidb"
 	"kizuna/internal/config"
+	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
 	"kizuna/internal/report"
 	"kizuna/internal/sources"
@@ -344,8 +345,8 @@ func (p *Provider) runBuild(ctx context.Context, budget time.Duration, root stri
 		cancel()
 		if r := recover(); r != nil { // never leave waiters (and later requests) hanging on a dead build
 			stack := debug.Stack()
-			if gp, ok := r.(*goroutinePanic); ok { // of a goroutine the build started (group)
-				r, stack = gp.value, gp.stack
+			if gp, ok := r.(*fetch.GoroutinePanic); ok { // of a goroutine the build started (group), or a source's
+				r, stack = gp.Value, gp.Stack
 			}
 			b.show, b.err = nil, fmt.Errorf("build panicked: %v", r)
 			slog.Error("show build panicked", "root", root, "err", r, "stack", string(stack))

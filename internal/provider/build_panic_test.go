@@ -13,8 +13,8 @@ import (
 // too, then panics once with the first panic and the stack it had on its
 // own goroutine, also after passing through another group's Wait.
 func TestGroupWaitPanicsWithTheGoroutinesPanic(t *testing.T) {
-	waitPanic := func(g *group) (p *goroutinePanic) {
-		defer func() { p, _ = recover().(*goroutinePanic) }()
+	waitPanic := func(g *group) (p *fetch.GoroutinePanic) {
+		defer func() { p, _ = recover().(*fetch.GoroutinePanic) }()
 		g.Wait()
 		return nil
 	}
@@ -27,17 +27,17 @@ func TestGroupWaitPanicsWithTheGoroutinesPanic(t *testing.T) {
 		inner.Wait()
 	})
 	p := waitPanic(&outer)
-	if p == nil || p.value != "boom" || !strings.Contains(string(p.stack), "panicsInGroup") {
+	if p == nil || p.Value != "boom" || !strings.Contains(string(p.Stack), "panicsInGroup") {
 		t.Fatalf("got %+v, want the goroutine's panic and stack", p)
 	}
 	if !sibling {
 		t.Error("the panic was thrown before the other goroutine ended")
 	}
 	if p := waitPanic(&outer); p != nil {
-		t.Errorf("second Wait panicked again: %v", p.value)
+		t.Errorf("second Wait panicked again: %v", p.Value)
 	}
 	if p := waitPanic(&inner); p != nil {
-		t.Errorf("the inner group kept its panic: %v", p.value)
+		t.Errorf("the inner group kept its panic: %v", p.Value)
 	}
 }
 
@@ -55,12 +55,12 @@ func TestKeepStackThroughAOnce(t *testing.T) {
 	for _, caller := range []string{"first", "later"} {
 		var g group
 		g.Go(func() { once() })
-		var p *goroutinePanic
+		var p *fetch.GoroutinePanic
 		func() {
-			defer func() { p, _ = recover().(*goroutinePanic) }()
+			defer func() { p, _ = recover().(*fetch.GoroutinePanic) }()
 			g.Wait()
 		}()
-		if p == nil || p.value != "boom" || !strings.Contains(string(p.stack), "panicsInGroup") {
+		if p == nil || p.Value != "boom" || !strings.Contains(string(p.Stack), "panicsInGroup") {
 			t.Errorf("%s caller: got %+v, want the panic with the stack of the run that panicked", caller, p)
 		}
 	}
@@ -76,15 +76,15 @@ func TestLazyPanicsForEveryReader(t *testing.T) {
 		panicsInGroup()
 		return 0, nil
 	})
-	waitPanic := func(g *group) (p *goroutinePanic) {
-		defer func() { p, _ = recover().(*goroutinePanic) }()
+	waitPanic := func(g *group) (p *fetch.GoroutinePanic) {
+		defer func() { p, _ = recover().(*fetch.GoroutinePanic) }()
 		g.Wait()
 		return nil
 	}
 	var ahead group
 	l.start(&ahead)
 	first := waitPanic(&ahead)
-	if first == nil || first.value != "boom" || !strings.Contains(string(first.stack), "panicsInGroup") {
+	if first == nil || first.Value != "boom" || !strings.Contains(string(first.Stack), "panicsInGroup") {
 		t.Fatalf("fetched ahead: got %+v, want the panic and its stack", first)
 	}
 	for _, reader := range []string{"first", "later"} {
@@ -103,8 +103,10 @@ func TestLazyPanicsForEveryReader(t *testing.T) {
 // whole process would end. The panic comes from the request's fetch
 // observer, which runs on the goroutine that reads the value: each key
 // below is read on a child goroutine of a real build, never on the build's
-// own (the stack check tells them apart), and never on a goroutine of
-// internal/sources or internal/fetch.
+// own (the stack check tells them apart), nor on a goroutine of
+// internal/fetch. One is read on a goroutine of internal/sources (a
+// TheMovieDb season), which raises it again with its own stack: the build
+// logs that stack too.
 func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 	defaultLists(t)
 	cases := []struct {
@@ -115,6 +117,7 @@ func TestPanickingBuildGoroutineFailsTheBuild(t *testing.T) {
 		{"tvdb: AniDB's details", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "anidb/anime/100.xml", false},
 		{"tvdb: a show value fetched ahead", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "tvdb/500/artworks.json", false},
 		{"tvdb: TheMovieDb's show", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "tmdb/tv-77.json", false},
+		{"tvdb: TheMovieDb's season, on a source's goroutine", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "tmdb/tv-77-s1-images.json", false},
 		{"tvdb: TheTVDB's crew records", "/tvdb/library/metadata/tvdb-500", "tvdb-500", "tvdb/episodes/11.json", true},
 		{"anidb: TheTVDB's episode list", "/anidb/library/metadata/anidb-100", "anidb-100", "tvdb/500/episodes-0.json", false},
 		{"anidb: a show value", "/anidb/library/metadata/anidb-100", "anidb-100", "tvdb/500/artworks.json", false},

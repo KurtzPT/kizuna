@@ -295,7 +295,7 @@ func (c *AniDB) prefetchWorker() {
 func (c *AniDB) prefetch(aid int) {
 	defer func() {
 		if r := recover(); r != nil {
-			logPanic("anidb: background fetch panicked", r, "aid", aid)
+			fetch.LogPanic("anidb: background fetch panicked", r, "aid", aid)
 		}
 		c.mu.Lock()
 		delete(c.queued, aid)
@@ -360,7 +360,7 @@ func (c *AniDB) ask(ctx context.Context, aid int, background bool, stale *AniDBA
 	data, err := c.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, aid), Key: key, NoRedirect: true,
 		Validate: func(b []byte) (err error) {
 			if parsed, err = c.validate(b); err == nil {
-				c.answered(aid) // before it is cached: a caller that misses the file can't call again
+				c.answered(aid, call) // before it is cached: a caller that misses the file can't call again
 			}
 			return err
 		},

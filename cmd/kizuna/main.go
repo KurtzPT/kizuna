@@ -162,9 +162,6 @@ func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
 	ad := sources.NewAniDB(f, cfg.DataDir, cfg.AniDBClient, cfg.AniDBClientVer)
 	tvdb = sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin, cfg.TVDBLegacyKey)
-	if cfg.TVDBKey != "" && cfg.TVDBLegacyKey != "" {
-		slog.Info("TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; the legacy key takes over (with a warning) if TheTVDB rejects it")
-	}
 	p = provider.New(cfg, titles, ad, lists, provider.Sources{TVDB: tvdb,
 		TMDB: sources.NewTMDB(f, cfg.TMDBKey), MAL: sources.NewMAL(f, cfg.MALClientID), ANN: sources.NewANN(f),
 		Plex: sources.NewPlex(f, cfg.PlexToken)})

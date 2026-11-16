@@ -259,7 +259,7 @@ func (t *TVDB) queueCrew(ids []int) {
 func (t *TVDB) backgroundCrew(id int) {
 	defer func() {
 		if r := recover(); r != nil {
-			logPanic("tvdb: background episode record panicked", r, "episode", id)
+			fetch.LogPanic("tvdb: background episode record panicked", r, "episode", id)
 		}
 		t.crewMu.Lock()
 		delete(t.crewQueued, id)

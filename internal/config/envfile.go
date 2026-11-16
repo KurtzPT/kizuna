@@ -33,6 +33,10 @@ type EnvFile struct {
 	Overridden []string     // in the file, but the environment sets them (the environment wins)
 	Ignored    []string     // names that aren't all upper case: never set, on any OS
 	Problems   []envProblem // lines that were skipped, and why
+	// lines: the line each name above was read from. A warning about a name
+	// Kizuna doesn't know gives its line, not the name: a pasted key ending
+	// in '=' (base64) reads as a name.
+	lines map[string]int
 }
 
 // envProblem is a skipped line. A line that isn't NAME=value may hold a key
@@ -41,7 +45,7 @@ type EnvFile struct {
 // is a setting Kizuna knows.
 type envProblem struct {
 	line  int
-	name  string // a valid setting name from the line, always shown
+	name  string // a name always shown: one Kizuna knows (KIZUNA_CONFIG)
 	guess string // shown only when Kizuna knows the setting
 	why   string
 }
@@ -85,10 +89,11 @@ func LoadEnvFile() (EnvFile, error) {
 		}
 		return EnvFile{}, fmt.Errorf("can't read the settings file: %w", err)
 	}
-	f := EnvFile{Path: path}
+	f := EnvFile{Path: path, lines: map[string]int{}}
 	settings, problems := parseEnvFile(data)
 	f.Problems = problems
 	for _, s := range settings {
+		f.lines[s.key] = s.line
 		// Only exact upper-case names count. Windows env names ignore case,
 		// so setting "port" there would quietly set PORT.
 		if s.key != strings.ToUpper(s.key) {
@@ -100,7 +105,7 @@ func LoadEnvFile() (EnvFile, error) {
 			continue
 		}
 		if err := os.Setenv(s.key, s.value); err != nil {
-			f.Problems = append(f.Problems, envProblem{line: s.line, name: s.key, why: err.Error()})
+			f.Problems = append(f.Problems, envProblem{line: s.line, guess: s.key, why: err.Error()})
 			continue
 		}
 		f.Keys = append(f.Keys, s.key)
@@ -125,11 +130,11 @@ func (f EnvFile) Log() {
 	}
 	for _, k := range slices.Concat(f.Keys, f.Overridden) {
 		if !knownSetting(k) {
-			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "setting", k)
+			slog.Warn("settings file: unknown setting (a typo?); ignoring it", "path", f.Path, "line", f.lines[k])
 		}
 	}
 	for _, k := range f.Ignored {
-		slog.Warn("settings file: unknown setting (names must be upper case); ignoring it", "path", f.Path, "setting", k)
+		slog.Warn("settings file: unknown setting (names must be upper case); ignoring it", "path", f.Path, "line", f.lines[k])
 	}
 }
 
@@ -226,7 +231,8 @@ func parseEnvFile(data []byte) (out []envSetting, problems []envProblem) {
 		}
 		value, err := envValue(raw)
 		if err != nil {
-			problems = append(problems, envProblem{line: n, name: key, why: err.Error()})
+			// The name only as a guess: the text before '=' may be a pasted key.
+			problems = append(problems, envProblem{line: n, guess: key, why: err.Error()})
 			continue
 		}
 		out = slices.DeleteFunc(out, func(s envSetting) bool { return s.key == key })

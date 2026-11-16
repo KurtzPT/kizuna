@@ -1,9 +1,10 @@
 package provider
 
 import (
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
+
+	"kizuna/internal/fetch"
 )
 
 // group is the sync.WaitGroup of a show build's goroutines. A recover only
@@ -15,15 +16,10 @@ import (
 // A Wait that panics skips what follows it, so every group a build starts
 // is also waited for in a defer: no goroutine outlives its build.
 type group struct {
-	wg    sync.WaitGroup
-	first atomic.Pointer[goroutinePanic] // the first panic of a goroutine, until Wait takes it
-}
-
-// goroutinePanic is a panic a group's goroutine ended with, and the stack it
-// had there: the waiting goroutine's stack says nothing about it.
-type goroutinePanic struct {
-	value any
-	stack []byte
+	wg sync.WaitGroup
+	// first: the first panic of a goroutine, until Wait takes it. The type is
+	// fetch's, shared with sources: runBuild takes either apart the same way.
+	first atomic.Pointer[fetch.GoroutinePanic]
 }
 
 // Go runs f in a goroutine of its own. It allocates what sync.WaitGroup.Go
@@ -59,18 +55,8 @@ func (g *group) runFetch(f fetcher) {
 // that came from another group's Wait keeps its first stack.
 func (g *group) keepPanic() {
 	if r := recover(); r != nil {
-		g.first.CompareAndSwap(nil, asGoroutinePanic(r))
+		g.first.CompareAndSwap(nil, fetch.AsGoroutinePanic(r))
 	}
-}
-
-// asGoroutinePanic is a recovered value as a goroutinePanic, with the stack
-// of the goroutine recovering it, unless it is one already: it keeps its
-// first stack.
-func asGoroutinePanic(r any) *goroutinePanic {
-	if p, ok := r.(*goroutinePanic); ok {
-		return p
-	}
-	return &goroutinePanic{r, debug.Stack()}
 }
 
 // keepStack, deferred in a function whose result several goroutines share (a
@@ -79,7 +65,7 @@ func asGoroutinePanic(r any) *goroutinePanic {
 // waited last, the build's log shows where the panic started.
 func keepStack() {
 	if r := recover(); r != nil {
-		panic(asGoroutinePanic(r))
+		panic(fetch.AsGoroutinePanic(r))
 	}
 }
 

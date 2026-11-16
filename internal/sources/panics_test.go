@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -59,14 +60,14 @@ func panicsOn(part string) context.Context {
 
 // raised calls f and returns the panic it raised, as the goroutine that
 // panicked kept it.
-func raised(t *testing.T, f func()) *goroutinePanic {
+func raised(t *testing.T, f func()) *fetch.GoroutinePanic {
 	t.Helper()
 	var r any
 	func() {
 		defer func() { r = recover() }()
 		f()
 	}()
-	p, ok := r.(*goroutinePanic)
+	p, ok := r.(*fetch.GoroutinePanic)
 	if !ok {
 		t.Fatalf("panicked with %#v, want the goroutine's panic", r)
 	}
@@ -75,10 +76,10 @@ func raised(t *testing.T, f func()) *goroutinePanic {
 
 // checkRaised checks a raised panic has the goroutine's value and stack,
 // where (a function name) shows, and that its log line carries both.
-func checkRaised(t *testing.T, p *goroutinePanic, where string) {
+func checkRaised(t *testing.T, p *fetch.GoroutinePanic, where string) {
 	t.Helper()
-	if p.value != "boom" || p.String() != "boom" || !strings.Contains(string(p.stack), where) {
-		t.Fatalf("panic %v with stack\n%s\nwant boom from %s", p.value, p.stack, where)
+	if p.Value != "boom" || p.String() != "boom" || !strings.Contains(string(p.Stack), where) {
+		t.Fatalf("panic %v with stack\n%s\nwant boom from %s", p.Value, p.Stack, where)
 	}
 	var b strings.Builder
 	slog.New(slog.NewTextHandler(&b, nil)).Error("show build panicked", "err", p)
@@ -219,6 +220,40 @@ func TestTVDBRenewalPanicLogged(t *testing.T) {
 	}
 }
 
+// A panic in a login the caller waits for goes on to the caller as it was,
+// and counts as a failed login: the login under way ends (a later login
+// would wait for it until its ctx ended), and the next one waits for the
+// login pause.
+func TestTVDBLoginPanicEndsTheLogin(t *testing.T) {
+	tv, n := newTVDBTest(t, map[string]string{v4 + "/login": `{"data":{"token":"t"}}`}, "v4key", "", "")
+	f := tv.f
+	tv.f = nil // the login's request panics on the caller's goroutine
+	var r any
+	func() {
+		defer func() { r = recover() }()
+		_, _, _ = tv.login(context.Background())
+	}()
+	if _, ok := r.(runtime.Error); !ok {
+		t.Fatalf("panicked with %#v, want the request's own panic", r)
+	}
+	tv.f = f
+	tv.mu.Lock()
+	running, loginErr := tv.loggingIn, tv.loginErr
+	tv.mu.Unlock()
+	if running != nil || loginErr == nil || !strings.Contains(loginErr.Error(), "login panicked") {
+		t.Fatalf("login under way %v, login error %v; want none and the panic", running, loginErr)
+	}
+	if _, _, err := tv.login(context.Background()); !errors.Is(err, errTVDBLogin) || n.count(v4+"/login") != 0 {
+		t.Fatalf("in the login pause: %v, %d logins; want the failed login and none sent", err, n.count(v4+"/login"))
+	}
+	tv.mu.Lock()
+	tv.loginRetry = time.Time{} // the pause is over
+	tv.mu.Unlock()
+	if token, _, err := tv.login(context.Background()); token != "t" || err != nil {
+		t.Errorf("after the pause: %q %v, want the token", token, err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
@@ -271,6 +306,27 @@ func TestAniDBCallPanicIsANetworkFailure(t *testing.T) {
 	c.endBackoff()
 	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 {
 		t.Errorf("after the backoff: %v, %d requests; want the entry, asked once", err, requests.Load())
+	}
+}
+
+// A panic after AniDB's entry was accepted (here in the download's log
+// line, once the entry is cached) is a network failure too: the anime is
+// not held back as fetched for 24 h. The cached copy answers the next call,
+// once the backoff is over, without asking AniDB.
+func TestAniDBPanicAfterAnswer(t *testing.T) {
+	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
+	_ = panicLogs(t, "http")
+	ctx := context.Background()
+	if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
+		t.Fatalf("err %v, want the panic", err)
+	}
+	if st := c.stateOf(1); st.calls != 0 || st.failures != 1 || !st.backoff || st.calling != nil || st.blocked || c.fetchedLately(1) {
+		t.Fatalf("state %+v, fetched lately %v; want no call counted, the backoff, the call ended, the anime neither blocked nor fetched",
+			st, c.fetchedLately(1))
+	}
+	c.endBackoff()
+	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 {
+		t.Errorf("after the backoff: %v, %d requests; want the cached entry, AniDB asked once", err, requests.Load())
 	}
 }
 
