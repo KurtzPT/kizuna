@@ -1,6 +1,6 @@
 # Checks on every push, release tag and pull request. On a push to dev or a v*
-# tag this workflow also publishes the image, and only once every check passed,
-# so nothing reaches GHCR that failed here (the image build itself runs at most
+# tag this workflow also publishes the image, and only once go, fuzz, script
+# and workflows passed, so nothing reaches GHCR that failed one of them (the image build itself runs at most
 # `go test`, and for :dev not even that: the go job below already did):
 #   go         Go version in sync, no PORT in the image, gofmt, go vet (also
 #              for Windows and macOS), staticcheck, govulncheck, tests with
