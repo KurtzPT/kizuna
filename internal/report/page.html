@@ -146,7 +146,6 @@ h3{font:600 17px/1.3 var(--tech);font-stretch:90%;margin:26px 0 4px}
 .rec-v{min-width:0;max-width:86ch;overflow-wrap:anywhere;white-space:pre-line}
 .rec.item .rec-r{grid-template-columns:190px 78px minmax(0,1fr)}
 .rec.item .rec-r.wide{grid-template-columns:190px minmax(0,1fr)}
-.rec-r.wide .morebtn{margin-left:90px}
 .rec-r.wide .rec-v{max-width:none}
 .rec-v.mono{font-size:12.5px;line-height:1.6}
 .list{display:grid;gap:3px;white-space:normal}
@@ -411,7 +410,6 @@ dialog .row{display:flex;gap:10px;justify-content:flex-end}
   .rec-r,.rec.plain .rec-r,.rec-r.wide,.ep-x .rec-r,.rec.item .rec-r{grid-template-columns:78px minmax(0,1fr)}
   .rec.plain .rec-r{grid-template-columns:112px minmax(0,1fr)}
   .rec-r.wide,.rec.item .rec-r.wide{grid-template-columns:minmax(0,1fr)}
-  .rec-r.wide .morebtn{margin-left:0}
   .rec:not(.plain) .rec-k{grid-column:1/-1}
   .check{grid-template-columns:minmax(0,1fr)}
   .ep-cols{display:none}
@@ -549,7 +547,7 @@ const app = document.getElementById("app");
 // A search box draws its list again once typing pauses: a long show's list
 // is slow to draw at every key. An empty box (cleared, or Escape) and Enter
 // draw at once. A box gone from the page (another build picked) draws nothing.
-// This sits before the first render: renderEpList and ixDraw use it.
+// Declared before the functions that use it.
 const FIND_WAIT = 150;
 let findTimer = 0, findDraw = null;
 // Any draw of a list makes a waiting one stale: a click's draw already has

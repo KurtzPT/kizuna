@@ -67,6 +67,7 @@ function load(kind, doc) {
     html: () => [...made.values()].map(e => e.innerHTML).join("\n"),
     title: () => document.title,
     text: () => app.textContent,
+    document, // a test may give it a querySelector of its own
     fire: (type, event) => (listeners[type] || []).forEach(f => f(event)),
     waiting: () => timers.size,
     flush: () => { for (const [id, f] of [...timers]) { timers.delete(id); f(); } },
@@ -236,6 +237,46 @@ const count = (text, re) => (text.match(re) || []).length;
     const list = p.run(`document.getElementById("ep-list").innerHTML`);
     check(atClick === 1 && left === 0 && draws() === 1 && rows() === "S01E08 S02E08" && count(list, /class="ep-x/g) === 1 && /aria-expanded="true">\s*<span class="ep-n">S01E08/.test(list),
       `episode search, then an episode row before the pause: ${atClick} draws at the click and ${left} waiting, want 1 draw with the row open and none waiting`);
+
+    // An open row clicked again with a search waiting: it closes, drawn once.
+    {
+      const q = load("show", doc), n = q.draws("ep-list");
+      const click = () => q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}});
+      click(); // opens in place: nothing waits, nothing is drawn
+      const openedInPlace = n() === 0 && q.run(`EP.openEps.has(${i})`);
+      q.fire("input", {target: {id: "ep-find", value: "8", isConnected: true}});
+      click();
+      q.flush();
+      const l = q.run(`document.getElementById("ep-list").innerHTML`);
+      check(openedInPlace && n() === 1 && count(l, /class="ep-x/g) === 0 && q.run("EP.openEps.size") === 0,
+        `episode search, then an open row clicked again before the pause: ${n()} draws, ${count(l, /class="ep-x/g)} details, ${q.run("EP.openEps.size")} open, want 1 draw and the row closed`);
+    }
+    // A row the new query leaves out: the list is drawn without it, and says so.
+    {
+      const q = load("show", doc);
+      q.fire("input", {target: {id: "ep-find", value: "zzz", isConnected: true}});
+      let threw = "";
+      try { q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}}); q.flush(); } catch (err) { threw = err.message; }
+      check(!threw && q.run(`document.getElementById("ep-list").innerHTML`).includes("No episode matches"), `episode search that leaves the clicked row out: ${threw || "the list doesn't say nothing matches"}`);
+    }
+    // The opened row is found again in the new list, focused, and marked fresh.
+    {
+      const q = load("show", doc), asked = [], focused = [], marked = [];
+      const again = {querySelector: s => s === ".ep-h" ? {focus: o => focused.push(o)} : null, lastElementChild: {classList: {add: c => marked.push(c)}}};
+      q.document.querySelector = s => { asked.push(s); return s === `.ep[data-i="${i}"]` ? again : null; };
+      q.fire("input", {target: {id: "ep-find", value: "8", isConnected: true}});
+      q.fire("click", {target: {closest: x => x === ".ep-h" ? eh : null}, preventDefault() {}});
+      check(asked.includes(`.ep[data-i="${i}"]`) && focused.length === 1 && focused[0] && focused[0].preventScroll === true && marked.join() === "fresh",
+        `episode search, then an episode row: asked ${JSON.stringify(asked)}, focused ${focused.length}, marked ${JSON.stringify(marked)}; want the row's button focused and its detail fresh`);
+    }
+  }
+
+  // Every kind of show page draws at its first load, not only after another
+  // render: what that draw uses must be declared before it.
+  for (const [what, builds, want] of [["no builds", [], "Kizuna has not built this show yet"], ["only a failed build", [doc.builds[1]], "The build failed"]]) {
+    let html = "";
+    try { html = load("show", {...doc, builds}).html(); } catch (err) { html = "threw: " + err.message; }
+    check(html.includes(want), `show with ${what}, first load: ${html.startsWith("threw") ? html : `"${want}" is missing`}`);
   }
 
   // More than 40 episodes: the seasons start closed, and a search opens what matches.
