@@ -23,6 +23,10 @@ inputs:
   cache:
     description: "true: read and write the GitHub Actions build cache. false: build from scratch (a release)"
     required: true
+  cache-write:
+    description: "With cache true: false reads the build cache but saves nothing to it (a pull request). Ignored when cache is false"
+    required: false
+    default: "true"
   version:
     description: "The version /health, the logs and Plex show. sha: the short commit. ref: the tag (v1.2.3) on a tag, dev-<short commit> otherwise"
     required: true
@@ -102,7 +106,7 @@ runs:
           GO_VERSION=${{ steps.go.outputs.version }}
           SKIP_TESTS=${{ inputs.run-tests == 'false' }}
         cache-from: ${{ inputs.cache == 'true' && 'type=gha' || '' }}
-        cache-to: ${{ inputs.cache == 'true' && 'type=gha,mode=max' || '' }}
+        cache-to: ${{ inputs.cache == 'true' && inputs.cache-write == 'true' && 'type=gha,mode=max' || '' }}
         # in the image index, next to each platform's image: an SPDX SBOM
         # (docker buildx imagetools inspect <image> --format '{{ json .SBOM }}')
         # and full BuildKit provenance (build args, base image digests). Built

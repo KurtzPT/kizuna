@@ -8,6 +8,9 @@
 #   - everything a kept version needs: the per-platform images and BuildKit
 #     attestations in its index, and its signed attestation (the version
 #     tagged sha256-<its digest>), followed recursively
+#   - an untagged version whose manifest names a kept version as its subject
+#     (an attestation stored the OCI referrers way, with no sha256-* tag), and
+#     everything it needs in turn
 #   - anything younger than MIN_AGE_HOURS: a build may be pushing it right now
 # Deleted: every other version, including untagged leftovers.
 #
@@ -106,31 +109,76 @@ if [ -z "${MANIFESTS_JSON:-}" ]; then
   }
 fi
 
-# follow every kept root to what it needs
+# every manifest read so far, by digest: each one is fetched once a run
+declare -A manifests=()
+# read_manifest DIGEST WHY: sets M to the manifest. A lookup that fails stops
+# the run (WHY says what the version is): a manifest nobody could read must
+# not turn into a delete.
+read_manifest() {
+  local m
+  if [ -z "${manifests[$1]+x}" ]; then
+    m=$(manifest "$1") || {
+      echo "::error::manifest $1: lookup failed ($2): stopping (nothing deleted)" >&2
+      exit 1
+    }
+    manifests[$1]=$m
+  fi
+  M=${manifests[$1]}
+}
+
+# follow every digest in the queue to what it needs, keeping it all
 declare -A keep=()
 queue=()
+follow() {
+  local d children child att
+  while [ ${#queue[@]} -gt 0 ]; do
+    d=${queue[0]}
+    queue=("${queue[@]:1}")
+    if [ -n "${keep[$d]:-}" ]; then continue; fi
+    keep[$d]=1
+    # the per-platform images and BuildKit attestations of an index
+    read_manifest "$d" "a kept version the registry can't serve?"
+    children=$(printf '%s' "$M" | "$JQ" -r '.manifests[]?.digest')
+    while read -r child; do
+      if [ -n "$child" ]; then queue+=("$child"); fi
+    done <<< "$children"
+    # the signed attestation stored under the sha256-<hex> tag
+    att=$(printf '%s' "$by_tag" | "$JQ" -r --arg t "sha256-${d#sha256:}" '.[$t] // empty')
+    if [ -n "$att" ]; then queue+=("$att"); fi
+  done
+}
 while read -r d; do queue+=("$d"); done <<< "$roots"
-while [ ${#queue[@]} -gt 0 ]; do
-  d=${queue[0]}
-  queue=("${queue[@]:1}")
-  [ -n "${keep[$d]:-}" ] && continue
-  keep[$d]=1
-  # the per-platform images and BuildKit attestations of an index
-  m=$(manifest "$d") || {
-    echo "::error::manifest $d: lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)" >&2
-    exit 1
-  }
-  children=$(printf '%s' "$m" | "$JQ" -r '.manifests[]?.digest')
-  while read -r child; do
-    [ -n "$child" ] && queue+=("$child")
-  done <<< "$children"
-  # the signed attestation stored under the sha256-<hex> tag
-  att=$(printf '%s' "$by_tag" | "$JQ" -r --arg t "sha256-${d#sha256:}" '.[$t] // empty')
-  [ -n "$att" ] && queue+=("$att")
+follow
+
+# An attestation stored the OCI referrers way has no tag: only its manifest's
+# subject says which image it belongs to. So every untagged version old enough
+# to go, and not kept yet, is read once for its subject (a younger one stays
+# anyway). One whose subject is kept is kept too, with what it needs, until
+# nothing more is: an attestation of a kept attestation stays as well.
+min_age_before=$((NOW - MIN_AGE_HOURS * 3600))
+candidates=$(printf '%s' "$versions" | "$JQ" -r --argjson before "$min_age_before" '
+  def epoch: .created_at | sub("\\.[0-9]+"; "") | fromdateiso8601;
+  .[] | select((.metadata.container.tags // []) == [] and epoch <= $before) | .name')
+declare -A subject_of=()
+while read -r d; do
+  if [ -z "$d" ] || [ -n "${keep[$d]:-}" ]; then continue; fi
+  read_manifest "$d" "an untagged version, read for its subject"
+  s=$(printf '%s' "$M" | "$JQ" -r '.subject.digest? // empty')
+  if [ -n "$s" ]; then subject_of[$d]=$s; fi
+done <<< "$candidates"
+grew=true
+while [ "$grew" = true ]; do
+  grew=false
+  for d in "${!subject_of[@]}"; do
+    if [ -z "${keep[$d]:-}" ] && [ -n "${keep[${subject_of[$d]}]:-}" ]; then
+      queue+=("$d")
+      grew=true
+    fi
+  done
+  follow
 done
 
 # everything else that's old enough goes
-min_age_before=$((NOW - MIN_AGE_HOURS * 3600))
 keep_json=$(printf '%s\n' "${!keep[@]}" | "$JQ" -R . | "$JQ" -s 'map({key: ., value: true}) | from_entries')
 plan=$(printf '%s' "$versions" | "$JQ" -c --argjson keep "$keep_json" --argjson before "$min_age_before" '
   def epoch: .created_at | sub("\\.[0-9]+"; "") | fromdateiso8601;
@@ -142,6 +190,7 @@ gone=$(printf '%s' "$plan" | "$JQ" '[.[] | select(.keep | not)] | length')
 
 echo "$image: $total versions, keeping $kept, deleting $gone"
 echo "kept tags: $(printf '%s' "$plan" | "$JQ" -r '[.[] | select(.keep) | .tags[] | select(startswith("sha256-") | not)] | sort | join(" ")')"
+echo "manifests read: ${#manifests[@]}"
 printf '%s' "$plan" | "$JQ" -r '[.[] | select(.keep | not)] | sort_by(.tags == []) | .[]
   | "delete \(.id) \(.name[0:19]) \(.created_at) \(if .tags == [] then "(untagged)" else .tags | join(",") end)"'
 
