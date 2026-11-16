@@ -95,7 +95,7 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 		}
 	}
 	// Before ready: a remembered "nothing there" needs no login either.
-	if err := c.knownNotFound(r, at); err != nil {
+	if err := c.knownNotFound(ctx, r, at); err != nil {
 		observe(ctx, r, start, KindCache, err)
 		return time.Time{}, err
 	}

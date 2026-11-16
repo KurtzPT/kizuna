@@ -2,8 +2,6 @@ package sources
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -73,15 +71,27 @@ func FuzzParseANN(f *testing.F) {
 
 // FuzzParsePlex: any answer from Plex's metadata service decodes or fails
 // without a panic, and what Kizuna takes from it keeps its limits.
+//
+// The seeds are the shapes of testdata/plex's answers (a show's fields,
+// people and pictures, a movie, a season's episodes, a show's /images, no
+// match), cut to about 200 bytes each. Not the files themselves: the
+// fuzzer minimizes each input that finds new code, trying every pair of
+// cut points, so its time grows with the square of the input's size, and
+// a seed of a few KB took the whole run.
 func FuzzParsePlex(f *testing.F) {
-	for _, name := range []string{"show-frieren.json", "movie-yourname.json", "children-frieren.json", "season-frieren-1.json",
-		"images-frieren.json", "match-none.json"} {
-		data, err := os.ReadFile(filepath.Join("testdata", "plex", name))
-		if err != nil {
-			f.Fatal(err)
-		}
-		f.Add(data)
-	}
+	f.Add([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"5d9f","type":"show","title":"F","summary":"S",
+"index":null,"duration":1440000,"studio":"M","contentRating":"TV-14","originallyAvailableAt":"2023-09-29","thumb":"/1",
+"guid":"plex://show/5d9f","Guid":[{"id":"tvdb://4"}]}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Genre":[{"tag":"Anime"}],"Director":[{"tag":"D"},{"tag":"E","thumb":"/2"}],
+"Writer":[{"tag":"W"}],"Role":[{"order":2,"role":"R","tag":"B","thumb":"/3"},{"order":1,"role":"Q","tag":"A"}]}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Guid":[{"id":"tvdb://4"}],"Image":[{"type":"coverPoster","url":"/4"},
+{"type":"background","url":"/5"},{"type":"clearLogo","url":""}]}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"type":"movie","duration":6360000,"contentRating":"de/12",
+"Producer":[{"tag":"P","thumb":"/6"}]}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"totalSize":3,"Metadata":[{"index":1,"parentIndex":1,"title":"E","summary":null,
+"studio":null,"duration":null,"Director":[{"tag":"D"}]},{"index":2,"duration":1500000}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"Art":[{"height":1080,"key":"/8","source":"tmdb"}],"Thumb":[{"key":"/9","source":"tvdb"}]}}`))
+	f.Add([]byte(`{"MediaContainer":{"identifier":"tv.plex.provider.metadata","offset":0,"size":0,"totalSize":0}}`))
 	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Studio":[{"tag":"x"}],"studio":"y","Guid":[],"guid":"plex://show/1","rating":9,"Rating":[],"contentRating":"/"}]}}`))
 	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"duration":-90000,"Role":[{"tag":" ","order":-1}],"Director":[{"tag":""}]}]}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {

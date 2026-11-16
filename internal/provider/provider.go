@@ -71,6 +71,7 @@ type Provider struct {
 	tagOffLogged everyTenMinutes // /auto id tags for a mode that is off (Provider.warn)
 	tagsLogged   everyTenMinutes // titles with more than one id tag (Provider.warn)
 	nameLogged   everyTenMinutes // titles matched by name inside a TheTVDB id (Provider.warn)
+	absLogged    everyTenMinutes // TheTVDB series whose list repeats an absolute number (warnSharedAbsolute)
 	titles       *anidb.Titles
 	anidb        *sources.AniDB
 	lists        *mapping.Lists
@@ -152,7 +153,7 @@ func New(cfg config.Config, titles *anidb.Titles, ad *sources.AniDB, lists *mapp
 	close(loaded)
 	return &Provider{cfg: cfg, titles: titles, anidb: ad, lists: lists,
 		tvdb: src.TVDB, tmdb: src.TMDB, mal: src.MAL, ann: src.ANN, plex: src.Plex, crewMemory: loadCrewMemory(cfg.DataDir),
-		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
+		tagsLogged: everyTenMinutes{max: 1000}, nameLogged: everyTenMinutes{max: 1000}, absLogged: everyTenMinutes{max: 1000}, access: access, loaded: loaded, stopping: make(chan struct{}), shows: map[string]cachedShow{}, failed: map[string]failedBuild{}, builds: map[string]*build{},
 		ended: make(chan struct{}, 1)}
 }
 

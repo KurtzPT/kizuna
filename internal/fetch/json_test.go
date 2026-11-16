@@ -586,6 +586,80 @@ func TestNotFoundStaleCopyAnswers(t *testing.T) {
 	}
 }
 
+// At debug level, each use of a remembered "nothing there" logs one line
+// with the key, the status and when it is asked again, never the URL, so
+// never its api key.
+// At the normal level nothing is logged.
+func TestNotFoundRememberedLogged(t *testing.T) {
+	const msg = "remembered not found"
+	setup := func(t *testing.T) (*Client, Request) {
+		c := New(t.TempDir())
+		c.SetTransport(&bodyNet{status: http.StatusNotFound})
+		r := Request{URL: "https://api.example/d?api_key=secret", Key: "tmdb/d.json", TTL: time.Hour,
+			NotFoundTTL: 24 * time.Hour, NotFound: []int{http.StatusNotFound}}
+		if _, err := c.Get(context.Background(), r); !IsNotFound(err) {
+			t.Fatalf("first request: %v, want the 404", err)
+		}
+		// Two hours old: at least 2 h have gone, so at most 22 h are left.
+		old := time.Now().Add(-2 * time.Hour)
+		if err := os.Chtimes(c.notFoundPath(r.Key), old, old); err != nil {
+			t.Fatal(err)
+		}
+		return c, r
+	}
+
+	t.Run("debug", func(t *testing.T) {
+		c, r := setup(t)
+		logs := &lockedBuffer{}
+		old := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		t.Cleanup(func() { slog.SetDefault(old) })
+		var out struct{ A int }
+		if err := c.GetJSON(context.Background(), r, &out, nil); !IsNotFound(err) {
+			t.Fatalf("GetJSON: %v, want the remembered 404", err)
+		}
+		if _, err := c.Get(context.Background(), r); !IsNotFound(err) {
+			t.Fatalf("Get: %v, want the remembered 404", err)
+		}
+		if n := logs.count(msg); n != 2 {
+			t.Fatalf("%d %q lines, want 2 (one per use):\n%s", n, msg, logs)
+		}
+		var line string
+		for l := range strings.Lines(logs.String()) {
+			if strings.Contains(l, `msg="`+msg+`"`) {
+				line = l
+				break
+			}
+		}
+		for _, want := range []string{"level=DEBUG", "key=tmdb/d.json", "status=404"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("line %q lacks %q", line, want)
+			}
+		}
+		if strings.Contains(logs.String(), "secret") || strings.Contains(line, "url=") {
+			t.Errorf("line %q names the URL", line)
+		}
+		_, again, _ := strings.Cut(line, "asked_again_in=")
+		again, _, _ = strings.Cut(again, " ")
+		d, err := time.ParseDuration(strings.TrimSpace(again))
+		if err != nil || d <= 0 || d > 22*time.Hour {
+			t.Errorf("asked_again_in %q (%v), want a time left of at most 22h", again, err)
+		}
+	})
+
+	t.Run("normal level", func(t *testing.T) {
+		c, r := setup(t)
+		logs := captureLogs(t)
+		var out struct{ A int }
+		if err := c.GetJSON(context.Background(), r, &out, nil); !IsNotFound(err) {
+			t.Fatalf("GetJSON: %v, want the remembered 404", err)
+		}
+		if n := logs.count(msg); n != 0 { // counted: another test's late goroutine may log something else
+			t.Errorf("%d %q lines at the normal level, want none:\n%s", n, msg, logs)
+		}
+	})
+}
+
 // backdate makes the file at path older than age, by an hour: no clock or
 // file system rounding leaves it younger.
 func backdate(t *testing.T, path string, age time.Duration) {

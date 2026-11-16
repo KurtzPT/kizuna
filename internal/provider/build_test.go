@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -169,6 +170,141 @@ func TestBuildTVDBShow(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(s.Guids, " "), "tmdb://77") {
 		t.Errorf("guids %v", s.Guids)
+	}
+}
+
+// Two regular episodes of TheTVDB's list with one absolute number are logged,
+// with the series, a pair (one inside a season first: only there is an
+// episode lost), whether it is in one season, whether both numbers are
+// TheTVDB's own or FillAbsolute made one, and how many repeat a number. The
+// show is built as before: inside a season Show.Episode gives the list's
+// first. A list without a repeat logs nothing, in order or not.
+func TestBuildTVDBSharedAbsolute(t *testing.T) {
+	const msg = "two episodes of TheTVDB's list have the same absolute number"
+	// list: S01E01, S01E02, S02E01, S02E02 with these absolute numbers (0:
+	// none), and a special.
+	list := func(abs ...int) func(string, map[string][]string) (int, string) {
+		return func(path string, q map[string][]string) (int, string) {
+			if path != "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+				return testSeries(path, q)
+			}
+			return 200, fmt.Sprintf(`{"data":{"episodes":[
+				{"id":11,"seasonNumber":1,"number":1,"absoluteNumber":%d,"image":"/e1.jpg"},
+				{"id":12,"seasonNumber":1,"number":2,"absoluteNumber":%d,"image":"/e2.jpg"},
+				{"id":13,"seasonNumber":2,"number":1,"absoluteNumber":%d,"image":"/e3.jpg"},
+				{"id":15,"seasonNumber":2,"number":2,"absoluteNumber":%d,"image":"/e5.jpg"},
+				{"id":14,"seasonNumber":0,"number":1,"image":"/e4.jpg"}]},"links":{"next":null}}`, abs[0], abs[1], abs[2], abs[3])
+		}
+	}
+	buildOn := func(t *testing.T, p *Provider) (*Show, string) {
+		t.Helper()
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		s, err := p.buildShow(context.Background(), "tvdb-500")
+		restore()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var warned []string // this build's lines: other tests' background work may log too
+		for line := range strings.Lines(logs.String()) {
+			if strings.Contains(line, `msg="`+msg+`"`) {
+				warned = append(warned, line)
+			}
+		}
+		return s, strings.Join(warned, "")
+	}
+	// episodes lists the show's regular episodes: season, index and thumb.
+	episodes := func(s *Show) string {
+		var out []string
+		for _, n := range s.Seasons() {
+			for _, ep := range s.Episodes[n] {
+				if n > 0 {
+					out = append(out, fmt.Sprintf("S%dE%d %s", n, ep.Index, strings.TrimPrefix(ep.Thumb, "https://artworks.thetvdb.com")))
+				}
+			}
+		}
+		return strings.Join(out, ", ")
+	}
+
+	build := func(t *testing.T, abs ...int) (*Show, string) {
+		t.Helper()
+		return buildOn(t, newTestProvider(t, &fakeNet{answer: list(abs...)}))
+	}
+
+	for _, c := range []struct {
+		name string
+		abs  []int
+		want string // the line's attributes after the message
+	}{
+		{"TheTVDB's number twice in one season", []int{1, 1, 3, 4},
+			"tvdb=500 absolute=1 first=S01E01 second=S01E02 same_season=true own=true repeats=1"},
+		{"TheTVDB's numbers restart each season", []int{1, 2, 1, 2},
+			"tvdb=500 absolute=1 first=S01E01 second=S02E01 same_season=false own=true repeats=2"},
+		{"FillAbsolute's number is one TheTVDB uses in a later season", []int{0, 0, 1, 2},
+			"tvdb=500 absolute=1 first=S01E01 second=S02E01 same_season=false own=false repeats=2"},
+		{"FillAbsolute's number is one TheTVDB uses in the same season", []int{0, 1, 2, 3},
+			"tvdb=500 absolute=1 first=S01E01 second=S01E02 same_season=true own=false repeats=1"},
+		// S02E01 repeats S01E01's 1 first, but the pair inside season 2 is
+		// the one reported: it is the one that hides an episode.
+		{"both kinds of pair", []int{1, 2, 1, 1},
+			"tvdb=500 absolute=1 first=S02E01 second=S02E02 same_season=true own=true repeats=2"},
+		// The fill makes S01E01 1, which S01E02 has: that pair comes first,
+		// and is not TheTVDB's own, although S02E01 and S02E02 are an own
+		// repeat (5).
+		{"a filled pair before an own one", []int{0, 1, 5, 5},
+			"tvdb=500 absolute=1 first=S01E01 second=S01E02 same_season=true own=false repeats=2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, line := build(t, c.abs...)
+			if strings.Count(line, "\n") != 1 {
+				t.Fatalf("got %q, want one warning", line)
+			}
+			if want := `level=WARN msg="` + msg + `" ` + c.want + "\n"; !strings.HasSuffix(line, want) {
+				t.Errorf("got  %q\nwant %q at its end", line, want)
+			}
+		})
+	}
+
+	// The show is as without the warning: Show.Episode gives the list's first.
+	s, _ := build(t, 1, 1, 3, 4)
+	if got, want := episodes(s), "S1E1 /e1.jpg, S1E1 /e2.jpg, S2E3 /e3.jpg, S2E4 /e5.jpg"; got != want {
+		t.Errorf("episodes %q, want %q", got, want)
+	}
+	if ep := s.Episode(1, 1); ep == nil || ep.Thumb != "https://artworks.thetvdb.com/e1.jpg" {
+		t.Errorf("S01E01: %+v, want the list's first", ep)
+	}
+
+	for _, abs := range [][]int{{1, 2, 3, 4}, {2, 1, 4, 3}, {0, 0, 0, 0}} { // in order, out of order, all filled in
+		if _, line := build(t, abs...); line != "" {
+			t.Errorf("%v, no repeat: got %q, want no warning", abs, line)
+		}
+	}
+
+	// A series built again (Plex asks again, an incomplete show is rebuilt
+	// every 2 minutes) is warned about once per 10 minutes.
+	p := newTestProvider(t, &fakeNet{answer: list(1, 1, 3, 4)})
+	_, first := buildOn(t, p)
+	_, second := buildOn(t, p)
+	if strings.Count(first, "\n") != 1 || second != "" {
+		t.Errorf("two builds: %q then %q, want one warning, then none", first, second)
+	}
+}
+
+// Finding no repeat allocates nothing (a build's normal case), in order or
+// not, nor does the warning's check after it.
+func TestSharedAbsoluteNoAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts are off under the race detector")
+	}
+	p := &Provider{}
+	ordered := []sources.Episode{{Season: 1, Number: 1, Absolute: 1}, {Season: 1, Number: 2, Absolute: 2}, {Season: 0, Number: 1},
+		{Season: 2, Number: 1, Absolute: 3}}
+	unordered := []sources.Episode{{Season: 1, Number: 1, Absolute: 2}, {Season: 1, Number: 2, Absolute: 1}, {Season: 0, Number: 1},
+		{Season: 2, Number: 1, Absolute: 3}}
+	for i, eps := range [][]sources.Episode{ordered, unordered} {
+		if n := testing.AllocsPerRun(100, func() { p.warnSharedAbsolute(1, eps, sharedAbsolute(eps)) }); n != 0 {
+			t.Errorf("list %d (0: in order, 1: out of order): %v allocations, want 0", i, n)
+		}
 	}
 }
 
