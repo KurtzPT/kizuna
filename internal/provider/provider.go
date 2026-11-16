@@ -491,7 +491,7 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		slog.Info("show build ran out of time; using what came back, rebuilt in 2 min", "root", root)
 	}
 	if s != nil {
-		s.setImages()
+		s.setShared()
 	}
 	return s, err
 }

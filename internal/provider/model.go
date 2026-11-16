@@ -63,10 +63,14 @@ type Show struct {
 
 	build string // match report build that made it (report.Recorder.ID)
 
-	// images, seasonImages: the show's and each season's Plex image list,
-	// made once by setImages when the build is done (items.go).
+	// images, seasonImages: the show's and each season's Plex image list;
+	// path, seasons: the show's and each season's names in an item. All made
+	// once by setShared when the build is done (items.go), and only read
+	// after: every request shares them.
 	images       []Image
 	seasonImages map[int][]Image
+	path         string
+	seasons      map[int]seasonRef
 
 	// artBy: which sources gave the art, for the match report (nil with the
 	// reports off).
@@ -468,7 +472,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	aid := p.lists.FirstAID(tvdbID)
 	entry := p.lists.ByAID(aid)
 	tmdbShow := p.tmdbShowOf(ctx, tvdbID, entry)
-	b := newTVDBBuild(tvdbID, 0, aid, nil, nil)
+	b := newTVDBBuild(tvdbID, aid)
 	b.startTMDB(ctx, p, tmdbShow) // while TheTVDB's episode list downloads
 	defer b.started.Wait()        // a failed build too: nothing it started outlives it
 

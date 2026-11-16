@@ -67,13 +67,14 @@ func (p *Provider) withMode(h modeHandler) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "/" + mode.Path + " is off: " + why})
 			return
 		}
+		debug := debugOn(r.Context())
+		if !debug && p.reports == nil { // nothing reads the status, the size or the time
+			h(w, r, mode)
+			return
+		}
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-		debug := debugOn(r.Context())
-		var uri string // only for the debug log and the match report
-		if debug || p.reports != nil {
-			uri = fetch.Redact(r.URL.RequestURI())
-		}
+		uri := fetch.Redact(r.URL.RequestURI())
 		var rq *report.Request // filled in by the handler, for the match report
 		if p.reports != nil {
 			rq = &report.Request{Time: start, Mode: mode.Path, Method: r.Method, URL: uri}
@@ -122,7 +123,8 @@ func (e *everyTenMinutes) due(key string) bool {
 	return true
 }
 
-// recorder notes the status and size of an answer for the request log.
+// recorder notes the status and size of an answer for the request log and
+// the match report (withMode makes one only when either is on).
 type recorder struct {
 	http.ResponseWriter
 	status, bytes int

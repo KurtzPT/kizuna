@@ -59,9 +59,11 @@ func (p *Provider) showItem(mode Mode, s *Show, withChildren bool) Item {
 	return it
 }
 
-// setImages makes the show's and its seasons' image lists, once, when the
-// build is done: every request shares them.
-func (s *Show) setImages() {
+// setShared makes what the show's items share, once, when the build is
+// done: the show's and its seasons' image lists, and the names an episode
+// gives its season and show (else each of a page's episodes made them
+// again). Nothing changes them after: concurrent requests read them.
+func (s *Show) setShared() {
 	s.images = artImages(s.Art, s.Title)
 	if len(s.SeasonArt) > 0 {
 		s.seasonImages = make(map[int][]Image, len(s.SeasonArt))
@@ -71,6 +73,37 @@ func (s *Show) setImages() {
 			}
 		}
 	}
+	s.path = metadataPath + "/" + s.Root
+	s.seasons = make(map[int]seasonRef, len(s.Episodes))
+	for n := range s.Episodes {
+		s.seasons[n] = newSeasonRef(s, n)
+	}
+}
+
+// seasonRef is how a season's items name it: its rating key, its path
+// and its title.
+type seasonRef struct{ key, path, title string }
+
+func newSeasonRef(s *Show, n int) seasonRef {
+	key := seasonKey(s, n)
+	return seasonRef{key, metadataPath + "/" + key, seasonTitle(n)}
+}
+
+// seasonOf is season n's names: setShared's, else made now (a show made
+// without a build, or a season with no episodes).
+func (s *Show) seasonOf(n int) seasonRef {
+	if r, ok := s.seasons[n]; ok {
+		return r
+	}
+	return newSeasonRef(s, n)
+}
+
+// showPath is the show's path: setShared's, else made now.
+func (s *Show) showPath() string {
+	if s.path != "" {
+		return s.path
+	}
+	return metadataPath + "/" + s.Root
 }
 
 // artImages lists up to 10 images of each kind, in Plex's image types.
@@ -143,7 +176,8 @@ func (p *Provider) seasonItem(mode Mode, s *Show, n int, withChildren bool) *Ite
 }
 
 func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
-	sk := seasonKey(s, e.Season)
+	season := s.seasonOf(e.Season)
+	sk := season.key
 	title := e.Title
 	if title == "" {
 		title = fmt.Sprintf("Episode %d", e.Index)
@@ -152,9 +186,9 @@ func (p *Provider) episodeItem(mode Mode, s *Show, e *Ep) Item {
 	it.Index, it.ParentIndex = intp(e.Index), intp(e.Season)
 	it.Summary, it.Duration = e.Summary, e.Minutes*60000
 	setDate(&it, e.Date)
-	it.ParentRatingKey, it.ParentKey = sk, metadataPath+"/"+sk
-	it.ParentGUID, it.ParentType, it.ParentTitle = mode.GUID("season", sk), "season", seasonTitle(e.Season)
-	it.GrandparentRatingKey, it.GrandparentKey = s.Root, metadataPath+"/"+s.Root
+	it.ParentRatingKey, it.ParentKey = sk, season.path
+	it.ParentGUID, it.ParentType, it.ParentTitle = mode.GUID("season", sk), "season", season.title
+	it.GrandparentRatingKey, it.GrandparentKey = s.Root, s.showPath()
 	it.GrandparentGUID, it.GrandparentType, it.GrandparentTitle = mode.GUID("show", s.Root), "show", s.Title
 	if len(s.Art.Posters) > 0 {
 		it.GrandparentThumb = s.Art.Posters[0]

@@ -488,9 +488,10 @@ func (ss *showSources) pick(f *showField, order []string, has func(fieldValue, *
 }
 
 // fill sets every source-selectable field from the configured source orders.
-// A value already on s is kept only when no source has one. At debug, one
-// line per show says which source supplied each field ("-" = none). Whether
-// a source failed is told by finish, after fillSeasons.
+// The title, summary and date already on s are kept when no source has one;
+// the other fields and the art are replaced, so none left means empty. At
+// debug, one line per show says which source supplied each field ("-" =
+// none). Whether a source failed is told by finish, after fillSeasons.
 func (ss *showSources) fill(s *Show) {
 	cfg := &ss.p.cfg
 	done := ss.rec.Step("Show fields and artwork")

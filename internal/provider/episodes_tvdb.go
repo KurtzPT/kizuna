@@ -94,8 +94,10 @@ type tvdbBuild struct {
 	photos crewPhotos
 }
 
-func newTVDBBuild(tvdbID, tmdbID, aid int, first *sources.AniDBAnime, eps []sources.Episode) *tvdbBuild {
-	return &tvdbBuild{tvdbID: tvdbID, tmdbID: tmdbID, aid: aid, first: first, eps: eps}
+// newTVDBBuild starts a build of TheTVDB series tvdbID, whose first AniDB
+// entry is aid. The rest is set as the build learns it.
+func newTVDBBuild(tvdbID, aid int) *tvdbBuild {
+	return &tvdbBuild{tvdbID: tvdbID, aid: aid}
 }
 
 // tmdbOn reports whether TheMovieDb's episode list is fetched: only for a
