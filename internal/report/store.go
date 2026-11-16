@@ -33,6 +33,7 @@ type Store struct {
 	dir     string
 	version string
 	now     func() time.Time // when updates are due; the tests set it
+	timer   storeTimerFunc   // Run's timer; nil = time.NewTimer. Tests fire it themselves
 
 	flushMu    sync.Mutex // one flush at a time: they write the same files
 	mu         sync.Mutex
@@ -236,10 +237,9 @@ func (s *Store) wait(ctx context.Context) bool {
 		next, ok := s.nextDue()
 		s.mu.Unlock()
 		var due <-chan time.Time // nil: nothing to wait for but a new update
-		var timer *time.Timer
+		var timer storeTimer
 		if ok {
-			timer = time.NewTimer(next.Sub(s.now()))
-			due = timer.C
+			due, timer = s.newTimer(next.Sub(s.now()))
 		}
 		select {
 		case <-ctx.Done():
@@ -252,6 +252,21 @@ func (s *Store) wait(ctx context.Context) bool {
 			timer.Stop()
 		}
 	}
+}
+
+// storeTimer is Run's timer: a *time.Timer, or a test's.
+type storeTimer interface{ Stop() bool }
+
+// storeTimerFunc starts a timer that fires on the channel after d, as
+// time.NewTimer.
+type storeTimerFunc func(d time.Duration) (<-chan time.Time, storeTimer)
+
+func (s *Store) newTimer(d time.Duration) (<-chan time.Time, storeTimer) {
+	if s.timer != nil {
+		return s.timer(d)
+	}
+	t := time.NewTimer(d)
+	return t.C, t
 }
 
 // nextDue is when the next page, or the index, is due to be written; ok
