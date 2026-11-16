@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +16,12 @@ import (
 // reference page.
 func TestSettingsDocMatchesSettings(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "SETTINGS.md"))
+	if errors.Is(err, fs.ErrNotExist) {
+		// The image build runs the tests without the docs (.dockerignore
+		// keeps them out, so a doc edit builds no image): ci's go job, in
+		// the whole repository, is where this runs.
+		t.Skip("no SETTINGS.md here (the image's build context)")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
