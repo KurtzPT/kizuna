@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"kizuna/internal/config"
 	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
+	"kizuna/internal/report"
 	"kizuna/internal/sources"
 )
 
@@ -491,5 +494,82 @@ func TestExtras(t *testing.T) {
 	}
 	if rec := plexRequest(context.Background(), p, "GET", "/anidb/library/metadata/nonsense/extras", ""); rec.Code != 404 {
 		t.Errorf("a bad key: %d", rec.Code)
+	}
+}
+
+// The request log (at debug) and the match report note each answer's status
+// and size; with both off the answer is written straight to Plex. Either way
+// Plex gets the same answer: a show, and a 404.
+func TestRequestNotesTheAnswer(t *testing.T) {
+	defaultLists(t)
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	const show, missing = "/tvdb/library/metadata/tvdb-500", "/tvdb/library/metadata/tvdb-500-s9"
+	off := plexRequest(context.Background(), p, "GET", show, "")
+	offMissing := plexRequest(context.Background(), p, "GET", missing, "")
+	if off.Code != 200 || offMissing.Code != 404 {
+		t.Fatalf("off: status %d and %d, want 200 and 404", off.Code, offMissing.Code)
+	}
+
+	var logs strings.Builder
+	restore := captureLogs(&logs) // puts the log package back too
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	debug := plexRequest(context.Background(), p, "GET", show, "")
+	debugMissing := plexRequest(context.Background(), p, "GET", missing, "")
+	restore()
+	if debug.Code != off.Code || debug.Body.String() != off.Body.String() || debugMissing.Code != offMissing.Code ||
+		debugMissing.Body.String() != offMissing.Body.String() {
+		t.Errorf("debug: answers %d %d, want those sent with the log off", debug.Code, debugMissing.Code)
+	}
+	for _, c := range []struct {
+		path         string
+		status, size int
+	}{{show, 200, off.Body.Len()}, {missing, 404, offMissing.Body.Len()}} {
+		want := fmt.Sprintf("url=%s status=%d bytes=%d ", c.path, c.status, c.size)
+		if !slices.ContainsFunc(strings.Split(logs.String(), "\n"), func(l string) bool {
+			return strings.Contains(l, `msg="plex request"`) && strings.Contains(l, want)
+		}) {
+			t.Errorf("debug log has no line with %q:\n%s", want, logs.String())
+		}
+	}
+
+	store, dir, serve := reportsOn(t, p)
+	if code := serve("GET", show, ""); code != 200 {
+		t.Fatalf("reports on: status %d, want 200", code)
+	}
+	store.Flush()
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc) // the TVDB series' page is its AniDB entry's
+	if len(doc.Requests) != 1 || doc.Requests[0].Status != 200 || doc.Requests[0].Bytes != off.Body.Len() || doc.Requests[0].URL != show {
+		t.Errorf("reported requests %+v, want the show's with status 200 and %d bytes", doc.Requests, off.Body.Len())
+	}
+}
+
+// The names an episode gives its season and show are made once per build
+// (setShared) and shared by every request, in every mode that serves the
+// show: each episode's item is the one made without them, specials
+// included.
+func TestSharedNamesAsBefore(t *testing.T) {
+	defaultLists(t)
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	s, err := p.buildShow(context.Background(), "tvdb-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.seasons) != len(s.Episodes) || s.path != "/library/metadata/tvdb-500" || len(s.Episodes[0]) == 0 {
+		t.Fatalf("shared names %q %+v for seasons %d; want one per season, and specials", s.path, s.seasons, len(s.Episodes))
+	}
+	bare := *s
+	bare.path, bare.seasons = "", nil // made per episode, as before
+	for _, mode := range []string{"tvdb", "auto"} {
+		s.eachEpisode(func(ep *Ep) {
+			got, _ := json.Marshal(p.episodeItem(Modes[mode], s, ep))
+			want, _ := json.Marshal(p.episodeItem(Modes[mode], &bare, ep))
+			if string(got) != string(want) {
+				t.Errorf("/%s S%02dE%02d:\n%s\nwant\n%s", mode, ep.Season, ep.Index, got, want)
+			}
+		})
+	}
+	if it := p.episodeItem(Modes["tvdb"], s, &s.Episodes[0][0]); it.ParentTitle != "Specials" || it.ParentKey != "/library/metadata/tvdb-500-s0" {
+		t.Errorf("a special: parent %q %q, want Specials, /library/metadata/tvdb-500-s0", it.ParentTitle, it.ParentKey)
 	}
 }

@@ -419,6 +419,53 @@ func TestCrewPhotosPlexRequests(t *testing.T) {
 	}
 }
 
+// With no crew list, CREW_PHOTOS_FROM_PLEX does nothing even when Plex's
+// list is read for its titles: the walk takes no photo from it (not a key
+// worked out), and the build sends no crew and remembers no photo. Both
+// modes.
+func TestCrewPhotosNoCrewListPlexRead(t *testing.T) {
+	px := listAt(sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"Kamegaki Hajime"},
+		Photos: []sources.Person{{Name: "Kamegaki Hajime", Photo: plexKamegaki}}}})
+	noRecords := func([]string) (map[int]sources.Crew, bool) { return nil, false }
+	for _, c := range []struct {
+		name  string
+		order []string
+		want  bool // Plex's photos taken
+	}{
+		{"no crew list", nil, false},
+		{"a crew list without plex", []string{"tmdb"}, true},
+	} {
+		p := &Provider{}
+		p.cfg.EpisodeCrewSources, p.cfg.CrewPhotosFromPlex = c.order, true
+		var cp crewPhotos
+		p.walkCrew(&cp, pairedList{}, px, noRecords)
+		if got := cp.by[srcPlex] != nil || cp.keys != nil; got != c.want {
+			t.Errorf("%s: Plex photos %v, keys %v; want taken %v", c.name, cp.by[srcPlex], cp.keys, c.want)
+		}
+	}
+
+	for _, root := range []string{"tvdb-500", "anidb-100"} {
+		p, net := photoProvider(t, nil)
+		p.cfg.EpisodeCrewSources, p.cfg.CrewPhotosFromPlex = nil, true
+		p.cfg.EpisodeTitles = []string{"plex", "tvdb"} // Plex first: its list is read for the titles
+		s, err := p.buildShow(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := plexAsked(net, "p500s1/children"); n != 1 || !s.Complete {
+			t.Errorf("%s: Plex's list read %d times, complete %v; want once, complete", root, n, s.Complete)
+		}
+		ep := s.Episode(1, 1)
+		it := p.episodeItem(Modes["anidb"], s, ep)
+		if it.Title != "Plex One" || it.Director != nil || it.Writer != nil || it.Producer != nil || s.crew != nil {
+			t.Errorf("%s: S01E01 %q, crew %v %v %v (%+v); want Plex's title, no crew", root, it.Title, it.Director, it.Writer, it.Producer, s.crew)
+		}
+		if ph := p.crewMemory.photo(nameKey("Kamegaki Hajime")); ph != "" {
+			t.Errorf("%s: photo %q remembered, want none", root, ph)
+		}
+	}
+}
+
 // A movie gets no episode crew, and with CREW_PHOTOS_FROM_PLEX asks Plex
 // for no episode list.
 func TestCrewPhotosMovie(t *testing.T) {

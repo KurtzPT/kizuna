@@ -462,7 +462,9 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 	}}
 	s.eachEpisode(func(ep *Ep) { ep.setTitle("tvdb", fmt.Sprintf("TVDB S%dE%d", ep.listed.season, ep.listed.number)) })
 
-	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, newTVDBBuild(500, 0, 100, first, nil)); !ready {
+	b := newTVDBBuild(500, 100)
+	b.first = first
+	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, b); !ready {
 		t.Error("no AniDB client: nothing can be fetched, so nothing to wait for")
 	}
 	p.pickEpisodeTitles(s)
@@ -514,7 +516,9 @@ func TestTVDBPairingPerSite(t *testing.T) {
 	// 300 has no TMDB season: TheTVDB's spot would be a guess, so none.
 	other := map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}}
 
-	pr, ready := p.tvdbPairing(newTVDBBuild(500, 77, 100, first, nil), false)
+	b := newTVDBBuild(500, 100)
+	b.first, b.tmdbID = first, 77
+	pr, ready := p.tvdbPairing(b, false)
 	if !ready {
 		t.Error("every entry is cached, want ready")
 	}

@@ -68,7 +68,7 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *
 func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
 	records func(prior []string) (map[int]sources.Crew, bool)) (crew map[int]sources.Crew, pending bool) {
 	order := p.cfg.EpisodeCrewSources
-	if p.cfg.CrewPhotosFromPlex {
+	if p.cfg.CrewPhotosFromPlex && len(order) > 0 { // no crew list: no crew to put a photo on
 		cp.addList(srcPlex, px)
 	}
 	for i, src := range order {

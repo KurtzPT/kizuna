@@ -430,7 +430,7 @@ func TestSentReportByHand(t *testing.T) {
 			1: {{Season: 1, Index: 1, Title: "One", Date: "2020", Minutes: 24, src: epSources{date: srcAniDB, minutes: srcAniDB, summary: srcAniDB}}},
 			2: {{Season: 2, Index: 2, Title: "Two", Date: "200", src: epSources{date: srcTVDB}}},
 		}}
-	s.setImages()
+	s.setShared()
 	s.artBy = &artSources{show: artUsed{posterArt: {{"tvdb", 4}, {"tmdb", 8}}}}
 	rec := report.NewRecorder("anidb-100", "anidb")
 	p.finishReport(rec, "anidb-100", s, nil, time.Second)

@@ -251,7 +251,7 @@ func (ss *showSources) seasonArt(src string, n int) sources.Art {
 	if src == "tmdb" {
 		id, on = ss.tmdb, ss.p.tmdb.Enabled() && !ss.movie
 	}
-	if id == 0 || !on || ss.seasonArtOf == nil {
+	if id == 0 || !on {
 		return sources.Art{}
 	}
 	if src == "tmdb" && ss.tmdbListed {

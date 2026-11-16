@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,5 +179,33 @@ func BenchmarkLongFinishReport(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		p.finishReport(report.NewRecorder("anidb-100", "anidb"), "anidb-100", s, nil, 0)
+	}
+}
+
+// BenchmarkLongRequests are Plex's requests for a long show already built:
+// the show's own page, and a children page of 200 episodes.
+func BenchmarkLongRequests(b *testing.B) {
+	p := longProvider(b)
+	h := p.Handler()
+	serve := func(b *testing.B, path string) {
+		req := httptest.NewRequest("GET", path, nil)
+		req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != 200 {
+			b.Fatalf("%s: status %d", path, w.Code)
+		}
+	}
+	serve(b, "/anidb/library/metadata/anidb-100") // builds the show and keeps it: longProvider's build isn't kept
+	for _, c := range []struct{ name, path string }{
+		{"show", "/anidb/library/metadata/anidb-100"},
+		{"children200", "/anidb/library/metadata/anidb-100-s1/children?X-Plex-Container-Size=200"},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				serve(b, c.path)
+			}
+		})
 	}
 }
