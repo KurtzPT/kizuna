@@ -511,11 +511,11 @@ func TestRequestNotesTheAnswer(t *testing.T) {
 	}
 
 	var logs strings.Builder
-	old := slog.Default()
+	restore := captureLogs(&logs) // puts the log package back too
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	debug := plexRequest(context.Background(), p, "GET", show, "")
 	debugMissing := plexRequest(context.Background(), p, "GET", missing, "")
-	slog.SetDefault(old)
+	restore()
 	if debug.Code != off.Code || debug.Body.String() != off.Body.String() || debugMissing.Code != offMissing.Code ||
 		debugMissing.Body.String() != offMissing.Body.String() {
 		t.Errorf("debug: answers %d %d, want those sent with the log off", debug.Code, debugMissing.Code)
