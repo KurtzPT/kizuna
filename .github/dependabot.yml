@@ -40,9 +40,8 @@ updates:
     labels: ["dependencies"]
 
   # The Go tools: only the three tools themselves. Their own dependencies
-  # (go.sum, the indirect lines) follow from the tool's version; updating
-  # them on their own could build a tool against a library it wasn't
-  # released with. The tools are "// indirect" in go.mod (that's how go get
+  # (go.sum, the indirect lines) follow from the tools' versions and get no
+  # pull requests of their own. The tools are "// indirect" in go.mod (that's how go get
   # -tool writes them), hence dependency-type: all.
   - package-ecosystem: gomod
     directory: /.github/tools

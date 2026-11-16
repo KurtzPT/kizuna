@@ -2,10 +2,10 @@
 # go job is sure to have tested the same commit: run-tests below) and
 # publishes it to GitHub Container Registry, ghcr.io/<owner>/<repo>. Two jobs:
 #
-#   image    build + test only, read-only token. Runs for pull requests (the
+#   image    build (+ test, see run-tests) only, read-only token. Runs for pull requests (the
 #            required "image" check), pushes to main and manual runs of this
 #            workflow on any branch (e.g. a go-update PR). Never publishes.
-#   publish  build, test, push and attest. Only when the ci workflow calls
+#   publish  build (+ test on a tag), push and attest. Only when the ci workflow calls
 #            this one, after all of ci's checks passed on the same commit
 #            (ci.yml, jobs gate and docker; the check shows as
 #            "docker / publish"):
@@ -80,12 +80,15 @@ jobs:
           tags: type=sha
           cache: true
           version: sha
-          # Not again inside the build for a pull request into dev or main:
-          # ci runs its go job on the same commit, and the rulesets require
-          # both go and image before a merge. Every other run (a push to
-          # main, by hand, a pull request into another branch) has no such
-          # guarantee and tests in the build.
-          run-tests: ${{ !(github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) }}
+          # Not again inside the build for a pull request into dev: ci runs
+          # its go job on the same commit, and the ruleset requires both go
+          # and image before a merge. Every other run tests in the build: a
+          # push to main, by hand, a pull request into another branch, and a
+          # pull request into main (a release or a hotfix). The build's tests
+          # see only what .dockerignore lets in, on the image's own Go: a
+          # test that needs another file fails here and nowhere else, and
+          # that has to show before a tag, not at it.
+          run-tests: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'dev') }}
 
   publish:
     name: publish

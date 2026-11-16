@@ -18,11 +18,12 @@
 # The tools' versions (staticcheck, govulncheck, actionlint, zizmor) are in
 # .github/tools, where Dependabot updates them.
 #
-# Go cache: each job its own entry (actions/cache, not setup-go's: that is one
-# key for every job, and whichever job saved first left the others' tools
-# out). The key is the job, the exact Go version and the files that decide
-# what gets built (go.mod, the tools' go.sum): a new Go patch or tool version
-# starts a fresh entry, saved once by the first run that passes; until then
+# Go cache: the jobs go and workflows each have their own entry, the fuzz
+# targets one per package, and fuzz list reads go's (actions/cache, not
+# setup-go's: that is one key for every job, and whichever job saved first
+# left the others' tools out). The key is the job, the exact Go version and
+# the files that decide what that job builds (go.mod, the tools' go.sum, or
+# both): a new Go patch or tool version starts a fresh entry, saved once by the first run that passes; until then
 # an entry never changes. GitHub scopes entries by branch: a run reads what
 # its own branch and the default branch (main) saved, and a pull request's
 # base branch; what a pull request's run saves (a fork's too) only that pull
@@ -207,7 +208,9 @@ jobs:
         run: |
           set -e
           rows=()
-          for pkg in $(go list ./...); do
+          # on its own line: a package list that fails stops the step
+          pkgs=$(go list ./...)
+          for pkg in $pkgs; do
             # on its own line, not in a pipe: a package that doesn't build
             # stops the step
             list=$(go test -list '^Fuzz' "$pkg")
@@ -255,13 +258,15 @@ jobs:
       # One entry per package: its targets share the instrumented build (the
       # first to finish saves it; the others log that the key is taken).
       # Without the corpus go test -fuzz keeps in the build cache (fuzz/):
-      # every run starts from the seeds, as before.
+      # every run starts from the seeds, as before. The folder's entries are
+      # listed (/*) because an exclusion only takes away from what a pattern
+      # matched, and the folder alone would be archived whole.
       - name: Go cache
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cache/go-build
+            ~/.cache/go-build/*
             !~/.cache/go-build/fuzz
           key: ci-fuzz-${{ matrix.pkg }}-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod') }}
           # never true while the if above holds; it is what zizmor reads, and
@@ -276,7 +281,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: go test -run='^$' -fuzz="^$TARGET\$" -fuzztime=20s "$PKG"
 
-  # The check the gate (job docker) needs and a ruleset can require: one name
+  # The check the job docker needs and a ruleset can require: one name
   # however many targets there are. It fails when the list or any target
   # failed, or was skipped because of an earlier failure.
   fuzz:
@@ -448,7 +453,7 @@ jobs:
       packages: write     # push the image to GHCR
       id-token: write     # attestation: sign with the workflow's identity (Sigstore)
       attestations: write # attestation: store it on GitHub
-    # ./ and not the newer $/ form zizmor asks for: actionlint 1.7.12 doesn't know
+    # ./ and not the newer $/ form zizmor asks for: the pinned actionlint doesn't know
     # it. A reusable workflow is read from this commit either way, never from
     # the workspace.
     uses: ./.github/workflows/docker.yml # zizmor: ignore[self-repository]
