@@ -294,6 +294,50 @@ func TestGunzipLimit(t *testing.T) {
 	}
 }
 
+// sizedBody is a response body of n bytes made on the fly, so a test can
+// send a huge answer without holding it. It counts the bytes read.
+type sizedBody struct{ n, read int64 }
+
+func (b *sizedBody) Read(p []byte) (int, error) {
+	if b.read >= b.n {
+		return 0, io.EOF
+	}
+	k := min(int64(len(p)), b.n-b.read)
+	clear(p[:k])
+	b.read += k
+	return int(k), nil
+}
+
+func (b *sizedBody) Close() error { return nil }
+
+// A plain (not gzipped) answer of up to 64 MB is taken; a larger one fails
+// the download, isn't cached, and isn't read past the cap: a server that
+// sends without end can't fill the memory.
+func TestBodyCap(t *testing.T) {
+	c := New(t.TempDir())
+	var body *sizedBody
+	c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: body, Header: http.Header{}, Request: r}, nil
+	}))
+
+	body = &sizedBody{n: maxBody + 1<<20}
+	data, _, _, err := c.do(Request{URL: "http://api.example/big", Key: "big"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "larger than 64 MB") {
+		t.Fatalf("over the cap: %d bytes, err %v, want the size error", len(data), err)
+	}
+	if body.read > maxBody+1 {
+		t.Errorf("read %d bytes, want at most the cap and one more", body.read)
+	}
+	if _, _, ok := c.Cached("big"); ok {
+		t.Error("an answer over the cap was cached")
+	}
+
+	body = &sizedBody{n: maxBody}
+	if data, _, _, err := c.do(Request{URL: "http://api.example/max"}, nil); err != nil || len(data) != maxBody {
+		t.Fatalf("at the cap: %d bytes, err %v, want it taken", len(data), err)
+	}
+}
+
 // A corrupt gzipped answer fails the download and isn't cached.
 func TestCorruptGzipNotCached(t *testing.T) {
 	c := New(t.TempDir())

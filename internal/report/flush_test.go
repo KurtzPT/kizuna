@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -98,6 +99,86 @@ func TestRunFlushesAtShutdown(t *testing.T) {
 	readDoc(t, dir, "index", &rows)
 	if len(doc.Requests) != 1 || len(rows) != 1 || len(s.pending) != 0 {
 		t.Errorf("requests %+v, index %+v, %d pending: want everything written", doc.Requests, rows, len(s.pending))
+	}
+}
+
+// testTimer is Run's timer in TestRunWritesWhenDue: it fires when the test
+// says so, never by itself.
+type testTimer struct{}
+
+func (testTimer) Stop() bool { return true }
+
+// While Run runs, it waits until the next update is due and then writes
+// what is due, and only that: a page due later waits for its own time. A
+// new update wakes it to wait for the sooner one. The timer fires when the
+// test says, so nothing depends on the real clock.
+func TestRunWritesWhenDue(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir, "test")
+	start := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	var now atomic.Int64 // Run reads the clock while the test moves it
+	now.Store(start.UnixNano())
+	s.now = func() time.Time { return time.Unix(0, now.Load()).UTC() }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	asked, fire := make(chan time.Duration), make(chan time.Time)
+	s.timer = func(d time.Duration) (<-chan time.Time, storeTimer) {
+		select {
+		case asked <- d:
+		case <-ctx.Done():
+		}
+		return fire, testTimer{}
+	}
+	// nextAsk is the wait Run asks for next. The minute is only a safety
+	// net: a Run that never asks fails the test instead of hanging it.
+	nextAsk := func(why string) time.Duration {
+		t.Helper()
+		select {
+		case d := <-asked:
+			return d
+		case <-time.After(time.Minute):
+			t.Fatal("Run asked for no timer: " + why)
+			return 0
+		}
+	}
+
+	// A request only: due requestsEvery from now. Its signal is taken
+	// here, so Run starts with nothing to wake it but what comes next.
+	s.AddRequest(Request{Key: "anidb-1", Time: time.Now(), URL: "/a", Status: 200}) // a recent request: the page is kept
+	<-s.wake
+	done := make(chan struct{})
+	go func() { s.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	if d := nextAsk("a page is pending"); d != requestsEvery {
+		t.Errorf("Run waits %v, want %v", d, requestsEvery)
+	}
+
+	// A build for another page, due sooner (flushEvery): it wakes Run,
+	// which then waits for it instead.
+	now.Store(start.Add(5 * time.Second).UnixNano())
+	s.AddBuild("anidb-2", finished("anidb-2")) // due 7 s after start
+	if d := nextAsk("a sooner update must wake it"); d != flushEvery {
+		t.Errorf("after the build Run waits %v, want %v", d, flushEvery)
+	}
+	if pageExists(t, dir, "anidb-1") || pageExists(t, dir, "anidb-2") {
+		t.Fatal("a page was written before its timer fired")
+	}
+
+	// The build's time comes: Run writes its page, not the other one, and
+	// then waits for the other.
+	now.Store(start.Add(5*time.Second + flushEvery).UnixNano())
+	fire <- time.Time{}
+	if d := nextAsk("a page is still pending"); d != 3*time.Second { // asked after the write
+		t.Errorf("Run then waits %v, want 3s, for the first page", d)
+	}
+	if pageExists(t, dir, "anidb-1") || !pageExists(t, dir, "anidb-2") {
+		t.Errorf("pages written: first %v, second %v; want only the one due", pageExists(t, dir, "anidb-1"), pageExists(t, dir, "anidb-2"))
+	}
+
+	cancel()
+	<-done
+	if !pageExists(t, dir, "anidb-1") {
+		t.Error("Run ended without writing the first page")
 	}
 }
 

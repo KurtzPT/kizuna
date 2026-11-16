@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -89,6 +90,44 @@ func TestReadMatchManyQueryKeys(t *testing.T) {
 	})
 	if allocs > 10*n {
 		t.Errorf("%d query keys: %.0f allocs, want at most %d", n, allocs, 10*n)
+	}
+}
+
+// countingReader counts the bytes read from r.
+type countingReader struct {
+	r    io.Reader
+	read int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += n
+	return n, err
+}
+
+// A match body is read up to 1 MB and no further, so a client can't fill
+// the memory. A longer body is cut there: as JSON it no longer parses, and
+// Plex gets a 400. A body of 1 MB is read whole.
+func TestMatchBodyCap(t *testing.T) {
+	const limit = 1 << 20
+	body := func(size int) string { // a match body of exactly size bytes
+		const head, tail = `{"type":2,"title":"`, `"}`
+		return head + strings.Repeat("a", size-len(head)-len(tail)) + tail
+	}
+	over := &countingReader{r: strings.NewReader(body(2 * limit))}
+	if got, err := readMatch(httptest.NewRequest("POST", "/anidb/library/metadata/matches", over)); err == nil {
+		t.Errorf("a 2 MB body: title of %d bytes, want an error", len(got.Title))
+	}
+	if over.read > limit {
+		t.Errorf("read %d bytes of a 2 MB body, want at most %d", over.read, limit)
+	}
+	got, err := readMatch(httptest.NewRequest("POST", "/anidb/library/metadata/matches", strings.NewReader(body(limit))))
+	if err != nil || len(got.Title) != limit-len(`{"type":2,"title":""}`) {
+		t.Errorf("a 1 MB body: title of %d bytes, %v; want it whole", len(got.Title), err)
+	}
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	if rec := plexRequest(context.Background(), p, "POST", "/anidb/library/metadata/matches", body(2*limit)); rec.Code != 400 {
+		t.Errorf("a 2 MB body: HTTP %d, want 400", rec.Code)
 	}
 }
 

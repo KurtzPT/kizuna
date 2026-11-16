@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -571,5 +573,150 @@ func TestSharedNamesAsBefore(t *testing.T) {
 	}
 	if it := p.episodeItem(Modes["tvdb"], s, &s.Episodes[0][0]); it.ParentTitle != "Specials" || it.ParentKey != "/library/metadata/tvdb-500-s0" {
 		t.Errorf("a special: parent %q %q, want Specials, /library/metadata/tvdb-500-s0", it.ParentTitle, it.ParentKey)
+	}
+}
+
+// pagedShow is a show of 45 episodes in season 1 and 2 specials, cached in
+// a provider with no sources: requests are answered without a build.
+func pagedShow(t *testing.T) *Provider {
+	t.Helper()
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
+	s := &Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{}}
+	for i := 1; i <= 45; i++ {
+		s.Episodes[1] = append(s.Episodes[1], Ep{Season: 1, Index: i})
+	}
+	s.Episodes[0] = []Ep{{Season: 0, Index: 1}, {Season: 0, Index: 2}}
+	s.Art = sources.Art{Posters: []string{"https://img/p1.jpg", "https://img/p2.jpg"},
+		Backgrounds: []string{"https://img/b1.jpg"}, Logos: []string{"https://img/l1.png"}}
+	s.SeasonArt = map[int]sources.Art{1: {Posters: []string{"https://img/s1.jpg"}}}
+	s.Episodes[1][1].Thumb = "https://img/e2.jpg"
+	s.setShared()
+	p.shows["anidb-1"] = cachedShow{s, time.Now()}
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("must not be built") }
+	return p
+}
+
+// getContainer GETs path from p, with the headers given, and decodes the
+// answer, which must be a 200.
+func getContainer(t *testing.T, p *Provider, path string, header map[string]string) (Container, *httptest.ResponseRecorder) {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), "GET", path, nil)
+	req.RemoteAddr, req.Host = "127.0.0.1:1234", "kizuna:32600"
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, req)
+	var c Container
+	if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || rec.Code != 200 {
+		t.Fatalf("GET %s: HTTP %d %s (%v)", path, rec.Code, rec.Body, err)
+	}
+	return c, rec
+}
+
+// Plex sends the page it wants as X-Plex-Container-Start and -Size
+// headers, not only in the query string. A header wins over the query.
+// The answer's headers say where the page starts and how many items there
+// are in all.
+func TestPagingHeaders(t *testing.T) {
+	p := pagedShow(t)
+	for _, c := range []struct {
+		path, start, size string
+		n, total, idx     int // idx: index of the first item
+	}{
+		{"/anidb/library/metadata/anidb-1-s1/children", "40", "20", 5, 45, 41},
+		{"/anidb/library/metadata/anidb-1-s1/children", "", "3", 3, 45, 1},
+		{"/anidb/library/metadata/anidb-1-s1/children?X-Plex-Container-Start=0&X-Plex-Container-Size=50", "10", "2", 2, 45, 11},
+		{"/anidb/library/metadata/anidb-1/grandchildren", "45", "5", 2, 47, 44},
+	} {
+		h := map[string]string{"X-Plex-Container-Start": c.start, "X-Plex-Container-Size": c.size}
+		got, rec := getContainer(t, p, c.path, h)
+		mc := got.MediaContainer
+		if len(mc.Metadata) != c.n || mc.TotalSize != c.total || (c.n > 0 && *mc.Metadata[0].Index != c.idx) {
+			t.Errorf("%s start %q size %q: %d items of %d, want %d of %d from index %d",
+				c.path, c.start, c.size, len(mc.Metadata), mc.TotalSize, c.n, c.total, c.idx)
+		}
+		if want := strconv.Itoa(mc.Offset); rec.Header().Get("X-Plex-Container-Start") != want ||
+			rec.Header().Get("X-Plex-Container-Total-Size") != strconv.Itoa(c.total) {
+			t.Errorf("%s: answer headers %v, want start %s and total %d", c.path, rec.Header(), want, c.total)
+		}
+	}
+}
+
+// .../images lists a show's, a season's or an episode's pictures in Plex's
+// image types (posters, backgrounds, logos; an episode's still), and no
+// items. A season with no art of its own lists none.
+func TestImagesRoute(t *testing.T) {
+	p := pagedShow(t)
+	type img struct{ typ, url string }
+	for _, c := range []struct {
+		path string
+		want []img
+	}{
+		{"/anidb/library/metadata/anidb-1/images", []img{{"coverPoster", "https://img/p1.jpg"},
+			{"coverPoster", "https://img/p2.jpg"}, {"background", "https://img/b1.jpg"}, {"clearLogo", "https://img/l1.png"}}},
+		{"/anidb/library/metadata/anidb-1-s1/images", []img{{"coverPoster", "https://img/s1.jpg"}}},
+		{"/anidb/library/metadata/anidb-1-s0/images", nil},
+		{"/anidb/library/metadata/anidb-1-s1-e2/images", []img{{"snapshot", "https://img/e2.jpg"}}},
+	} {
+		got, _ := getContainer(t, p, c.path, nil)
+		mc := got.MediaContainer
+		var imgs []img
+		for _, i := range mc.Image {
+			imgs = append(imgs, img{i.Type, i.URL})
+		}
+		if !slices.Equal(imgs, c.want) || mc.Size != len(c.want) || mc.TotalSize != len(c.want) || len(mc.Metadata) != 0 {
+			t.Errorf("%s: images %v, size %d of %d, %d items; want %v and no items",
+				c.path, imgs, mc.Size, mc.TotalSize, len(mc.Metadata), c.want)
+		}
+	}
+	if rec := plexRequest(context.Background(), p, "GET", "/anidb/library/metadata/anidb-1-s7/images", ""); rec.Code != 404 {
+		t.Errorf("an unknown season's images: HTTP %d, want 404", rec.Code)
+	}
+}
+
+// A show or season asked for with ?includeChildren=1 carries its seasons
+// or all its episodes inline, the items .../children lists; without it,
+// none.
+func TestMetadataIncludeChildren(t *testing.T) {
+	p := pagedShow(t)
+	for _, c := range []struct{ path, children string }{
+		{"/anidb/library/metadata/anidb-1", "/anidb/library/metadata/anidb-1/children"},
+		{"/anidb/library/metadata/anidb-1-s1", "/anidb/library/metadata/anidb-1-s1/children?X-Plex-Container-Size=100"},
+	} {
+		got, _ := getContainer(t, p, c.path+"?includeChildren=1", nil)
+		want, _ := getContainer(t, p, c.children, nil)
+		items := got.MediaContainer.Metadata
+		if len(items) != 1 || items[0].Children == nil {
+			t.Fatalf("%s?includeChildren=1: %+v, want one item with children", c.path, items)
+		}
+		w := want.MediaContainer.Metadata
+		if len(w) == 0 || items[0].Children.Size != len(w) || !reflect.DeepEqual(items[0].Children.Metadata, w) {
+			t.Errorf("%s: %d children, want the %d of %s", c.path, items[0].Children.Size, len(w), c.children)
+		}
+		if plain, _ := getContainer(t, p, c.path, nil); plain.MediaContainer.Metadata[0].Children != nil {
+			t.Errorf("%s without includeChildren: children %+v, want none", c.path, plain.MediaContainer.Metadata[0].Children)
+		}
+	}
+}
+
+// A manual season or episode match (Plex's Match dialog on a season or an
+// episode) searches the typed show title and answers that season or
+// episode alone. Only a show's manual match is the Fix Match list of shows.
+func TestManualSeasonEpisodeMatch(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	for _, c := range []struct{ body, key, typ string }{
+		{`{"type":3,"parentTitle":"Kizuna Test","index":1,"manual":1}`, "tvdb-500-s1", "season"},
+		{`{"type":4,"grandparentTitle":"Kizuna Test","parentIndex":1,"index":2,"manual":1}`, "tvdb-500-s1-e2", "episode"},
+	} {
+		rec := plexRequest(context.Background(), p, "POST", "/tvdb/library/metadata/matches", c.body)
+		var got Container
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+			t.Fatalf("%s: HTTP %d %s (%v)", c.body, rec.Code, rec.Body, err)
+		}
+		if items := got.MediaContainer.Metadata; len(items) != 1 || items[0].RatingKey != c.key || items[0].Type != c.typ {
+			t.Errorf("%s: %+v, want the %s %s alone", c.body, items, c.typ, c.key)
+		}
 	}
 }
