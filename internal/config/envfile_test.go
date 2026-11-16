@@ -207,7 +207,8 @@ func TestBrokenLineNeverShowsItsText(t *testing.T) {
 // A pasted key that ends in '=' (base64) reads as NAME=value. Every
 // warning about such a line gives its number, never the text before '=':
 // an unknown name, a name not in upper case, a missing closing quote. A
-// setting Kizuna knows is still named.
+// setting Kizuna knows is still named (TestLowerCaseKeyIgnored: also one
+// written in lower case).
 func TestNameLikeKeyNeverShown(t *testing.T) {
 	writeEnvFile(t, "QUJDREVGR0VGR0Q=\n"+ // upper case: an unknown setting
 		"c2VjcmV0LXNlY3JldA==\n"+ // lower case
@@ -231,7 +232,9 @@ func TestNameLikeKeyNeverShown(t *testing.T) {
 			t.Errorf("no %q in %q", want, log)
 		}
 	}
-	for _, bad := range []string{"QUJD", "c2Vj", "ZGVm", "setting="} {
+	// Not in upper case either: a lower-case name is named only when its
+	// upper-case form is a setting Kizuna knows.
+	for _, bad := range []string{"QUJD", "c2Vj", "C2VJ", "ZGVm", "setting="} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}
@@ -239,10 +242,14 @@ func TestNameLikeKeyNeverShown(t *testing.T) {
 }
 
 // Only exact upper-case names count, on every OS: "min_score" must not set
-// MIN_SCORE (Windows env names ignore case) and is reported as unknown.
+// MIN_SCORE (Windows env names ignore case). Its warning names MIN_SCORE, the
+// name to write, as Kizuna knows that setting; "Max_Episodes" is no setting
+// in any case, so its warning gives the line alone. Neither shows the name as
+// written, nor a value. "mapping_sources", a retired setting, is silent, as
+// MAPPING_SOURCES is: written in upper case it would do nothing either.
 func TestLowerCaseKeyIgnored(t *testing.T) {
-	writeEnvFile(t, "min_score=score-value\nMax_Episodes=9\nTVDB_API_KEY=secret-key\n")
-	unset(t, "MIN_SCORE", "min_score", "Max_Episodes", "TVDB_API_KEY")
+	writeEnvFile(t, "min_score=score-value\nMax_Episodes=9\nTVDB_API_KEY=secret-key\nmapping_sources=x\n")
+	unset(t, "MIN_SCORE", "min_score", "Max_Episodes", "TVDB_API_KEY", "mapping_sources", "MAPPING_SOURCES")
 	f, err := LoadEnvFile()
 	if err != nil {
 		t.Fatal(err)
@@ -250,16 +257,20 @@ func TestLowerCaseKeyIgnored(t *testing.T) {
 	if _, set := os.LookupEnv("MIN_SCORE"); set {
 		t.Errorf("min_score set MIN_SCORE to %q", os.Getenv("MIN_SCORE"))
 	}
-	if !slices.Equal(f.Keys, []string{"TVDB_API_KEY"}) || !slices.Equal(f.Ignored, []string{"min_score", "Max_Episodes"}) {
+	if !slices.Equal(f.Keys, []string{"TVDB_API_KEY"}) || !slices.Equal(f.Ignored, []string{"min_score", "Max_Episodes", "mapping_sources"}) {
 		t.Errorf("keys %v ignored %v", f.Keys, f.Ignored)
 	}
 	log := warnings(t, func() { Load(); f.Log() })
-	for _, want := range []string{"line=1", "line=2", "settings=1", "upper case"} {
-		if !strings.Contains(log, want) {
-			t.Errorf("no %q in %q", want, log)
+	for _, want := range []*regexp.Regexp{
+		regexp.MustCompile(`(?m)setting not in upper case; ignoring it \(write the name in upper case\)" path=.+ line=1 setting=MIN_SCORE\r?$`),
+		regexp.MustCompile(`(?m)unknown setting \(names must be upper case\); ignoring it" path=.+ line=2\r?$`),
+		regexp.MustCompile(`settings=1`),
+	} {
+		if !want.MatchString(log) {
+			t.Errorf("no %s in %q", want, log)
 		}
 	}
-	for _, bad := range []string{"score-value", "secret-key", "min_score", "Max_Episodes"} {
+	for _, bad := range []string{"score-value", "secret-key", "min_score", "Max_Episodes", "MAX_EPISODES", "mapping_sources", "MAPPING_SOURCES", "line=4"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}

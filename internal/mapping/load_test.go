@@ -393,10 +393,10 @@ func TestLoadWarnsAboutCustomEntriesWithoutAniDBID(t *testing.T) {
 	}
 }
 
-// An anime-list-custom.xml without any element (0 bytes, blanks, a BOM, only
-// <?xml?> or a comment) has no entries: no error at each load, and the
-// entries of an earlier version are gone. A document cut off is still an
-// error.
+// An anime-list-custom.xml without any element (blanks, a BOM, only <?xml?>
+// or a comment) has no entries: no error at each load, and the entries of an
+// earlier version are gone. A document cut off is still an error. Zero bytes
+// is TestLoadZeroByteCustomFile.
 func TestLoadEmptyCustomFile(t *testing.T) {
 	dir := t.TempDir()
 	f := fetch.New(filepath.Join(dir, "cache"))
@@ -409,7 +409,7 @@ func TestLoadEmptyCustomFile(t *testing.T) {
 	if err := l.Load(context.Background(), f, dir); err != nil || l.ByAID(5).TVDB.ID != 500 {
 		t.Fatalf("custom file: %v, entry 5 %+v", err, l.ByAID(5))
 	}
-	for _, content := range []string{"", " \r\n\t", "\xef\xbb\xbf", "\xef\xbb\xbf\r\n",
+	for _, content := range []string{" \r\n\t", "\xef\xbb\xbf", "\xef\xbb\xbf\r\n",
 		`<?xml version="1.0" encoding="UTF-8"?>` + "\n", "<!-- nothing yet -->\n",
 		"\xef\xbb\xbf" + `<?xml version="1.0"?>` + "\n<!-- nothing yet -->\n"} {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -441,6 +441,134 @@ func TestLoadEmptyCustomFile(t *testing.T) {
 		if l.ByAID(5).TVDB.ID != 500 {
 			t.Errorf("custom file %q: entry 5 %+v, want the last good version kept", cut, l.ByAID(5))
 		}
+	}
+}
+
+// A zero-byte anime-list-custom.xml (an editor that truncates before it
+// writes, caught in between) keeps the custom entries of the load before,
+// with one warning per load, and never the lists' entries. With nothing to
+// keep (the first load after a start, or a load before that had none) it is
+// no entries and no warning. Deleting the file or leaving <anime-list/> in it
+// turns the corrections off; a broken file is handled as before.
+func TestLoadZeroByteCustomFile(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(filepath.Join(dir, "cache"))
+	f.SetTransport(lists{animeListsURL: goodAnimeLists, fribbURL: goodFribb})
+	path := filepath.Join(dir, "anime-list-custom.xml")
+	write := func(s string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const good = `<anime-list><anime anidbid="1" tvdbid="200" defaulttvdbseason="1"/>` +
+		`<anime anidbid="5" tvdbid="500" defaulttvdbseason="1"/></anime-list>`
+	logs := captureWarnings(t)
+	// load runs a load that must not fail and returns how many warnings
+	// about an empty file it logged.
+	load := func(l *Lists, what string) int {
+		t.Helper()
+		logs.Reset()
+		if err := l.Load(context.Background(), f, dir); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		return strings.Count(logs.String(), "anime-list-custom.xml is empty")
+	}
+	listsAlone := func(l *Lists, what string) {
+		t.Helper()
+		if l.ByAID(5).AID != 0 || l.ByAID(1).TVDB.ID != 100 || l.ByAID(2).MAL != 7 {
+			t.Errorf("%s: entry 1 %+v, entry 5 %+v, entry 2 %+v; want the lists alone", what, l.ByAID(1), l.ByAID(5), l.ByAID(2))
+		}
+	}
+	kept := func(l *Lists, what string) {
+		t.Helper()
+		if l.ByAID(1).TVDB.ID != 200 || l.ByAID(5).TVDB.ID != 500 || l.ByAID(2).MAL != 7 || !l.Ready() {
+			t.Errorf("%s: entry 1 %+v, entry 5 %+v, entry 2 %+v; want the custom entries over the lists", what, l.ByAID(1), l.ByAID(5), l.ByAID(2))
+		}
+		// Kept as custom entries are the custom file's alone: aid 2 comes
+		// from Fribb, aid 1's list entry is replaced, not merged.
+		if c := l.cur.Load().custom; len(c) != 2 || c[1].TVDB.ID != 200 || c[5].TVDB.ID != 500 {
+			t.Errorf("%s: custom entries %+v, want the file's two", what, c)
+		}
+	}
+
+	// The first load after a start: nothing to keep.
+	write("")
+	l := &Lists{}
+	if n := load(l, "first load, zero bytes"); n != 0 {
+		t.Errorf("first load, zero bytes: %d warnings, want none\n%s", n, logs)
+	}
+	listsAlone(l, "first load, zero bytes")
+
+	write(good)
+	load(l, "custom file")
+	kept(l, "custom file")
+	write("")
+	for i := range 2 { // kept on each load while it stays empty, warned each time
+		if n := load(l, "zero bytes"); n != 1 || strings.Count(logs.String(), "level=WARN") != 1 ||
+			!strings.Contains(logs.String(), "entries=2") {
+			t.Errorf("zero bytes, load %d: want one warning naming 2 entries, got\n%s", i, logs)
+		}
+		kept(l, fmt.Sprintf("zero bytes, load %d", i))
+	}
+	// The next load decides again: a file written after a keep applies, as
+	// it is, without a warning.
+	write(`<anime-list><anime anidbid="5" tvdbid="600" defaulttvdbseason="1"/></anime-list>`)
+	if n := load(l, "new file after zero bytes"); n != 0 {
+		t.Errorf("new file after zero bytes: %d warnings, want none", n)
+	}
+	if l.ByAID(5).TVDB.ID != 600 || l.ByAID(1).TVDB.ID != 100 {
+		t.Errorf("new file after zero bytes: entry 5 %+v, entry 1 %+v; want 600 and the lists' 100", l.ByAID(5), l.ByAID(1))
+	}
+	// And the first version written back after another keep.
+	write("")
+	if n := load(l, "zero bytes again"); n != 1 {
+		t.Errorf("zero bytes again: %d warnings, want one", n)
+	}
+	write(good)
+	if n := load(l, "good file back after zero bytes"); n != 0 {
+		t.Errorf("good file back after zero bytes: %d warnings, want none", n)
+	}
+	kept(l, "good file back after zero bytes")
+	// A broken file after a keep is reported, and the kept entries stay.
+	write("")
+	load(l, "zero bytes before broken")
+	write(`<anime-list><anime anidbid="1"`)
+	if err := l.Load(context.Background(), f, dir); err == nil || !strings.Contains(err.Error(), "anime-list-custom.xml ignored") {
+		t.Errorf("broken after zero bytes: %v, want it reported", err)
+	}
+	kept(l, "broken after zero bytes")
+
+	// A restart with the file still empty: nothing to keep.
+	write("")
+	l = &Lists{}
+	if n := load(l, "restart, zero bytes"); n != 0 {
+		t.Errorf("restart, zero bytes: %d warnings, want none", n)
+	}
+	listsAlone(l, "restart, zero bytes")
+
+	// Turning the corrections off: delete the file, or leave <anime-list/>.
+	// Zero bytes after either has nothing to keep.
+	for _, off := range []string{"delete", "<anime-list/>"} {
+		write(good)
+		load(l, off+": custom file")
+		kept(l, off+": custom file")
+		if off == "delete" {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			write(off)
+		}
+		if n := load(l, off); n != 0 {
+			t.Errorf("%s: %d warnings, want none", off, n)
+		}
+		listsAlone(l, off)
+		write("")
+		if n := load(l, off+", then zero bytes"); n != 0 {
+			t.Errorf("%s, then zero bytes: %d warnings, want none", off, n)
+		}
+		listsAlone(l, off+", then zero bytes")
 	}
 }
 

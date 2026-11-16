@@ -134,6 +134,18 @@ func (f EnvFile) Log() {
 		}
 	}
 	for _, k := range f.Ignored {
+		// Named only in upper case and only when Kizuna reads it: then the
+		// text is a setting's name, not a pasted key, and it is what to write.
+		// A retired one does nothing in any case: silent, as in upper case.
+		up := strings.ToUpper(k)
+		if slices.Contains(retiredVars, up) {
+			continue
+		}
+		if wasRead(up) || slices.Contains(externalVars, up) {
+			slog.Warn("settings file: setting not in upper case; ignoring it (write the name in upper case)",
+				"path", f.Path, "line", f.lines[k], "setting", up)
+			continue
+		}
 		slog.Warn("settings file: unknown setting (names must be upper case); ignoring it", "path", f.Path, "line", f.lines[k])
 	}
 }
