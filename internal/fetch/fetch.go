@@ -236,7 +236,7 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 		observe(ctx, r, start, KindCache, nil)
 		return data, nil
 	}
-	if err := c.knownNotFound(r, at); err != nil {
+	if err := c.knownNotFound(ctx, r, at); err != nil {
 		observe(ctx, r, start, KindCache, err)
 		return nil, err
 	}
@@ -614,12 +614,12 @@ func (c *Client) rememberNotFound(key string, se *StatusError) {
 // r.NotFoundTTL, as an error; nil when there is none. Only when no copy of
 // r is cached (at, its time, is zero): an expired copy must still answer a
 // failed download. A status no longer in r.NotFound is no answer.
-func (c *Client) knownNotFound(r Request, at time.Time) error {
+func (c *Client) knownNotFound(ctx context.Context, r Request, at time.Time) error {
 	if r.NotFoundTTL <= 0 || r.Key == "" || r.TTL <= 0 || !at.IsZero() {
 		return nil
 	}
 	now := time.Now()
-	data, _, ok := readCache(c.notFoundPath(r.Key), func(at time.Time) bool { return now.Sub(at) < r.NotFoundTTL })
+	data, since, ok := readCache(c.notFoundPath(r.Key), func(at time.Time) bool { return now.Sub(at) < r.NotFoundTTL })
 	if !ok {
 		return nil
 	}
@@ -627,6 +627,13 @@ func (c *Client) knownNotFound(r Request, at time.Time) error {
 	n, err := strconv.Atoi(code)
 	if err != nil || !slices.Contains(r.NotFound, n) {
 		return nil
+	}
+	// Without this line a source that isn't asked leaves no trace in a debug
+	// log. It names the key, like the cache lines, not the URL.
+	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		age := now.Sub(since)
+		slog.Debug("remembered not found", "key", r.Key, "status", n,
+			"age", age.Round(time.Minute), "asked_again_in", (r.NotFoundTTL - age).Round(time.Minute))
 	}
 	return fmt.Errorf("%w (remembered)", &StatusError{Code: n, URL: url})
 }

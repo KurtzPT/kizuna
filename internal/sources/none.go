@@ -20,8 +20,9 @@ var (
 )
 
 // noneTTL: how long a 404 for a list that may fill up later (a legacy
-// TheTVDB image or actor list, a TheMovieDb season) stands. A day, not the
-// week such a list is kept: new art or a new season shows up soon.
+// TheTVDB image or actor list) or a TheMovieDb record (a show, a movie, a
+// season, their images) stands. A day, not the week such a list is kept:
+// new art or a new season or record shows up soon.
 const noneTTL = 24 * time.Hour
 
 // askNoneAgain says whether an empty answer just read from the cache file

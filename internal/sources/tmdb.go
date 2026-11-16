@@ -36,22 +36,17 @@ func NewTMDB(f *fetch.Client, key string) *TMDB {
 
 func (t *TMDB) Enabled() bool { return t != nil && t.key != "" } // nil = not set up
 
-// get reads one answer of TheMovieDb. Its twin is tmdbShared: the URL and
-// the request they build must stay the same.
-func (t *TMDB) get(ctx context.Context, path, query, key string, ttl time.Duration, out any) error {
+// get reads one answer of TheMovieDb. Its twin is tmdbSharedAs: the request
+// they send must stay the same.
+func (t *TMDB) get(ctx context.Context, r fetch.Request, out any) error {
 	if !t.Enabled() {
 		return fmt.Errorf("tmdb: no api key")
 	}
-	return t.keys.getJSON(ctx, t.f, t.request(path, query, key, ttl), out)
+	return t.keys.getJSON(ctx, t.f, r, out)
 }
 
-// tmdbShared is t.get for a value its callers share and only read, kept
+// tmdbSharedAs is t.get for a value its callers share and only read, kept
 // in m. Its twin is get: see there.
-func tmdbShared[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T], path, query, key string, ttl time.Duration) (*T, error) {
-	return tmdbSharedAs(ctx, t, m, t.request(path, query, key, ttl))
-}
-
-// tmdbSharedAs is tmdbShared for a request the caller built with t.request.
 func tmdbSharedAs[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T], r fetch.Request) (*T, error) {
 	if !t.Enabled() {
 		return nil, fmt.Errorf("tmdb: no api key")
@@ -59,9 +54,20 @@ func tmdbSharedAs[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T]
 	return sharedJSON(ctx, t.keys, t.f, m, r)
 }
 
-// request is the request get and tmdbShared send for path.
+// request is the request for path, kept under key for ttl.
 func (t *TMDB) request(path, query, key string, ttl time.Duration) fetch.Request {
 	return fetch.Request{URL: fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query), Key: key, TTL: ttl}
+}
+
+// record is request for one of TheMovieDb's records (a show, a movie, a
+// season, their images), whose 404 says TheMovieDb has no such record. That
+// 404 is remembered a day: a build reads a record from several places (a
+// movie's text and its details share one), so each would ask again, at every
+// build. Not for find, which answers an unknown id with an empty list.
+func (t *TMDB) record(path, query, key string, ttl time.Duration) fetch.Request {
+	r := t.request(path, query, key, ttl)
+	r.NotFound, r.NotFoundTTL = only404, noneTTL
+	return r
 }
 
 // findTTL: how long TMDB's answer for a TVDB id is kept. An empty one (the
@@ -81,12 +87,12 @@ func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	}
 	var r found
 	path, query, key := fmt.Sprintf("/find/%d", tvdb), "&external_source=tvdb_id", fmt.Sprintf("tmdb/find-tvdb-%d.json", tvdb)
-	err := t.get(ctx, path, query, key, findTTL, &r)
+	err := t.get(ctx, t.request(path, query, key, findTTL), &r)
 	if err == nil && len(r.TV) == 0 && askNoneAgain(t.f, key, findNoneTTL, findTTL) {
 		// A failed re-ask (the copy pruned in between) keeps the empty
 		// answer: it is still TMDB's, and the show stays complete.
 		var again found
-		if t.get(ctx, path, query, key, findNoneTTL, &again) == nil {
+		if t.get(ctx, t.request(path, query, key, findNoneTTL), &again) == nil {
 			r = again
 		}
 	}
@@ -117,7 +123,7 @@ type tmdbSeason struct {
 // (EpisodesAndPosters), which need only the seasons. Its Seasons are
 // shared (TMDB.shows): read them, don't change them.
 func (t *TMDB) tv(ctx context.Context, id int) (tmdbShow, error) {
-	s, err := tmdbShared(ctx, t, t.shows, fmt.Sprintf("/tv/%d", id), "&language=en-US", fmt.Sprintf("tmdb/tv-%d.json", id), 2*24*time.Hour)
+	s, err := tmdbSharedAs(ctx, t, t.shows, t.record(fmt.Sprintf("/tv/%d", id), "&language=en-US", fmt.Sprintf("tmdb/tv-%d.json", id), 2*24*time.Hour))
 	if err != nil {
 		return tmdbShow{}, err
 	}
@@ -136,20 +142,21 @@ func (t *TMDB) Text(ctx context.Context, id int, movie bool) (name, overview str
 		Title    string `json:"title"`
 		Overview string `json:"overview"`
 	}
-	path, query, key := detailsRequest(id, true)
-	err = t.get(ctx, path, query, key, detailsTTL, &m)
+	err = t.get(ctx, t.details(id, true), &m)
 	return m.Title, m.Overview, err
 }
 
 const detailsTTL = 7 * 24 * time.Hour
 
-// detailsRequest: the path, query and cache key of a show's or movie's
-// Details, with its people and ratings appended.
-func detailsRequest(id int, movie bool) (path, query, key string) {
+// details is the request of a show's or movie's Details, with its people
+// and ratings appended.
+func (t *TMDB) details(id int, movie bool) fetch.Request {
 	if movie {
-		return fmt.Sprintf("/movie/%d", id), "&language=en-US&append_to_response=credits,release_dates", fmt.Sprintf("tmdb/movie-%d-details.json", id)
+		return t.record(fmt.Sprintf("/movie/%d", id), "&language=en-US&append_to_response=credits,release_dates",
+			fmt.Sprintf("tmdb/movie-%d-details.json", id), detailsTTL)
 	}
-	return fmt.Sprintf("/tv/%d", id), "&language=en-US&append_to_response=aggregate_credits,content_ratings", fmt.Sprintf("tmdb/tv-%d-details.json", id)
+	return t.record(fmt.Sprintf("/tv/%d", id), "&language=en-US&append_to_response=aggregate_credits,content_ratings",
+		fmt.Sprintf("tmdb/tv-%d-details.json", id), detailsTTL)
 }
 
 // Details returns genres, people, studio, content rating (US preferred) and
@@ -205,8 +212,7 @@ func (t *TMDB) Details(ctx context.Context, id int, movie bool) (Details, error)
 	if id == 0 {
 		return Details{}, nil
 	}
-	path, query, key := detailsRequest(id, movie)
-	if err := t.get(ctx, path, query, key, detailsTTL, &r); err != nil {
+	if err := t.get(ctx, t.details(id, movie), &r); err != nil {
 		return Details{}, err
 	}
 	d := Details{Date: r.FirstAir}
@@ -346,12 +352,11 @@ func (t *TMDB) EpisodesAndPosters(ctx context.Context, id int) ([]Episode, map[i
 // decoded once per file and shared (TMDB.seasons): read it, don't change it.
 func (t *TMDB) season(ctx context.Context, id, season int) (*tmdbSeasonFile, error) {
 	key := fmt.Sprintf("tmdb/tv-%d-s%d-images.json", id, season) // files from before the images had none: not read
-	r := t.request(fmt.Sprintf("/tv/%d/season/%d", id, season),
+	// A season the show lists but TMDB answers 404 for is remembered a day
+	// (record): the episode list, the season's text and its posters each
+	// read the file, so each build would ask up to three times.
+	r := t.record(fmt.Sprintf("/tv/%d/season/%d", id, season),
 		"&language=en-US&append_to_response=images&include_image_language=en,ja,null", key, 2*24*time.Hour)
-	// A season the show lists but TMDB answers 404 for is remembered a day:
-	// the episode list, the season's text and its posters each read the
-	// file, so each build would ask up to three times.
-	r.NotFound, r.NotFoundTTL = only404, noneTTL
 	return tmdbSharedAs(ctx, t, t.seasons, r)
 }
 
@@ -453,8 +458,8 @@ func (t *TMDB) Art(ctx context.Context, id int, movie bool) (Art, error) {
 	if id == 0 {
 		return Art{}, nil
 	}
-	if err := t.get(ctx, fmt.Sprintf("/%s/%d/images", kind, id), "&include_image_language=en,ja,null",
-		fmt.Sprintf("tmdb/%s-%d-images.json", kind, id), 7*24*time.Hour, &r); err != nil {
+	if err := t.get(ctx, t.record(fmt.Sprintf("/%s/%d/images", kind, id), "&include_image_language=en,ja,null",
+		fmt.Sprintf("tmdb/%s-%d-images.json", kind, id), 7*24*time.Hour), &r); err != nil {
 		return Art{}, err
 	}
 	var a Art

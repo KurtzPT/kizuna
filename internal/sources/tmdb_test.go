@@ -116,6 +116,96 @@ func TestTMDBMovieTextFromDetails(t *testing.T) {
 	}
 }
 
+// A movie or show TheMovieDb has no record of (404) is asked once a day,
+// not by each read of a build (a movie's text and details share one
+// address) nor at every build. Its images likewise.
+func TestTMDBMissingRecordRemembered(t *testing.T) {
+	const (
+		movie  = "api.themoviedb.org/3/movie/98?api_key=key&language=en-US&append_to_response=credits,release_dates"
+		images = "api.themoviedb.org/3/movie/98/images?api_key=key&include_image_language=en,ja,null"
+		show   = "api.themoviedb.org/3/tv/78?api_key=key&language=en-US"
+	)
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{}} // all three: 404
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	f.ThrottleAll(0)
+	ctx := context.Background()
+	build := func() {
+		t.Helper()
+		if _, _, err := tm.Text(ctx, 98, true); !fetch.IsNotFound(err) {
+			t.Errorf("movie text: %v, want its 404", err)
+		}
+		if _, err := tm.Details(ctx, 98, true); !fetch.IsNotFound(err) {
+			t.Errorf("movie details: %v, want its 404", err)
+		}
+		if _, err := tm.Art(ctx, 98, true); !fetch.IsNotFound(err) {
+			t.Errorf("movie art: %v, want its 404", err)
+		}
+		if _, _, err := tm.Text(ctx, 78, false); !fetch.IsNotFound(err) {
+			t.Errorf("show text: %v, want its 404", err)
+		}
+		if _, _, err := tm.EpisodesAndPosters(ctx, 78); !fetch.IsNotFound(err) {
+			t.Errorf("show episodes: %v, want its 404", err)
+		}
+	}
+	for b := 1; b <= 2; b++ {
+		build()
+		for _, u := range []string{movie, images, show} {
+			if c := n.count(u); c != 1 {
+				t.Errorf("build %d: %s asked %d times, want 1", b, u, c)
+			}
+		}
+	}
+	backdate(t, filepath.Join(dir, "tmdb", "movie-98-details.json.notfound"), noneTTL)
+	build()
+	if c := n.count(movie); c != 2 {
+		t.Errorf("after a day: the movie asked %d times in all, want 2", c)
+	}
+}
+
+// A movie whose cached copy expired still gets that copy when TheMovieDb now
+// answers 404: the remembered 404 never hides it, so it is asked at each
+// build. A 401 (a wrong key) is not remembered as "no such movie".
+func TestTMDBMissingRecordStaleCopy(t *testing.T) {
+	const movie = "api.themoviedb.org/3/movie/99?api_key=key&language=en-US&append_to_response=credits,release_dates"
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{movie: `{"title":"Movie","overview":"About it."}`}}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	f.ThrottleAll(0)
+	ctx := context.Background()
+	if name, _, err := tm.Text(ctx, 99, true); err != nil || name != "Movie" {
+		t.Fatalf("text %q %v", name, err)
+	}
+	backdate(t, filepath.Join(dir, "tmdb", "movie-99-details.json"), detailsTTL)
+	n.mu.Lock()
+	delete(n.answers, movie) // deleted on TheMovieDb: 404
+	n.mu.Unlock()
+	for b := 1; b <= 2; b++ {
+		if name, _, err := tm.Text(ctx, 99, true); err != nil || name != "Movie" {
+			t.Errorf("build %d: %q %v, want the stale copy", b, name, err)
+		}
+		if c := n.count(movie); c != 1+b {
+			t.Errorf("build %d: asked %d times in all, want %d", b, c, 1+b)
+		}
+	}
+
+	captureLogs(t) // the rejected key's error
+	n.mu.Lock()
+	n.answers["api.themoviedb.org/3/movie/97?api_key=key&language=en-US&append_to_response=credits,release_dates"] =
+		`401 {"status_code": 7, "status_message": "Invalid API key: You must be granted a valid key."}`
+	n.mu.Unlock()
+	if _, _, err := tm.Text(ctx, 97, true); err == nil || fetch.IsNotFound(err) {
+		t.Errorf("wrong key: %v, want the 401", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tmdb", "movie-97-details.json.notfound")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the 401 is remembered (stat: %v), want nothing kept", err)
+	}
+}
+
 // findTest is a TMDB client whose find answers come from n, with helpers
 // to age a cached find answer and to check what TVFromTVDB gives.
 type findTest struct {

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -169,6 +170,78 @@ func TestBuildTVDBShow(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(s.Guids, " "), "tmdb://77") {
 		t.Errorf("guids %v", s.Guids)
+	}
+}
+
+// Two regular episodes TheTVDB gives one absolute number are logged once per
+// build, with the series, the first such pair and how many repeat a number.
+// The show is built as before: in season 1 the first in the list holds the
+// number. A list without a repeat logs nothing, in order or not.
+func TestBuildTVDBSharedAbsolute(t *testing.T) {
+	const msg = "TheTVDB gives two episodes the same absolute number; only one of them is used for it"
+	list := func(abs ...int) func(string, map[string][]string) (int, string) {
+		return func(path string, q map[string][]string) (int, string) {
+			if path != "api4.thetvdb.com/v4/series/500/episodes/official/eng" {
+				return testSeries(path, q)
+			}
+			return 200, fmt.Sprintf(`{"data":{"episodes":[
+				{"id":11,"seasonNumber":1,"number":1,"absoluteNumber":%d,"image":"/e1.jpg"},
+				{"id":12,"seasonNumber":1,"number":2,"absoluteNumber":%d,"image":"/e2.jpg"},
+				{"id":13,"seasonNumber":2,"number":1,"absoluteNumber":%d,"image":"/e3.jpg"},
+				{"id":14,"seasonNumber":0,"number":1,"image":"/e4.jpg"}]},"links":{"next":null}}`, abs[0], abs[1], abs[2])
+		}
+	}
+	build := func(t *testing.T, abs ...int) (*Show, string) {
+		t.Helper()
+		p := newTestProvider(t, &fakeNet{answer: list(abs...)})
+		var logs strings.Builder
+		restore := captureLogs(&logs)
+		s, err := p.buildShow(context.Background(), "tvdb-500")
+		restore()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var warned []string // this build's lines: other tests' background work may log too
+		for line := range strings.Lines(logs.String()) {
+			if strings.Contains(line, `msg="`+msg+`"`) {
+				warned = append(warned, line)
+			}
+		}
+		return s, strings.Join(warned, "")
+	}
+	// episodes lists the show's regular episodes: season, index and thumb.
+	episodes := func(s *Show) string {
+		var out []string
+		for _, n := range s.Seasons() {
+			for _, ep := range s.Episodes[n] {
+				if n > 0 {
+					out = append(out, fmt.Sprintf("S%dE%d %s", n, ep.Index, strings.TrimPrefix(ep.Thumb, "https://artworks.thetvdb.com")))
+				}
+			}
+		}
+		return strings.Join(out, ", ")
+	}
+
+	s, line := build(t, 1, 1, 1) // S01E02 and S02E01 repeat S01E01's 1
+	if strings.Count(line, "\n") != 1 {
+		t.Fatalf("got %q, want one warning", line)
+	}
+	for _, want := range []string{"level=WARN", "tvdb=500", "absolute=1", "first=S01E01", "second=S01E02", "repeats=2"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("warning %q lacks %s", line, want)
+		}
+	}
+	if got, want := episodes(s), "S1E1 /e1.jpg, S1E1 /e2.jpg, S2E1 /e3.jpg"; got != want {
+		t.Errorf("episodes %q, want %q (as without the warning)", got, want)
+	}
+	if ep := s.Episode(1, 1); ep == nil || ep.Thumb != "https://artworks.thetvdb.com/e1.jpg" {
+		t.Errorf("S01E01: %+v, want the list's first", ep)
+	}
+
+	for _, abs := range [][]int{{1, 2, 3}, {2, 1, 3}} { // in order, and out of order
+		if _, line := build(t, abs...); line != "" {
+			t.Errorf("%v, no repeat: got %q, want no warning", abs, line)
+		}
 	}
 }
 

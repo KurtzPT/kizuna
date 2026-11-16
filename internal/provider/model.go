@@ -504,6 +504,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	s.addGuids(tmdbID, entry.IMDB)
 
 	sources.FillAbsolute(eps)
+	warnSharedAbsolute(tvdbID, eps)
 	b.tmdbID, b.eps, b.partial = tmdbID, eps, errors.Is(epsErr, sources.ErrIncomplete)
 	episodesFromList(s, b)
 	// What doesn't depend on AniDB's answer starts before it is in, as that
@@ -569,6 +570,51 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 	}
 	for n := range s.Episodes {
 		slices.SortStableFunc(s.Episodes[n], func(a, b Ep) int { return cmp.Compare(a.Index, b.Index) }) // sort.Slice allocates
+	}
+}
+
+// warnSharedAbsolute warns, once per build, when two regular episodes of a
+// TheTVDB list share an absolute number (TheTVDB's own, or one FillAbsolute
+// gave): only one of them is found by it, in its season and in the
+// pairing. Which one is left as it is; the line is for finding real cases.
+// It names the first such pair and how many episodes repeat a number.
+func warnSharedAbsolute(tvdbID int, eps []sources.Episode) {
+	// A list is nearly always in increasing order: a list without a repeat
+	// then costs one pass and nothing else.
+	regular := func(i int) bool { return eps[i].Season > 0 && eps[i].Absolute > 0 } // as indexEpisodes' byAbs
+	last, ordered := 0, true
+	for i := range eps {
+		if regular(i) {
+			if eps[i].Absolute <= last {
+				ordered = false
+				break
+			}
+			last = eps[i].Absolute
+		}
+	}
+	if ordered {
+		return
+	}
+	// Out of order: compared in place, as a map would allocate.
+	first, second, repeats := 0, 0, 0
+	for j := range eps {
+		if !regular(j) {
+			continue
+		}
+		for i := range j {
+			if regular(i) && eps[i].Absolute == eps[j].Absolute {
+				if repeats == 0 {
+					first, second = i, j
+				}
+				repeats++
+				break
+			}
+		}
+	}
+	if repeats > 0 {
+		slog.Warn("TheTVDB gives two episodes the same absolute number; only one of them is used for it",
+			"tvdb", tvdbID, "absolute", eps[first].Absolute, "first", spotName(eps[first]), "second", spotName(eps[second]),
+			"repeats", repeats)
 	}
 }
 

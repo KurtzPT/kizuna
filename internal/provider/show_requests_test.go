@@ -431,6 +431,28 @@ func TestShowRequestsGolden(t *testing.T) {
 	})
 }
 
+// A movie TheMovieDb has no record of (fieldWorld's 900 answers 404): its
+// 404 is remembered a day, so two builds ask it once, not once per build.
+// Its images too.
+func TestMovieMissingOnTMDBAskedOnce(t *testing.T) {
+	goldenEnv(t)
+	net := &fakeNet{answer: fieldWorld}
+	p := newTestProvider(t, net)
+	p.titles.SetForTest(map[int][]anidb.Title{300: {{Type: "main", Lang: "x-jat", Text: "Kizuna Film"}}})
+	p.lists.SetForTest(map[int]mapping.Entry{300: {AID: 300, TMDBMovie: 900, IMDB: "tt900"}})
+	for b := 1; b <= 2; b++ {
+		if _, err := p.buildShow(context.Background(), "anidb-300"); err != nil {
+			t.Fatalf("build %d: %v", b, err)
+		}
+		p.anidb.WaitIdle()
+		for _, path := range []string{"api.themoviedb.org/3/movie/900", "api.themoviedb.org/3/movie/900/images"} {
+			if n := net.count(path); n != 1 {
+				t.Errorf("build %d: %s asked %d times in all, want 1", b, path, n)
+			}
+		}
+	}
+}
+
 // What the show fields fetch ahead (warmEarly, warm) and what only fill
 // reaches, over the same grid, with the first entries StartsShow can't
 // give the builds above. A difference is a prefetch lost or added: one
