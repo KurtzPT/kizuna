@@ -45,6 +45,10 @@ list_versions() {
   fi
 }
 
+# Each registry call gives up after a minute (10 s to connect), like a failed
+# one: the run stops with nothing deleted, and the next scheduled run retries.
+CURL_TIMEOUTS=(--connect-timeout 10 --max-time 60)
+
 registry_token=
 # a manifest's JSON from the registry (the package is public: anonymous pull).
 # Call it in the main shell (m=$(manifest ...)), never in a pipe or <(...):
@@ -56,12 +60,17 @@ manifest() {
     printf '%s' "$MANIFESTS_JSON" | "$JQ" -c --arg d "$digest" '.[$d] // {}'
     return
   fi
-  curl -fsS --max-time 60 -H "Authorization: Bearer $registry_token" \
+  curl -fsS "${CURL_TIMEOUTS[@]}" -H "Authorization: Bearer $registry_token" \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
     "https://ghcr.io/v2/$image/manifests/$digest"
 }
 
-versions=$(list_versions)
+# a page that fails ends the listing (pipefail): what came before it is no
+# whole list, and versions missing from it can't be followed as kept
+versions=$(list_versions) || {
+  echo "::error::listing the versions of $image failed: stopping (nothing deleted)" >&2
+  exit 1
+}
 total=$(printf '%s' "$versions" | "$JQ" length)
 if [ "$total" -eq 0 ]; then
   echo "no versions found for $image: nothing to do"
@@ -91,7 +100,7 @@ by_tag=$(printf '%s' "$versions" | "$JQ" -c '
 
 # one registry token for every manifest lookup (-e: no token stops here)
 if [ -z "${MANIFESTS_JSON:-}" ]; then
-  registry_token=$(curl -fsS --max-time 60 "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
+  registry_token=$(curl -fsS "${CURL_TIMEOUTS[@]}" "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
     echo "::error::no registry token for $image: stopping (nothing deleted)" >&2
     exit 1
   }

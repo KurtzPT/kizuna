@@ -93,15 +93,33 @@ out=$(env -u PACKAGE -u GITHUB_REPOSITORY OWNER=Someone \
 	VERSIONS_JSON='[]' MANIFESTS_JSON='{}' bash "$SCRIPT" 2>&1)
 check "package default" "$out" "no versions found for someone/kizuna: nothing to do"
 
-# The real registry path, with curl and gh faked by exported functions:
-# curl answers from FAKE_MANIFESTS, needs the token, and fails for the token
-# when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken) or for the
-# manifest FAKE_FAIL names; gh prints and logs each call to GH_LOG (the
-# script sends its output to /dev/null).
+# created_at with fractional seconds is read like a whole second: the
+# oldest sha-* build beyond KEEP_COUNT and KEEP_DAYS and the old leftover go,
+# the fresh upload stays
+out=$(run "$(list "$(
+	version 1 sha256:dev 2026-09-01T00:00:00.5Z dev
+	version 2 sha256:a 2026-11-01T00:00:00.123456Z sha-a
+	version 3 sha256:b 2026-08-01T00:00:00.9Z sha-b
+	version 4 sha256:c 2026-07-01T00:00:00.1Z sha-c
+	version 5 sha256:fresh 2026-11-08T20:00:00.75Z
+	version 6 sha256:old 2026-10-01T00:00:00.000Z
+)")" '{}')
+check "fractional seconds: exit" "$?" 0
+check "fractional seconds: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "4 6 "
+
+# The real API and registry paths, with curl and gh faked by exported
+# functions: curl answers from FAKE_MANIFESTS, needs the token, and fails for
+# the token when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken)
+# or for the manifest FAKE_FAIL names, and logs its arguments to CURL_LOG; gh
+# lists the versions in two pages, FAKE_PAGE1 and FAKE_PAGE2 (failing after
+# the first when FAKE_FAIL=list), and prints and logs every other call to
+# GH_LOG (the script sends its output to /dev/null).
 GH_LOG=$(mktemp "${TMPDIR:-/tmp}/ghcr-cleanup-test.XXXXXX") || exit 1
-trap 'rm -f -- "$GH_LOG"' EXIT
+CURL_LOG=$(mktemp "${TMPDIR:-/tmp}/ghcr-cleanup-test.XXXXXX") || exit 1
+trap 'rm -f -- "$GH_LOG" "$CURL_LOG"' EXIT
 curl() {
 	local url=${!#}
+	echo "$*" >>"$CURL_LOG"
 	case $url in
 	*/token?*)
 		[[ ${FAKE_FAIL:-} == token ]] && return 22
@@ -116,14 +134,43 @@ curl() {
 	esac
 }
 gh() {
+	if [[ $1 == api && $2 == --paginate ]]; then
+		[[ $3 == "/users/Someone/packages/container/kizuna/versions?per_page=100" ]] || return 1
+		printf '%s\n' "$FAKE_PAGE1"
+		[[ ${FAKE_FAIL:-} == list ]] && return 1
+		printf '%s\n' "$FAKE_PAGE2"
+		return
+	fi
 	echo "gh $*"
 	echo "gh $*" >>"$GH_LOG"
 }
 export -f curl gh
-export FAKE_MANIFESTS=$manifests GH_LOG
+export FAKE_MANIFESTS=$manifests GH_LOG CURL_LOG
+FAKE_PAGE1=$(printf '%s' "$versions" | "${JQ:-jq}" -c '.[:7]')
+FAKE_PAGE2=$(printf '%s' "$versions" | "${JQ:-jq}" -c '.[7:]')
+export FAKE_PAGE1 FAKE_PAGE2
 
 out=$(run "$versions" '')
 check "registry: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "6 8 7 12 "
+# every registry call has a time limit, to connect and in all
+check "registry: curl called" "$(($(wc -l <"$CURL_LOG") > 0))" 1
+check "registry: every curl call has time limits" \
+	"$(($(grep -cv -- '--connect-timeout [0-9]' "$CURL_LOG") + $(grep -cv -- '--max-time [0-9]' "$CURL_LOG")))" 0
+
+# the versions from the API, two pages joined, plan the same
+out=$(run '' '')
+check "listing: exit" "$?" 0
+check "listing: pages joined" "$(head -n 1 <<< "$out")" "someone/kizuna: 12 versions, keeping 8, deleting 4"
+check "listing: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "6 8 7 12 "
+
+# a listing that fails after its first page stops the run: the versions on
+# the missing page can't be followed as kept
+out=$(FAKE_FAIL=list DELETE=true run '' '')
+check "listing fails: stopped" "$(($? != 0))" 1
+check "listing fails: nothing planned or deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")" 0
+check "listing fails: says why" "$(tail -n 1 <<< "$out")" \
+	"::error::listing the versions of someone/kizuna failed: stopping (nothing deleted)"
+check "listing fails: gh never deletes" "$(cat "$GH_LOG")" ""
 
 # a failed lookup stops the run before anything is planned or deleted
 for fail in token notoken sha256:dev sha256:devatt; do
