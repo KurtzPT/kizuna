@@ -168,6 +168,157 @@ func TestRename(t *testing.T) {
 	}
 }
 
+// libraryShow is a show of /library/all with the GUID its provider gave it.
+func libraryShow(key, guid string) string {
+	return fmt.Sprintf(`{"ratingKey":%q,"guid":%q,"title":"Show %s"}`, key, guid, key)
+}
+
+// wholeLibrary is a Plex that ignores guid= and answers with every show:
+// guid's and the next one's, and one from another provider.
+func wholeLibrary() *fakePlex {
+	return &fakePlex{
+		shows: container(libraryShow("100", "plex://show/5d9c086c46115600200aa2fe"), libraryShow("200", guid),
+			libraryShow("300", guid24)),
+		extras: map[string]string{
+			"100": container(extra("101", "OP1", "opening", "/media/Other/OP1.mkv")),
+			"200": container(extra("201", "OP1", "opening", "/media/Show/OP1.mkv")),
+			"300": container(extra("301", "ED1", "ending", "/media/Next/ED1.mkv")),
+		},
+	}
+}
+
+const (
+	guid24    = "tv.plex.agents.custom.kizuna.anidb://show/anidb-24"
+	findAll24 = "GET /library/all?type=2&guid=tv.plex.agents.custom.kizuna.anidb%3A%2F%2Fshow%2Fanidb-24"
+	ignored   = "Plex ignores the guid filter"
+)
+
+// A Plex that ignores guid= costs one warning, and only the show asked for
+// has its extras read and renamed.
+func TestRenameUnfiltered(t *testing.T) {
+	out := logs(t)
+	plex := wholeLibrary()
+	r, _ := renamer(plex)
+	shows, err := r.rename(bg, guid, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameCalls(t, plex.calls, []string{findAll, "GET /library/metadata/200/extras", "PUT /library/metadata/201?title.value=Opening+1"})
+	if want := []show{{"200", "Show 200"}}; !slices.Equal(shows, want) {
+		t.Errorf("shows = %v, want %v", shows, want)
+	}
+	got := out.String()
+	if strings.Count(got, ignored) != 1 || strings.Count(got, "level=WARN") != 1 || !strings.Contains(got, "skipped=2") ||
+		strings.Contains(got, "secret") || strings.Contains(got, "plex:32400") {
+		t.Errorf("logs:\n%s\nwant one warning that Plex ignores the filter", got)
+	}
+}
+
+// The warning comes once per Renamer, not once per show: a library scan on
+// such a Plex queues hundreds. Each show still gets its own titles.
+func TestRenameUnfilteredWarnsOnce(t *testing.T) {
+	out := logs(t)
+	plex := wholeLibrary()
+	r, c := renamer(plex)
+	r.Queue(guid)
+	r.Queue(guid24)
+	c.add(passes[0])
+	r.work(bg)
+	sameCalls(t, plex.calls, []string{
+		findAll, "GET /library/metadata/200/extras", "PUT /library/metadata/201?title.value=Opening+1",
+		findAll24, "GET /library/metadata/300/extras", "PUT /library/metadata/301?title.value=Ending+1",
+	})
+	if n := strings.Count(out.String(), ignored); n != 1 {
+		t.Errorf("%d warnings for two shows, want 1:\n%s", n, out)
+	}
+	c.add(passes[1]) // the second looks use the shows found, and the show is done
+	r.work(bg)
+	c.add(warnEvery) // not a once-a-minute warning
+	plex.calls = nil
+	r.Queue(guid) // refreshed again: Plex is asked anew
+	c.add(passes[0])
+	r.work(bg)
+	sameCalls(t, plex.calls, []string{findAll, "GET /library/metadata/200/extras", "PUT /library/metadata/201?title.value=Opening+1"})
+	if n := strings.Count(out.String(), ignored); n != 1 {
+		t.Errorf("%d warnings after the show was asked for again, want still 1:\n%s", n, out)
+	}
+}
+
+// Every answer a Plex that applies the filter can give is taken whole and
+// without a warning: the same show in two libraries, a show whose GUID Plex
+// leaves out, and GUIDs written back in a form that never equals the one
+// asked for. A GUID that isn't a string, in a show or an extra, is read as
+// none: it never fails the answer.
+func TestRenameFiltered(t *testing.T) {
+	for _, c := range []struct {
+		name, shows string
+		extraField  string // added to every extra of show 100
+	}{
+		{"one library", container(libraryShow("100", guid)), ""},
+		{"two libraries", container(libraryShow("100", guid), libraryShow("200", guid)), ""},
+		{"no guid", container(`{"ratingKey":"100","title":"Show 100"}`, `{"ratingKey":"200","title":"Show 200"}`), ""},
+		{"one without a guid, with Plex's external IDs", container(libraryShow("100", guid),
+			`{"ratingKey":"200","title":"Show 200","Guid":[{"id":"tvdb://81797"},{"id":"imdb://tt0388629"}]}`), ""},
+		{"a guid and external IDs", container(
+			`{"ratingKey":"100","guid":"`+guid+`","title":"Show 100","Guid":[{"id":"tvdb://81797"}]}`,
+			`{"ratingKey":"200","title":"Show 200","guid":"`+guid+`","Guid":[{"id":"anidb://23"}]}`), ""},
+		{"another form", container(libraryShow("100", strings.ToUpper(guid)), libraryShow("200", guid+"?lang=en")), ""},
+		{"a number", container(`{"ratingKey":"100","guid":5}`, libraryShow("200", guid)), `"guid":5`},
+		{"an array", container(`{"ratingKey":"100","guid":["a"]}`, libraryShow("200", guid)), `"guid":["a"]`},
+		{"another spelling", container(`{"ratingKey":"100","GUID":[1]}`, libraryShow("200", guid)), `"GUID":[1]`},
+		{"an extra's own guid", container(libraryShow("100", guid), libraryShow("200", guid)),
+			`"guid":"file:///media/Show/Show%20-%20OP01.mkv"`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out := logs(t)
+			plex := twoLibraries()
+			plex.shows = c.shows
+			if c.extraField != "" {
+				plex.extras["100"] = strings.ReplaceAll(plex.extras["100"], `{"ratingKey"`, "{"+c.extraField+`,"ratingKey"`)
+			}
+			r, _ := renamer(plex)
+			if _, err := r.rename(bg, guid, nil); err != nil {
+				t.Error(err)
+			}
+			want := []string{
+				findAll,
+				"GET /library/metadata/100/extras",
+				"PUT /library/metadata/101?title.value=Opening+1",
+				"PUT /library/metadata/102?title.value=Opening+1a",
+				"PUT /library/metadata/104?title.value=Ending+1+%28creditless%29",
+				"PUT /library/metadata/105?title.value=Ending+1",
+				"GET /library/metadata/200/extras",
+				"PUT /library/metadata/201?title.value=Opening",
+			}
+			if c.name == "one library" {
+				want = want[:6]
+			}
+			sameCalls(t, plex.calls, want)
+			if got := out.String(); strings.Contains(got, "level=WARN") {
+				t.Errorf("logs:\n%s\nwant no warning", got)
+			}
+		})
+	}
+}
+
+// In an answer that is cut, a show without a GUID is kept with the asked one.
+func TestRenameUnfilteredKeepsNoGUID(t *testing.T) {
+	out := logs(t)
+	plex := wholeLibrary()
+	plex.shows = strings.TrimSuffix(plex.shows, "]}}") + `,{"ratingKey":"400","title":"Show 400"}]}}`
+	plex.extras["400"] = container(extra("401", "ED2", "ending", "/media/Show/ED2.mkv"))
+	r, _ := renamer(plex)
+	if _, err := r.rename(bg, guid, nil); err != nil {
+		t.Fatal(err)
+	}
+	sameCalls(t, plex.calls, []string{findAll,
+		"GET /library/metadata/200/extras", "PUT /library/metadata/201?title.value=Opening+1",
+		"GET /library/metadata/400/extras", "PUT /library/metadata/401?title.value=Ending+2"})
+	if got := out.String(); strings.Count(got, ignored) != 1 || !strings.Contains(got, "skipped=2") {
+		t.Errorf("logs:\n%s\nwant one warning, two shows skipped", got)
+	}
+}
+
 // One title Plex refuses doesn't keep the others, or the next library, from
 // theirs. The error names each call that failed.
 func TestRenameGoesOn(t *testing.T) {
