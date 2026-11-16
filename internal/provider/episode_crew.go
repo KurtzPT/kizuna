@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"slices"
+	"time"
 
 	"kizuna/internal/sources"
 )
@@ -103,7 +104,24 @@ func (p *Provider) tvdbCrew(ctx context.Context, s *Show, prior []string, cp *cr
 			ids = append(ids, ep.tvdbEp)
 		}
 	})
-	return p.tvdb.EpisodeCrew(ctx, ids) // no ids: no request
+	return p.tvdb.EpisodeCrew(ctx, ids, lastAired(s)) // no ids: no request
+}
+
+// lastAired is the air date of s's latest episode (zero: none has a date),
+// read as the last day a partial date can mean. TheTVDB keeps the crew
+// records of a series finished long ago longer (TVDB.EpisodeCrew). The
+// show's own dates are in hand in both modes: no request, and in /anidb they
+// are the entry's, the episodes its records are asked for.
+func lastAired(s *Show) time.Time {
+	var last time.Time
+	for _, eps := range s.Episodes { // the latest of all: the order doesn't matter
+		for i := range eps {
+			if d, ok := sources.LastDay(eps[i].Date); ok && d.After(last) {
+				last = d
+			}
+		}
+	}
+	return last
 }
 
 // lacksCrew: after the sources in order (tm and px as for applyCrew), ep

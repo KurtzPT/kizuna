@@ -124,14 +124,14 @@ func TestTVDBCrewWorkerPanicRaisedOnCaller(t *testing.T) {
 	}
 	tv, n := newTVDBTest(t, answers, "v4key", "", "")
 	tv.f.ThrottleAll(0)
-	p := raised(t, func() { _, _ = tv.EpisodeCrew(panicsOn("episodes/"), ids) })
+	p := raised(t, func() { _, _ = tv.EpisodeCrew(panicsOn("episodes/"), ids, time.Time{}) })
 	checkRaised(t, p, "crewJob")
 	if c := n.count(v4 + "/episodes/" + strconv.Itoa(len(ids)) + "/extended"); c != 1 {
 		t.Errorf("the last record asked %d times, want 1: every record is taken", c)
 	}
 	tv.WaitIdle()
 	// Nothing was left queued or held: the records are read from the cache.
-	crew, pending := tv.EpisodeCrew(context.Background(), ids)
+	crew, pending := tv.EpisodeCrew(context.Background(), ids, time.Time{})
 	if len(crew) != len(ids) || pending {
 		t.Errorf("next call: %d records, pending %v; want all %d", len(crew), pending, len(ids))
 	}
@@ -143,7 +143,7 @@ func TestTVDBBackgroundCrewPanicLogged(t *testing.T) {
 	tv, _ := newTVDBTest(t, map[string]string{v4 + "/login": `{"data":{"token":"t"}}`}, "v4key", "", "") // the records: 404
 	tv.f.ThrottleAll(0)
 	logs := panicLogs(t, "tvdb: episode record not available")
-	tv.queueCrew([]int{1, 2})
+	tv.queueCrew([]int{1, 2}, crewTTL)
 	tv.WaitIdle()
 	if c := strings.Count(logs.String(), `msg="tvdb: background episode record panicked"`); c != 2 {
 		t.Fatalf("%d panics logged, want 2 (one per record):\n%s", c, logs)

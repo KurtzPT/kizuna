@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	crewTTL     = 7 * 24 * time.Hour
-	crewRetry   = time.Hour // a record that failed isn't asked again for this long
-	crewWorkers = 4         // the host throttle sets the pace; this just hides latency
+	crewTTL     = 7 * 24 * time.Hour  // a record's life while its series airs
+	crewDoneTTL = 30 * 24 * time.Hour // once the series is finished: its crew rarely changes
+	crewRetry   = time.Hour           // a record that failed isn't asked again for this long
+	crewWorkers = 4                   // the host throttle sets the pace; this just hides latency
 )
 
 // crewBudget: how long a show build fetches episode records itself; the rest
@@ -25,6 +26,19 @@ const (
 var crewBudget = 8 * time.Second
 
 func crewKey(id int) string { return fmt.Sprintf("episodes/%d.json", id) }
+
+// crewLife is how long a series' episode records are kept, by the air date
+// of its latest episode (lastAired; zero: none known). A series whose latest
+// episode aired over endedFor ago counts as finished, as for AniDB: a
+// 1,000-episode series that ended years ago would otherwise download its
+// 1,000 records again every week. One still airing has a recent episode, so
+// all its records keep the short life. Unknown: airing.
+func crewLife(lastAired, now time.Time) time.Duration {
+	if lastAired.IsZero() || now.Sub(lastAired) < endedFor {
+		return crewTTL
+	}
+	return crewDoneTTL
+}
 
 // episodeRecord is the part of a v4 extended episode record kept here.
 type episodeRecord struct {
@@ -78,14 +92,16 @@ func crewType(t string) bool {
 // TheTVDB v4 episodes, by episode id. v4 has them only in one record per
 // episode: cached records are
 // used (stale ones refreshed in the background), missing ones are fetched for
-// up to crewBudget and the rest in the background (queueCrew).
+// up to crewBudget and the rest in the background (queueCrew). lastAired:
+// the air date of the series' latest episode (zero: unknown), which sets how
+// long the records are kept (crewLife).
 // pending: some records are still missing and worth asking for again, so
 // the caller should rebuild soon. They are on their way in the background,
 // or their request failed without an answer from TheTVDB (a network error,
 // a failed login): the next build asks for those again. A record TheTVDB
 // itself answered with an error (crewAnswer) isn't pending.
 // With the legacy key it returns nothing: v3 episode lists carry the crew.
-func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, pending bool) {
+func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int, lastAired time.Time) (crew map[int]Crew, pending bool) {
 	if len(ids) == 0 || !t.Enabled() {
 		return nil, false
 	}
@@ -96,6 +112,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 		return nil, wasV4
 	}
 	crew = map[int]Crew{}
+	life := crewLife(lastAired, time.Now())
 	var missing, stale []int
 	seen := map[int]bool{}
 	for _, id := range ids {
@@ -107,7 +124,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 			var r episodeRecord
 			if json.Unmarshal(data, &r) == nil {
 				crew[id] = r.crew()
-				if age >= crewTTL {
+				if age >= life {
 					stale = append(stale, id)
 				}
 				continue
@@ -134,7 +151,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 	for range crewWorkers {
 		wg.Go(func() {
 			for id := range jobs {
-				t.crewJob(bctx, id, crew, &res)
+				t.crewJob(bctx, id, life, crew, &res)
 			}
 		})
 	}
@@ -148,7 +165,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int) (crew map[int]Crew, p
 		pending = true
 		slog.Debug("tvdb: episode records left for the background", "count", len(res.left), "of", len(missing))
 	}
-	t.queueCrew(append(res.left, stale...))
+	t.queueCrew(append(res.left, stale...), life)
 	return crew, pending || res.failed
 }
 
@@ -162,11 +179,11 @@ type crewRun struct {
 	panics caught // a record's panic, raised again by EpisodeCrew once the workers are done
 }
 
-// crewJob fetches one record for EpisodeCrew's workers and notes how it
-// went in crew and res. A panic ends only this record: the worker goes on
-// taking records, so the sender is never left waiting for one, and mu is
-// never left held for the others.
-func (t *TVDB) crewJob(ctx context.Context, id int, crew map[int]Crew, res *crewRun) {
+// crewJob fetches one record (kept for life) for EpisodeCrew's workers and
+// notes how it went in crew and res. A panic ends only this record: the
+// worker goes on taking records, so the sender is never left waiting for
+// one, and mu is never left held for the others.
+func (t *TVDB) crewJob(ctx context.Context, id int, life time.Duration, crew map[int]Crew, res *crewRun) {
 	defer res.panics.keep()
 	if ctx.Err() != nil { // don't start downloads nobody waits for: the background queue takes them
 		res.mu.Lock()
@@ -174,7 +191,7 @@ func (t *TVDB) crewJob(ctx context.Context, id int, crew map[int]Crew, res *crew
 		res.mu.Unlock()
 		return
 	}
-	c, err := t.fetchCrew(ctx, id, false)
+	c, err := t.fetchCrew(ctx, id, life, false)
 	res.mu.Lock()
 	defer res.mu.Unlock()
 	switch {
@@ -194,13 +211,14 @@ func (t *TVDB) crewJob(ctx context.Context, id int, crew map[int]Crew, res *crew
 	}
 }
 
-// fetchCrew gets an episode record. background: a fetch nobody waits for.
-// It gives way to the requests builds wait for, and its failure must show (a
-// stale copy would hide it, and the record would be asked again at every
-// build).
-func (t *TVDB) fetchCrew(ctx context.Context, id int, background bool) (Crew, error) {
+// fetchCrew gets an episode record, kept for life (crewLife: the same as
+// EpisodeCrew's stale test, so a record queued as stale is downloaded).
+// background: a fetch nobody waits for. It gives way to the requests builds
+// wait for, and its failure must show (a stale copy would hide it, and the
+// record would be asked again at every build).
+func (t *TVDB) fetchCrew(ctx context.Context, id int, life time.Duration, background bool) (Crew, error) {
 	var r episodeRecord
-	err := t.getAs(ctx, false, getOpts{noStale: background, background: background}, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), crewTTL, &r)
+	err := t.getAs(ctx, false, getOpts{noStale: background, background: background}, fmt.Sprintf("/episodes/%d/extended", id), crewKey(id), life, &r)
 	return r.crew(), err
 }
 
@@ -225,8 +243,9 @@ func (t *TVDB) crewFail(id int, err error) {
 // background requests they wait behind every request a build waits for, on
 // TheTVDB's host throttle. A record already queued isn't queued again; one
 // that failed isn't asked again before its time (a stale cached copy keeps
-// answering), and failures past their time are forgotten here.
-func (t *TVDB) queueCrew(ids []int) {
+// answering), and failures past their time are forgotten here. life: how
+// long the records are kept (crewLife).
+func (t *TVDB) queueCrew(ids []int, life time.Duration) {
 	t.crewMu.Lock()
 	now := time.Now()
 	for id, until := range t.crewFailed {
@@ -247,7 +266,7 @@ func (t *TVDB) queueCrew(ids []int) {
 	}
 	t.crewQueue.Go(func() {
 		for _, id := range todo {
-			t.backgroundCrew(id)
+			t.backgroundCrew(id, life)
 		}
 	})
 }
@@ -256,7 +275,7 @@ func (t *TVDB) queueCrew(ids []int) {
 // raise a panic on, so a panic is logged and ends only this record: it
 // leaves the queue all the same (a later build may queue it again), and the
 // batch goes on with the next one.
-func (t *TVDB) backgroundCrew(id int) {
+func (t *TVDB) backgroundCrew(id int, life time.Duration) {
 	defer func() {
 		if r := recover(); r != nil {
 			fetch.LogPanic("tvdb: background episode record panicked", r, "episode", id)
@@ -265,7 +284,7 @@ func (t *TVDB) backgroundCrew(id int) {
 		delete(t.crewQueued, id)
 		t.crewMu.Unlock()
 	}()
-	if _, err := t.fetchCrew(context.Background(), id, true); crewAnswer(err) {
+	if _, err := t.fetchCrew(context.Background(), id, life, true); crewAnswer(err) {
 		t.crewFail(id, err)
 	}
 }

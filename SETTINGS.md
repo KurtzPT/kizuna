@@ -248,6 +248,7 @@ Kizuna keeps what the sources answer, so a change on a site reaches Plex a while
 |---|---|
 | AniDB | 6 to 180 days ([AniDB fair use](GUIDE.md#-anidb-fair-use)) |
 | TheTVDB · TheMovieDb · Plex · Anime News Network | 7 days |
+| TheTVDB's episode directors, writers and producers | 7 days, or 30 once the series' last episode aired over 60 days ago |
 | MyAnimeList | 30 days |
 | AniDB's title list · the mapping lists | 1 day |
 

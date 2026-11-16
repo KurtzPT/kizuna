@@ -68,7 +68,7 @@ func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 		v4 + "/episodes/1/extended": `{"data":{"characters":[{"personName":"D","peopleType":"Director"}]}}`,
 	}, "v4key", "", "")
 	ctx := context.Background()
-	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}); len(crew) != 0 || !pending {
+	if crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}, time.Time{}); len(crew) != 0 || !pending {
 		t.Fatalf("login down: crew %v pending %v, want none, pending", crew, pending)
 	}
 	if c := n.count(v4+"/login") + n.count(v4+"/episodes/1/extended") + n.count(v4+"/episodes/3/extended"); c != 1 {
@@ -81,7 +81,7 @@ func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 	tv.loginRetry = time.Time{} // the login pause is over
 	tv.mu.Unlock()
 
-	crew, pending := tv.EpisodeCrew(ctx, []int{1, 3})
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 3}, time.Time{})
 	if pending || strings.Join(crew[1].Directors, ",") != "D" {
 		t.Fatalf("login back: crew %+v pending %v, want episode 1's", crew, pending)
 	}
@@ -96,7 +96,7 @@ func TestTVDBEpisodeCrewLoginBlip(t *testing.T) {
 	tv.crewMu.Lock()
 	tv.crewFailed[3] = time.Now().Add(-time.Second)
 	tv.crewMu.Unlock()
-	tv.queueCrew(nil)
+	tv.queueCrew(nil, crewTTL)
 	tv.crewMu.Lock()
 	left := len(tv.crewFailed)
 	tv.crewMu.Unlock()
@@ -142,7 +142,7 @@ func TestTVDBEpisodeCrewNetworkError(t *testing.T) {
 	tv := NewTVDB(f, "v4key", "", "")
 	ctx := context.Background()
 
-	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	crew, pending := tv.EpisodeCrew(ctx, []int{1, 2, 3}, time.Time{})
 	if !pending {
 		t.Error("record 2 failed on the network: want pending, so the show is rebuilt soon")
 	}
@@ -160,7 +160,7 @@ func TestTVDBEpisodeCrewNetworkError(t *testing.T) {
 	n.mu.Lock()
 	n.down = nil // the network is back
 	n.mu.Unlock()
-	crew, pending = tv.EpisodeCrew(ctx, []int{1, 2, 3})
+	crew, pending = tv.EpisodeCrew(ctx, []int{1, 2, 3}, time.Time{})
 	if pending || strings.Join(crew[2].Directors, ",") != "D2" {
 		t.Errorf("network back: crew %+v pending %v, want record 2's, not pending", crew, pending)
 	}
@@ -300,7 +300,7 @@ func TestTVDBStaleCrewFailedNotRefreshed(t *testing.T) {
 	}
 	ctx := context.Background()
 	for build := range 3 {
-		crew, _ := tv.EpisodeCrew(ctx, []int{7, 8})
+		crew, _ := tv.EpisodeCrew(ctx, []int{7, 8}, time.Time{})
 		tv.crewQueue.Wait()
 		if build == 0 && (strings.Join(crew[7].Directors, ",") != "Old" || strings.Join(crew[8].Directors, ",") != "Old") {
 			t.Fatalf("stale crew %+v, want the cached copies", crew)
@@ -311,6 +311,91 @@ func TestTVDBStaleCrewFailedNotRefreshed(t *testing.T) {
 	}
 	if c := n.count(v4 + "/episodes/8/extended"); c != 1 {
 		t.Errorf("refreshed record asked %d times, want 1 (fresh since)", c)
+	}
+}
+
+// A series' episode records are kept 30 days once its latest episode aired
+// 60 days ago or more, else 7: the same line as AniDB's. A partial date
+// counts from the last day it can mean (LastDay); none known, or one still
+// to come, is "airing".
+func TestCrewLife(t *testing.T) {
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	day := func(s string) time.Time {
+		d, ok := LastDay(s)
+		if !ok {
+			t.Fatalf("LastDay(%q) unreadable", s)
+		}
+		return d
+	}
+	for _, c := range []struct {
+		name string
+		last time.Time
+		want time.Duration
+	}{
+		{"unknown", time.Time{}, crewTTL},
+		{"next episode still to come", day("2026-12-24"), crewTTL},
+		{"aired today", now, crewTTL},
+		{"59 days ago", now.Add(-59 * 24 * time.Hour), crewTTL},
+		{"60 days ago, less a second", now.Add(-60*24*time.Hour + time.Second), crewTTL},
+		{"60 days ago", now.Add(-60 * 24 * time.Hour), crewDoneTTL},
+		{"61 days ago", now.Add(-61 * 24 * time.Hour), crewDoneTTL},
+		{"years ago", day("1999-10-20"), crewDoneTTL},
+		{"2026: the year isn't over", day("2026"), crewTTL},
+		{"2025", day("2025"), crewDoneTTL},
+		{"2026-09: its last day, 2026-09-30, 46 days ago", day("2026-09"), crewTTL},
+		{"2026-08: 2026-08-31, 76 days ago", day("2026-08"), crewDoneTTL},
+	} {
+		if got := crewLife(c.last, now); got != c.want {
+			t.Errorf("%s: crewLife = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if _, ok := LastDay(""); ok {
+		t.Error(`LastDay(""): want unreadable`)
+	}
+}
+
+// A cached record past 7 days is refreshed in the background for a series
+// still airing, not for one finished long ago (30 days); past 30 days, for
+// both. It answers from the cache at once either way.
+func TestTVDBCrewLifeByLastAired(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		name      string
+		lastAired time.Time
+		age       time.Duration
+		refreshed bool
+	}{
+		{"airing, 8 days old", now.Add(-3 * 24 * time.Hour), 8 * 24 * time.Hour, true},
+		{"ended long ago, 8 days old", now.Add(-1000 * 24 * time.Hour), 8 * 24 * time.Hour, false},
+		{"airing, 31 days old", now.Add(-3 * 24 * time.Hour), 31 * 24 * time.Hour, true},
+		{"ended long ago, 31 days old", now.Add(-1000 * 24 * time.Hour), 31 * 24 * time.Hour, true},
+		{"unknown, 8 days old", time.Time{}, 8 * 24 * time.Hour, true},
+	} {
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		n := &tvdbNet{answers: map[string]string{
+			v4 + "/login":               `{"data":{"token":"t4"}}`,
+			v4 + "/episodes/7/extended": `{"data":{"characters":[{"personName":"New","peopleType":"Director"}]}}`,
+		}}
+		f.SetTransport(n)
+		tv := NewTVDB(f, "v4key", "", "")
+		p := filepath.Join(dir, "tvdb", "episodes", "7.json")
+		if err := fetch.WriteFile(p, []byte(`{"data":{"characters":[{"personName":"Old","peopleType":"Director"}]}}`)); err != nil {
+			t.Fatal(err)
+		}
+		backdate(t, p, c.age)
+		crew, pending := tv.EpisodeCrew(context.Background(), []int{7}, c.lastAired)
+		tv.crewQueue.Wait()
+		if strings.Join(crew[7].Directors, ",") != "Old" || pending {
+			t.Errorf("%s: crew %+v pending %v, want the cached copy at once", c.name, crew, pending)
+		}
+		want := 0
+		if c.refreshed {
+			want = 1
+		}
+		if got := n.count(v4 + "/episodes/7/extended"); got != want {
+			t.Errorf("%s: record asked %d times, want %d", c.name, got, want)
+		}
 	}
 }
 
@@ -352,13 +437,13 @@ func TestTVDBCrewPendingOnKeySwitch(t *testing.T) {
 		v4 + "/login": `401 {"status":"failure"}`,
 		v3 + "/login": `{"token":"t3"}`,
 	}, "v4key", "", "legacy")
-	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}); crew != nil || !pending {
+	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}, time.Time{}); crew != nil || !pending {
 		t.Fatalf("crew %v pending %v at the switch; want none, pending", crew, pending)
 	}
 	if tv.API() != "v3" {
 		t.Fatalf("API %q, want v3", tv.API())
 	}
-	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}); crew != nil || pending {
+	if crew, pending := tv.EpisodeCrew(context.Background(), []int{7}, time.Time{}); crew != nil || pending {
 		t.Errorf("crew %v pending %v after the switch; want none, not pending", crew, pending)
 	}
 	if c := n.count(v4 + "/episodes/7/extended"); c != 0 {
@@ -379,7 +464,7 @@ func TestTVDBBackgroundCrewYields(t *testing.T) {
 		t.Fatal(err)
 	}
 	tv.f.Throttle(host, time.Hour) // the record waits until the test opens the gap
-	tv.queueCrew([]int{7})
+	tv.queueCrew([]int{7}, crewTTL)
 	for {
 		fg, bg := tv.f.Waiting(host)
 		if fg+bg > 0 {

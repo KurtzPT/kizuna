@@ -510,7 +510,7 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	// can take seconds (its fair-use gap): TheTVDB's crew records (with tvdb
 	// first in EPISODE_CREW_SOURCES), and TheTVDB's and TheMovieDb's show
 	// fields and art (TheMovieDb's episode list is on its way).
-	b.start(ctx, p)
+	b.start(ctx, p, s)
 	ss := p.newSources(ctx, aid, entry, tvdbID, tmdbID, false, firstEntry{true, true})
 	ss.tvdbTargets(plexSeasons(s))
 	defer ss.earlyWG.Wait() // when a panic keeps the build from warm's Wait (group)

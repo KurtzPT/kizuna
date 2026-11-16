@@ -420,19 +420,27 @@ func newAniDBMemo() *fetch.Memo[int, anidbMemo] {
 // anidbKey is the cache file of an anime's entry.
 func anidbKey(aid int) string { return fmt.Sprintf("anidb/anime/%d.xml", aid) }
 
+// endedFor: a series that ended this long ago is finished, and its data
+// rarely changes. AniDB's entries and TheTVDB's crew records go by it.
+const endedFor = 60 * 24 * time.Hour
+
 // anidbTTL: finished long ago -> rarely changes; airing or ended lately -> refresh every 6 days.
 func anidbTTL(endDate string, now time.Time) time.Duration {
-	end, ok := anidbEnd(endDate)
-	if !ok || now.Sub(end) < 60*24*time.Hour {
+	end, ok := LastDay(endDate)
+	if !ok || now.Sub(end) < endedFor {
 		return 6 * 24 * time.Hour
 	}
 	return 180 * 24 * time.Hour
 }
 
-// anidbEnd reads an end date. Old entries often give only "1989" or
-// "1989-03": that is read as the last day it can mean, so an entry is never
-// taken as finished sooner than it was. Empty or unreadable: not ended.
-func anidbEnd(s string) (time.Time, bool) {
+// LastDay reads a date, such as an end date. Old entries often give only
+// "1989" or "1989-03": that is read as the last day it can mean, so a series
+// is never taken as finished sooner than it was. Empty or unreadable: false
+// (not ended).
+func LastDay(s string) (time.Time, bool) {
+	if s == "" { // most episodes without a date: no parse, and no error to allocate
+		return time.Time{}, false
+	}
 	// Chosen by length, so a full date (the usual case) is parsed once.
 	layout, months := "2006-01-02", 0 // months to add; less a day gives the last day it can mean
 	switch len(s) {
