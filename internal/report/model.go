@@ -103,7 +103,8 @@ type Sent struct {
 	// ItemSrc is the source of Item's values, by item key ("title", "Genre",
 	// "thumb"; an image by its place in the list: "Image.0"). A key Kizuna
 	// knows no single source for (ratingKey, guid, Guid, duration) has none.
-	// Builds recorded before it have no ItemSrc at all.
+	// Without any (none recorded, or a build saved before it existed) the
+	// page shows no sources for the item.
 	ItemSrc map[string]string `json:"itemSrc,omitempty"`
 }
 
