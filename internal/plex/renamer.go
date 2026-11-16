@@ -56,6 +56,8 @@ type Renamer struct {
 	pausedUntil time.Time              // Queue does nothing before this time
 	lastWarn    time.Time              // the last failure warning
 	lastFull    time.Time              // the last "too many shows" warning
+
+	unfiltered sync.Once // the warning that Plex ignores the guid= filter, logged once per Renamer (per process)
 }
 
 // waiting is a show with looks still to come.
@@ -275,9 +277,14 @@ func due(last *time.Time, now time.Time) bool {
 
 type metadata struct {
 	RatingKey string `json:"ratingKey"`
-	Title     string `json:"title"`
-	Subtype   string `json:"subtype"`
-	Media     []struct {
+	GUID      string `json:"guid"` // a show's: the GUID its provider gave it
+	// Plex's external IDs, unused. Named so that they aren't decoded into
+	// GUID: Go matches field names regardless of case, and an array there
+	// would fail the whole answer.
+	Guids   json.RawMessage `json:"Guid"`
+	Title   string          `json:"title"`
+	Subtype string          `json:"subtype"`
+	Media   []struct {
 		Part []struct {
 			File string `json:"file"`
 		} `json:"Part"`
@@ -302,7 +309,7 @@ func (r *Renamer) rename(ctx context.Context, guid string, known []show) ([]show
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range found {
+		for _, m := range r.asked(guid, found) {
 			shows = append(shows, show{key: m.RatingKey, title: m.Title})
 		}
 		if len(shows) == 0 {
@@ -337,6 +344,34 @@ func (r *Renamer) rename(ctx context.Context, guid string, known []show) ([]show
 		}
 	}
 	return shows, errors.Join(errs...)
+}
+
+// asked keeps the shows of Plex's answer to guid= that are the show with this
+// GUID. A Plex that ignores the filter answers with the whole library, and
+// each queued show would then walk every show's extras. A show without a GUID
+// is kept: skipping it by mistake would cost its titles. When no show carries
+// this GUID, Plex may write GUIDs back in another form, so all are kept, as
+// before. Only an answer that holds this GUID and others is cut.
+func (r *Renamer) asked(guid string, found []metadata) []metadata {
+	var out []metadata
+	matched := false
+	for _, m := range found {
+		if m.GUID == guid {
+			matched = true
+		}
+		if m.GUID == guid || m.GUID == "" {
+			out = append(out, m)
+		}
+	}
+	if !matched || len(out) == len(found) {
+		return found
+	}
+	// Once per process: such a Plex would log it for every queued show.
+	r.unfiltered.Do(func() {
+		slog.Warn("Plex ignores the guid filter when asked for one show and answers with others: Kizuna skips those and sets titles on the show asked for only; this is logged once",
+			"show", guid, "skipped", len(found)-len(out))
+	})
+	return out
 }
 
 // retitle is an extra (by rating key) with the title it has and the one it gets.
