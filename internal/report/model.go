@@ -104,7 +104,8 @@ type Sent struct {
 	// "thumb"; an image by its place in the list: "Image.0"). A key Kizuna
 	// knows no single source for (ratingKey, guid, Guid, duration) has none.
 	// Without any (none recorded, or a build saved before it existed) the
-	// page shows no sources for the item.
+	// page shows no source bars for the item, and "source not recorded"
+	// under its pictures.
 	ItemSrc map[string]string `json:"itemSrc,omitempty"`
 }
 

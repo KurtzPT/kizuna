@@ -486,7 +486,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const name = s => SRC[s] || s;
 const sk = s => SRC[s] ? s : "other";
 // The thread: the source's bar and name. Without a source, a hollow bar.
-const th = (s, label) => s ? `<span class="th" data-s="${esc(sk(s))}">${esc(label ?? name(s))}</span>` : `<span class="th none">${esc(label ?? "none")}</span>`;
+const th = s => s ? `<span class="th" data-s="${esc(sk(s))}">${esc(name(s))}</span>` : `<span class="th none">none</span>`;
 // Tallies down a list: counts is one Map (source, or "" for none, to a count)
 // per row. tallyCols gives the columns every row shares, the biggest first,
 // and tally a row's cells: a source the row lacks keeps its place, empty.
