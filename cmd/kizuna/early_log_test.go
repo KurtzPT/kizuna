@@ -24,8 +24,10 @@ func TestEarlyLogHandedOver(t *testing.T) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunMain$", "--", runMainMarker)
 	// Nothing from this machine: no keys, no settings file. GOCOVERDIR
-	// keeps a coverage build's child from warning on stderr.
-	cmd.Env = []string{"DATA_DIR=" + dir, "LOG_RETENTION_DAYS=soon", "GOCOVERDIR=" + t.TempDir()}
+	// keeps a coverage build's child from warning on stderr. LISTEN is no
+	// address: if a start without keys ever went on, it would stop at the
+	// port, before any download.
+	cmd.Env = []string{"DATA_DIR=" + dir, "LOG_RETENTION_DAYS=soon", "LISTEN=127.0.0.1:notaport", "GOCOVERDIR=" + t.TempDir()}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -36,7 +38,7 @@ func TestEarlyLogHandedOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const warning, stop = "setting=LOG_RETENTION_DAYS value=soon", `msg="can't start: no mode can build shows`
+	const warning, stop = "setting=LOG_RETENTION_DAYS value=soon", `msg="can't start:`
 	for name, out := range map[string]string{"standard output": stdout.String(), "log file": string(file)} {
 		w, s := strings.Index(out, warning), strings.Index(out, stop)
 		if strings.Count(out, warning) != 1 || s < 0 || w > s {

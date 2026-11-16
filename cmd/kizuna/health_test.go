@@ -22,6 +22,7 @@ func healthStderr(t *testing.T, cfg config.Config) (int, string) {
 	}
 	defer f.Close()
 	old := os.Stderr
+	t.Cleanup(func() { os.Stderr = old }) // also when health panics
 	os.Stderr = f
 	code := health(cfg)
 	os.Stderr = old
@@ -32,16 +33,27 @@ func healthStderr(t *testing.T, cfg config.Config) (int, string) {
 	return code, string(b)
 }
 
-// The health check fails (exit 1) when nothing answers on the port, and
-// when /health answers anything but 200. Docker shows what it wrote on
+// The health check fails (exit 1) when nothing answers on the port (here a
+// listener that hangs up on every caller: a closed port could be taken by
+// another process before the check), and when /health answers anything but
+// 200. Docker shows what it wrote on
 // stderr next to "unhealthy": the status and Kizuna's reason.
 func TestHealthFails(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return // the listener is closed: the test is over
+			}
+			c.Close()
+		}
+	}()
 	down := ln.Addr().String()
-	ln.Close() // nothing listens there now
 	if code, errs := healthStderr(t, config.Config{Listen: down}); code != 1 || !strings.HasPrefix(errs, "kizuna health: ") {
 		t.Errorf("server down: exit %d, stderr %q; want 1 and the error", code, errs)
 	}
