@@ -511,7 +511,28 @@ func TestLoadZeroByteCustomFile(t *testing.T) {
 		}
 		kept(l, fmt.Sprintf("zero bytes, load %d", i))
 	}
-	// A broken file after that is reported, and the same entries stay.
+	// The next load decides again: a file written after a keep applies, as
+	// it is, without a warning.
+	write(`<anime-list><anime anidbid="5" tvdbid="600" defaulttvdbseason="1"/></anime-list>`)
+	if n := load(l, "new file after zero bytes"); n != 0 {
+		t.Errorf("new file after zero bytes: %d warnings, want none", n)
+	}
+	if l.ByAID(5).TVDB.ID != 600 || l.ByAID(1).TVDB.ID != 100 {
+		t.Errorf("new file after zero bytes: entry 5 %+v, entry 1 %+v; want 600 and the lists' 100", l.ByAID(5), l.ByAID(1))
+	}
+	// And the first version written back after another keep.
+	write("")
+	if n := load(l, "zero bytes again"); n != 1 {
+		t.Errorf("zero bytes again: %d warnings, want one", n)
+	}
+	write(good)
+	if n := load(l, "good file back after zero bytes"); n != 0 {
+		t.Errorf("good file back after zero bytes: %d warnings, want none", n)
+	}
+	kept(l, "good file back after zero bytes")
+	// A broken file after a keep is reported, and the kept entries stay.
+	write("")
+	load(l, "zero bytes before broken")
 	write(`<anime-list><anime anidbid="1"`)
 	if err := l.Load(context.Background(), f, dir); err == nil || !strings.Contains(err.Error(), "anime-list-custom.xml ignored") {
 		t.Errorf("broken after zero bytes: %v, want it reported", err)

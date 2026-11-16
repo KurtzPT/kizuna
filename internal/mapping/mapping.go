@@ -183,16 +183,17 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 	// nor the custom entries it held the last time it parsed.
 	var extra map[int]Entry
 	keptEmpty := false
+	lastCustom := l.get().custom // the custom entries of the load before
 	switch {
-	case customErr == nil && len(custom) == 0 && len(l.get().custom) > 0:
+	case customErr == nil && len(custom) == 0 && len(lastCustom) > 0:
 		// Zero bytes after a load that had entries: most likely an editor
 		// that truncates the file before it writes the new version, caught
 		// in between. Keep the last load's custom entries; the next load
 		// reads the file again. Only exactly zero bytes: blanks, a BOM or
 		// a comment were written by someone and still mean no entries.
 		// Deleting the file or leaving <anime-list/> turns them off.
-		extra, keptEmpty = l.get().custom, true
-		slog.Warn("mapping: anime-list-custom.xml is empty, keeping the entries it had until the next load; "+
+		extra, keptEmpty = lastCustom, true
+		slog.Warn("mapping: anime-list-custom.xml is empty: still using the entries it had; "+
 			"to turn your corrections off, delete the file or leave <anime-list/> in it", "file", customFile, "entries", len(extra))
 	case customErr == nil:
 		var err error
@@ -205,11 +206,11 @@ func (l *Lists) Load(ctx context.Context, f *fetch.Client, dataDir string) error
 			// syntax error instead.
 			extra = nil
 		case err != nil:
-			extra = l.get().custom
+			extra = lastCustom
 			errs = append(errs, fmt.Errorf("%s ignored, keeping the %d entries of its last good version (fix it and restart, or wait for the daily reload): %w", customFile, len(extra), err))
 		}
 	case !errors.Is(customErr, fs.ErrNotExist):
-		extra = l.get().custom
+		extra = lastCustom
 		errs = append(errs, fmt.Errorf("%s unreadable, keeping the %d entries of its last good version: %w", customFile, len(extra), customErr))
 	}
 	for aid, e := range extra {
