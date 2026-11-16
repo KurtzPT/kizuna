@@ -1,5 +1,6 @@
-# Builds the image with Docker (tests run inside the build) and publishes it
-# to GitHub Container Registry, ghcr.io/<owner>/<repo>. Two jobs:
+# Builds the image with Docker (tests run inside the build, except where ci's
+# go job is sure to have tested the same commit: run-tests below) and
+# publishes it to GitHub Container Registry, ghcr.io/<owner>/<repo>. Two jobs:
 #
 #   image    build + test only, read-only token. Runs for pull requests (the
 #            required "image" check), pushes to main and manual runs of this
@@ -79,6 +80,12 @@ jobs:
           tags: type=sha
           cache: true
           version: sha
+          # Not again inside the build for a pull request into dev or main:
+          # ci runs its go job on the same commit, and the rulesets require
+          # both go and image before a merge. Every other run (a push to
+          # main, by hand, a pull request into another branch) has no such
+          # guarantee and tests in the build.
+          run-tests: ${{ !(github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) }}
 
   publish:
     name: publish
@@ -194,6 +201,12 @@ jobs:
           # doesn't depend on cache entries other runs wrote (as in ci.yml)
           cache: ${{ github.ref_type != 'tag' }}
           version: ref
+          # :dev: not again inside the build. ci's docker job, the only
+          # caller, needs its go job, which passed on this commit in the
+          # same run. A release still tests in the build: that is the Go
+          # toolchain of the image (and without cgo) that builds what
+          # people run, not the runner's.
+          run-tests: ${{ github.ref != 'refs/heads/dev' }}
 
       # Signed SLSA build provenance for the image just pushed (all its tags
       # share this digest), stored on GitHub and next to the image in GHCR.

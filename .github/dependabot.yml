@@ -4,7 +4,9 @@
 # pulled first. The dependabot-automerge workflow merges the pull requests
 # against dev once the checks pass. The golang build image is skipped: its version follows go.mod (see the
 # Dockerfile), so a Go upgrade is a go.mod change. Kizuna has no Go module
-# dependencies outside the standard library, so there is nothing else to watch.
+# dependencies outside the standard library; the tools CI runs (staticcheck,
+# govulncheck, actionlint, zizmor) are pinned in .github/tools and watched
+# here too. The dependabot-automerge workflow leaves those for review.
 #
 # Version updates go to dev and ship with the next release. Security updates
 # can't be redirected: GitHub always opens them against the default branch
@@ -35,4 +37,38 @@ updates:
       default-days: 7
     ignore:
       - dependency-name: golang
+    labels: ["dependencies"]
+
+  # The Go tools: only the three tools themselves. Their own dependencies
+  # (go.sum, the indirect lines) follow from the tool's version; updating
+  # them on their own could build a tool against a library it wasn't
+  # released with. The tools are "// indirect" in go.mod (that's how go get
+  # -tool writes them), hence dependency-type: all.
+  - package-ecosystem: gomod
+    directory: /.github/tools
+    target-branch: dev
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    allow:
+      - dependency-name: honnef.co/go/tools
+        dependency-type: all
+      - dependency-name: golang.org/x/vuln
+        dependency-type: all
+      - dependency-name: github.com/rhysd/actionlint
+        dependency-type: all
+    groups:
+      go-tools:
+        patterns: ["*"]
+    labels: ["dependencies"]
+
+  # zizmor, with its hashes (requirements.txt)
+  - package-ecosystem: pip
+    directory: /.github/tools
+    target-branch: dev
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
     labels: ["dependencies"]

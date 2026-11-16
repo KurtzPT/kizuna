@@ -7,9 +7,13 @@ ARG GO_VERSION=1.27
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
 COPY . .
-# before the ARGs: they'd make this step one per target platform, but the
-# tests run on the build platform, so one run (a shared layer) is enough
-RUN go test ./...
+# A plain docker build runs the tests. SKIP_TESTS=true is only for CI builds
+# whose commit already passed ci's go job (.github/workflows/docker.yml says
+# which). Before the other ARGs: TARGETARCH would make this step one per
+# target platform, but the tests run on the build platform, so one run (a
+# shared layer) is enough.
+ARG SKIP_TESTS=false
+RUN if [ "$SKIP_TESTS" = true ]; then echo "go test skipped: ci's go job tested this commit"; else go test ./...; fi
 ARG TARGETOS TARGETARCH VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X kizuna/internal/provider.Version=${VERSION}" -o /out/kizuna ./cmd/kizuna \
