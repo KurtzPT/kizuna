@@ -159,8 +159,7 @@ func (t *TVDB) seasonArt3(ctx context.Context, id, season int) (Art, error) {
 // v3None: how v3's lists are asked. v3 answers an empty list (no actors, no
 // images of a kind) with a 404, which is no cached copy: kept a day, so a
 // series without fanart or season posters isn't asked again at every build.
-// A day, not the week a list is kept: new art shows up soon.
-var v3None = getOpts{notFound: only404, notFoundTTL: 24 * time.Hour}
+var v3None = getOpts{notFound: only404, notFoundTTL: noneTTL}
 
 // images3 reads one v3 image query, cached for ttl, best rated first. A 404
 // means no images of the kind: none, and no error.

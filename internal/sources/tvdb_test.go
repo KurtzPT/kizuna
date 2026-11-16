@@ -711,3 +711,21 @@ func TestTVDBSwitchedNoStale(t *testing.T) {
 		t.Errorf("%q, %v; want errTVDBSwitched, no stale copy", r.Data.Name, err)
 	}
 }
+
+// With both keys the start-up log says which one is used, once, when the
+// client is made; with one key it says nothing.
+func TestTVDBBothKeysNoted(t *testing.T) {
+	const note = `msg="TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; ` +
+		`the legacy key takes over (with a warning) if TheTVDB rejects it"`
+	for _, c := range []struct{ key, legacy string }{{"v4key", "legacykey"}, {"v4key", ""}, {"", "legacykey"}} {
+		logs := captureLogs(t)
+		NewTVDB(fetch.New(t.TempDir()), c.key, "", c.legacy)
+		want := 0
+		if c.key != "" && c.legacy != "" {
+			want = 1
+		}
+		if n := strings.Count(logs.String(), note); n != want {
+			t.Errorf("keys %q %q: the note logged %d times, want %d:\n%s", c.key, c.legacy, n, want, logs)
+		}
+	}
+}

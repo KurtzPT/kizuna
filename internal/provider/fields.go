@@ -767,7 +767,7 @@ type lazy[T any] struct {
 	ran  atomic.Bool // f ran: v is set (done)
 	// panicked: the panic f ended with. Every later caller panics with it
 	// too: f may have run on another goroutine than the one reading (start).
-	panicked *goroutinePanic
+	panicked *fetch.GoroutinePanic
 }
 
 func (l *lazy[T]) get() T {
@@ -803,7 +803,7 @@ func (l *lazy[T]) fetch() {
 // there, for fetch to panic with on every caller.
 func (l *lazy[T]) keepPanic() {
 	if r := recover(); r != nil {
-		l.panicked = asGoroutinePanic(r)
+		l.panicked = fetch.AsGoroutinePanic(r)
 		panic(l.panicked)
 	}
 }

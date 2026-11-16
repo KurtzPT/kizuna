@@ -72,20 +72,6 @@ const (
 	findNoneTTL = 24 * time.Hour
 )
 
-// askNoneAgain says whether an empty answer just read from the cache file
-// key (kept ttl) is old enough to be asked again, with the shorter life
-// none. Only when the cache answered: a copy ttl old or more was just asked
-// for (and answers stale when that failed), and one just downloaded is
-// new, so asking again would only repeat the request.
-func askNoneAgain(f *fetch.Client, key string, none, ttl time.Duration) bool {
-	at, ok := f.CachedAt(key)
-	if !ok {
-		return false
-	}
-	age := time.Since(at)
-	return age >= none && age < ttl
-}
-
 // TVFromTVDB finds the TMDB TV id for a TVDB id (0 if none).
 func (t *TMDB) TVFromTVDB(ctx context.Context, tvdb int) (int, error) {
 	type found struct {
@@ -365,7 +351,7 @@ func (t *TMDB) season(ctx context.Context, id, season int) (*tmdbSeasonFile, err
 	// A season the show lists but TMDB answers 404 for is remembered a day:
 	// the episode list, the season's text and its posters each read the
 	// file, so each build would ask up to three times.
-	r.NotFound, r.NotFoundTTL = only404, 24*time.Hour
+	r.NotFound, r.NotFoundTTL = only404, noneTTL
 	return tmdbSharedAs(ctx, t, t.seasons, r)
 }
 

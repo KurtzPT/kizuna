@@ -18,7 +18,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -351,7 +350,7 @@ func (c *Client) run(id string, r Request, cl *call) {
 	if r.Done != nil {
 		defer func() {
 			if p := recover(); p != nil {
-				logPanic("download's Done panicked", r, p)
+				LogPanic("download's Done panicked", p, "url", Redact(r.URL), "key", r.Key)
 			}
 		}()
 		r.Done(cl.err)
@@ -368,18 +367,11 @@ var ErrPanicked = errors.New("download panicked")
 func (c *Client) fetchSafe(r Request, t *ticket) (data []byte, err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			logPanic("download panicked", r, p)
+			LogPanic("download panicked", p, "url", Redact(r.URL), "key", r.Key)
 			data, err = nil, fmt.Errorf("%w: %v", ErrPanicked, p)
 		}
 	}()
 	return c.fetch(r, t)
-}
-
-// logPanic logs a panic recovered on a download's goroutine, the way a
-// show build's panic is logged. Call it from the deferred function that
-// recovered p: the stack is then still the one that panicked.
-func logPanic(msg string, r Request, p any) {
-	slog.Error(msg, "url", Redact(r.URL), "key", r.Key, "err", p, "stack", string(debug.Stack()))
 }
 
 func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {

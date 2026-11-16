@@ -157,12 +157,12 @@ func TestEnvFileLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := warnings(t, func() { Load(); f.Log() })
-	for _, want := range []string{"setting=TITEL_LANGS", "no '='", "settings=3"} {
+	for _, want := range []string{`unknown setting (a typo?); ignoring it" path=`, "line=2", "no '='", "settings=3"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("no %q in %q", want, log)
 		}
 	}
-	for _, bad := range []string{"secret-key", "setting=TZ", "setting=TVDB_API_KEY"} {
+	for _, bad := range []string{"secret-key", "TITEL_LANGS", "line=3", "line=1"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}
@@ -204,6 +204,40 @@ func TestBrokenLineNeverShowsItsText(t *testing.T) {
 	}
 }
 
+// A pasted key that ends in '=' (base64) reads as NAME=value. Every
+// warning about such a line gives its number, never the text before '=':
+// an unknown name, a name not in upper case, a missing closing quote. A
+// setting Kizuna knows is still named.
+func TestNameLikeKeyNeverShown(t *testing.T) {
+	writeEnvFile(t, "QUJDREVGR0VGR0Q=\n"+ // upper case: an unknown setting
+		"c2VjcmV0LXNlY3JldA==\n"+ // lower case
+		"ZGVmc2VjcmV0=\"unclosed\n"+ // missing closing quote
+		"ZGVmc2VjcmV0Mg=\"x\" y\n"+ // text after the closing quote
+		"TMDB_API_KEY=\"unclosed\n")
+	unset(t, "QUJDREVGR0VGR0Q", "c2VjcmV0LXNlY3JldA", "TMDB_API_KEY")
+	f, err := LoadEnvFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := warnings(t, func() { Load(); f.Log() })
+	for _, want := range []string{
+		`unknown setting (a typo?); ignoring it" path=`, "line=1",
+		`unknown setting (names must be upper case); ignoring it" path=`, "line=2",
+		`problem="line 3: missing closing quote"`,
+		`problem="line 4: text after the closing quote"`,
+		`problem="line 5: TMDB_API_KEY: missing closing quote"`,
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("no %q in %q", want, log)
+		}
+	}
+	for _, bad := range []string{"QUJD", "c2Vj", "ZGVm", "setting="} {
+		if strings.Contains(log, bad) {
+			t.Errorf("%q in %q", bad, log)
+		}
+	}
+}
+
 // Only exact upper-case names count, on every OS: "min_score" must not set
 // MIN_SCORE (Windows env names ignore case) and is reported as unknown.
 func TestLowerCaseKeyIgnored(t *testing.T) {
@@ -220,12 +254,12 @@ func TestLowerCaseKeyIgnored(t *testing.T) {
 		t.Errorf("keys %v ignored %v", f.Keys, f.Ignored)
 	}
 	log := warnings(t, func() { Load(); f.Log() })
-	for _, want := range []string{"setting=min_score", "setting=Max_Episodes", "settings=1", "upper case"} {
+	for _, want := range []string{"line=1", "line=2", "settings=1", "upper case"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("no %q in %q", want, log)
 		}
 	}
-	for _, bad := range []string{"score-value", "secret-key"} {
+	for _, bad := range []string{"score-value", "secret-key", "min_score", "Max_Episodes"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("%q in %q", bad, log)
 		}
@@ -256,7 +290,7 @@ func TestPortUnderListenNotUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "setting=PORT") {
+	if log := warnings(t, func() { Load(); f.Log() }); strings.Contains(log, "unknown setting") { // PORT is the file's only line
 		t.Errorf("PORT reported as unknown: %q", log)
 	}
 }
@@ -298,7 +332,9 @@ func TestLeftoverMappingSourcesIgnored(t *testing.T) {
 				t.Errorf("settings changed:\n got %+v\nwant %+v", got, want)
 			}
 			for _, line := range strings.Split(log, "\n") {
-				if strings.Contains(line, "level=WARN") && strings.Contains(line, "MAPPING_SOURCES") {
+				// The typo warning gives a line, not the name: any of them is about it.
+				if strings.Contains(line, "level=WARN") &&
+					(strings.Contains(line, "MAPPING_SOURCES") || strings.Contains(line, "unknown setting")) {
 					t.Errorf("warning about it: %s", line)
 				}
 			}

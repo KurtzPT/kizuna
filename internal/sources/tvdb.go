@@ -116,10 +116,13 @@ const tvdbLoginPause = 30 * time.Second
 
 // NewTVDB uses the v4 key when there is one, else the legacy v3 key. With
 // both, the legacy key takes over (with a warning) once TheTVDB rejects the
-// v4 key, until the next restart.
+// v4 key, until the next restart: the start-up log says so.
 func NewTVDB(f *fetch.Client, key, pin, legacyKey string) *TVDB {
 	f.Throttle("api4.thetvdb.com", 100*time.Millisecond)
 	f.Throttle("api.thetvdb.com", 100*time.Millisecond)
+	if key != "" && legacyKey != "" {
+		slog.Info("TVDB_API_KEY and TVDB_LEGACY_API_KEY are both set: using the v4 key; the legacy key takes over (with a warning) if TheTVDB rejects it")
+	}
 	return &TVDB{f: f, key: key, pin: pin, legacyKey: legacyKey, legacy: key == "" && legacyKey != "",
 		crewQueued: map[int]bool{}, crewFailed: map[int]time.Time{},
 		series: fetch.NewMemo[int, *tvdbSeries](seriesMemoFor, 0), pages: fetch.NewMemo[string, *tvdbEpisodePage](sharedFor, 0)}
@@ -248,7 +251,7 @@ func (t *TVDB) login(ctx context.Context) (string, bool, error) {
 			t.renewing.Go(func() { t.renew(legacy, done) })
 			return token, legacy, nil
 		}
-		token, err := t.requestToken(ctx, legacy)
+		token, err := t.requestTokenNow(ctx, legacy, done)
 
 		t.mu.Lock()
 		t.loggingIn = nil
@@ -288,7 +291,7 @@ func (t *TVDB) renewPanicked(done chan struct{}) {
 	if r == nil {
 		return
 	}
-	logPanic("tvdb: token renewal panicked", r)
+	fetch.LogPanic("tvdb: token renewal panicked", r)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.loggingIn == done {
@@ -296,6 +299,30 @@ func (t *TVDB) renewPanicked(done chan struct{}) {
 		close(done)
 		t.loginErr, t.loginRetry = fmt.Errorf("%w: the renewal panicked: %v", errTVDBLogin, r), time.Now().Add(tvdbLoginPause)
 	}
+}
+
+// requestTokenNow is requestToken for a login the caller waits for. done is
+// t.loggingIn. A panic in it goes on to the caller (its show build fails),
+// but first it counts as a failed login, as in renewPanicked: the login
+// under way ends, or every later login would wait for it until its ctx
+// ends. It isn't recovered here, so the caller sees the panic as it was.
+func (t *TVDB) requestTokenNow(ctx context.Context, legacy bool, done chan struct{}) (token string, err error) {
+	ended := false
+	defer func() {
+		if ended {
+			return
+		}
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.loggingIn == done {
+			t.loggingIn = nil
+			close(done)
+			t.loginErr, t.loginRetry = fmt.Errorf("%w: the login panicked", errTVDBLogin), time.Now().Add(tvdbLoginPause)
+		}
+	}()
+	token, err = t.requestToken(ctx, legacy)
+	ended = true
+	return token, err
 }
 
 // tvdbRenewTimeout bounds a background renewal, like a request's HTTP timeout.
@@ -381,14 +408,6 @@ type getOpts struct {
 	notFound    []int
 	notFoundTTL time.Duration
 }
-
-// Status lists for fetch.Request.NotFound (TheTVDB's and TheMovieDb's), made
-// once: a list built per call would be allocated per call.
-var (
-	only404      = []int{http.StatusNotFound}
-	only400      = []int{http.StatusBadRequest}
-	status400404 = []int{http.StatusBadRequest, http.StatusNotFound}
-)
 
 // getAs is get, asked the way o says. Its twin is tvdbShared: the two must
 // keep the same Enabled check and the same retry after a 401.
@@ -775,22 +794,26 @@ func (t *TVDB) Art(ctx context.Context, id int) (Art, error) {
 	if err := t.get(ctx, false, fmt.Sprintf("/series/%d/artworks", id), key, seriesFilesTTL, &r); err != nil {
 		return Art{}, err
 	}
-	arts := r.Data.Artworks
+	return artOf(r.Data.Artworks, 2, 3, 23), nil // TheTVDB series artwork types
+}
+
+// artOf ranks arts (byScore) and sorts them by TheTVDB artwork type id:
+// posters, backgrounds and, with a logo type (0: none), the clear logos in
+// English or no language.
+func artOf(arts []tvdbArtwork, poster, background, logo int) Art {
 	byScore(arts)
 	var a Art
 	for _, w := range arts {
-		switch w.Type { // TheTVDB series artwork types
-		case 2:
+		switch {
+		case w.Type == poster:
 			a.Posters = append(a.Posters, artURL(w.Image))
-		case 3:
+		case w.Type == background:
 			a.Backgrounds = append(a.Backgrounds, artURL(w.Image))
-		case 23:
-			if w.Lang == "" || w.Lang == "eng" {
-				a.Logos = append(a.Logos, artURL(w.Image))
-			}
+		case logo != 0 && w.Type == logo && (w.Lang == "" || w.Lang == "eng"):
+			a.Logos = append(a.Logos, artURL(w.Image))
 		}
 	}
-	return a, nil
+	return a
 }
 
 // SeasonArt returns the posters and backgrounds of a season in aired
@@ -819,18 +842,7 @@ func (t *TVDB) SeasonArt(ctx context.Context, id, season, sid int) (Art, error) 
 	if err := t.get(ctx, false, fmt.Sprintf("/seasons/%d/extended", sid), key, seasonTTL, &r); err != nil {
 		return Art{}, err
 	}
-	arts := r.Data.Artwork
-	byScore(arts)
-	var a Art
-	for _, w := range arts {
-		switch w.Type { // TheTVDB season artwork types
-		case 7:
-			a.Posters = append(a.Posters, artURL(w.Image))
-		case 8:
-			a.Backgrounds = append(a.Backgrounds, artURL(w.Image))
-		}
-	}
-	return a, nil
+	return artOf(r.Data.Artwork, 7, 8, 0), nil // TheTVDB season artwork types
 }
 
 func artURL(p string) string {

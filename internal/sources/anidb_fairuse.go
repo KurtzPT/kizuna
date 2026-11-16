@@ -49,6 +49,9 @@ type anidbCall struct {
 	at   time.Time // its entry in state.Sent: when it was queued, then when it went out
 	sent bool      // it left the 4 s queue and went out
 	fg   bool      // a foreground caller (Plex) waits for it
+	// answered: AniDB's answer passed validate, and state.Fetched holds it.
+	// A call that still fails after that (a panic) takes it back in result.
+	answered bool
 }
 
 // allowed checks ban, backoff, the anime's last failure and the daily limit,
@@ -220,11 +223,14 @@ func (c *AniDB) sendingLocked(aid int, background bool) (*anidbCall, error) {
 }
 
 // answered notes that AniDB answered aid's call with its entry, before the
-// entry is cached (result saves it).
-func (c *AniDB) answered(aid int) {
+// entry is cached (result saves it). call is the call sending returned.
+func (c *AniDB) answered(aid int, call *anidbCall) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.state.Fetched[aid] = time.Now()
+	if call != nil {
+		call.answered = true
+	}
 }
 
 // fetchedLately reports whether AniDB answered a call for aid in the last
@@ -364,6 +370,13 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		// the day's: the backoff keeps every call away until it ends.
 		if call != nil {
 			c.uncount(call)
+			if call.answered {
+				// The download failed after AniDB's entry was accepted (a
+				// panic): such a call blocks no anime either (DECISIONS.md,
+				// "AniDB fair use"). A copy cached before the failure still
+				// answers the next build without a call.
+				delete(c.state.Fetched, aid)
+			}
 			if call.at.Before(c.backedOffAt) {
 				// It went out before the failure that started this backoff
 				// (a slow answer, 4 s behind it): the same outage, not one
