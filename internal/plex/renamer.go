@@ -276,20 +276,37 @@ func due(last *time.Time, now time.Time) bool {
 }
 
 type metadata struct {
-	RatingKey string `json:"ratingKey"`
-	GUID      string `json:"guid"` // a show's: the GUID its provider gave it
+	RatingKey string   `json:"ratingKey"`
+	GUID      guidText `json:"guid"` // a show's: the GUID its provider gave it
 	// Plex's external IDs, unused. Named so that they aren't decoded into
-	// GUID: Go matches field names regardless of case, and an array there
-	// would fail the whole answer.
-	Guids   json.RawMessage `json:"Guid"`
-	Title   string          `json:"title"`
-	Subtype string          `json:"subtype"`
+	// GUID: Go matches field names regardless of case.
+	Guids   unread `json:"Guid"`
+	Title   string `json:"title"`
+	Subtype string `json:"subtype"`
 	Media   []struct {
 		Part []struct {
 			File string `json:"file"`
 		} `json:"Part"`
 	} `json:"Media"`
 }
+
+// guidText is a GUID as Plex writes it. Any other JSON leaves it empty
+// instead of failing the answer: a show whose GUID can't be read is kept,
+// while a failed answer would cost every title.
+type guidText string
+
+func (g *guidText) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*g = guidText(s)
+	}
+	return nil
+}
+
+// unread takes any JSON and keeps nothing of it.
+type unread struct{}
+
+func (*unread) UnmarshalJSON([]byte) error { return nil }
 
 type answer struct {
 	MediaContainer struct {
@@ -353,23 +370,29 @@ func (r *Renamer) rename(ctx context.Context, guid string, known []show) ([]show
 // this GUID, Plex may write GUIDs back in another form, so all are kept, as
 // before. Only an answer that holds this GUID and others is cut.
 func (r *Renamer) asked(guid string, found []metadata) []metadata {
-	var out []metadata
-	matched := false
+	// Counted first: a Plex that applies the filter costs no allocation.
+	matched, kept := false, 0
 	for _, m := range found {
-		if m.GUID == guid {
+		if string(m.GUID) == guid {
 			matched = true
 		}
-		if m.GUID == guid || m.GUID == "" {
+		if string(m.GUID) == guid || m.GUID == "" {
+			kept++
+		}
+	}
+	if !matched || kept == len(found) {
+		return found
+	}
+	out := make([]metadata, 0, kept)
+	for _, m := range found {
+		if string(m.GUID) == guid || m.GUID == "" {
 			out = append(out, m)
 		}
 	}
-	if !matched || len(out) == len(found) {
-		return found
-	}
-	// Once per process: such a Plex would log it for every queued show.
+	// Once per start: such a Plex would log it for every queued show.
 	r.unfiltered.Do(func() {
-		slog.Warn("Plex ignores the guid filter when asked for one show and answers with others: Kizuna skips those and sets titles on the show asked for only; this is logged once",
-			"show", guid, "skipped", len(found)-len(out))
+		slog.Warn("Plex ignores the guid filter when asked for one show and answers with others: Kizuna skips those and sets titles on the show asked for only; please report this with your Plex version; logged once per start of Kizuna",
+			"show", guid, "skipped", len(found)-kept)
 	})
 	return out
 }
