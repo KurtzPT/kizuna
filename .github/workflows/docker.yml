@@ -79,6 +79,15 @@ jobs:
           push: false
           tags: type=sha
           cache: true
+          # A pull request reads the build cache but saves none: each one's
+          # layers (about 140 MB) filled the repository's 10 GB cache. A pull
+          # request can read its base branch's cache, which dev's publish
+          # writes (and a push to main, for a pull request into main) under
+          # the same default BuildKit scope, so its first build is as warm as
+          # before. A second push to the same pull request no longer finds
+          # what its first build saved: it starts from the base branch's
+          # cache again. A push to main and a manual run still write.
+          cache-write: ${{ github.event_name != 'pull_request' }}
           version: sha
           # Not again inside the build for a pull request into dev: ci runs
           # its go job on the same commit, and the ruleset requires both go
