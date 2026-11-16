@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"kizuna/internal/anidb"
@@ -25,13 +26,13 @@ const longEps = 1100
 func longSeries(path string, q map[string][]string) (int, string) {
 	switch path {
 	case "api.anidb.net/httpapi":
-		return 200, longAniDB
+		return 200, longSources()[0]
 	case "api4.thetvdb.com/v4/series/500/episodes/official/eng":
-		return 200, longTVDB
+		return 200, longSources()[1]
 	case "api.themoviedb.org/3/tv/77":
 		return 200, `{"name":"TMDB Name","seasons":[{"season_number":0},{"season_number":1}]}`
 	case "api.themoviedb.org/3/tv/77/season/1":
-		return 200, longTMDB
+		return 200, longSources()[2]
 	}
 	if id, ok := strings.CutPrefix(path, "api4.thetvdb.com/v4/episodes/"); ok {
 		if id, ok = strings.CutSuffix(id, "/extended"); ok {
@@ -43,9 +44,13 @@ func longSeries(path string, q map[string][]string) (int, string) {
 	return testSeries(path, q)
 }
 
-var longAniDB, longTVDB, longTMDB = longSources()
+// longSources is made once, by the first benchmark that asks.
+var longSources = sync.OnceValue(func() [3]string {
+	ad, tv, tm := makeLongSources()
+	return [3]string{ad, tv, tm}
+})
 
-func longSources() (ad, tv, tm string) {
+func makeLongSources() (ad, tv, tm string) {
 	var a, t, m strings.Builder
 	a.WriteString(`<anime id="100"><type>TV Series</type><startdate>1999-10-20</startdate>
 <titles><title type="main" xml:lang="x-jat">Kizuna Test</title><title type="official" xml:lang="en">Bond Test</title></titles>
@@ -120,8 +125,8 @@ func BenchmarkLongAniDBBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkCrewMemorySave is what a build that learned a photo spends
-// saving the memory, by the number of photos it holds.
+// BenchmarkCrewMemorySave is what a build that learned a person's first
+// photo spends saving the memory, by the number of photos it holds.
 func BenchmarkCrewMemorySave(b *testing.B) {
 	for _, size := range []int{1000, 10000} {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
@@ -140,13 +145,13 @@ func BenchmarkCrewMemorySave(b *testing.B) {
 	}
 }
 
-// BenchmarkFinishCrewLearns is the end of a build that replaced one photo,
+// BenchmarkFinishCrewReplaces is the end of a build that replaced one photo,
 // with 10,000 photos remembered in a data folder: what the build's waiters
 // wait for (the save itself runs later, BenchmarkCrewMemorySave; a person's
 // first photo is saved inside the build and costs that too).
-func BenchmarkFinishCrewLearns(b *testing.B) {
+func BenchmarkFinishCrewReplaces(b *testing.B) {
 	p := &Provider{crewMemory: loadCrewMemory(b.TempDir())}
-	b.Cleanup(p.Flush) // before the folder goes: no save left on its timer
+	manualSaves(p.crewMemory) // no save lands inside the measurement, or after the folder goes
 	p.cfg.EpisodeCrewSources = []string{"tmdb"}
 	for i := range 10000 {
 		p.crewMemory.learn("person "+strconv.Itoa(i), "https://image.tmdb.org/t/p/original/person"+strconv.Itoa(i)+".jpg")

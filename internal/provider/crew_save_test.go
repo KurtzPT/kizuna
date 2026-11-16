@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,9 +81,9 @@ func readPhotos(t *testing.T, dir string) map[string]string {
 	return f.Photos
 }
 
-// Builds learning photos one after the other share one save, crewSaveDelay
-// after the first, which writes all their photos. The next photo learned
-// asks for a new one.
+// Delayed saves asked for one after the other are one save, crewSaveDelay
+// after the first, which writes every photo learned by then. The next one
+// asked for is a new save.
 func TestCrewMemorySavesLater(t *testing.T) {
 	dir := crewDir(t)
 	m := loadCrewMemory(dir)
@@ -176,6 +177,48 @@ func TestCrewMemoryFirstPhotoSavedInBuild(t *testing.T) {
 	}
 }
 
+// After a save that failed, the file may lack a person the memory has: the
+// next build that only replaced a photo saves before it ends, not later.
+func TestCrewMemorySavesInBuildAfterFailedSave(t *testing.T) {
+	dir := crewDir(t)
+	p := &Provider{crewMemory: loadCrewMemory(dir)}
+	mt := manualSaves(p.crewMemory)
+	p.cfg.EpisodeCrewSources = []string{"tmdb"}
+	build := func(photo string) {
+		s := &Show{Root: "tvdb-1", Episodes: map[int][]Ep{1: {{Season: 1, Index: 1, Directors: []string{"Person A"}}}}}
+		var cp crewPhotos
+		cp.add(srcTMDB, []sources.Person{{Name: "Person A", Photo: photo}})
+		p.finishCrew(s, &showSources{}, &cp)
+	}
+	// The first photo's save fails: the file's folder is a file.
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good := p.crewMemory.path
+	p.crewMemory.path = filepath.Join(blocker, crewMemoryFile)
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	build("a1.jpg")
+	restore()
+	if !strings.Contains(logs.String(), "crew photos file not written") {
+		t.Fatalf("the save didn't fail: %q", logs.String())
+	}
+	p.crewMemory.path = good
+	build("a2.jpg")
+	if got := readPhotos(t, dir); got[nameKey("Person A")] != "a2.jpg" {
+		t.Errorf("after a failed save: file %v, want a2.jpg saved by the build", got)
+	}
+	if n := len(mt.timers); n != 0 {
+		t.Errorf("after a failed save: %d delayed saves, want 0", n)
+	}
+	// Saved again: the next replaced photo waits for the timer.
+	build("a3.jpg")
+	if got := readPhotos(t, dir); got[nameKey("Person A")] != "a2.jpg" || len(mt.timers) != 1 {
+		t.Errorf("after a good save: file %v and %d delayed saves, want a2.jpg and 1", got, len(mt.timers))
+	}
+}
+
 // Flush writes a pending save at once and stops its timer; a timer that
 // fired anyway (before Stop) then finds nothing to write. With nothing
 // pending, Flush leaves the file as it is.
@@ -265,6 +308,7 @@ func TestCrewMemorySavesBesideBuilds(t *testing.T) {
 				learnSoon(m, k, k+".jpg")
 				_ = m.photo(k) // an episode answer reading it
 			}
+			m.save() // a build that learned a first photo, beside the timer's saves
 		})
 	}
 	wg.Wait()

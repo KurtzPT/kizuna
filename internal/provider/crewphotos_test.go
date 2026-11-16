@@ -853,10 +853,9 @@ func TestCrewPhotosReport(t *testing.T) {
 	}
 }
 
-// The report's crew photo count, now taken from the episode rows' items,
-// says what the count over items built apart for it said (crewCountApart,
-// the code it replaced): on a show with photos from three sources and one
-// remembered, in both modes.
+// The report's crew photo count comes from the episode rows' items. It says
+// what a count over items built for it alone says (crewCountApart): on a
+// show with photos from three sources and one remembered, in both modes.
 func TestCrewPhotoCountFromRows(t *testing.T) {
 	p, _ := photoProvider(t, nil)
 	p.crewMemory.learn(nameKey("Second Writer"), "https://elsewhere/second.jpg")
@@ -876,8 +875,8 @@ func TestCrewPhotoCountFromRows(t *testing.T) {
 	check(p, "anidb-100", Modes["anidb"])
 }
 
-// crewCountApart is crewPhotoCount as it was: the episodes' items built
-// again for the count alone.
+// crewCountApart is the crew photo count from the episodes' items built for
+// the count alone.
 func crewCountApart(p *Provider, mode Mode, s *Show) string {
 	withPhoto := map[string]bool{}
 	for _, n := range s.Seasons() {
