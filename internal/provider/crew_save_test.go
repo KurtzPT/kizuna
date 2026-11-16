@@ -205,6 +205,16 @@ func TestCrewMemorySavesInBuildAfterFailedSave(t *testing.T) {
 		t.Fatalf("the save didn't fail: %q", logs.String())
 	}
 	p.crewMemory.path = good
+	// The shutdown tries a failed save once more.
+	p.Flush()
+	if got := readPhotos(t, dir); got[nameKey("Person A")] != "a1.jpg" {
+		t.Errorf("Flush after a failed save: file %v, want a1.jpg", got)
+	}
+	p.crewMemory.path = filepath.Join(blocker, crewMemoryFile)
+	restore = captureLogs(&logs)
+	p.crewMemory.save()
+	restore()
+	p.crewMemory.path = good
 	build("a2.jpg")
 	if got := readPhotos(t, dir); got[nameKey("Person A")] != "a2.jpg" {
 		t.Errorf("after a failed save: file %v, want a2.jpg saved by the build", got)

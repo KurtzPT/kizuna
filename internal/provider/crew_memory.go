@@ -228,19 +228,21 @@ func (m *crewMemory) savePending() {
 
 // flush saves a pending save now, at shutdown, once the builds are over.
 // It waits for a save the timer already started: that one may hold the
-// last photos. Nothing pending: the file isn't touched.
+// last photos. Nothing pending and no failed save: the file isn't touched.
 func (m *crewMemory) flush() { m.savePending() }
 
 // takePending clears the pending save (under saveMu), stops its timer, and
-// reports whether there was one. A timer that fired already finds nothing
-// pending. A photo learned after this asks for a save of its own.
+// reports whether there is something to save: a pending save, or a save
+// that failed (the shutdown's flush tries it once more). A timer that fired
+// already finds nothing pending. A photo learned after this asks for a
+// save of its own.
 func (m *crewMemory) takePending() bool {
 	m.timerMu.Lock()
 	defer m.timerMu.Unlock()
 	if m.timer != nil {
 		m.timer.Stop()
 	}
-	was := m.pending
+	was := m.pending || m.unsaved
 	m.pending, m.timer = false, nil
 	return was
 }
