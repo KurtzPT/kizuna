@@ -60,10 +60,33 @@ shopt -s nullglob
 PLEXMATCH=.plexmatch
 VIDEO_EXT=" mkv mp4 avi m4v ts m2ts wmv mov webm ogm flv mpg "
 
+# the two usage lines of the header, kept here: piped to bash -s, $0 is no file to read them from
 usage() {
-	sed -n '6,7p' "$0" | sed 's/^# \{0,1\}//' >&2
+	printf '%s\n' \
+		"  kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] LIBRARY     show the planned hints (dry run)" \
+		"  kizuna-migrate.sh [-m anidb|tvdb|auto] [-u URL] -a LIBRARY  write them" >&2
 	exit 2
 }
+
+# The script reads ASCII words in any letter case (Season, OPENING, [ANIDB-1],
+# .AVI, TITLE:), with nocasematch and ${x,,}, which follow the locale's letter
+# case. In a Turkic one (tr_TR, az_AZ) I and i are no pair: "TITLE" lowers to
+# "tıtle", and Git Bash's nocasematch regexes even end the script. There, and
+# only there, the script takes the letter case of a locale where they are a
+# pair, exported for find -iname too. Every other locale is left as it is, so
+# file names compare as they always did.
+ascii_case() {
+	local i=I u=i
+	[[ ${i,,} == i && ${u^^} == I ]]
+}
+if ! ascii_case; then
+	for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 C; do
+		# LC_ALL, when set, overrides LC_CTYPE; bash warns about a missing locale
+		if [[ -n ${LC_ALL:-} ]]; then { export LC_ALL=$loc; } 2>/dev/null; else { export LC_CTYPE=$loc; } 2>/dev/null; fi
+		if ascii_case; then break; fi
+	done
+	unset loc
+fi
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -559,9 +582,16 @@ read_plexmatches() {
 					if [[ -z $HINT_KEY ]]; then continue; fi # "ep: 5:" names no file
 					if [[ -n $reldir ]]; then hint_key "$reldir/$HINT_KEY"; fi
 					file=$HINT_KEY
-					USER_EP[$file]=$value USER_EP_AS[$file]=$as USER_EP_DIR[$file]=$reldir
-					space_key "${reldir:+$reldir/}$as"
-					USER_EP_SK[$file]=$SPACE_KEY
+					USER_EP[$file]=$value
+					# A later line for the file wins, but not over how an earlier
+					# one wrote its name when that one was plain (its space_key is
+					# the file's key): Plex reads that line, so the name needs no
+					# warning
+					if [[ ${USER_EP_SK[$file]:-} != "$file" ]]; then
+						USER_EP_AS[$file]=$as USER_EP_DIR[$file]=$reldir
+						space_key "${reldir:+$reldir/}$as"
+						USER_EP_SK[$file]=$SPACE_KEY
+					fi
 					if [[ -z ${USER_EP_LC[${file,,}]:-} ]]; then USER_EP_LC[${file,,}]=$file; fi
 				fi
 				;;
@@ -691,10 +721,15 @@ match_body() {
 # match_key prints the rating key of Kizuna's match for the current show, the
 # request made the way Plex makes it: $1 = one of its videos, $2 = 1 for a
 # manual match, $3 = the provider. Nothing when there is no match; fails when
-# Kizuna doesn't answer.
+# Kizuna doesn't answer. The key goes into warnings and request paths, so a
+# key that isn't Kizuna's show key (anidb-N, tvdb-N) counts as no match: what
+# answers at $URL may not be Kizuna, and its text could hold terminal escape
+# sequences or a path.
 match_key() {
 	curl -fsS --max-time 60 -H 'Content-Type: application/json' -d "$(match_body "$1" "$2")" \
-		"$URL/$3/library/metadata/matches" | jq -r '.MediaContainer.Metadata[0].ratingKey // empty' | tr -d '\r'
+		"$URL/$3/library/metadata/matches" |
+		jq -r '.MediaContainer.Metadata[0].ratingKey // empty | select(type == "string" and test("\\A(anidb|tvdb)-[0-9]+\\z"))' |
+		tr -d '\r'
 }
 
 # A whole number in Kizuna's answer, for jq. Anything else in a number's place
@@ -1330,12 +1365,35 @@ add_hints() {
 	fi
 	if [[ -n $out && $out != *$'\n' ]]; then out+=$eol; fi
 	while IFS= read -r line; do out+=$line$eol; done <<<"${new%$'\n'}"
+	WRITING=$tmp # for on_signal, before the temp file exists
 	# a copy of the old file first, for its permissions (and owner, as root)
 	if [[ -f $pm ]]; then cp -p "$pm" "$tmp" 2>/dev/null || :; fi
 	if ! printf '%s' "$out" >"$tmp" || ! mv -f "$tmp" "$pm"; then
 		rm -f "$tmp" 2>/dev/null || :
+		WRITING=""
 		die "can't write $pm (full disk? permissions?): it was left as it was"
 	fi
+	WRITING=""
+}
+
+WRITING="" # the temp file add_hints is writing, if any
+
+# on_signal is the trap for an interrupt (Ctrl+C) or a kill while the
+# .plexmatch files are written: it deletes the temp file being written, if
+# any (the old .plexmatch is still whole), then ends the script by the same
+# signal ($1), so that its caller sees why. A variable set per file, and a
+# trap set once: nothing runs per file that wasn't already there.
+on_signal() {
+	if [[ -n $WRITING ]]; then rm -f -- "$WRITING" 2>/dev/null || :; fi
+	WRITING=""
+	trap - "$1"
+	kill -s "$1" "$BASHPID"
+	# a signal ignored when the script started can't be reset: end it anyway
+	case $1 in
+	HUP) exit 129 ;;
+	INT) exit 130 ;;
+	*) exit 143 ;;
+	esac
 }
 
 # --- main --------------------------------------------------------------------
@@ -1385,7 +1443,11 @@ main() {
 		"${#WARNINGS[@]} warnings"
 	((${#CHANGED[@]} > 0)) || return 0
 	if ((do_apply)); then
+		trap 'on_signal HUP' HUP
+		trap 'on_signal INT' INT
+		trap 'on_signal TERM' TERM
 		for d in "${CHANGED[@]}"; do add_hints "$d/$PLEXMATCH" "${NEW_HINTS[$d]}"; done
+		trap - HUP INT TERM
 		echo "wrote ${#CHANGED[@]} .plexmatch files. The new ep: lines are plain lines like your own: the next run"
 		echo "keeps them, and to change or remove one, edit the .plexmatch by hand."
 	else
@@ -1395,4 +1457,6 @@ main() {
 	fi
 }
 
-[[ ${BASH_SOURCE[0]} != "$0" ]] || main "$@"
+# Run main when the script is run, not when it is sourced (the tests do).
+# Piped to bash -s, BASH_SOURCE is empty (unset for set -u): it is run then.
+[[ ${BASH_SOURCE[0]:-$0} != "$0" ]] || main "$@"

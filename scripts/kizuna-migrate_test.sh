@@ -479,6 +479,22 @@ check "dry run writes nothing" "$(bytes "$show/.plexmatch")" "$original"
 check "dry run: no new .plexmatch" "$(ls -A "$lib/Movie")" "Movie (2010).mkv"
 check "dry run: a lone SxxEyy file gets no hint" "$(grep -c 'First - S01E05' <<<"$out")" "0"
 
+# Piped to bash -s, the way "curl ... | bash -s -- ARGS" runs it, the script
+# works as when it's run from its file, its usage included (it has no file to
+# read then). The usage is the header's.
+# shellcheck disable=SC2002 # a pipe, as curl gives it, not a file on stdin
+piped=$(cat "$SCRIPT" | bash -s -- -u "$NO_KIZUNA" "$lib" 2>&1)
+check "piped to bash -s: exit" "$?" "0"
+check "piped to bash -s: the same plan" "$piped" "$out"
+header_usage=$(sed -n '6,7p' "$SCRIPT" | sed 's/^# \{0,1\}//')
+out=$(bash "$SCRIPT" 2>&1)
+check "no LIBRARY: exit" "$?" "2"
+check "no LIBRARY: the usage" "$out" "$header_usage"
+# shellcheck disable=SC2002
+out=$(cat "$SCRIPT" | bash -s 2>&1)
+check "piped to bash -s, no LIBRARY: exit" "$?" "2"
+check "piped to bash -s, no LIBRARY: the usage" "$out" "$header_usage"
+
 out=$(bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1)
 check "apply exits 0" "$?" "0"
 check_contains "apply: says so" "$out" "wrote 2 .plexmatch files"
@@ -502,6 +518,65 @@ mkdir -p "$WORK/dash/-lib/Show [anidb-1]"
 out=$(cd "$WORK/dash" && bash "$SCRIPT" -u "$NO_KIZUNA" -- -lib/ 2>&1)
 check "LIBRARY -lib: exit" "$?" "0"
 check_contains "LIBRARY -lib: planned" "$out" "+ ep: S00E01: Show - SP1.mkv"
+
+# In a Turkic locale I and i are no pair (I lowers to ı): the ASCII words the
+# script reads in any letter case still read the same, and the plan is the
+# one made in the C locale. Skipped where no such locale is installed.
+tr_loc=""
+for l in tr_TR.UTF-8 tr_TR.utf8; do
+	if LC_ALL=$l bash -c 'x=I; [[ ${x,,} != i ]]' 2>/dev/null; then tr_loc=$l; break; fi
+done
+if [[ -n $tr_loc ]]; then
+	lib=$WORK/turkish
+	mkdir -p "$lib/Show [ANIDB-1]/EXTRAS" "$lib/Ided"
+	for f in "Show - SP1.AVI" "Show - OPENING 1.mkv" "EXTRAS/Show - SP9.mkv"; do : >"$lib/Show [ANIDB-1]/$f"; done
+	printf 'TITLE: Show\nIMDBID: tt1\n' >"$lib/Show [ANIDB-1]/.plexmatch"
+	printf '5\n' >"$lib/Ided/ANIDB.ID"
+	: >"$lib/Ided/Ided - SP1.mkv"
+	want=$(LC_ALL=C bash "$SCRIPT" -m auto -u "$NO_KIZUNA" "$lib" 2>&1)
+	out=$(LC_ALL=$tr_loc bash "$SCRIPT" -m auto -u "$NO_KIZUNA" "$lib" 2>&1)
+	check "locale $tr_loc: exit" "$?" "0"
+	check "locale $tr_loc: the plan of the C locale" "$out" "$want"
+	check_contains "locale $tr_loc: [ANIDB-1] and .AVI" "$out" "+ ep: S00E01: Show - SP1.AVI"
+	check_contains "locale $tr_loc: IMDBID:" "$out" "\"IMDBID: tt1\" is ignored"
+	check_contains "locale $tr_loc: ANIDB.ID" "$out" "+ ep: S00E01: Ided - SP1.mkv"
+	check_contains "locale $tr_loc: OPENING 1" "$out" "rename it with OP1 in place of that"
+	check "locale $tr_loc: EXTRAS left out" "$(grep -c 'SP9' <<<"$out")" "0"
+	# with LC_ALL unset, the locale from LC_CTYPE
+	out=$(env -u LC_ALL LC_CTYPE="$tr_loc" bash "$SCRIPT" -m auto -u "$NO_KIZUNA" "$lib" 2>&1)
+	check "locale LC_CTYPE=$tr_loc: the plan of the C locale" "$out" "$want"
+else
+	echo "SKIP Turkish locale checks: no tr_TR.UTF-8 locale here"
+fi
+
+# An interrupt or a kill while the .plexmatch files are written deletes the
+# temp file being written, and the old file stays whole. on_signal, called
+# as the trap calls it, in a subshell it ends:
+dir=$WORK/signal
+mkdir -p "$dir"
+printf 'title: Keep Me\n' >"$dir/.plexmatch"
+printf 'title: Keep Me\nep: S0' >"$dir/.plexmatch.kizuna-tmp"
+# shellcheck disable=SC2034 # read by the sourced script's on_signal
+(WRITING=$dir/.plexmatch.kizuna-tmp && on_signal INT)
+check "interrupt: ends the script as INT does" "$?" "130"
+check "interrupt: temp file deleted" "$(ls -A "$dir")" ".plexmatch"
+check "interrupt: old file whole" "$(bytes "$dir/.plexmatch")" 'title:KeepMe\n'
+{ (on_signal TERM); } 2>/dev/null # bash's "Terminated" notice
+check "kill, nothing being written: ends the script as TERM does" "$?" "143"
+# A whole run, killed by the move that would replace the file (a fake mv,
+# the script's last step for each file): the temp file is already written
+lib=$WORK/signal-run
+mkdir -p "$lib/Show [anidb-1]"
+: >"$lib/Show [anidb-1]/Show - SP1.mkv"
+printf 'title: Show\n' >"$lib/Show [anidb-1]/.plexmatch"
+out=$(
+	mv() { kill -s TERM "$BASHPID"; }
+	export -f mv
+	bash "$SCRIPT" -u "$NO_KIZUNA" -a "$lib" 2>&1
+)
+check "killed while writing: exit" "$?" "143"
+check "killed while writing: no temp file left" "$(ls -A "$lib/Show [anidb-1]" | tr '\n' '|')" ".plexmatch|Show - SP1.mkv|"
+check "killed while writing: old file whole" "$(bytes "$lib/Show [anidb-1]/.plexmatch")" 'title:Show\n'
 
 # openings and endings are reported and never hinted, whether Plex makes them
 # extras, leaves them out, or doesn't take the name (small letters)
@@ -886,6 +961,16 @@ again case $'EP: s00e01: Show - SP1.mkv\nEp:S00E02:show - sp2.MKV\nep: S00E03: S
 check "again, case: a hint in other letters is reported" "$(grep -F 'written differently' <<<"$out")" \
 	"$(as_warn case "Show - SP2.mkv" "show - sp2.MKV" S00E02 "" "Show - SP2.mkv")"
 
+# a plain line and a line written another way for the same file, in either
+# order: Plex reads the plain one, so there's nothing to warn about
+videos plainfirst "Show - SP1.mkv" "Show - SP2.mkv" "Show - SP3.mkv"
+printf 'ep: S00E01: Show - SP1.mkv\nep: S00E01: ./Show - SP1.mkv\nep: S00E02: .\\Show - SP2.mkv\nep: S00E02: Show - SP2.mkv\n' \
+	>"$WORK/again/plainfirst/Show [anidb-1]/.plexmatch"
+again plainfirst $'ep: S00E01: Show - SP1.mkv\nep: S00E01: ./Show - SP1.mkv\nep: S00E02: .\\Show - SP2.mkv\nep: S00E02: Show - SP2.mkv\nep: S00E03: Show - SP3.mkv\n'
+for run in first_out out; do
+	check "again, plainfirst ($run): no warning about how the hint is written" "$(grep -c 'written differently' <<<"${!run}")" "0"
+done
+
 videos crlf "Show - SP1.mkv" "Show - SP2.mkv" " Show - SP3.mkv"
 printf 'title: Show\r\nep: S00E01: Show - SP1.mkv' >"$WORK/again/crlf/Show [anidb-1]/.plexmatch" # no line end at the end
 again crlf $'title: Show\r\nep: S00E01: Show - SP1.mkv\r\nep: S00E03:  Show - SP3.mkv\r\nep: S00E02: Show - SP2.mkv\r\n'
@@ -1017,6 +1102,9 @@ curl() {
 		*'[tvdb3-901]'*) key=tvdb-901 ;;
 		*'[tvdb3-902]'*) key=tvdb-902 ;;
 		*'[tvdb-903]'*) key=tvdb-903 ;;
+		# keys that are not Kizuna's: terminal escape sequences, a path
+		*'[tvdb3-904]'*) key='tvdb-904\u001b[31m\u001b]0;owned\u0007' ;;
+		*'[tvdb3-905]'*) key='tvdb-905/../tvdb-200' ;;
 		esac
 		if [[ -n $key ]]; then
 			printf '{"MediaContainer":{"size":1,"Metadata":[{"type":"show","ratingKey":"%s"}]}}' "$key"
@@ -1026,6 +1114,7 @@ curl() {
 		;;
 	# season 0 listed too: the script leaves specials out
 	"$FAKE"/*/library/metadata/tvdb-[123]00/grandchildren) episodes 0:1-2 2:4-6 1:1-3 ;;
+	"$FAKE"/*/library/metadata/tvdb-90[45]*/grandchildren) episodes 1:1-3 ;;
 	"$FAKE"/anidb/library/metadata/anidb-1-s0/children)
 		printf '{"MediaContainer":{"Metadata":[%s]}}' \
 			'{"index":1,"title":"Episode S1"},{"index":101,"title":"Opening 1a"},{"index":102,"title":"Opening 1b"},{"index":103,"title":"Opening 2"},{"index":151,"title":"Ending 1"}'
@@ -1320,6 +1409,19 @@ $(same "$lib/Rel2 [tvdb-100]" S02E05 '"Rel2 - S02E02.mkv", "Rel2 - S02E05.mkv" (
 		"an ep: hint for the new name, with its Kizuna number (S00E101...; OP3: $unlisted), $by_hand_end"
 	check "hostile credits: a good line still counts" "$(number_of "Inj - ED2")" \
 		"\"ep: S00E152: <new name>\" $by_hand_end (S00E152 is Kizuna's number for it)"
+
+	# A rating key that isn't Kizuna's (anidb-N, tvdb-N) is no match: it never
+	# reaches the output, where escape sequences in it would drive the terminal
+	lib=$WORK/hostile-key
+	mkdir -p "$lib/Esc [tvdb3-904]" "$lib/Path [tvdb3-905]"
+	: >"$lib/Esc [tvdb3-904]/Esc - 99.mkv"
+	: >"$lib/Path [tvdb3-905]/Path - 99.mkv"
+	out=$(bash "$SCRIPT" -m tvdb -u "$FAKE" "$lib" 2>&1)
+	check "hostile rating key: exit" "$?" "0"
+	check "hostile rating key: no control character in the output" "$(tr -d '\n' <<<"$out" | tr -cd '\000-\037\177' | od -An -c | tr -d ' ')" ""
+	check "hostile rating key: the keys aren't printed" "$(grep -cE 'tvdb-90[45]' <<<"$out")" "0"
+	check_contains "hostile rating key: escape sequences, no match" "$out" "$lib/Esc [tvdb3-904]: no match from Kizuna at $FAKE; skipped"
+	check_contains "hostile rating key: a path, no match" "$out" "$lib/Path [tvdb3-905]: no match from Kizuna at $FAKE; skipped"
 else
 	echo "SKIP fake-Kizuna checks (tvdb, auto and anidb with Kizuna): jq not found (install jq, or set JQ=gojq)"
 fi
