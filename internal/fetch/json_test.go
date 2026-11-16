@@ -587,7 +587,8 @@ func TestNotFoundStaleCopyAnswers(t *testing.T) {
 }
 
 // At debug level, each use of a remembered "nothing there" logs one line
-// with the key, the status and when it is asked again, never the URL's key.
+// with the key, the status and when it is asked again, never the URL, so
+// never its api key.
 // At the normal level nothing is logged.
 func TestNotFoundRememberedLogged(t *testing.T) {
 	const msg = "remembered not found"
@@ -653,8 +654,8 @@ func TestNotFoundRememberedLogged(t *testing.T) {
 		if err := c.GetJSON(context.Background(), r, &out, nil); !IsNotFound(err) {
 			t.Fatalf("GetJSON: %v, want the remembered 404", err)
 		}
-		if got := logs.String(); got != "" {
-			t.Errorf("logged at the normal level:\n%s", got)
+		if n := logs.count(msg); n != 0 { // counted: another test's late goroutine may log something else
+			t.Errorf("%d %q lines at the normal level, want none:\n%s", n, msg, logs)
 		}
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -503,8 +504,9 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	}
 	s.addGuids(tmdbID, entry.IMDB)
 
+	own := sharedAbsolute(eps) // TheTVDB's own numbers, before FillAbsolute gives the rest
 	sources.FillAbsolute(eps)
-	warnSharedAbsolute(tvdbID, eps)
+	p.warnSharedAbsolute(tvdbID, eps, own)
 	b.tmdbID, b.eps, b.partial = tmdbID, eps, errors.Is(epsErr, sources.ErrIncomplete)
 	episodesFromList(s, b)
 	// What doesn't depend on AniDB's answer starts before it is in, as that
@@ -573,15 +575,23 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 	}
 }
 
-// warnSharedAbsolute warns, once per build, when two regular episodes of a
-// TheTVDB list share an absolute number (TheTVDB's own, or one FillAbsolute
-// gave): only one of them is found by it, in its season and in the
-// pairing. Which one is left as it is; the line is for finding real cases.
-// It names the first such pair and how many episodes repeat a number.
-func warnSharedAbsolute(tvdbID int, eps []sources.Episode) {
+// absPair is the pair of regular episodes sharedAbsolute reports: positions
+// in the list, and how many episodes repeat a number an earlier one has
+// (0: none, and first and second mean nothing).
+type absPair struct {
+	first, second, repeats int
+	sameSeason             bool
+}
+
+// sharedAbsolute finds regular episodes of a list (season 1 and up) whose
+// absolute number an earlier one has. It reports a pair inside one season
+// when there is one, since only that one hides an episode: the first such
+// pair in list order (by the later episode, then the earlier). Else the
+// first pair across seasons. An episode without a number (0) is skipped.
+func sharedAbsolute(eps []sources.Episode) absPair {
+	regular := func(i int) bool { return eps[i].Season > 0 && eps[i].Absolute > 0 }
 	// A list is nearly always in increasing order: a list without a repeat
 	// then costs one pass and nothing else.
-	regular := func(i int) bool { return eps[i].Season > 0 && eps[i].Absolute > 0 } // as indexEpisodes' byAbs
 	last, ordered := 0, true
 	for i := range eps {
 		if regular(i) {
@@ -593,29 +603,66 @@ func warnSharedAbsolute(tvdbID int, eps []sources.Episode) {
 		}
 	}
 	if ordered {
-		return
+		return absPair{}
 	}
 	// Out of order: compared in place, as a map would allocate.
-	first, second, repeats := 0, 0, 0
+	var first, same absPair
+	repeats := 0
 	for j := range eps {
 		if !regular(j) {
 			continue
 		}
+		counted := false
 		for i := range j {
-			if regular(i) && eps[i].Absolute == eps[j].Absolute {
-				if repeats == 0 {
-					first, second = i, j
-				}
+			if !regular(i) || eps[i].Absolute != eps[j].Absolute {
+				continue
+			}
+			if !counted {
+				counted = true
 				repeats++
-				break
+				if first.repeats == 0 {
+					first = absPair{first: i, second: j, repeats: 1, sameSeason: eps[i].Season == eps[j].Season}
+				}
+			}
+			if eps[i].Season == eps[j].Season && same.repeats == 0 {
+				same = absPair{first: i, second: j, repeats: 1, sameSeason: true}
+			}
+			if same.repeats > 0 {
+				break // nothing more to learn from this episode
 			}
 		}
 	}
-	if repeats > 0 {
-		slog.Warn("TheTVDB gives two episodes the same absolute number; only one of them is used for it",
-			"tvdb", tvdbID, "absolute", eps[first].Absolute, "first", spotName(eps[first]), "second", spotName(eps[second]),
-			"repeats", repeats)
+	p := first
+	if same.repeats > 0 {
+		p = same
 	}
+	p.repeats = repeats
+	return p
+}
+
+// warnSharedAbsolute warns when two regular episodes of a series' TheTVDB
+// list (after FillAbsolute) have one absolute number. Inside one season,
+// Show.Episode finds only the first of them, so the other can't be had.
+// Across seasons both are found through their season, but they share one
+// spot when paired with AniDB and TheMovieDb. Which episode wins is left as
+// it is: the line is for finding real cases. own is the list's pair before
+// FillAbsolute (TheTVDB's own numbers: FillAbsolute fills only the zeros),
+// which tells whether the pair reported is TheTVDB's own or one
+// FillAbsolute made. Logged at most once per 10 minutes per series: Plex
+// asks for a show again and again, and an incomplete one is rebuilt every
+// 2 minutes.
+func (p *Provider) warnSharedAbsolute(tvdbID int, eps []sources.Episode, own absPair) {
+	r := sharedAbsolute(eps)
+	if r.repeats == 0 || !p.absLogged.due(strconv.Itoa(tvdbID)) {
+		return
+	}
+	// The same rule picks both pairs, and the list's own numbers are a part
+	// of the filled ones, so the reported pair is TheTVDB's own exactly
+	// when the own pass found that same pair.
+	isOwn := own.repeats > 0 && own.first == r.first && own.second == r.second
+	slog.Warn("two episodes of TheTVDB's list have the same absolute number",
+		"tvdb", tvdbID, "absolute", eps[r.first].Absolute, "first", spotName(eps[r.first]), "second", spotName(eps[r.second]),
+		"same_season", r.sameSeason, "own", isOwn, "repeats", r.repeats)
 }
 
 // enrichTVDB adds the episode titles and crew and the show-level fields (ss:

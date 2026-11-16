@@ -163,11 +163,21 @@ func TestTMDBMissingRecordRemembered(t *testing.T) {
 	if c := n.count(movie); c != 2 {
 		t.Errorf("after a day: the movie asked %d times in all, want 2", c)
 	}
+
+	// find keeps its own rule: a 404 from it is not remembered.
+	if id, err := tm.TVFromTVDB(ctx, 98); id != 0 || !fetch.IsNotFound(err) {
+		t.Errorf("find: %d %v, want its 404", id, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tmdb", "find-tvdb-98.json.notfound")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("find's 404 is remembered (stat: %v), want nothing kept", err)
+	}
 }
 
 // A movie whose cached copy expired still gets that copy when TheMovieDb now
 // answers 404: the remembered 404 never hides it, so it is asked at each
-// build. A 401 (a wrong key) is not remembered as "no such movie".
+// build. A 401 (a wrong key) is not remembered as "no such movie". A guard:
+// it passes with or without the memory, and keeps the memory from hiding
+// either.
 func TestTMDBMissingRecordStaleCopy(t *testing.T) {
 	const movie = "api.themoviedb.org/3/movie/99?api_key=key&language=en-US&append_to_response=credits,release_dates"
 	dir := t.TempDir()

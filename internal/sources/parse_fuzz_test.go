@@ -76,11 +76,12 @@ func FuzzParseANN(f *testing.F) {
 // people and pictures, a movie, a season's episodes, a show's /images, no
 // match), cut to about 200 bytes each. Not the files themselves: the
 // fuzzer minimizes each input that finds new code, trying every pair of
-// cut points, so a seed of a few KB took the whole run (18 inputs in 21 s
-// in CI).
+// cut points, so its time grows with the square of the input's size, and
+// a seed of a few KB took the whole run.
 func FuzzParsePlex(f *testing.F) {
 	f.Add([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"5d9f","type":"show","title":"F","summary":"S",
-"index":null,"duration":1440000,"studio":"M","contentRating":"TV-14","originallyAvailableAt":"2023-09-29","thumb":"/1"}]}}`))
+"index":null,"duration":1440000,"studio":"M","contentRating":"TV-14","originallyAvailableAt":"2023-09-29","thumb":"/1",
+"guid":"plex://show/5d9f","Guid":[{"id":"tvdb://4"}]}]}}`))
 	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Genre":[{"tag":"Anime"}],"Director":[{"tag":"D"},{"tag":"E","thumb":"/2"}],
 "Writer":[{"tag":"W"}],"Role":[{"order":2,"role":"R","tag":"B","thumb":"/3"},{"order":1,"role":"Q","tag":"A"}]}]}}`))
 	f.Add([]byte(`{"MediaContainer":{"Metadata":[{"Guid":[{"id":"tvdb://4"}],"Image":[{"type":"coverPoster","url":"/4"},
