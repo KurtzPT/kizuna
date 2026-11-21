@@ -107,18 +107,32 @@ out=$(run "$(list "$(
 check "fractional seconds: exit" "$?" 0
 check "fractional seconds: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "4 6 "
 
-# the defaults (KEEP_DAYS 7, KEEP_COUNT 0): a sha-* build older than a week
-# goes, even the newest one, unless a release or dev tag uses it; a release,
-# however old, stays, and so does a build from the last week
-out=$(env -u KEEP_COUNT -u KEEP_DAYS OWNER=Someone PACKAGE=kizuna MIN_AGE_HOURS=24 NOW=1794182400 	VERSIONS_JSON="$(list "$(
-		version 1 sha256:rel 2026-01-01T00:00:00Z 1.0.0 latest sha-r
-		version 2 sha256:dev 2026-10-01T00:00:00Z dev sha-d
-		version 3 sha256:week 2026-11-02T01:00:00Z sha-w
-		version 4 sha256:eight 2026-11-01T00:00:00Z sha-e
-	)")" MANIFESTS_JSON='{}' bash "$SCRIPT" 2>&1)
+# run_defaults VERSIONS: run with the script's own KEEP_DAYS (7) and KEEP_COUNT (0)
+run_defaults() {
+	env -u KEEP_COUNT -u KEEP_DAYS OWNER=Someone PACKAGE=kizuna MIN_AGE_HOURS=24 \
+		NOW=1794182400 VERSIONS_JSON="$1" MANIFESTS_JSON='{}' bash "$SCRIPT" 2>&1
+}
+
+# the defaults: a sha-* build older than a week goes unless a release or dev
+# tag uses it; a release, however old, stays, and so does a build from the
+# last week
+out=$(run_defaults "$(list "$(
+	version 1 sha256:rel 2026-01-01T00:00:00Z 1.0.0 latest sha-r
+	version 2 sha256:dev 2026-10-01T00:00:00Z dev sha-d
+	version 3 sha256:week 2026-11-02T01:00:00Z sha-w
+	version 4 sha256:eight 2026-11-01T00:00:00Z sha-e
+)")")
 check "defaults: exit" "$?" 0
 check "defaults: deleted" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "4 "
 check "defaults: kept tags" "$(sed -n 's/^kept tags: //p' <<< "$out")" "1.0.0 dev latest sha-d sha-r sha-w"
+
+# no minimum count: the newest sha-* build goes too once it is over a week old
+out=$(run_defaults "$(list "$(
+	version 1 sha256:rel 2026-01-01T00:00:00Z 1.0.0 latest sha-r
+	version 2 sha256:dev 2026-10-01T00:00:00Z dev sha-d
+	version 4 sha256:eight 2026-11-01T00:00:00Z sha-e
+)")")
+check "defaults: newest old build" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "$out" | tr '\n' ' ')" "4 "
 
 # The real API and registry paths, with curl and gh faked by exported
 # functions: curl answers from FAKE_MANIFESTS, needs the token, and fails for

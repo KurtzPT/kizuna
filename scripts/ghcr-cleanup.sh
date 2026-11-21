@@ -61,7 +61,7 @@ ACCEPT='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.
 # Call it in the main shell (m=$(manifest ...)), never in a pipe or <(...):
 # a failed lookup must stop the script, or a kept index looks childless and
 # its images get deleted. Two retries: one passing 5xx or timeout in a few
-# hundred reads shouldn't fail the month's run (curl retries timeouts, 408,
+# hundred reads shouldn't fail the week's run (curl retries timeouts, 408,
 # 429 and 5xx, never a 404; --max-time is per attempt).
 manifest() {
   local digest=$1
