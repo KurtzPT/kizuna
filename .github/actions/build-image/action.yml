@@ -87,6 +87,11 @@ runs:
 
     - id: meta
       uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      env:
+        # the labels as annotations on each platform's image and on the index
+        # too: GHCR's package page reads a multi-platform image's description
+        # from the index, which labels never reach
+        DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
       with:
         images: ${{ steps.image.outputs.name }}
         flavor: latest=false
@@ -100,6 +105,7 @@ runs:
         push: ${{ inputs.push }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        annotations: ${{ steps.meta.outputs.annotations }}
         # only an exact "false" skips the tests: anything else runs them
         build-args: |
           VERSION=${{ steps.kizuna.outputs.version }}

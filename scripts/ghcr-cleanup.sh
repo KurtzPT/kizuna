@@ -8,7 +8,8 @@
 #     versions (none by default: an older build goes unless a tag above uses it)
 #   - everything a kept version needs: the per-platform images and BuildKit
 #     attestations in its index, and its signed attestation (the version
-#     tagged sha256-<its digest>), followed recursively
+#     tagged sha256-<its digest>, on images published before attestations
+#     stayed on GitHub only), followed recursively
 #   - an untagged version whose manifest names a kept version as its subject
 #     (an attestation stored the OCI referrers way, with no sha256-* tag), and
 #     everything it needs in turn (one the registry answers 404 for has no

@@ -221,10 +221,13 @@ jobs:
           run-tests: ${{ github.ref != 'refs/heads/dev' }}
 
       # Signed SLSA build provenance for the image just pushed (all its tags
-      # share this digest), stored on GitHub and next to the image in GHCR.
+      # share this digest), stored on GitHub only: `gh attestation verify`
+      # reads it from there. Not pushed to GHCR: there it is a sha256-<digest>
+      # tag pushed after the image, which the package page shows as the newest
+      # version in its pull command.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ steps.build.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+          push-to-registry: false
           create-storage-record: false # storage records need an organization-owned repo
