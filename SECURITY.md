@@ -45,9 +45,6 @@ Kizuna has **no login, by design** ([why](#%EF%B8%8F-how-kizuna-is-protected)): 
 | Older releases | ❌ update to the latest |
 | Betas (`:1.2.3-beta.1`), `:dev` | ❌ not supported, though they usually get the fix first |
 
-> [!NOTE]
-> There is no stable release yet. Until v0.1.0, fixes go into the next beta.
-
 > [!TIP]
 > Update with `docker compose pull && docker compose up -d`. All tags: [SETUP.md](SETUP.md#-2-run-kizuna).
 
