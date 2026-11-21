@@ -6,7 +6,7 @@
 # branch (dev), with a token that can write labels. Only for branches of
 # this repository: a fork's token is read-only under pull_request, and
 # pull_request_target, which could label a fork, runs from the default branch
-# only (main, which has no workflows before v0.1.0). A fork's pull request
+# only (main). A fork's pull request
 # gets its area labels by hand.
 #
 # Dependabot and go-update pull requests already carry "dependencies": they

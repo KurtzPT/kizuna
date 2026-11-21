@@ -428,7 +428,8 @@ func health(cfg config.Config) int {
 // newLogHandler is the format of every log line: slog's text lines. It
 // quotes a message, key or value that holds a line break, so text from a
 // request can't end its line and start one that reads like another entry
-// (TestLogLinesCantBeForged).
+// (TestLogLinesCantBeForged). CodeQL's go/log-injection is off because of it
+// (.github/codeql/codeql-config.yml): a handler that doesn't quote needs it on.
 func newLogHandler(out io.Writer, level slog.Leveler) slog.Handler {
 	return slog.NewTextHandler(out, &slog.HandlerOptions{Level: level})
 }
