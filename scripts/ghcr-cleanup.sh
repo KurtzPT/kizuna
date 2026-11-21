@@ -4,7 +4,8 @@
 #
 # Kept:
 #   - every version with a tag other than sha-*: dev, latest, 1.2.3, 1.2, ...
-#   - the newest KEEP_COUNT sha-* versions, and any sha-* newer than KEEP_DAYS
+#   - any sha-* version newer than KEEP_DAYS, and the newest KEEP_COUNT sha-*
+#     versions (none by default: an older build goes unless a tag above uses it)
 #   - everything a kept version needs: the per-platform images and BuildKit
 #     attestations in its index, and its signed attestation (the version
 #     tagged sha256-<its digest>), followed recursively
@@ -18,7 +19,7 @@
 # Dry run unless DELETE=true: it prints what it would delete and keep.
 #
 # Env: OWNER, PACKAGE (default: the repository name from GITHUB_REPOSITORY,
-# else kizuna; lower-cased like the image name), KEEP_COUNT (10), KEEP_DAYS (30),
+# else kizuna; lower-cased like the image name), KEEP_COUNT (0), KEEP_DAYS (7),
 # MIN_AGE_HOURS (24), DELETE (false), GH_TOKEN for the gh CLI.
 # For tests: VERSIONS_JSON (what the versions API returns) instead of the API,
 # MANIFESTS_JSON ({"<digest>": <manifest>, ...}) instead of the registry, NOW
@@ -30,8 +31,8 @@ repo=${GITHUB_REPOSITORY:-}
 repo=${repo#*/}
 PACKAGE=${PACKAGE:-${repo:-kizuna}}
 PACKAGE=${PACKAGE,,}
-KEEP_COUNT=${KEEP_COUNT:-10}
-KEEP_DAYS=${KEEP_DAYS:-30}
+KEEP_COUNT=${KEEP_COUNT:-0}
+KEEP_DAYS=${KEEP_DAYS:-7}
 MIN_AGE_HOURS=${MIN_AGE_HOURS:-24}
 DELETE=${DELETE:-false}
 NOW=${NOW:-$(date +%s)}
@@ -60,7 +61,7 @@ ACCEPT='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.
 # Call it in the main shell (m=$(manifest ...)), never in a pipe or <(...):
 # a failed lookup must stop the script, or a kept index looks childless and
 # its images get deleted. Two retries: one passing 5xx or timeout in a few
-# hundred reads shouldn't fail the month's run (curl retries timeouts, 408,
+# hundred reads shouldn't fail the week's run (curl retries timeouts, 408,
 # 429 and 5xx, never a 404; --max-time is per attempt).
 manifest() {
   local digest=$1
@@ -92,7 +93,7 @@ if [ "$total" -eq 0 ]; then
   exit 0
 fi
 
-# the roots to keep: release/dev tags, then the newest or recent sha-* builds
+# the roots to keep: release/dev tags, then the recent (or newest) sha-* builds
 keep_days_ago=$((NOW - KEEP_DAYS * 86400))
 roots=$(printf '%s' "$versions" | "$JQ" -r --argjson n "$KEEP_COUNT" --argjson since "$keep_days_ago" '
   def tags: .metadata.container.tags // [];
