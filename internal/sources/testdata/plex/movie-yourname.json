@@ -1,0 +1,105 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "Director": [
+          {
+            "tag": "Makoto Shinkai"
+          }
+        ],
+        "Genre": [
+          {
+            "tag": "Animation"
+          },
+          {
+            "tag": "Drama"
+          },
+          {
+            "tag": "Fantasy"
+          },
+          {
+            "tag": "Romance"
+          },
+          {
+            "tag": "Anime"
+          }
+        ],
+        "Image": [
+          {
+            "type": "background",
+            "url": "https://metadata-static.plex.tv/9/gracenote/9d35277c8cc3b1d75e3a4c6ba9431384.jpg"
+          },
+          {
+            "type": "backgroundSquare",
+            "url": "https://metadata-static.plex.tv/7/gracenote/7c35ae0a699bf60bd98b67d6736f7263.jpg"
+          },
+          {
+            "type": "banner",
+            "url": "https://assets.fanart.tv/fanart/your-name-5845e7135b5c2.jpg"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://metadata-static.plex.tv/b/009125463f/b0a01d96828a249a5e4fb8dc379175f0.png"
+          },
+          {
+            "type": "clearLogoWide",
+            "url": "https://metadata-static.plex.tv/b/009125463f/b0a01d96828a249a5e4fb8dc379175f0.png"
+          },
+          {
+            "type": "coverArt",
+            "url": "https://metadata-static.plex.tv/b/gracenote/beadacfca65d320eaa17448c33675bbf.jpg"
+          },
+          {
+            "type": "coverPoster",
+            "url": "https://metadata-static.plex.tv/e/gracenote/ec5896c13c5f0b887e49fc9171b0a43e.jpg"
+          },
+          {
+            "type": "coverSquare",
+            "url": "https://metadata-static.plex.tv/2/gracenote/29b53df445ff9f78b259579b391474c9.jpg"
+          },
+          {
+            "type": "snapshot",
+            "url": "https://metadata-static.plex.tv/9/gracenote/964799520331712914ffab533ee14917.jpg"
+          }
+        ],
+        "Role": [
+          {
+            "order": 1,
+            "role": "Taki Tachibana (voice)",
+            "tag": "Ryunosuke Kamiki",
+            "thumb": "https://metadata-static.plex.tv/3/people/397d68f74f8a14473ba5e1c5b1362eb1.jpg"
+          },
+          {
+            "order": 2,
+            "role": "Mitsuha Miyamizu (voice)",
+            "tag": "Mone Kamishiraishi",
+            "thumb": "https://metadata-static.plex.tv/e/people/e77c4da845bc63b104584275022def81.jpg"
+          }
+        ],
+        "Writer": [
+          {
+            "tag": "Makoto Shinkai"
+          }
+        ],
+        "contentRating": "PG",
+        "duration": 6360000,
+        "guid": "plex://movie/5d776bfffb0d55001f579a01",
+        "index": null,
+        "originallyAvailableAt": "2016-08-26",
+        "parentIndex": null,
+        "ratingKey": "5d776bfffb0d55001f579a01",
+        "studio": "CoMix Wave Films",
+        "summary": "High schoolers Mitsuha and Taki are complete strangers living separate lives. But one night, they suddenly switch places. Mitsuha wakes up in Taki’s body, and he in hers. This bizarre occurrence continues to happen randomly, and the two must adjust their lives around each other.",
+        "thumb": "https://metadata-static.plex.tv/e/gracenote/ec5896c13c5f0b887e49fc9171b0a43e.jpg",
+        "title": "Your Name.",
+        "type": "movie"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 1,
+    "totalSize": 1
+  }
+}

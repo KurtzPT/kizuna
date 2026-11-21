@@ -1,0 +1,35 @@
+# Adds area labels (metadata, migration, running, documentation) to pull
+# requests from the files they change; the rules are in .github/labeler.yml,
+# read as the pull request has them.
+#
+# pull_request, so it runs from the pull request itself whatever its base
+# branch (dev), with a token that can write labels. Only for branches of
+# this repository: a fork's token is read-only under pull_request, and
+# pull_request_target, which could label a fork, runs from the default branch
+# only (main, which has no workflows before v0.1.0). A fork's pull request
+# gets its area labels by hand.
+#
+# Dependabot and go-update pull requests already carry "dependencies": they
+# are left alone, so the release notes list them under it and not an area.
+name: labeler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  label:
+    name: label
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read       # read .github/labeler.yml
+      pull-requests: write # add the labels
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0

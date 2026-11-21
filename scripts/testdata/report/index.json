@@ -1,0 +1,9 @@
+[
+  {"schema": 3, "key": "anidb-7", "kind": "show", "title": "Lighthouse Keepers </script><b>x", "orig": "灯台守", "roots": ["tvdb-500", "anidb-7"], "modes": ["tvdb", "auto"], "last": "2026-11-10T21:02:26Z", "complete": false, "checks": 1, "builds": 2, "requests": 3},
+  {"schema": 3, "key": "anidb-20", "kind": "show", "title": "Harbour Days", "roots": ["anidb-20"], "modes": ["anidb"], "last": "2026-11-10T20:00:00Z", "complete": true, "checks": 0, "builds": 1, "requests": 9},
+  {"schema": 3, "key": "anidb-30", "kind": "show", "title": "Tide Tables", "roots": ["anidb-30"], "modes": ["anidb"], "last": "2026-11-09T20:00:00Z", "complete": false, "failed": true, "checks": 0, "builds": 5, "requests": 50},
+  {"schema": 3, "key": "tvdb-900", "kind": "show", "title": "Foghorn", "roots": ["tvdb-900"], "modes": ["tvdb"], "last": "2026-11-08T20:00:00Z", "complete": true, "checks": 2, "builds": 1, "requests": 4},
+  {"schema": 3, "key": "anidb-40\"onmouseover=\"x", "kind": "show", "title": "Not Built Yet", "last": "2026-11-07T20:00:00Z", "complete": false, "checks": 0, "builds": 0, "requests": 1},
+  {"schema": 3, "key": "unmatched-lighthouse-weepers-0d77e353", "kind": "unmatched", "title": "Lighthouse Weepers", "modes": ["anidb"], "last": "2026-11-10T20:59:42Z", "complete": false, "checks": 0, "builds": 0, "requests": 1, "year": 2004, "best": "anidb-7 Lighthouse Keepers", "score": 61, "min": 80},
+  {"schema": 3, "key": "unmatched-javascript-1c2d3e4f", "kind": "unmatched", "title": "javascript:alert(1)", "modes": ["auto"], "last": "2026-11-06T20:00:00Z", "complete": false, "checks": 0, "builds": 0, "requests": 2, "min": 80}
+]

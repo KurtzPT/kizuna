@@ -1,0 +1,1296 @@
+== default / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== default / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== default / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== default / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== default / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== default, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== default, cast photos / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== default, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== default, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== default, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+early metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+early metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== default, no mal or plex key / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== default, no mal or plex key / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== default, no mal or plex key / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== default, no mal or plex key / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2022-08-06" failed []
+== default, no mal or plex key / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== none / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== none / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none, cast photos / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== none, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== none, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== cast none, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== cast none, cast photos / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== cast none, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== cast none, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== cast none, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== anidb only / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== anidb only / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== anidb only / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "Kizuna Two" summary "" studio "" rating "" date "" failed []
+== anidb only / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "" studio "" rating "" date "2022-08-06" failed []
+== anidb only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== anidb only, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== anidb only, cast photos / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== anidb only, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Two" summary "" studio "" rating "" date "" failed []
+== anidb only, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Film" summary "" studio "" rating "" date "2022-08-06" failed []
+== anidb only, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+early metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "" rating "" date "2009-04-01" failed []
+== tvdb only / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+title "TVDB Name" summary "" studio "" rating "TV-14" date "2009-04-01" failed []
+== tvdb only / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== tvdb only / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== tvdb only / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== tvdb only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+title "TVDB Name" summary "" studio "" rating "TV-14" date "2009-04-01" failed []
+== tmdb only / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "TMDB Name" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== tmdb only / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== tmdb only / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "TMDB Name" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== tmdb only / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== tmdb only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+title "TMDB Name" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== mal only / anidb-100, starts both series
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== mal only / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== mal only / anidb-200, starts TheMovieDb's only
+ahead api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== mal only / anidb-300, a movie
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== mal only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex only / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== plex only / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "" summary "Plex season one." studio "" rating "" date "" failed []
+== plex only / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "" summary "Plex season two." studio "" rating "" date "" failed []
+== plex only / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Plex Movie" summary "A Plex movie." studio "Movie Studio" rating "" date "" failed []
+== plex only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== ann only / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== ann only / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== ann only / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "" summary "" studio "" rating "" date "" failed []
+== ann only / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== ann only / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== plex first / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== plex first / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "Kizuna Test" summary "Plex season one." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex first / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "Plex season two." studio "" rating "" date "" failed []
+== plex first / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Plex Movie" summary "A Plex movie." studio "Movie Studio" rating "PG-13" date "2022-08-06" failed []
+== plex first / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== plex first, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== plex first, cast photos / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "Plex season one." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex first, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "Plex season two." studio "" rating "" date "" failed []
+== plex first, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Plex Movie" summary "A Plex movie." studio "Movie Studio" rating "PG-13" date "2022-08-06" failed []
+== plex first, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+early metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+early metadata.provider.plex.tv/library/metadata/p500?
+title "Plex Name" summary "From Plex." studio "Plex Studio" rating "TV-14" date "2009-04-01" failed []
+== plex last / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== plex last / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex last / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== plex last / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== plex last / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== reversed / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== reversed / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== reversed / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500/children?
+title "TMDB Name" summary "Plex season two." studio "" rating "" date "" failed []
+== reversed / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== reversed / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "ANN Title" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== keyless first / anidb-100, starts both series
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== keyless first / anidb-100, starts neither
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== keyless first / anidb-200, starts TheMovieDb's only
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "" studio "" rating "" date "" failed []
+== keyless first / anidb-300, a movie
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2022-08-06" failed []
+== keyless first / tvdb-500
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== keyless first, cast photos / anidb-100, starts both series
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== keyless first, cast photos / anidb-100, starts neither
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "Teens and Adults" date "2009-04-01" failed []
+== keyless first, cast photos / anidb-200, starts TheMovieDb's only
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "" studio "" rating "" date "" failed []
+== keyless first, cast photos / anidb-300, a movie
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From ANN." studio "ANN Studio" rating "Teens and Adults" date "2022-08-06" failed []
+== keyless first, cast photos / tvdb-500
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "ANN Studio" rating "TV-14" date "2009-04-01" failed []
+== mixed / anidb-100, starts both series
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "TMDB Name" summary "From Plex." studio "Plex Studio" rating "PG-13" date "2009-04-01" failed []
+== mixed / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "Kizuna Test" summary "Plex season one." studio "" rating "PG-13" date "2009-04-01" failed []
+== mixed / anidb-200, starts TheMovieDb's only
+ahead api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "TMDB Name" summary "Plex season two." studio "" rating "" date "" failed []
+== mixed / anidb-300, a movie
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+title "Plex Movie" summary "A Plex movie." studio "Movie Studio" rating "PG-13" date "2009-04-01" failed []
+== mixed / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "TMDB Name" summary "From Plex." studio "Plex Studio" rating "PG-13" date "2009-04-01" failed []
+== mixed, no plex key / anidb-100, starts both series
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "TMDB Name" summary "From MAL." studio "" rating "PG-13" date "2009-04-01" failed []
+== mixed, no plex key / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From MAL." studio "" rating "PG-13" date "2009-04-01" failed []
+== mixed, no plex key / anidb-200, starts TheMovieDb's only
+ahead api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "TMDB Name" summary "" studio "" rating "" date "" failed []
+== mixed, no plex key / anidb-300, a movie
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From MAL." studio "" rating "PG-13" date "2009-04-01" failed []
+== mixed, no plex key / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "TMDB Name" summary "From MAL." studio "" rating "PG-13" date "2009-04-01" failed []
+== title tvdb, rest none / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+title "TVDB Name" summary "" studio "" rating "" date "" failed []
+== title tvdb, rest none / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== title tvdb, rest none / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== title tvdb, rest none / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== title tvdb, rest none / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+title "TVDB Name" summary "" studio "" rating "" date "" failed []
+== summary tmdb, rest none / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== summary tmdb, rest none / anidb-100, starts neither
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "" studio "" rating "" date "" failed []
+== summary tmdb, rest none / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+title "" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== summary tmdb, rest none / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "" summary "" studio "" rating "" date "" failed []
+== summary tmdb, rest none / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+title "" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== tvdb fails / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500/children?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed ["tvdb art" "tvdb details"]
+== tvdb fails / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500/children?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed ["tvdb art" "tvdb details"]
+== tvdb fails / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500/children?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed ["tvdb art" "tvdb details" "tvdb season"]
+== tvdb fails / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== tvdb fails / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500/children?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed ["tvdb art" "tvdb details"]
+== plex fails / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== plex fails / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex fails / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== plex fails / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+later metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+later metadata.provider.plex.tv/library/metadata/p900?
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== plex fails / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== plex fails, plex first / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed ["plex"]
+== plex fails, plex first / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+title "Kizuna Test" summary "Plex season one." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed []
+== plex fails, plex first / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500/children?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "Plex season two." studio "" rating "" date "" failed []
+== plex fails, plex first / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Plex Movie" summary "A Plex movie." studio "Movie Studio" rating "PG-13" date "2022-08-06" failed []
+== plex fails, plex first / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed ["plex"]
+== plex fails, cast photos / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed ["plex"]
+== plex fails, cast photos / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "PG-13" date "2009-04-01" failed ["plex"]
+== plex fails, cast photos / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+ahead metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== plex fails, cast photos / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "PG-13" date "2022-08-06" failed []
+== plex fails, cast photos / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+early metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+early metadata.provider.plex.tv/library/metadata/p500?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed ["plex"]
+== rating of another country / anidb-100, starts both series
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []
+== rating of another country / anidb-100, starts neither
+ahead api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/1?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+ahead cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "" date "2009-04-01" failed []
+== rating of another country / anidb-200, starts TheMovieDb's only
+ahead api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/tv/77/season/2?api_key=key&append_to_response=images&include_image_language=en%2Cja%2Cnull&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+ahead api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+ahead api4.thetvdb.com/v4/login?
+ahead api4.thetvdb.com/v4/series/500/artworks?
+ahead api4.thetvdb.com/v4/series/500/extended?
+later api.myanimelist.net/v2/anime/6?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=8
+title "Kizuna Two" summary "From TheMovieDb." studio "" rating "" date "" failed []
+== rating of another country / anidb-300, a movie
+ahead api.themoviedb.org/3/movie/900/images?api_key=key&include_image_language=en%2Cja%2Cnull
+ahead api.themoviedb.org/3/movie/900?api_key=key&append_to_response=credits%2Crelease_dates&language=en-US
+ahead metadata.provider.plex.tv/library/metadata/matches/1/tmdb://900?
+ahead metadata.provider.plex.tv/library/metadata/p900?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later cdn.animenewsnetwork.com/encyclopedia/api.xml?anime=7
+title "Kizuna Film" summary "From MAL." studio "MAL Studio" rating "" date "2022-08-06" failed []
+== rating of another country / tvdb-500
+early api.themoviedb.org/3/tv/77/images?api_key=key&include_image_language=en%2Cja%2Cnull
+early api.themoviedb.org/3/tv/77?api_key=key&append_to_response=aggregate_credits%2Ccontent_ratings&language=en-US
+early api.themoviedb.org/3/tv/77?api_key=key&language=en-US
+early api4.thetvdb.com/v4/login?
+early api4.thetvdb.com/v4/series/500/artworks?
+early api4.thetvdb.com/v4/series/500/extended?
+early api4.thetvdb.com/v4/series/500/translations/eng?
+later api.myanimelist.net/v2/anime/5?fields=synopsis%2Cmain_picture%2Cgenres%2Cstudios%2Cstart_date%2Crating
+later metadata.provider.plex.tv/library/metadata/matches/2/tvdb://500?
+later metadata.provider.plex.tv/library/metadata/p500?
+title "Kizuna Test" summary "From AniDB." studio "MAL Studio" rating "TV-14" date "2009-04-01" failed []

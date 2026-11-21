@@ -1,0 +1,108 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "Image": [
+          {
+            "type": "background",
+            "url": "https://image.tmdb.org/t/p/original/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg"
+          },
+          {
+            "type": "backgroundSquare",
+            "url": "https://metadata-static.plex.tv/3/gracenote/3eaecefd50ae10af21a81a0276232e35.jpg"
+          },
+          {
+            "type": "banner",
+            "url": "https://artworks.thetvdb.com/banners/v4/series/424536/banners/651dd688bd4d5.jpg"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "clearLogoWide",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "coverArt",
+            "url": "https://metadata-static.plex.tv/1/gracenote/155a34024ae1ad7e312fb37b3864a363.jpg"
+          },
+          {
+            "type": "coverPoster",
+            "url": "https://image.tmdb.org/t/p/original/omc5yoCtXsS0J6qFjmGkPsFf2iF.jpg"
+          },
+          {
+            "type": "coverSquare",
+            "url": "https://metadata-static.plex.tv/5/gracenote/55cf296beac32f53abeedd8775bb21fa.jpg"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": null,
+        "guid": "plex://season/65281ecb652e2431381cbf47",
+        "index": 0,
+        "originallyAvailableAt": "2023-10-11",
+        "parentIndex": null,
+        "ratingKey": "65281ecb652e2431381cbf47",
+        "studio": null,
+        "summary": null,
+        "thumb": "https://image.tmdb.org/t/p/original/fazbwo9OYXhhHCrRfwPU3Eup4iL.jpg",
+        "title": "Specials",
+        "type": "season"
+      },
+      {
+        "Image": [
+          {
+            "type": "background",
+            "url": "https://image.tmdb.org/t/p/original/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg"
+          },
+          {
+            "type": "backgroundSquare",
+            "url": "https://metadata-static.plex.tv/3/gracenote/3eaecefd50ae10af21a81a0276232e35.jpg"
+          },
+          {
+            "type": "banner",
+            "url": "https://artworks.thetvdb.com/banners/v4/series/424536/banners/651dd688bd4d5.jpg"
+          },
+          {
+            "type": "clearLogo",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "clearLogoWide",
+            "url": "https://metadata-static.plex.tv/1/009125463f/1a7237f40d55bb1a1db490f7b31ab36e.png"
+          },
+          {
+            "type": "coverArt",
+            "url": "https://metadata-static.plex.tv/0/gracenote/09f1e55bffdd6faf99b141ebf1d78da5.jpg"
+          },
+          {
+            "type": "coverPoster",
+            "url": "https://image.tmdb.org/t/p/original/yHsxHEugPPlOPqFZrPGvurltPjm.jpg"
+          },
+          {
+            "type": "coverSquare",
+            "url": "https://metadata-static.plex.tv/c/gracenote/c935f9cf201a551f5b274d6cc53553a9.jpg"
+          }
+        ],
+        "contentRating": "TV-14",
+        "duration": null,
+        "guid": "plex://season/631ccdfccbff4464978f9d55",
+        "index": 1,
+        "originallyAvailableAt": "2023-09-29",
+        "parentIndex": null,
+        "ratingKey": "631ccdfccbff4464978f9d55",
+        "studio": null,
+        "summary": null,
+        "thumb": "https://image.tmdb.org/t/p/original/yHsxHEugPPlOPqFZrPGvurltPjm.jpg",
+        "title": "Season 1",
+        "type": "season"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 2,
+    "totalSize": 2
+  }
+}

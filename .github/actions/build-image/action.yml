@@ -1,0 +1,115 @@
+# The image build both of docker.yml's jobs run: image (the pull request
+# check, never pushes) and publish. One copy, so the check builds what gets
+# published: the same platforms, build args, SBOM and provenance. Only what
+# differs between the two is an input.
+#
+# The calling job checks the repository out first (this file is read from
+# it), with persist-credentials: false, and holds the permissions: a composite
+# action can't declare any.
+name: build-image
+description: Build and test the Kizuna image for linux/amd64 and linux/arm64, and push it when asked
+
+inputs:
+  push:
+    description: "true: log in to ghcr.io and push the image. false: build and test only"
+    required: true
+  registry-token:
+    description: The token that logs in to ghcr.io (GITHUB_TOKEN, with packages write); only used when push is true
+    required: false
+    default: ""
+  tags:
+    description: The image tags, as docker/metadata-action tag rules (one per line)
+    required: true
+  cache:
+    description: "true: read and write the GitHub Actions build cache (unless cache-write is false). false: build from scratch (a release)"
+    required: true
+  cache-write:
+    description: "With cache true: false reads the build cache but saves nothing to it (a pull request). Ignored when cache is false"
+    required: false
+    default: "true"
+  version:
+    description: "The version /health, the logs and Plex show. sha: the short commit. ref: the tag (v1.2.3) on a tag, dev-<short commit> otherwise"
+    required: true
+  run-tests:
+    description: "true: run go test inside the build. false: skip it, only when ci's go job passed on this commit (the caller says how that is guaranteed)"
+    required: true
+
+outputs:
+  image:
+    description: The image's name, ghcr.io/<owner>/<repo> in lowercase
+    value: ${{ steps.image.outputs.name }}
+  digest:
+    description: The digest of the image index that was built (and pushed)
+    value: ${{ steps.build.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    # no QEMU: the build stage runs on the build platform and cross-compiles
+    # (FROM --platform=$BUILDPLATFORM), the final stage has no RUN
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - if: inputs.push == 'true'
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.registry-token }}
+
+    # image names must be lowercase: KurtzPT/kizuna -> ghcr.io/kurtzpt/kizuna
+    - name: image name
+      id: image
+      shell: bash
+      run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+    # build with the Go version from go.mod, not the Dockerfile default
+    - name: go version
+      id: go
+      shell: bash
+      run: echo "version=$(awk '$1 == "go" {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+
+    - name: kizuna version
+      id: kizuna
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        case $VERSION in
+          sha) v=${GITHUB_SHA::7} ;;
+          ref)
+            if [ "$GITHUB_REF_TYPE" = tag ]; then v=$GITHUB_REF_NAME
+            else v=dev-${GITHUB_SHA::7}
+            fi
+            ;;
+          *) echo "::error::version is sha or ref, not \"$VERSION\""; exit 1 ;;
+        esac
+        echo "version=$v" >> "$GITHUB_OUTPUT"
+
+    - id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+      with:
+        images: ${{ steps.image.outputs.name }}
+        flavor: latest=false
+        tags: ${{ inputs.tags }}
+
+    - id: build
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        # only an exact "false" skips the tests: anything else runs them
+        build-args: |
+          VERSION=${{ steps.kizuna.outputs.version }}
+          GO_VERSION=${{ steps.go.outputs.version }}
+          SKIP_TESTS=${{ inputs.run-tests == 'false' }}
+        cache-from: ${{ inputs.cache == 'true' && 'type=gha' || '' }}
+        cache-to: ${{ inputs.cache == 'true' && inputs.cache-write == 'true' && 'type=gha,mode=max' || '' }}
+        # in the image index, next to each platform's image: an SPDX SBOM
+        # (docker buildx imagetools inspect <image> --format '{{ json .SBOM }}')
+        # and full BuildKit provenance (build args, base image digests). Built
+        # for a pull request too, so it catches a break in either
+        sbom: true
+        provenance: mode=max

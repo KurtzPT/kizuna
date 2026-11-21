@@ -1,0 +1,366 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"kizuna/internal/config"
+	"kizuna/internal/fetch"
+	"kizuna/internal/report"
+	"kizuna/internal/sources"
+)
+
+// Plex clients send the match body as JSON (numbers as numbers or strings)
+// or as a form, some hints only in the query string; the body wins.
+func TestReadMatch(t *testing.T) {
+	one, two, three := 1, 2, 3
+	cases := []struct {
+		name, query, body string
+		want              MatchRequest
+	}{
+		{"JSON numbers", "", `{"type":4,"title":"E","grandparentTitle":"Show","year":2009,"index":2,"parentIndex":1,"manual":1}`,
+			MatchRequest{Type: 4, Title: "E", GrandparentTitle: "Show", Year: 2009, Index: &two, ParentIndex: &one, Manual: 1}},
+		{"JSON strings", "", `{"type":"3","parentTitle":"Show","year":"2009","index":"3","manual":"true"}`,
+			MatchRequest{Type: 3, ParentTitle: "Show", Year: 2009, Index: &three, Manual: 1}},
+		{"JSON bool manual", "", `{"title":"Show","manual":true}`, MatchRequest{Type: 2, Title: "Show", Manual: 1}},
+		{"JSON manual off", "", `{"title":"Show","manual":0}`, MatchRequest{Type: 2, Title: "Show"}},
+		{"form", "", "type=2&title=Show+Name&year=2009&guid=tmdb%3A%2F%2F7&filename=%2Fa%2Fb.mkv&manual=1",
+			MatchRequest{Type: 2, Title: "Show Name", Year: 2009, GUID: "tmdb://7", Filename: "/a/b.mkv", Manual: 1}},
+		{"query fallback", "?title=Query&year=2001&manual=true", `{"title":"Body"}`,
+			MatchRequest{Type: 2, Title: "Body", Year: 2001, Manual: 1}},
+		{"query only", "?type=2&title=Query", "", MatchRequest{Type: 2, Title: "Query"}},
+		{"JSON includeChildren", "", `{"type":3,"parentTitle":"Show","includeChildren":1}`,
+			MatchRequest{Type: 3, ParentTitle: "Show", IncludeChildren: 1}},
+		{"query includeChildren", "?includeChildren=1", "type=2&title=Show", MatchRequest{Type: 2, Title: "Show", IncludeChildren: 1}},
+		{"garbage numbers", "", `{"title":"Show","year":"soon","index":"x"}`, MatchRequest{Type: 2, Title: "Show"}},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest("POST", "/anidb/library/metadata/matches"+c.query, strings.NewReader(c.body))
+		got, err := readMatch(r)
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		if !sameMatch(got, c.want) {
+			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
+		}
+	}
+	if _, err := readMatch(httptest.NewRequest("POST", "/", strings.NewReader(`{"title":`))); err == nil {
+		t.Error("broken JSON: want an error (HTTP 400)")
+	}
+}
+
+// A form body Go can't parse (a bare "%", a ";") is an error, like broken
+// JSON: dropping every field would answer "no match" for a bad request.
+func TestReadMatchBrokenForm(t *testing.T) {
+	for _, body := range []string{"type=2&title=100%", "type=2&title=A; B"} {
+		if got, err := readMatch(httptest.NewRequest("POST", "/", strings.NewReader(body))); err == nil {
+			t.Errorf("%q: got %+v, want an error (HTTP 400)", body, got)
+		}
+	}
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	if rec := plexRequest(context.Background(), p, "POST", "/anidb/library/metadata/matches", "type=2&title=100%"); rec.Code != 400 {
+		t.Errorf("status %d, want 400", rec.Code)
+	}
+}
+
+// The query string is parsed once, not once per key: allocations grow with
+// the number of keys, not with its square.
+func TestReadMatchManyQueryKeys(t *testing.T) {
+	const n = 500
+	var q strings.Builder
+	for i := range n {
+		fmt.Fprintf(&q, "&k%d=1", i)
+	}
+	target := "/anidb/library/metadata/matches?title=Q" + q.String()
+	allocs := testing.AllocsPerRun(3, func() {
+		if got, err := readMatch(httptest.NewRequest("POST", target, strings.NewReader(`{"type":2}`))); err != nil || got.Title != "Q" {
+			t.Fatalf("got %+v, %v", got, err)
+		}
+	})
+	if allocs > 10*n {
+		t.Errorf("%d query keys: %.0f allocs, want at most %d", n, allocs, 10*n)
+	}
+}
+
+// countingReader counts the bytes read from r.
+type countingReader struct {
+	r    io.Reader
+	read int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += n
+	return n, err
+}
+
+// A match body is read up to 1 MB and no further, so a client can't fill
+// the memory. A longer body is cut there: as JSON it no longer parses, and
+// Plex gets a 400. A body of 1 MB is read whole.
+func TestMatchBodyCap(t *testing.T) {
+	const limit = 1 << 20
+	body := func(size int) string { // a match body of exactly size bytes
+		const head, tail = `{"type":2,"title":"`, `"}`
+		return head + strings.Repeat("a", size-len(head)-len(tail)) + tail
+	}
+	over := &countingReader{r: strings.NewReader(body(2 * limit))}
+	if got, err := readMatch(httptest.NewRequest("POST", "/anidb/library/metadata/matches", over)); err == nil {
+		t.Errorf("a 2 MB body: title of %d bytes, want an error", len(got.Title))
+	}
+	if over.read > limit {
+		t.Errorf("read %d bytes of a 2 MB body, want at most %d", over.read, limit)
+	}
+	got, err := readMatch(httptest.NewRequest("POST", "/anidb/library/metadata/matches", strings.NewReader(body(limit))))
+	if err != nil || len(got.Title) != limit-len(`{"type":2,"title":""}`) {
+		t.Errorf("a 1 MB body: title of %d bytes, %v; want it whole", len(got.Title), err)
+	}
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	if rec := plexRequest(context.Background(), p, "POST", "/anidb/library/metadata/matches", body(2*limit)); rec.Code != 400 {
+		t.Errorf("a 2 MB body: HTTP %d, want 400", rec.Code)
+	}
+}
+
+func sameMatch(a, b MatchRequest) bool {
+	same := func(x, y *int) bool { return (x == nil) == (y == nil) && (x == nil || *x == *y) }
+	if !same(a.Index, b.Index) || !same(a.ParentIndex, b.ParentIndex) {
+		return false
+	}
+	a.Index, a.ParentIndex, b.Index, b.ParentIndex = nil, nil, nil, nil
+	return a == b
+}
+
+// Keys and routes that name nothing answer 404, without building anything
+// for a key that isn't a show key.
+func TestMetadataNotFound(t *testing.T) {
+	dir := t.TempDir()
+	p := New(config.Config{}, nil, sources.NewAniDB(fetch.New(dir), dir, "kizunatest", "1"), nil, Sources{})
+	s := &Show{Root: "anidb-1", Title: "Show", Complete: true, Episodes: map[int][]Ep{1: {{Season: 1, Index: 1}}}}
+	p.shows["anidb-1"] = cachedShow{s, time.Now()}
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("must not be built") }
+	cases := []string{
+		"/anidb/library/metadata/anidb-1/bogus",               // unknown sub
+		"/anidb/library/metadata/anidb-1-s1-e1/children",      // an episode has no children
+		"/anidb/library/metadata/anidb-1-s1-e1/grandchildren", //
+		"/anidb/library/metadata/anidb-1-s1/grandchildren",    // nor a season grandchildren
+		"/anidb/library/metadata/anidb-1-s7",                  // unknown season
+		"/anidb/library/metadata/anidb-1-s7/children",         //
+		"/anidb/library/metadata/anidb-1-s1-e9",               // unknown episode
+		"/anidb/library/metadata/anidb-01",                    // not a show key
+		"/anidb/library/metadata/foo-1",                       //
+	}
+	for _, path := range cases {
+		if rec := plexRequest(context.Background(), p, "GET", path, ""); rec.Code != 404 {
+			t.Errorf("%s: HTTP %d %s, want 404", path, rec.Code, rec.Body)
+		}
+	}
+}
+
+// A match request that joins a build a metadata request started puts its
+// match in that build's report (the "Matched by title search" check); the
+// first match request on a build is the one kept.
+func TestJoinedMatchInReport(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, _ := reportsOn(t, p)
+	release := make(chan struct{})
+	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
+		<-release
+		return p.buildShow(ctx, root)
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel() // each caller gives up at once; the build goes on
+	starter := report.WithRequest(gone, &report.Request{Mode: "anidb"})
+	if _, err := p.show(starter, "anidb-100"); !timedOut(err) {
+		t.Fatalf("starter: %v, want it to give up", err)
+	}
+	for _, score := range []int{90, 50} {
+		m := &report.Match{Mode: "anidb", Type: "show", Title: "Kizuna Test", How: "title search",
+			By: report.MatchBy{Search: report.SearchFound, Best: score}, Root: "anidb-100", Score: score}
+		if _, err := p.show(report.WithMatch(gone, m), "anidb-100"); !timedOut(err) {
+			t.Fatalf("joiner: %v, want it to give up", err)
+		}
+	}
+	p.mu.Lock()
+	b := p.builds["anidb-100"]
+	p.mu.Unlock()
+	close(release)
+	<-b.done
+	store.Flush()
+
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if len(doc.Builds) != 1 || doc.Builds[0].Match == nil || doc.Builds[0].Match.Score != 90 {
+		t.Fatalf("builds %+v: want one, with the first joined match (score 90)", doc.Builds)
+	}
+	if !slices.ContainsFunc(doc.Builds[0].Checks, func(c report.Check) bool { return c.Title == "Matched by title search with score 90" }) {
+		t.Errorf("checks %+v: want the title search check", doc.Builds[0].Checks)
+	}
+}
+
+// An unmatched title's report page stays until a match for it gets its
+// show: a build that fails leaves the title without a match in Plex, and
+// the show's page doesn't say Plex got the show.
+func TestUnmatchedPageKeptUntilShow(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, serve := reportsOn(t, p)
+	page := filepath.Join(dir, "data", report.UnmatchedKey("Kizuna Test")+".json")
+	store.Unmatched(report.Match{Mode: "anidb", Type: "show", Title: "Kizuna Test"})
+	store.Flush()
+	if _, err := os.Stat(page); err != nil {
+		t.Fatal(err)
+	}
+	p.buildFn = func(context.Context, string) (*Show, error) { return nil, errors.New("anidb 100 unknown") }
+	var logs strings.Builder
+	restore := captureLogs(&logs) // the failed build's warning
+	code := serve("POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`)
+	restore()
+	store.Flush()
+	if _, err := os.Stat(page); err != nil || code != 503 {
+		t.Errorf("after a failed build: HTTP %d, %v, want 503 and the unmatched page kept", code, err)
+	}
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if doc.LastMatch != nil || len(doc.Requests) != 1 || doc.Requests[0].Answer != (report.Answer{Kind: report.AnswerUnavailable}) {
+		t.Errorf("last match %+v, requests %+v: want no match kept, the request not available", doc.LastMatch, doc.Requests)
+	}
+	p.buildFn = nil
+	p.mu.Lock()
+	clear(p.failed) // the failure would answer for 2 minutes
+	p.mu.Unlock()
+	serve("POST", "/anidb/library/metadata/matches", `{"type":2,"title":"Kizuna Test"}`)
+	store.Flush()
+	if _, err := os.Stat(page); !os.IsNotExist(err) {
+		t.Errorf("after a match with its show: %v, want the unmatched page gone", err)
+	}
+}
+
+// A season or episode match whose show lacks that season or episode is no
+// match: the title keeps its unmatched page, and the request says so.
+func TestMissingSeasonIsNoMatch(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, serve := reportsOn(t, p)
+	page := filepath.Join(dir, "data", report.UnmatchedKey("Kizuna Test")+".json")
+	store.Unmatched(report.Match{Mode: "anidb", Type: "season", Title: "Kizuna Test"})
+	store.Flush()
+	for _, body := range []string{`{"type":3,"parentTitle":"Kizuna Test","index":9}`,
+		`{"type":4,"grandparentTitle":"Kizuna Test","parentIndex":1,"index":99}`} {
+		if code := serve("POST", "/anidb/library/metadata/matches", body); code != 200 {
+			t.Fatalf("%s: HTTP %d, want 200", body, code)
+		}
+	}
+	store.Flush()
+	if _, err := os.Stat(page); err != nil {
+		t.Errorf("after matches without an item: %v, want the unmatched page kept", err)
+	}
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	n := 0 // alike requests are counted on one
+	for _, rq := range doc.Requests {
+		if rq.Answer != (report.Answer{Kind: report.AnswerNoMatch}) {
+			n = -100
+		}
+		n += max(rq.Count, 1)
+	}
+	if n != 2 {
+		t.Errorf("requests %+v, want both answered no match", doc.Requests)
+	}
+	if m := doc.LastMatch; m == nil || m.Root != "" || m.How != "title search; anidb-100 has no episode S01E99" ||
+		m.By != (report.MatchBy{Search: report.SearchFound, Best: 100, Missing: "episode S01E99"}) || m.By.TitleSearch() {
+		t.Errorf("last match %+v, want no match: the show has no S01E99", m)
+	}
+	serve("POST", "/anidb/library/metadata/matches", `{"type":3,"parentTitle":"Kizuna Test","index":1}`)
+	store.Flush()
+	if _, err := os.Stat(page); !os.IsNotExist(err) {
+		t.Errorf("after a match with its season: %v, want the unmatched page gone", err)
+	}
+	doc = report.ShowDoc{} // a second read into it would keep what the new data leaves out
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if m := doc.LastMatch; m == nil || m.Root != "anidb-100" || m.How != "title search" || !m.By.TitleSearch() || m.By.Missing != "" {
+		t.Errorf("last match %+v, want Plex got anidb-100 by title search", m)
+	}
+}
+
+// The shutdown waits for a build whose requests all gave up (WaitBuilds):
+// it ends, with its match report queued for the last flush, before the
+// wait does; a wait that runs out of time first says so.
+func TestWaitBuilds(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	store, dir, _ := reportsOn(t, p)
+	if !p.WaitBuilds(context.Background()) {
+		t.Fatal("no build running: want the wait over at once")
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	p.buildFn = func(ctx context.Context, root string) (*Show, error) {
+		close(started)
+		<-release
+		return p.buildShow(ctx, root)
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.show(gone, "anidb-100"); !timedOut(err) {
+		t.Fatalf("requester: %v, want it to give up", err)
+	}
+	<-started
+	if p.WaitBuilds(gone) {
+		t.Error("out of time with the build running: want false")
+	}
+	waited := make(chan bool, 1)
+	go func() { waited <- p.WaitBuilds(context.Background()) }()
+	close(release)
+	if !<-waited {
+		t.Fatal("want the wait over once the build is")
+	}
+	store.Flush() // what serve's last flush writes
+	var doc report.ShowDoc
+	readJSON(t, filepath.Join(dir, "data", "anidb-100.json"), &doc)
+	if len(doc.Builds) != 1 || doc.Builds[0].Error != "" {
+		t.Errorf("builds %+v: want the build's report", doc.Builds)
+	}
+}
+
+// Requests for one show while it builds share that build: K at once start
+// one build and all get its show. One that comes after the build gets the
+// cached show, so the count holds however the goroutines are scheduled.
+func TestConcurrentRequestsBuildOnce(t *testing.T) {
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	var builds atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	want := &Show{Root: "anidb-100", Title: "Kizuna Test", Complete: true}
+	p.buildFn = func(context.Context, string) (*Show, error) {
+		if builds.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		return want, nil
+	}
+	const k = 8
+	got := make(chan *Show, k)
+	errs := make(chan error, k)
+	for range k {
+		go func() {
+			s, err := p.show(context.Background(), "anidb-100")
+			got <- s
+			errs <- err
+		}()
+	}
+	<-started
+	close(release)
+	for range k {
+		if s, err := <-got, <-errs; s != want || err != nil {
+			t.Errorf("got %p, %v; want the one build's show", s, err)
+		}
+	}
+	if n := builds.Load(); n != 1 {
+		t.Errorf("%d builds, want 1", n)
+	}
+}

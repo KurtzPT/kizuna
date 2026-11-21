@@ -1,0 +1,230 @@
+# Builds the image with Docker (tests run inside the build, except where ci's
+# go job is sure to have tested the same commit: run-tests below) and
+# publishes it to GitHub Container Registry, ghcr.io/<owner>/<repo>. Two jobs:
+#
+#   image    build (+ test, see run-tests) only, read-only token. Runs for pull requests (the
+#            required "image" check), pushes to main and manual runs of this
+#            workflow on any branch (e.g. a go-update PR). Never publishes.
+#   publish  build (+ test on a tag), push and attest. Only when the ci workflow calls
+#            this one, after all of ci's checks passed on the same commit
+#            (ci.yml, jobs gate and docker; the check shows as
+#            "docker / publish"):
+#              push to dev         -> :dev and :sha-<short>                  (beta)
+#              tag v1.2.3 on main  -> :1.2.3, :1.2, :latest and :sha-<short>  (stable)
+#              tag v1.2.3-beta.1   -> :1.2.3-beta.1 and :sha-<short>          (never :latest)
+#            The tags that move (:dev, :latest, :1.2) only move forward: a
+#            run for an older commit or release than the tag already has
+#            (an old run started again) pushes the other tags only.
+#            To rebuild :dev by hand, run the ci workflow on dev.
+#
+# Every published image gets a signed build provenance attestation, so anyone
+# can check it was built here from this repo:
+#   gh attestation verify oci://ghcr.io/kurtzpt/kizuna:<tag> -R KurtzPT/kizuna
+# and carries an SBOM plus BuildKit's own provenance in the image index.
+#
+# Both jobs build with the same steps, .github/actions/build-image.
+name: docker
+
+on:
+  push:
+    branches: [main]
+    # only what changes the image: what .dockerignore lets into the build,
+    # and the files that define the build (scripts/dev-image.sh prints this
+    # list; scripts/dev-image_test.sh fails when it and this one differ)
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - ".env.sample"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/docker.yml"
+      - ".github/actions/build-image/**"
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        description: Push the image to GHCR and attest it (ci passes true, for dev and v* tags only)
+        type: boolean
+        required: true
+
+permissions: {}
+
+jobs:
+  image:
+    name: image
+    # every run that isn't ci's publishing call
+    if: ${{ !inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # a new push to a pull request replaces the run for the old one. Not
+    # github.workflow in the group: when ci calls this file that is "ci", and
+    # the same group as the caller deadlocks.
+    concurrency:
+      group: docker-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      # before the build: it is a local action, read from the checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # build and test, push nothing; the version shown is the short sha.
+      # ./ and not $/: as for ci.yml's call of this file
+      - uses: ./.github/actions/build-image # zizmor: ignore[self-repository]
+        with:
+          push: false
+          tags: type=sha
+          cache: true
+          # A pull request reads the build cache but saves none: each one's
+          # layers (about 140 MB) filled the repository's 10 GB cache. A pull
+          # request can read its base branch's cache, which dev's publish
+          # writes (and a push to main, for a pull request into main) under
+          # the same default BuildKit scope, so its first build is as warm as
+          # before. A second push to the same pull request no longer finds
+          # what its first build saved: it starts from the base branch's
+          # cache again. A push to main and a manual run still write.
+          cache-write: ${{ github.event_name != 'pull_request' }}
+          version: sha
+          # Not again inside the build for a pull request into dev: ci runs
+          # its go job on the same commit, and the ruleset requires both go
+          # and image before a merge. Every other run tests in the build: a
+          # push to main, by hand, a pull request into another branch, and a
+          # pull request into main (a release or a hotfix). The build's tests
+          # see only what .dockerignore lets in, on the image's own Go: a
+          # test that needs another file fails here and nowhere else, and
+          # that has to show before a tag, not at it.
+          run-tests: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'dev') }}
+
+  publish:
+    name: publish
+    # only ci's call (no concurrency group of its own: ci's group already runs
+    # one publish per branch at a time)
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    # about 2 minutes with the build cache; a release builds without it
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write     # push the image to GHCR
+      id-token: write     # attestation: sign with the workflow's identity (Sigstore)
+      attestations: write # attestation: store it on GitHub
+    steps:
+      # ci only calls this for dev and v* tags, and its gate job refuses a tag
+      # that isn't a version; refuse anything else here too. A stable release
+      # is a version without a pre-release part (v1.2.3, not v1.2.3-beta.1).
+      - name: dev or a version tag
+        id: ref
+        run: |
+          case $GITHUB_REF in
+            refs/heads/dev) stable=false ;;
+            refs/tags/*)
+              if ! [[ $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+                echo "::error::$GITHUB_REF_NAME isn't a version: a release tag is v1.2.3, or v1.2.3-beta.1 for a pre-release. Nothing is published"
+                exit 1
+              fi
+              case $GITHUB_REF_NAME in
+                *-*) stable=false ;;
+                *) stable=true ;;
+              esac
+              ;;
+            *) echo "::error::publishes only dev and version tags, not $GITHUB_REF"; exit 1 ;;
+          esac
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # every branch and tag: the next two steps compare with main, with
+          # dev's newer commits and with the other release tags
+          fetch-depth: 0
+          persist-credentials: false
+
+      # :latest must only ever be something that was merged to main
+      - name: stable tag is on main
+        if: steps.ref.outputs.stable == 'true'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME isn't on main. Stable releases are tagged on main; tag a beta (v1.2.3-beta.1) on dev"
+            exit 1
+          fi
+
+      # :dev, :latest and :1.2 point at the newest build and only move
+      # forward. Without this, starting an old run again (its failed jobs,
+      # say) after a newer one published would move them back. The tags that
+      # name one build (sha-*, 1.2.3) are always pushed.
+      - name: moving tags
+        id: moving
+        env:
+          STABLE: ${{ steps.ref.outputs.stable }}
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/dev ]; then
+            printf 'latest=false\nminor=false\n' >> "$GITHUB_OUTPUT"
+            # compares with the commit :dev was built from (the revision
+            # label the build writes), writes dev=true|false itself, and
+            # fails when that can't be read: nothing is pushed then
+            bash scripts/dev-image.sh move
+            exit 0
+          fi
+          latest=false minor=false
+          if [ "$STABLE" = true ]; then
+            # the stable releases: the vX.Y.Z tags on main (one anywhere
+            # else was refused above and never published), oldest first
+            releases=$({ git tag --merged origin/main --list 'v*'; echo "$GITHUB_REF_NAME"; } |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -u -V)
+            newest=$(tail -n 1 <<< "$releases")
+            # v1.2.3 -> v1.2: the newest patch release of the same minor
+            xy=${GITHUB_REF_NAME%.*}
+            newest_minor=$(grep -E "^${xy//./\\.}\.[0-9]+$" <<< "$releases" | tail -n 1)
+            if [ "$newest" = "$GITHUB_REF_NAME" ]; then
+              latest=true
+            else
+              echo "::notice::$newest is a newer stable release than $GITHUB_REF_NAME: :latest stays"
+            fi
+            if [ "$newest_minor" = "$GITHUB_REF_NAME" ]; then
+              minor=true
+            else
+              echo "::notice::$newest_minor is a newer ${xy#v} release than $GITHUB_REF_NAME: :${xy#v} stays"
+            fi
+          fi
+          echo "dev: false, latest: $latest, minor (X.Y): $minor"
+          {
+            echo "dev=false"
+            echo "latest=$latest"
+            echo "minor=$minor"
+          } >> "$GITHUB_OUTPUT"
+
+      # build, test and push; the version shown is v1.2.3 for a tag,
+      # dev-<sha> for a beta build
+      - id: build
+        uses: ./.github/actions/build-image # zizmor: ignore[self-repository]
+        with:
+          push: true
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            type=raw,value=dev,enable=${{ steps.moving.outputs.dev == 'true' }}
+            type=raw,value=latest,enable=${{ steps.moving.outputs.latest == 'true' }}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.moving.outputs.minor == 'true' }}
+          # no build cache for a tag: a release is built from scratch and
+          # doesn't depend on cache entries other runs wrote (as in ci.yml)
+          cache: ${{ github.ref_type != 'tag' }}
+          version: ref
+          # :dev: not again inside the build. ci's docker job, the only
+          # caller, needs its go job, which passed on this commit in the
+          # same run. A release still tests in the build: that is the Go
+          # toolchain of the image (and without cgo) that builds what
+          # people run, not the runner's.
+          run-tests: ${{ github.ref != 'refs/heads/dev' }}
+
+      # Signed SLSA build provenance for the image just pushed (all its tags
+      # share this digest), stored on GitHub and next to the image in GHCR.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.build.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false # storage records need an organization-owned repo

@@ -1,0 +1,185 @@
+package sources
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"kizuna/internal/fetch"
+)
+
+// A rejected TMDB key (401) is remembered: the next calls send nothing and
+// fail the same way, a cached copy still answers, and a 404 blocks nothing.
+func TestTMDBRejectedKeyRemembered(t *testing.T) {
+	const q = "?api_key=key&language=en-US"
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
+		"api.themoviedb.org/3/tv/1" + q: `401 {"status_code":7}`,
+		"api.themoviedb.org/3/tv/2" + q: `401 {"status_code":7}`,
+		"api.themoviedb.org/3/tv/3" + q: `401 {"status_code":7}`,
+	}}
+	f.SetTransport(n)
+	tm := NewTMDB(f, "key")
+	ctx := context.Background()
+	if _, err := tm.tv(ctx, 5); !fetch.IsNotFound(err) { // not in the answers: 404
+		t.Fatalf("tv 5: %v, want its 404", err)
+	}
+	if _, err := tm.tv(ctx, 1); !unauthorized(err) {
+		t.Fatalf("tv 1: %v, want the 401", err)
+	}
+	if _, err := tm.tv(ctx, 2); !unauthorized(err) {
+		t.Fatalf("tv 2: %v, want the remembered 401", err)
+	}
+	p := filepath.Join(dir, "tmdb", "tv-3.json")
+	if err := fetch.WriteFile(p, []byte(`{"name":"Stale"}`)); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := tm.tv(ctx, 3); err != nil || s.Name != "Stale" {
+		t.Fatalf("tv 3: %q %v, want the stale copy", s.Name, err)
+	}
+	for id, want := range map[int]int{1: 1, 2: 0, 3: 0} {
+		if c := n.count(fmt.Sprintf("api.themoviedb.org/3/tv/%d", id) + q); c != want {
+			t.Errorf("tv %d asked %d times, want %d", id, c, want)
+		}
+	}
+
+	tm.keys.mu.Lock()
+	tm.keys.until = time.Now() // the pause is over
+	tm.keys.mu.Unlock()
+	if _, err := tm.tv(ctx, 2); !unauthorized(err) || n.count("api.themoviedb.org/3/tv/2"+q) != 1 {
+		t.Errorf("after the pause: %v, %d requests, want the 401 asked again", err, n.count("api.themoviedb.org/3/tv/2"+q))
+	}
+}
+
+// MAL's rejected client id is remembered the same way. MyAnimeList answers
+// a wrong client id with 400 and this body (seen live), not 401/403.
+func TestMALRejectedClientRemembered(t *testing.T) {
+	const bad = `400 {"message":"Invalid client id","error":"bad_request"}`
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		fmt.Sprintf(malURL, 1): bad,
+		fmt.Sprintf(malURL, 2): bad,
+	}}
+	f.SetTransport(n)
+	m := NewMAL(f, "client")
+	ctx := context.Background()
+	for id := 1; id <= 2; id++ {
+		if _, err := m.Anime(ctx, id); err == nil {
+			t.Errorf("anime %d: no error, want the 400", id)
+		}
+	}
+	if c := n.count(fmt.Sprintf(malURL, 2)); c != 0 {
+		t.Errorf("anime 2 asked %d times, want 0 (the client id was rejected)", c)
+	}
+}
+
+// Another 400 from MyAnimeList says nothing about the client id: the next
+// call still asks.
+func TestMALOtherBadRequestNotRemembered(t *testing.T) {
+	const other = `400 {"message":"invalid q","error":"bad_request"}`
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		fmt.Sprintf(malURL, 1): other,
+		fmt.Sprintf(malURL, 2): other,
+	}}
+	f.SetTransport(n)
+	m := NewMAL(f, "client")
+	ctx := context.Background()
+	for id := 1; id <= 2; id++ {
+		if _, err := m.Anime(ctx, id); err == nil {
+			t.Errorf("anime %d: no error, want the 400", id)
+		}
+	}
+	if c := n.count(fmt.Sprintf(malURL, 2)); c != 1 {
+		t.Errorf("anime 2 asked %d times, want 1 (not a rejected client id)", c)
+	}
+}
+
+// A fresh cached answer of a source behind a keyCheck that doesn't decode is
+// downloaded again, once, and a good answer replaces it. With the source
+// failing, or its key rejected lately (nothing is sent), the call fails and
+// the file stays; a broken answer is asked for once and replaces nothing.
+func TestKeyCheckBrokenCopyDownloadedAgain(t *testing.T) {
+	const (
+		url    = "api.themoviedb.org/3/tv/3?api_key=key&language=en-US"
+		broken = `{"name":"Old"`
+	)
+	rejected := errors.New("HTTP 401, remembered")
+	cases := []struct {
+		name, answer string
+		blocked      bool
+		err          func(error) bool // nil: no error
+		asked        int
+	}{
+		{"good answer", `{"name":"New"}`, false, nil, 1},
+		{"source down", `503 {}`, false, func(err error) bool { return err != nil && !errors.Is(err, rejected) }, 1},
+		{"key rejected", `{"name":"New"}`, true, func(err error) bool { return errors.Is(err, rejected) }, 0},
+		{"broken again", `<html>busy</html>`, false, func(err error) bool { return err != nil }, 1},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		f := fetch.New(dir)
+		n := &tvdbNet{answers: map[string]string{url: c.answer}}
+		f.SetTransport(n)
+		tm := NewTMDB(f, "key")
+		if c.blocked {
+			tm.keys.err, tm.keys.until = rejected, time.Now().Add(time.Hour)
+		}
+		p := filepath.Join(dir, "tmdb", "tv-3.json")
+		if err := fetch.WriteFile(p, []byte(broken)); err != nil {
+			t.Fatal(err)
+		}
+		s, err := tm.tv(context.Background(), 3)
+		switch {
+		case c.err == nil && (err != nil || s.Name != "New"):
+			t.Errorf("%s: %q, %v; want the new answer", c.name, s.Name, err)
+		case c.err != nil && (!c.err(err) || s.Name != ""):
+			t.Errorf("%s: %q, %v; want the failure and nothing decoded", c.name, s.Name, err)
+		}
+		if got := n.count(url); got != c.asked {
+			t.Errorf("%s: asked %d times, want %d", c.name, got, c.asked)
+		}
+		want := broken
+		if c.err == nil {
+			want = c.answer
+		}
+		if data, err := os.ReadFile(p); err != nil || string(data) != want {
+			t.Errorf("%s: cached %q, %v; want %q", c.name, data, err, want)
+		}
+	}
+}
+
+// While the key's rejection lasts, a cached answer still replaces what out
+// held: no field of the first one read into it is left after the second.
+func TestKeyCheckBlockedReplacesOut(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	f.SetTransport(&tvdbNet{})
+	k := newKeyCheck("Test", "TEST_KEY")
+	k.err, k.until = errors.New("rejected"), time.Now().Add(time.Hour)
+	for key, body := range map[string]string{"a.json": `{"A":1,"B":2}`, "b.json": `{"A":3}`} {
+		if err := fetch.WriteFile(filepath.Join(dir, key), []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type pair struct{ A, B int }
+	var out pair
+	ctx := context.Background()
+	for _, key := range []string{"a.json", "b.json"} {
+		if err := k.getJSON(ctx, f, fetch.Request{URL: "https://api.example/" + key, Key: key, TTL: time.Hour}, &out); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+	}
+	if out != (pair{A: 3}) {
+		t.Errorf("out %+v after the second copy, want {A:3 B:0}", out)
+	}
+}

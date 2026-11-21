@@ -1,0 +1,18 @@
+{
+  "MediaContainer": {
+    "Metadata": [
+      {
+        "guid": "plex://show/631ccdfccbff4464978f9d53",
+        "ratingKey": "631ccdfccbff4464978f9d53",
+        "title": "Frieren: Beyond Journey's End",
+        "type": "show"
+      }
+    ],
+    "identifier": "tv.plex.provider.metadata",
+    "librarySectionID": "home",
+    "librarySectionTitle": "Metadata",
+    "offset": 0,
+    "size": 1,
+    "totalSize": 1
+  }
+}

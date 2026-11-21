@@ -1,0 +1,763 @@
+// Package fetch downloads URLs with a disk cache, per-host rate limits and
+// de-duplication of identical in-flight requests.
+//
+// Every data source (AniDB, TVDB, TMDB, MAL...) goes through one Client, so
+// caching and throttling rules live in exactly one place.
+package fetch
+
+import (
+	"bytes"
+	"cmp"
+	"compress/gzip"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// UserAgent identifies Kizuna to every source. main sets it from the build
+// version before the first request ("kizuna/v0.1.0 (...)"); set it only then.
+var UserAgent = "kizuna/dev (personal Plex metadata provider)"
+
+// maxBody: larger answers are refused (the biggest list is ~10 MB).
+const maxBody = 64 << 20
+
+// Client is safe for concurrent use.
+type Client struct {
+	dir  string // cache root, e.g. /data/cache
+	http *http.Client
+
+	mu       sync.Mutex
+	inflight map[string]*call      // cache key -> running download
+	limits   map[string]*hostLimit // host -> throttle
+}
+
+type call struct {
+	done   chan struct{}
+	data   []byte
+	err    error
+	ticket *ticket // its place in the host's queue (nil = host not throttled)
+}
+
+// Request describes one download.
+type Request struct {
+	URL     string
+	Key     string        // cache file name (relative); "" = don't cache
+	TTL     time.Duration // how long a cached copy is fresh
+	Method  string        // default GET
+	Body    []byte        // POST body
+	Headers map[string]string
+	// Validate rejects answers that must not be cached (e.g. AniDB error pages).
+	Validate func([]byte) error
+	// NoStale: report a failed download instead of answering with a stale
+	// cached copy (for callers that track failures themselves).
+	NoStale bool
+	// Before, if set, runs when the request's turn on its host comes, right
+	// before it goes out; the host's next request waits until it returns.
+	// An error stops it there (nothing is sent; the host's slot is used all
+	// the same) and is the download's error. For a source whose own rules
+	// may have changed while the request waited (an AniDB ban brought by the
+	// answer ahead of it).
+	Before func() error
+	// Done, if set, gets the outcome of the network request once it ends,
+	// even when the caller stopped waiting (ctx). Not called on a cache hit.
+	// A call that joins a download already running for the same Key gets
+	// that download's answer: its own Headers, Validate, Before and Done
+	// aren't used.
+	Done func(error)
+	// Quiet: the caller logs failures itself; fetch only logs them at debug.
+	Quiet bool
+	// Revalidate: when the cached copy expires, ask the server whether it
+	// changed (If-None-Match with the ETag saved next to it) instead of
+	// downloading it again. For big lists that rarely change. Needs Key.
+	Revalidate bool
+	// Background: nobody waits for the answer now (an AniDB prefetch). On a
+	// throttled host it waits behind every foreground request; a foreground
+	// caller that joins its download moves it up.
+	Background bool
+	// NoRedirect: a redirect answer is the request's error (a StatusError),
+	// not followed. For a request with a secret in Headers: Go would carry
+	// it to whatever host the redirect names. And for AniDB: a followed
+	// redirect is a second request the throttle and the caller's Before
+	// never see.
+	NoRedirect bool
+	// NotFoundTTL, NotFound: an answer with one of the NotFound statuses
+	// (the source's "nothing there", such as 404) is remembered for
+	// NotFoundTTL, so it isn't asked again at every build. Needs Key and
+	// TTL. It answers only when no cached copy exists: a stale copy still
+	// answers a failed download, as always. A remembered answer is the
+	// call's error, reported as a cache hit. A 200 stored later forgets it.
+	NotFoundTTL time.Duration
+	NotFound    []int
+}
+
+func New(cacheDir string) *Client {
+	return &Client{
+		dir: cacheDir,
+		http: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:   true,
+			MaxIdleConns:        64,
+			MaxIdleConnsPerHost: 16, // TMDB seasons are fetched in parallel: reuse their connections
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		}},
+		inflight: map[string]*call{},
+		limits:   map[string]*hostLimit{},
+	}
+}
+
+// SetTransport replaces how requests reach the network: tests answer them
+// from a fake, at the sources' real URLs.
+func (c *Client) SetTransport(rt http.RoundTripper) { c.http.Transport = rt }
+
+// Throttle makes requests to host wait at least gap between each other.
+// Called again, it changes the gap; queued requests keep their place.
+func (c *Client) Throttle(host string, gap time.Duration) {
+	c.ThrottleFrom(host, gap, time.Time{})
+}
+
+// ThrottleAll changes the gap of every host throttled so far (tests set it
+// to 0 to run without the sources' waits).
+func (c *Client) ThrottleAll(gap time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, l := range c.limits {
+		l.setGap(gap)
+	}
+}
+
+// ThrottleFrom is Throttle, with last as the time of the last request to
+// host (one an earlier run sent): the first request waits until gap after
+// it. A later last than the one known moves it up; an earlier one is ignored.
+func (c *Client) ThrottleFrom(host string, gap time.Duration, last time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	l := c.limits[host]
+	if l == nil {
+		l = newHostLimit(gap)
+		c.limits[host] = l
+	} else {
+		l.setGap(gap)
+	}
+	l.sentAt(last)
+}
+
+// Waiting says how many requests to host wait for their turn, foreground
+// and background (tests wait on it).
+func (c *Client) Waiting(host string) (fg, bg int) {
+	c.mu.Lock()
+	l := c.limits[host]
+	c.mu.Unlock()
+	if l == nil {
+		return 0, 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.fg), len(l.bg)
+}
+
+// Cached returns a cached file and its age, without any network access.
+func (c *Client) Cached(key string) ([]byte, time.Duration, bool) {
+	data, at, ok := c.CachedSince(key)
+	if !ok {
+		return nil, 0, false
+	}
+	return data, time.Since(at), true
+}
+
+// CachedSince is Cached with the time the file was last written instead
+// of its age.
+func (c *Client) CachedSince(key string) ([]byte, time.Time, bool) {
+	if key == "" {
+		return nil, time.Time{}, false
+	}
+	return readCache(c.path(key), nil)
+}
+
+// readCache reads a cache file and the time it was last written through one
+// open, so the time is always that of the bytes. When young (if set) says
+// the time is too old, the file isn't read: no bytes, its time, false. No
+// such file (or a failed read): the zero time.
+func readCache(path string, young func(time.Time) bool) ([]byte, time.Time, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		return nil, time.Time{}, false
+	}
+	at := st.ModTime()
+	if young != nil && !young(at) {
+		return nil, at, false
+	}
+	var b bytes.Buffer
+	b.Grow(int(st.Size()) + bytes.MinRead) // room to see the end without growing, like os.ReadFile
+	if _, err := b.ReadFrom(f); err != nil {
+		return nil, time.Time{}, false
+	}
+	return b.Bytes(), at, true
+}
+
+// CachedAt returns when a cached file was last written, without reading it.
+func (c *Client) CachedAt(key string) (time.Time, bool) {
+	if key == "" {
+		return time.Time{}, false
+	}
+	return modTime(c.path(key))
+}
+
+func modTime(path string) (time.Time, bool) {
+	st, err := os.Stat(path)
+	if err != nil || !st.Mode().IsRegular() { // like readCache
+		return time.Time{}, false
+	}
+	return st.ModTime(), true
+}
+
+// Get returns a fresh cached copy, or downloads it. When the download fails
+// a stale cached copy is returned instead (sources go down; old data beats none).
+func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
+	start := time.Now()
+	data, at, ok, _ := c.freshKnown(ctx, r, nil)
+	if ok {
+		observe(ctx, r, start, KindCache, nil)
+		return data, nil
+	}
+	if err := c.knownNotFound(ctx, r, at); err != nil {
+		observe(ctx, r, start, KindCache, err)
+		return nil, err
+	}
+	data, err := c.download(ctx, r)
+	if err != nil {
+		if r.NoStale {
+			observe(ctx, r, start, KindFail, err)
+			return nil, err
+		}
+		if stale, ok := c.stale(ctx, r.Key, start, err); ok {
+			return stale, nil
+		}
+		observe(ctx, r, start, KindFail, err)
+		return nil, err
+	}
+	observe(ctx, r, start, KindNet, nil)
+	return data, nil
+}
+
+// stale returns key's cached copy however old, for a call that failed with
+// err (a download, a login): old data beats none. It logs that at debug and
+// reports it to ctx's observer as KindStale.
+func (c *Client) stale(ctx context.Context, key string, start time.Time, err error) ([]byte, bool) {
+	data, at, ok := c.CachedSince(key)
+	if !ok {
+		return nil, false
+	}
+	usedStale(ctx, key, at, start, err)
+	return data, true
+}
+
+// usedStale logs and reports that key's copy written at at answered a call
+// that failed with err.
+func usedStale(ctx context.Context, key string, at, start time.Time, err error) {
+	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		slog.Debug("request failed; using stale cache", "key", key, "age", time.Since(at).Round(time.Minute), "err", err)
+	}
+	Observe(ctx, key, KindStale, start, err)
+}
+
+// freshKnown returns r's cached copy when it is younger than r.TTL, and the
+// file's time. The age is checked first: an expired copy is not read. When
+// known (if set) says the caller has already parsed the file of that time,
+// the file is not read: it returns no bytes, the time, ok and hit.
+func (c *Client) freshKnown(ctx context.Context, r Request, known func(time.Time) bool) (data []byte, at time.Time, ok, hit bool) {
+	if r.TTL <= 0 || r.Key == "" {
+		return nil, time.Time{}, false, false
+	}
+	now := time.Now()
+	data, at, ok = readCache(c.path(r.Key), func(at time.Time) bool {
+		if now.Sub(at) >= r.TTL {
+			return false
+		}
+		hit = known != nil && known(at)
+		return !hit
+	})
+	ok = ok || hit
+	if at.IsZero() || !slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		return data, at, ok, hit
+	}
+	if age := now.Sub(at).Round(time.Minute); ok {
+		slog.Debug("cache hit", "key", r.Key, "age", age, "ttl", r.TTL)
+	} else {
+		slog.Debug("cache expired", "key", r.Key, "age", age, "ttl", r.TTL)
+	}
+	return data, at, ok, hit
+}
+
+// download runs at most one network request per key at a time; concurrent
+// callers wait for the same result. The download itself is not cancelled when
+// a caller gives up (ctx), so a slow AniDB answer still lands in the cache.
+func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
+	id := r.Key
+	if id == "" {
+		id = cmp.Or(r.Method, http.MethodGet) + " " + r.URL
+	}
+	c.mu.Lock()
+	cl, running := c.inflight[id]
+	if running && !r.Background {
+		cl.ticket.promote()
+	}
+	if !running {
+		cl = &call{done: make(chan struct{}), ticket: c.enqueue(r)}
+		c.inflight[id] = cl
+		go c.run(id, r, cl)
+	}
+	c.mu.Unlock()
+	select {
+	case <-cl.done:
+		return cl.data, cl.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// run is a download's own goroutine. No caller waits on this goroutine
+// itself, so a panic here would end the whole process. A panic in the
+// download (the caller's Before or Validate, the transport) is logged and
+// becomes the download's error, which every waiting caller gets; one in
+// Done is logged. Either way the download leaves inflight and its waiters
+// wake up.
+func (c *Client) run(id string, r Request, cl *call) {
+	defer close(cl.done) // after Done: a waiter sees the outcome already recorded
+	cl.data, cl.err = c.fetchSafe(r, cl.ticket)
+	// Out of inflight before Done: a caller arriving once Done has run must
+	// start its own download, not join this ended one (AniDB counts each
+	// call in Done's caller).
+	c.mu.Lock()
+	delete(c.inflight, id)
+	c.mu.Unlock()
+	if r.Done != nil {
+		defer func() {
+			if p := recover(); p != nil {
+				LogPanic("download's Done panicked", p, "url", Redact(r.URL), "key", r.Key)
+			}
+		}()
+		r.Done(cl.err)
+	}
+}
+
+// ErrPanicked: the download panicked. Whether the request went out, or
+// was answered, isn't known.
+var ErrPanicked = errors.New("download panicked")
+
+// fetchSafe is fetch, with a panic in it logged and returned as its error
+// (ErrPanicked). Done still gets that error: a source that tracks its calls
+// there (AniDB) must see this one end.
+func (c *Client) fetchSafe(r Request, t *ticket) (data []byte, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			LogPanic("download panicked", p, "url", Redact(r.URL), "key", r.Key)
+			data, err = nil, fmt.Errorf("%w: %v", ErrPanicked, p)
+		}
+	}()
+	return c.fetch(r, t)
+}
+
+func (c *Client) fetch(r Request, t *ticket) ([]byte, error) {
+	start := time.Now()
+	data, status, waited, err := c.do(r, t)
+	if err == nil && !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return data, nil // nothing to log: the args (Redact parses the URL) aren't built
+	}
+	took := time.Since(start) - waited
+	attrs := []any{"method", cmp.Or(r.Method, http.MethodGet), "url", Redact(r.URL), "status", status,
+		"bytes", len(data), "took", took.Round(time.Millisecond), "throttled", waited.Round(time.Millisecond)}
+	var se *StatusError
+	switch {
+	case err == nil:
+		slog.Debug("http", attrs...)
+	case r.Quiet || (errors.As(err, &se) && se.Code == http.StatusNotFound):
+		slog.Debug("http failed", append(attrs, "err", err)...) // 404: the source just has no such entry
+	case errors.As(err, &se) && (se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden):
+		slog.Error("source rejected the request: check its API key / client id", append(attrs, "err", err)...)
+	default:
+		slog.Warn("source request failed", append(attrs, "err", err)...)
+	}
+	return data, err
+}
+
+func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.Duration, err error) {
+	waited = t.wait()
+	if stop := before(r, t); stop != nil {
+		return nil, 0, waited, stop
+	}
+
+	method := cmp.Or(r.Method, http.MethodGet)
+	req, err := http.NewRequest(method, r.URL, bytes.NewReader(r.Body))
+	if err != nil {
+		redactURLError(err) // the URL it couldn't parse is in the message
+		return nil, 0, waited, err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	if r.Body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range r.Headers {
+		req.Header.Set(k, v)
+	}
+	tag := c.revalidation(r)
+	if tag != "" {
+		req.Header.Set("If-None-Match", tag)
+	}
+	client := c.http
+	if r.NoRedirect {
+		noFollow := *c.http // same transport and timeout
+		noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &noFollow
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		redactURLError(err) // its message repeats the whole URL, secrets included
+		return nil, 0, waited, err
+	}
+	defer resp.Body.Close()
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	if err != nil {
+		return nil, resp.StatusCode, waited, err
+	}
+	if len(data) > maxBody { // never cache a cut-off answer
+		return nil, resp.StatusCode, waited, fmt.Errorf("answer larger than %d MB", maxBody>>20)
+	}
+	if resp.StatusCode == http.StatusNotModified && tag != "" {
+		// Unchanged: the cached copy (validated when it was stored) is fresh
+		// again. It is read only now: on a 200 it would be thrown away. Its
+		// bytes are still those the ETag was saved with: only this request's
+		// key writes it, one download at a time.
+		cached, err := os.ReadFile(c.path(r.Key))
+		if err != nil {
+			// Gone since (pruned) or unreadable: without the ETag, the next
+			// call downloads it in full.
+			_ = os.Remove(c.etagPath(r.Key))
+			return nil, resp.StatusCode, waited, fmt.Errorf("not modified, but the cached copy can't be read: %w", err)
+		}
+		c.touch(r.Key)
+		slog.Debug("not modified; cached copy is current", "key", r.Key, "etag", tag)
+		return cached, resp.StatusCode, waited, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		se := &StatusError{Code: resp.StatusCode, URL: Redact(r.URL), Body: bytes.Clone(data[:min(len(data), maxErrorBody)])}
+		if remembers(r, se.Code) {
+			c.rememberNotFound(r.Key, se)
+		}
+		return nil, resp.StatusCode, waited, se
+	}
+	if data, err = gunzip(data, maxBody); err != nil { // AniDB always gzips, even when not asked to
+		return nil, resp.StatusCode, waited, err
+	}
+	if r.Validate != nil {
+		if err := r.Validate(data); err != nil {
+			return nil, resp.StatusCode, waited, fmt.Errorf("rejected answer: %w", err)
+		}
+	}
+	switch {
+	case r.Key == "":
+	case !r.Revalidate:
+		c.store(r.Key, data)
+	default:
+		// The old ETag goes first: it must never be paired with other bytes,
+		// or a 304 would vouch for the wrong copy. No new ETag (or a failed
+		// write) just means a full download next time.
+		_ = os.Remove(c.etagPath(r.Key))
+		if c.store(r.Key, data) {
+			if tag := resp.Header.Get("ETag"); tag != "" {
+				_ = os.WriteFile(c.etagPath(r.Key), []byte(tag), 0o644)
+			}
+		}
+	}
+	if r.Key != "" && r.NotFoundTTL > 0 {
+		// The source has it now. Also when the copy couldn't be written:
+		// the next call asks again instead of trusting the old answer.
+		_ = os.Remove(c.notFoundPath(r.Key))
+	}
+	return data, resp.StatusCode, waited, nil
+}
+
+// before runs r.Before, if set, once t's turn came, then notes that the
+// request goes out now: the next request on the host waits until gap from
+// then. The note is deferred so that a panic in Before (it ends as the
+// download's error, in fetchSafe) doesn't leave the host's queue waiting
+// forever for a request that never goes out.
+func before(r Request, t *ticket) error {
+	defer t.sent()
+	if r.Before == nil {
+		return nil
+	}
+	return r.Before()
+}
+
+// revalidation returns the saved ETag when r may be revalidated; "" when it
+// must be downloaded in full (no ETag, or no cached copy). The copy is only
+// looked for here (a list can be 10 MB): do reads it once a 304 comes.
+func (c *Client) revalidation(r Request) string {
+	if !r.Revalidate || r.Key == "" {
+		return ""
+	}
+	tag, err := os.ReadFile(c.etagPath(r.Key))
+	if err != nil || len(bytes.TrimSpace(tag)) == 0 {
+		return ""
+	}
+	if _, ok := modTime(c.path(r.Key)); !ok {
+		return ""
+	}
+	return string(bytes.TrimSpace(tag))
+}
+
+// enqueue queues r on its host's throttle; nil when the host has none.
+// Needs c.mu.
+func (c *Client) enqueue(r Request) *ticket {
+	u, err := url.Parse(r.URL)
+	if err != nil {
+		return nil // http.NewRequest reports it
+	}
+	if l := c.limits[u.Host]; l != nil {
+		return l.enqueue(r.Background)
+	}
+	return nil
+}
+
+// store writes a cache file and reports whether it did.
+func (c *Client) store(key string, data []byte) bool {
+	if err := WriteFile(c.path(key), data); err != nil {
+		slog.Warn("cache write failed", "key", key, "err", err)
+		return false
+	}
+	return true
+}
+
+// Rename moves from to to, replacing a file there, the way WriteFile does:
+// on Windows it waits out a short sharing violation.
+func Rename(from, to string) error { return rename(from, to) }
+
+// WriteFile replaces path with data atomically: a reader (or the next start,
+// after a crash or with a full disk) sees the old file or the new one, never
+// half of it. The data goes to path+".tmp" in the same folder first, which
+// one writer at a time may use.
+func WriteFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err // nothing of ours to clean up
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync() // on disk before the rename makes it the file
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
+}
+
+// touch marks a cached file as fresh again (a 304 answer: the source says
+// the cached copy is still current).
+func (c *Client) touch(key string) {
+	now := time.Now()
+	_ = os.Chtimes(c.path(key), now, now)
+}
+
+func (c *Client) path(key string) string {
+	return filepath.Join(c.dir, filepath.FromSlash(key))
+}
+
+// etagPath: where a Revalidate request keeps its ETag, next to the file.
+func (c *Client) etagPath(key string) string { return c.path(key) + ".etag" }
+
+// notFoundPath: where a NotFound answer of key is remembered, next to the
+// file the key's copy would be.
+func (c *Client) notFoundPath(key string) string { return c.path(key) + ".notfound" }
+
+// remembers: r's answer with this status is kept as its "nothing there".
+func remembers(r Request, code int) bool {
+	return r.Key != "" && r.TTL > 0 && r.NotFoundTTL > 0 && slices.Contains(r.NotFound, code)
+}
+
+// rememberNotFound keeps se as key's answer. Not synced to disk: one lost
+// or cut short in a crash only costs a request.
+func (c *Client) rememberNotFound(key string, se *StatusError) {
+	path := c.notFoundPath(key)
+	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
+		_ = os.WriteFile(path, []byte(strconv.Itoa(se.Code)+" "+se.URL), 0o644)
+	}
+}
+
+// knownNotFound returns r's remembered "nothing there", younger than
+// r.NotFoundTTL, as an error; nil when there is none. Only when no copy of
+// r is cached (at, its time, is zero): an expired copy must still answer a
+// failed download. A status no longer in r.NotFound is no answer.
+func (c *Client) knownNotFound(ctx context.Context, r Request, at time.Time) error {
+	if r.NotFoundTTL <= 0 || r.Key == "" || r.TTL <= 0 || !at.IsZero() {
+		return nil
+	}
+	now := time.Now()
+	data, since, ok := readCache(c.notFoundPath(r.Key), func(at time.Time) bool { return now.Sub(at) < r.NotFoundTTL })
+	if !ok {
+		return nil
+	}
+	code, url, _ := strings.Cut(string(data), " ")
+	n, err := strconv.Atoi(code)
+	if err != nil || !slices.Contains(r.NotFound, n) {
+		return nil
+	}
+	// Without this line a source that isn't asked leaves no trace in a debug
+	// log. It names the key, like the cache lines, not the URL.
+	if slog.Default().Enabled(ctx, slog.LevelDebug) { // the log args aren't built otherwise
+		age := now.Sub(since)
+		slog.Debug("remembered not found", "key", r.Key, "status", n,
+			"age", age.Round(time.Minute), "asked_again_in", (r.NotFoundTTL - age).Round(time.Minute))
+	}
+	return fmt.Errorf("%w (remembered)", &StatusError{Code: n, URL: url})
+}
+
+// StatusError is a non-200 HTTP answer.
+type StatusError struct {
+	Code int
+	URL  string
+	// Body: the start of the answer (up to maxErrorBody bytes, as received),
+	// for a caller that tells errors of one code apart (MyAnimeList answers
+	// a wrong client id with a 400 that only its body names).
+	Body []byte
+}
+
+// maxErrorBody: how much of an error answer a StatusError keeps. A copy, so
+// a big error page isn't kept whole while the error is remembered.
+const maxErrorBody = 512
+
+func (e *StatusError) Error() string { return fmt.Sprintf("HTTP %d from %s", e.Code, e.URL) }
+
+// IsNotFound reports whether err is an HTTP 404.
+func IsNotFound(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusNotFound
+}
+
+// gunzip unpacks a gzipped answer (any other is returned as is), up to
+// limit bytes. A corrupt or bigger one is an error: it must never be cached.
+func gunzip(data []byte, limit int64) ([]byte, error) {
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		return data, nil
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("corrupt gzip answer: %w", err)
+	}
+	out, err := io.ReadAll(io.LimitReader(zr, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("corrupt gzip answer: %w", err)
+	}
+	if int64(len(out)) > limit {
+		return nil, fmt.Errorf("answer larger than %d MB unpacked", limit>>20)
+	}
+	return out, nil
+}
+
+// Redact hides secrets in logged URLs: every query parameter whose name
+// contains "key" or "token" (api_key, X-Plex-Token...), and AniDB's client
+// name ("client"). A user name and password, and a fragment, go whole: no
+// source uses them, so one there is a key's tail cut off at a "#" or "@".
+func Redact(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return redactUnparsed(raw)
+	}
+	user := u.User != nil
+	u.User = nil // url.User would escape the mark to %2A%2A%2A
+	if u.Fragment != "" || u.RawFragment != "" {
+		u.Fragment, u.RawFragment = "***", ""
+	}
+	q := u.Query()
+	for k := range q {
+		if lk := strings.ToLower(k); strings.Contains(lk, "key") || strings.Contains(lk, "token") || lk == "client" {
+			q.Set(k, "***")
+		}
+	}
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "%2A%2A%2A", "***")
+	if user { // the first "//" is the one after the scheme: a scheme has no "/"
+		return strings.Replace(u.String(), "//", "//***@", 1)
+	}
+	return u.String()
+}
+
+// hiddenURL stands for a URL that can't be parsed and whose parts can't be
+// told apart safely either.
+const hiddenURL = "(unreadable URL, hidden)"
+
+// redactUnparsed is Redact for a URL url.Parse rejects, such as a key pasted
+// with a line break or tab in it. Without the parser no one can say which
+// parameter is which, so the whole query (and fragment) goes, and so does a
+// user name and password. Scheme, host and path stay, for the log. An "@"
+// anywhere else ahead of the query makes the parts uncertain: then nothing is
+// kept. Control characters in what is kept are left as they are: the log
+// handler quotes them.
+func redactUnparsed(raw string) string {
+	cut := strings.IndexAny(raw, "?#")
+	if cut < 0 {
+		cut = len(raw)
+	}
+	host := 0 // where the authority starts: after the first "//" ahead of the query
+	if i := strings.Index(raw[:cut], "//"); i >= 0 {
+		host = i + 2
+	}
+	rest := raw[host:]
+	end := strings.IndexAny(rest, "/?#")
+	if end < 0 {
+		end = len(rest)
+	}
+	user := strings.LastIndexByte(rest[:end], '@') + 1 // 0: no user part
+	// The query goes anyway, so an "@" in it doesn't matter, unless it comes
+	// before the first "/": then it may end a password holding a "?" or "#".
+	authority := strings.IndexByte(rest, '/')
+	if authority < 0 {
+		authority = len(rest)
+	}
+	if strings.Contains(raw[:host], "@") || strings.Contains(raw[host+user:cut], "@") ||
+		strings.Contains(rest[user:authority], "@") {
+		return hiddenURL
+	}
+	kept, mark := rest[user:], ""
+	if i := strings.IndexAny(kept, "?#"); i >= 0 {
+		kept, mark = kept[:i], kept[i:i+1]+"***"
+	}
+	if user > 0 {
+		kept = "***@" + kept
+	}
+	return raw[:host] + kept + mark
+}
+
+// redactURLError hides the secrets in the URL an *url.Error repeats in its
+// message (a failed request, or one http.NewRequest couldn't parse).
+func redactURLError(err error) {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		ue.URL = Redact(ue.URL)
+	}
+}

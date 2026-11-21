@@ -1,0 +1,460 @@
+package sources
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"kizuna/internal/anidb"
+	"kizuna/internal/fetch"
+)
+
+// anidbAPI is a variable so tests can point it at a fake server.
+var anidbAPI = "http://api.anidb.net:9001/httpapi?request=anime&client=%s&clientver=%s&protover=1&aid=%d"
+
+// errAniDBUnavailable: AniDB may not be asked now (a ban, a backoff, the
+// daily limit, a rejected or missing client, the anime asked lately), or a
+// queued call was stopped before it went out. Anime answers with a stale
+// copy instead when it has one; this error is for when it has none.
+var errAniDBUnavailable = errors.New("anidb api unavailable")
+
+// errAniDBNotSetUp: Anime on a nil *AniDB.
+var errAniDBNotSetUp = fmt.Errorf("%w: not set up", errAniDBUnavailable)
+
+// AniDBAnime is the parsed AniDB entry, reduced to what the provider uses.
+type AniDBAnime struct {
+	AID         int
+	Type        string // "TV Series", "Movie", "OVA"...
+	Restricted  bool
+	StartDate   string
+	EndDate     string
+	Titles      []anidb.Title
+	Description string
+	Picture     string // full URL
+	Genres      []string
+	Creators    []AniDBCreator
+	Characters  []AniDBCharacter
+	MALIDs      []int
+	ANNIDs      []int          // Anime News Network
+	Episodes    []AniDBEpisode // sorted by Season, Index
+}
+
+type AniDBCreator struct{ Role, Name string }
+
+type AniDBCharacter struct {
+	Name, Seiyuu, Photo string
+	Main                bool
+}
+
+// AniDBEpisode numbering:
+//
+//	regular episodes   season 1, index = episode number
+//	specials  S1..     season 0, index 1..
+//	openings  C1..     season 0, index 101..
+//	endings            season 0, index 151..
+//	trailers  T1..     season 0, index 201..
+//	parodies  P1..     season 0, index 301..
+//	other     O1..     season 0, index 401..
+type AniDBEpisode struct {
+	Season, Index int
+	EpNo          string // AniDB's own number, e.g. "C3"
+	Titles        []anidb.Title
+	AirDate       string
+	Summary       string
+	Minutes       int
+}
+
+// ListIndex is the episode's number in Anime-Lists' mapping: the same as
+// Index, except that credits are 100 + AniDB's C number there (C1 = 101,
+// C2 = 102…), endings included, where Index starts endings at 151.
+func (e AniDBEpisode) ListIndex() int {
+	if e.Season == 0 && strings.HasPrefix(e.EpNo, "C") {
+		if n, err := strconv.Atoi(e.EpNo[1:]); err == nil && n > 0 {
+			return 100 + n
+		}
+	}
+	return e.Index
+}
+
+// AniDB fetches anime details from the AniDB HTTP API, following its fair
+// use rules: one request every 4 s, at most 200 a day, every answer
+// cached for days, the same anime never asked twice in 24 h once AniDB
+// answered about it (an error too), exponential backoff after failures
+// without such an answer (those aren't counted) and a 24 h pause after a
+// ban. All of it survives restarts (data/anidb-state.json).
+type AniDB struct {
+	f         *fetch.Client
+	client    string
+	clientVer string
+	clientID  string // anidbClientID of client and clientVer
+	statePath string
+
+	mu    sync.Mutex
+	state struct {
+		BannedUntil time.Time         `json:"banned_until"`
+		Sent        []time.Time       `json:"sent"`     // API calls in the last 24 h (not those that got no answer from AniDB)
+		Failures    int               `json:"failures"` // failed calls in a row (backoff step)
+		RetryAt     time.Time         `json:"retry_at"` // no calls before this (backoff)
+		Failed      map[int]time.Time `json:"failed"`   // aid -> last call AniDB answered with an error or a ban (no retry for 24 h)
+		// Fetched: aid -> last call AniDB answered with its entry. No call
+		// for it for 24 h either, even when its cache file is missing (a
+		// failed write, or a caller that looked before it was stored).
+		Fetched map[int]time.Time `json:"fetched,omitempty"`
+		// The client AniDB rejected (clientID) and when: no calls with it
+		// for anidbClientPause.
+		ClientRejected   string    `json:"client_rejected,omitempty"`
+		ClientRejectedAt time.Time `json:"client_rejected_at,omitzero"`
+	}
+	queued  map[int]bool       // background fetches waiting or running
+	pending []int              // background fetches waiting for a worker, in order
+	workers int                // prefetch workers running
+	working sync.WaitGroup     // the same workers (WaitIdle waits on it)
+	calling map[int]*anidbCall // API calls queued or running (a second caller joins, uncounted)
+	// failWhy: why a blocked anime's last call failed (memory only: unknown
+	// after a restart). told: the failure whose 24 h block was already
+	// logged at Info, so a show rebuilt every 2 minutes doesn't repeat it.
+	failWhy map[int]string
+	told    map[int]time.Time
+	// backedOffAt: when the last failure stepped the backoff up. A call
+	// that went out before it and fails too is the same outage.
+	backedOffAt time.Time
+	stopped     bool // Stop was called: no new background calls
+
+	// memo has a lock of its own, apart from mu: mu is held over the state
+	// file's writes, which reading an entry from memory must not wait for.
+	// Its file time: the cache file's last write the entry was parsed from
+	// (zero: a download's), checked only for a stale entry.
+	memo *fetch.Memo[int, anidbMemo]
+}
+
+// anidbMemo is a parsed entry kept in memory. A stale one is kept too, so
+// that while AniDB can't be asked a show rebuilt every 2 minutes doesn't
+// parse its (often 1 MB) cache file each time: it is used until that file
+// changes (the memo's file time).
+type anidbMemo struct {
+	anime *AniDBAnime
+	at    time.Time // when it was kept
+	fresh bool      // within its TTL then
+}
+
+func NewAniDB(f *fetch.Client, dataDir, client, clientVer string) *AniDB {
+	c := &AniDB{f: f, client: client, clientVer: clientVer, clientID: anidbClientID(client, clientVer),
+		statePath: filepath.Join(dataDir, "anidb-state.json"), memo: newAniDBMemo(), queued: map[int]bool{}, calling: map[int]*anidbCall{},
+		failWhy: map[int]string{}, told: map[int]time.Time{}}
+	c.load()
+	// The gap counts from the last call an earlier run sent: a restart
+	// right after one must not send the next one sooner.
+	// The host is read from anidbAPI, so the gap can't end up on another one.
+	u, err := url.Parse(fmt.Sprintf(anidbAPI, "", "", 0))
+	if err != nil {
+		panic("anidbAPI: " + err.Error()) // a fixed URL: only a bad edit gets here
+	}
+	f.ThrottleFrom(u.Host, anidbGap, c.lastSent())
+	if c.state.Failed == nil {
+		c.state.Failed = map[int]time.Time{}
+	}
+	if c.state.Fetched == nil {
+		c.state.Fetched = map[int]time.Time{}
+	}
+	if client == "" {
+		slog.Warn("ANIDB_CLIENT not set: AniDB details (summaries, episodes) are off; register a client at anidb.net")
+	}
+	return c
+}
+
+// Enabled: a client is set. Every exported method takes a nil *AniDB (not
+// set up): Anime fails, Peek finds nothing, Prefetch does nothing.
+func (c *AniDB) Enabled() bool { return c != nil && c.client != "" }
+
+// Anime returns the entry from memory, disk cache, or the API (in that order).
+// Waits at most until ctx is done; an unfinished download keeps going in the
+// background and is served from the cache on Plex's next refresh.
+func (c *AniDB) Anime(ctx context.Context, aid int) (*AniDBAnime, error) {
+	if c == nil {
+		return nil, errAniDBNotSetUp
+	}
+	return c.anime(ctx, aid, false)
+}
+
+// Peek returns an entry from memory or the disk cache, of any age, without
+// any network access, and whether it is still fresh. nil = never fetched.
+func (c *AniDB) Peek(aid int) (a *AniDBAnime, fresh bool) {
+	if c == nil {
+		return nil, false
+	}
+	a, fresh, _, _ = c.local(aid)
+	return a, fresh
+}
+
+// local returns the entry from memory or the disk cache, of any age,
+// without any network access: whether it is fresh, whether it came from
+// memory, and (read from disk) the cache file's age. What it parses is kept
+// in memory, fresh or not, so the next build needn't parse it again.
+func (c *AniDB) local(aid int) (a *AniDBAnime, fresh, memo bool, age time.Duration) {
+	m, keptMod, kept := c.memo.Get(aid)
+	kept = kept && time.Since(m.at) < time.Hour
+	if kept && m.fresh {
+		return m.anime, true, true, 0
+	}
+	key := anidbKey(aid)
+	if kept { // stale: still the same copy as last time?
+		if mod, ok := c.f.CachedAt(key); ok && mod.Equal(keptMod) {
+			return m.anime, false, true, 0
+		}
+	}
+	data, mod, ok := c.f.CachedSince(key)
+	if !ok {
+		return nil, false, false, 0
+	}
+	if a, _ = parseAniDB(data); a == nil {
+		return nil, false, false, 0
+	}
+	age = time.Since(mod)
+	fresh = age < anidbTTL(a.EndDate, time.Now())
+	c.remember(a, fresh, mod)
+	return a, fresh, false, age
+}
+
+// Prefetch fetches an entry in the background, within the fair use rules
+// and only while fewer than anidbBackgroundLimit calls were made in 24 h.
+// Its API call waits behind every call Plex is waiting for (a foreground
+// one), keeping the same 4 s gap. It returns at once; the entry is in the
+// cache for the next show build. A few workers fetch the waiting entries in
+// order, so a big series doesn't start a goroutine for each.
+func (c *AniDB) Prefetch(aid int) {
+	if !c.Enabled() {
+		return
+	}
+	c.mu.Lock()
+	if c.queued[aid] || c.stopped {
+		c.mu.Unlock()
+		return
+	}
+	c.queued[aid] = true
+	c.pending = append(c.pending, aid)
+	if c.workers < anidbPrefetchWorkers {
+		// Counted in working under c.mu, with workers: once working is
+		// done, nothing is waiting or running (WaitIdle).
+		c.workers++
+		c.working.Go(c.prefetchWorker)
+	}
+	c.mu.Unlock()
+}
+
+// anidbPrefetchWorkers: background fetches run at most this many at a
+// time, however many entries a /tvdb series asks for (only one call goes
+// out every 4 s anyway).
+const anidbPrefetchWorkers = 2
+
+// Stop ends background fetching once Kizuna starts shutting down: waiting
+// prefetches are dropped, and a background call not sent yet isn't sent
+// (the exit could cut it off before its outcome is recorded, and AniDB
+// would be asked about that anime again on the next start). Calls Plex
+// waits for still go out. Safe on a nil AniDB; later calls do nothing.
+func (c *AniDB) Stop() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopped = true
+	for _, aid := range c.pending {
+		delete(c.queued, aid)
+	}
+	c.pending = nil
+}
+
+// prefetchWorker fetches the waiting background entries, in order, until
+// none is left.
+func (c *AniDB) prefetchWorker() {
+	for {
+		c.mu.Lock()
+		if len(c.pending) == 0 {
+			c.workers--
+			c.mu.Unlock()
+			return
+		}
+		aid := c.pending[0]
+		c.pending = c.pending[1:]
+		c.mu.Unlock()
+		c.prefetch(aid)
+	}
+}
+
+// prefetch fetches one entry for prefetchWorker. Nobody waits for it to
+// raise a panic on, so a panic is logged and ends only this entry: it
+// leaves the queue all the same (a later Prefetch may queue it again), and
+// the worker goes on with the next one.
+func (c *AniDB) prefetch(aid int) {
+	defer func() {
+		if r := recover(); r != nil {
+			fetch.LogPanic("anidb: background fetch panicked", r, "aid", aid)
+		}
+		c.mu.Lock()
+		delete(c.queued, aid)
+		c.mu.Unlock()
+	}()
+	if _, err := c.anime(context.Background(), aid, true); err != nil {
+		slog.Debug("anidb: background fetch skipped", "aid", aid, "why", err)
+	}
+}
+
+func (c *AniDB) anime(ctx context.Context, aid int, background bool) (*AniDBAnime, error) {
+	start := time.Now()
+	// Read here, not by Get: the TTL depends on the entry's end date, and a
+	// stale copy is still used when the API may not be asked.
+	a, fresh, memo, age := c.local(aid)
+	if fresh && memo {
+		slog.Debug("anidb: from memory", "aid", aid)
+		if fetch.Observing(ctx) { // the key is only built for a match report
+			fetch.Observe(ctx, anidbKey(aid), fetch.KindMemory, start, nil)
+		}
+		return a, nil
+	}
+	if fresh {
+		slog.Debug("anidb: from cache", "aid", aid, "age", age.Round(time.Minute), "ttl", anidbTTL(a.EndDate, time.Now()))
+		fetch.Observe(ctx, anidbKey(aid), fetch.KindCache, start, nil)
+		return a, nil
+	}
+	return c.ask(ctx, aid, background, a, start)
+}
+
+// ask gets the entry from the API, when the fair use rules allow it, or
+// else returns stale (the old copy local found; nil = none).
+func (c *AniDB) ask(ctx context.Context, aid int, background bool, stale *AniDBAnime, start time.Time) (*AniDBAnime, error) {
+	key := anidbKey(aid)
+	if ok, why := c.allowed(aid, background); !ok {
+		if a := c.again(ctx, aid, start); a != nil {
+			return a, nil
+		}
+		slog.Debug("anidb: not calling the API", "aid", aid, "why", why, "stale_cache", stale != nil)
+		if stale != nil {
+			if fetch.Observing(ctx) { // the error is only built for a match report
+				fetch.Observe(ctx, key, fetch.KindStale, start, fmt.Errorf("%w: %s", errAniDBUnavailable, why))
+			}
+			return stale, nil // stale beats nothing
+		}
+		err := fmt.Errorf("%w: %s", errAniDBUnavailable, why)
+		fetch.Observe(ctx, key, fetch.KindFail, start, err)
+		return nil, err
+	}
+	// parsed: the entry validate already parsed, so it isn't parsed twice.
+	// Only a download this call started runs its Validate, and Get returns
+	// that download's data only after it ended (NoStale: no stale copy
+	// either), so after a successful Get, parsed is either set by it or nil
+	// (a cache hit, or another caller's download joined): then parse here.
+	// call: what sending made of this download's turn, for result (both run
+	// on the download's goroutine, one after the other).
+	// NoRedirect: a followed redirect is a second request in this call's
+	// turn, with no 4 s gap before it and not counted in the day's calls,
+	// and its answer could be cached as the entry.
+	var parsed *AniDBAnime
+	var call *anidbCall
+	data, err := c.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(anidbAPI, c.client, c.clientVer, aid), Key: key, NoRedirect: true,
+		Validate: func(b []byte) (err error) {
+			if parsed, err = c.validate(b); err == nil {
+				c.answered(aid, call) // before it is cached: a caller that misses the file can't call again
+			}
+			return err
+		},
+		Before:  func() (err error) { call, err = c.sending(aid, background); return err },
+		Done:    func(err error) { c.result(aid, call, err) },
+		NoStale: true, Quiet: true, Background: background})
+	if err != nil {
+		if a := c.again(ctx, aid, start); a != nil {
+			return a, nil
+		}
+		if stale != nil { // Get reported a failure (NoStale): the old copy answers after all
+			fetch.Observe(ctx, key, fetch.KindStale, start, err)
+			return stale, nil
+		}
+		return nil, err
+	}
+	a := parsed
+	if a == nil {
+		if a, err = parseAniDB(data); err != nil {
+			return nil, err
+		}
+	}
+	c.remember(a, true, time.Time{})
+	return a, nil
+}
+
+// again reads the cache once more when the API was not asked because aid
+// was fetched in the last 24 h: another caller's call may have stored the
+// entry since local looked. nil: no fresh copy there (that call's cache
+// write failed; AniDB is still not asked again).
+func (c *AniDB) again(ctx context.Context, aid int, start time.Time) *AniDBAnime {
+	if !c.fetchedLately(aid) {
+		return nil
+	}
+	a, fresh, _, _ := c.local(aid)
+	if a == nil || !fresh {
+		return nil
+	}
+	slog.Debug("anidb: from cache, fetched by another call", "aid", aid)
+	fetch.Observe(ctx, anidbKey(aid), fetch.KindCache, start, nil)
+	return a
+}
+
+// remember keeps a parsed entry in memory for an hour; mod is a stale
+// one's cache file write time. No size limit: expired entries are swept
+// out every few minutes.
+func (c *AniDB) remember(a *AniDBAnime, fresh bool, mod time.Time) {
+	c.memo.Put(a.AID, mod, anidbMemo{a, time.Now(), fresh})
+}
+
+// newAniDBMemo: entries are used for an hour (anidbMemo.at, checked by
+// local) and swept out once that long, every 5 minutes.
+func newAniDBMemo() *fetch.Memo[int, anidbMemo] {
+	return fetch.NewMemo[int, anidbMemo](time.Hour, 5*time.Minute)
+}
+
+// anidbKey is the cache file of an anime's entry.
+func anidbKey(aid int) string { return fmt.Sprintf("anidb/anime/%d.xml", aid) }
+
+// endedFor: a series that ended this long ago is finished, and its data
+// rarely changes. AniDB's entries and TheTVDB's crew records go by it.
+const endedFor = 60 * 24 * time.Hour
+
+// anidbTTL: finished long ago -> rarely changes; airing or ended lately -> refresh every 6 days.
+func anidbTTL(endDate string, now time.Time) time.Duration {
+	end, ok := LastDay(endDate)
+	if !ok || now.Sub(end) < endedFor {
+		return 6 * 24 * time.Hour
+	}
+	return 180 * 24 * time.Hour
+}
+
+// LastDay reads a date, such as an end date. Old entries often give only
+// "1989" or "1989-03": that is read as the last day it can mean, so a series
+// is never taken as finished sooner than it was. Empty or unreadable: false
+// (no date: for an end date, not ended).
+func LastDay(s string) (time.Time, bool) {
+	if s == "" { // most episodes without a date: no parse, and no error to allocate
+		return time.Time{}, false
+	}
+	// Chosen by length, so a full date (the usual case) is parsed once.
+	layout, months := "2006-01-02", 0 // months to add; less a day gives the last day it can mean
+	switch len(s) {
+	case len("2006-01"):
+		layout, months = "2006-01", 1
+	case len("2006"):
+		layout, months = "2006", 12
+	}
+	t, err := time.Parse(layout, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if months > 0 {
+		t = t.AddDate(0, months, -1)
+	}
+	return t, true
+}

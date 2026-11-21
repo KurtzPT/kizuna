@@ -1,0 +1,392 @@
+package provider
+
+import (
+	"context"
+	"maps"
+	"reflect"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"kizuna/internal/config"
+	"kizuna/internal/mapping"
+	"kizuna/internal/sources"
+)
+
+func TestPickFallsBack(t *testing.T) {
+	vals := map[string]string{"anidb": "", "tvdb": "from tvdb", "tmdb": "from tmdb"}
+	var asked []string
+	f := &showField{has: hasText, of: func(_ *showSources, src string, _ bool) (fieldValue, warmer) {
+		asked = append(asked, src)
+		return fieldValue{text: vals[src]}, nil
+	}}
+	v, _ := (&showSources{p: &Provider{}}).pick(f, []string{"anidb", "tvdb", "tmdb"}, f.has)
+	if got := v.text; got != "from tvdb" {
+		t.Fatalf("got %q, want tvdb value", got)
+	}
+	if !slices.Equal(asked, []string{"anidb", "tvdb"}) { // tmdb never fetched
+		t.Fatalf("asked %v", asked)
+	}
+}
+
+func TestImagesAllAndFirst(t *testing.T) {
+	art := map[string][]string{"tmdb": nil, "tvdb": {"a", "b"}, "anidb": {"c", "a"}}
+	series := map[string][]string{"tvdb": {"d", "a"}}
+	get := func(src string) ([]string, []string) { return art[src], series[src] }
+	order := []string{"tmdb", "tvdb", "anidb"}
+	got, counts := images(order, true, true, get)
+	if !slices.Equal(got, []string{"a", "b", "d", "c"}) || !slices.Equal(counts, []sourceCount{{"tvdb", 3}, {"anidb", 1}}) {
+		t.Errorf("all: %v %v", got, counts)
+	}
+	if text := countsText(counts); text != "tvdb:3,anidb:1" { // the debug line's form
+		t.Errorf("all: counts as text %q", text)
+	}
+	if got, counts := images(order, false, false, get); !slices.Equal(got, []string{"a", "b", "d"}) || counts != nil || countsText(counts) != "" {
+		t.Errorf("first: %v %v", got, counts)
+	}
+	if got, counts := images(order, false, true, get); !slices.Equal(got, []string{"a", "b", "d"}) || !slices.Equal(counts, []sourceCount{{"tvdb", 3}}) {
+		t.Errorf("first, counted: %v %v", got, counts)
+	}
+}
+
+// Each site's series details are used only when the entry starts its series
+// on that site.
+func TestSeriesGuard(t *testing.T) {
+	details := func(src string) func() (sources.Details, error) {
+		return func() (sources.Details, error) { return sources.Details{Genres: []string{src}}, nil }
+	}
+	order := []string{"tvdb", "tmdb", "mal"}
+	genres := &showFields[slices.IndexFunc(showFields[:], func(f showField) bool { return f.key == "genres" })]
+	for _, c := range []struct {
+		first firstEntry
+		want  string
+	}{
+		{firstEntry{}, "mal"}, // a later entry on both: skip series data
+		{firstEntry{tvdb: true}, "tvdb"},
+		{firstEntry{tmdb: true}, "tmdb"}, // a later TheTVDB entry, its own TheMovieDb show
+	} {
+		ss := &showSources{p: &Provider{}, tvdb: 1, tmdb: 2, first: c.first}
+		ss.tvdbDetails.f, ss.tmdbDetails.f = details("tvdb"), details("tmdb")
+		ss.mal.f = func() (sources.MALAnime, error) {
+			return sources.MALAnime{Details: sources.Details{Genres: []string{"mal"}}}, nil
+		}
+		if v, _ := ss.pick(genres, order, genres.has); v.d.Genres[0] != c.want {
+			t.Errorf("%+v: got %q, want %q", c.first, v.d.Genres[0], c.want)
+		}
+	}
+}
+
+// Without AniDB details, the fallbacks fill will reach are fetched at once,
+// not one after another: each fetch here only returns once the other one has
+// started. With details, AniDB has the fields, and TheTVDB's and
+// TheMovieDb's values are fetched ahead all the same (listed: warm), still
+// at once.
+func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
+	cfg := config.Config{SummarySources: []string{"anidb", "tvdb"}, GenreSources: []string{"anidb", "tmdb"},
+		DateSources: []string{"anidb", "tvdb", "tmdb"}}
+	newSS := func(a *sources.AniDBAnime) (*showSources, func() []string) {
+		ss := &showSources{p: &Provider{cfg: cfg}, a: a, first: firstEntry{true, true}, show: seriesTarget}
+		var mu sync.Mutex
+		var asked []string
+		started := map[string]chan struct{}{"tvdb": make(chan struct{}), "tmdb": make(chan struct{})}
+		both := func(src, other string) {
+			mu.Lock()
+			asked = append(asked, src)
+			mu.Unlock()
+			close(started[src])
+			select {
+			case <-started[other]:
+			case <-time.After(20 * time.Second): // only when the fetches run one after another
+				t.Errorf("%s: fetched alone, not alongside %s", src, other)
+			}
+		}
+		ss.tvdbText.f = func() (text, error) { both("tvdb", "tmdb"); return text{summary: "From TheTVDB."}, nil }
+		ss.tmdbDetails.f = func() (sources.Details, error) {
+			both("tmdb", "tvdb")
+			return sources.Details{Genres: []string{"TMDB"}, Date: "2004-01-01"}, nil
+		}
+		return ss, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
+	}
+
+	ss, _ := newSS(nil)
+	s := &Show{}
+	ss.fill(s)
+	if s.Summary != "From TheTVDB." || !slices.Equal(s.Genres, []string{"TMDB"}) || s.Date != "2004-01-01" {
+		t.Errorf("summary %q genres %v date %q, want the fallbacks'", s.Summary, s.Genres, s.Date)
+	}
+
+	ss, asked := newSS(&sources.AniDBAnime{Description: "From AniDB.", StartDate: "2003-01-01",
+		Genres: []string{"AniDB"}})
+	s = &Show{}
+	ss.fill(s)
+	got := asked()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"tmdb", "tvdb"}) || s.Summary != "From AniDB." || !slices.Equal(s.Genres, []string{"AniDB"}) {
+		t.Errorf("with AniDB details: fetched %v, summary %q, genres %v; want both fetched ahead, AniDB's fields",
+			got, s.Summary, s.Genres)
+	}
+}
+
+// AniDB's details (its cast built from the characters) are built once per
+// show, not once per field that asks.
+func TestAniDBDetailsBuiltOnce(t *testing.T) {
+	a := &sources.AniDBAnime{Characters: []sources.AniDBCharacter{{Name: "Frieren", Seiyuu: "Atsumi Tanezaki"}}}
+	ss := &showSources{a: a}
+	if cast := ss.details("anidb").Cast; len(cast) != 1 || cast[0].Role != "Frieren" {
+		t.Fatalf("cast %+v", cast)
+	}
+	if n := testing.AllocsPerRun(10, func() { ss.details("anidb") }); n != 0 {
+		t.Errorf("%.0f allocations per later call, want 0", n)
+	}
+	if d := (&showSources{}).details("anidb"); len(d.Cast) != 0 { // no AniDB details
+		t.Errorf("without AniDB: %+v", d)
+	}
+}
+
+func TestANNFallback(t *testing.T) {
+	cfg := config.Config{TitleSources: []string{"ann"}, SummarySources: []string{"anidb", "ann"},
+		GenreSources: []string{"anidb", "ann"}, StudioSources: []string{"anidb"}}
+	ann := sources.ANNAnime{Title: "Cowboy Bebop", Summary: "Bounty hunters.",
+		Details: sources.Details{Genres: []string{"Drama"}}}
+	ss := &showSources{p: &Provider{cfg: cfg}}
+	ss.ann.f = func() (sources.ANNAnime, error) { return ann, nil }
+	s := &Show{}
+	ss.fill(s)
+	// ANN's text is used unchanged (its credit is in the README and code only).
+	if s.Summary != "Bounty hunters." || s.Title != "Cowboy Bebop" || len(s.Genres) != 1 {
+		t.Fatalf("summary %q title %q genres %v", s.Summary, s.Title, s.Genres)
+	}
+}
+
+// seasonTexts: TVDB 500 and TMDB 77 with a series overview and per-season
+// ones. TVDB season 4 and TMDB season 1 have none.
+func seasonTexts(path string, _ map[string][]string) (int, string) {
+	switch path {
+	case "api4.thetvdb.com/v4/login":
+		return 200, `{"data":{"token":"t"}}`
+	case "api4.thetvdb.com/v4/series/500/translations/eng":
+		return 200, `{"data":{"name":"Series","overview":"TVDB series."}}`
+	case "api4.thetvdb.com/v4/series/500/extended":
+		return 200, `{"data":{"seasons":[{"id":503,"number":3,"type":{"type":"official"}},
+			{"id":504,"number":4,"type":{"type":"official"}},{"id":603,"number":3,"type":{"type":"dvd"}}]}}`
+	case "api4.thetvdb.com/v4/seasons/503/translations/eng":
+		return 200, `{"data":{"name":"Season 3","overview":"TVDB season 3."}}`
+	case "api4.thetvdb.com/v4/seasons/504/translations/eng":
+		return 200, `{"data":{"name":"Season 4","overview":""}}`
+	case "api.themoviedb.org/3/tv/77":
+		return 200, `{"name":"Series","overview":"TMDB series.","seasons":[{"season_number":1},{"season_number":2}]}`
+	case "api.themoviedb.org/3/tv/77/season/1":
+		return 200, `{"overview":"","episodes":[]}`
+	case "api.themoviedb.org/3/tv/77/season/2":
+		return 200, `{"overview":"TMDB season 2.","episodes":[]}`
+	}
+	return 0, ""
+}
+
+// In /anidb, an entry after the series' first gets the summary of its own
+// TheTVDB (else TheMovieDb) season, never the series' overview: without
+// one the order goes on to MAL and ANN. The first entry keeps the series'.
+func TestLaterEntrySummary(t *testing.T) {
+	tvdb := func(season int) mapping.Placement { return mapping.Placement{ID: 500, Season: season, Mapped: true} }
+	tmdb := func(season int, mapped bool) mapping.Placement {
+		return mapping.Placement{ID: 77, Season: season, Mapped: mapped}
+	}
+	noText := &sources.AniDBAnime{}
+	cases := []struct {
+		name   string
+		a      *sources.AniDBAnime
+		entry  mapping.Entry
+		series bool
+		want   string
+	}{
+		{"no AniDB details", nil, mapping.Entry{TVDB: tvdb(3)}, false, "TVDB season 3."},
+		{"empty AniDB description", noText, mapping.Entry{TVDB: tvdb(3)}, false, "TVDB season 3."},
+		{"AniDB first", &sources.AniDBAnime{Description: "AniDB."}, mapping.Entry{TVDB: tvdb(3)}, false, "AniDB."},
+		{"absolute", nil, mapping.Entry{TVDB: tvdb(-1)}, false, "MAL."},
+		{"specials", nil, mapping.Entry{TVDB: tvdb(0)}, false, "MAL."},
+		{"not mapped", nil, mapping.Entry{TVDB: mapping.Placement{ID: 500, Season: 3}}, false, "MAL."},
+		{"empty TVDB season", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(2, true)}, false, "TMDB season 2."},
+		{"no TVDB id", nil, mapping.Entry{TMDB: tmdb(2, true)}, false, "TMDB season 2."},
+		{"TMDB season not mapped", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(2, false)}, false, "MAL."},
+		{"empty TMDB season", nil, mapping.Entry{TVDB: tvdb(4), TMDB: tmdb(1, true)}, false, "MAL."},
+		{"first entry", noText, mapping.Entry{TVDB: tvdb(1), TMDB: tmdb(1, true)}, true, "TVDB series."},
+		{"first entry, TMDB", noText, mapping.Entry{TMDB: tmdb(1, true)}, true, "TMDB series."},
+	}
+	for _, c := range cases {
+		net := &fakeNet{answer: seasonTexts}
+		p := newTestProvider(t, net)
+		p.cfg.TitleSources = []string{"anidb"} // only the summary may ask for the series' text
+		ss := p.newSources(context.Background(), 100, c.entry, c.entry.TVDB.ID, c.entry.TMDB.ID, false, firstEntry{c.series, c.series})
+		ss.setAniDB(context.Background(), c.a, c.entry)
+		ss.mal.f = func() (sources.MALAnime, error) { return sources.MALAnime{Synopsis: "MAL."}, nil }
+		s := &Show{}
+		ss.fill(s)
+		if s.Summary != c.want {
+			t.Errorf("%s: summary %q, want %q", c.name, s.Summary, c.want)
+		}
+		// TMDB's series text is in the show file, which a later entry reads
+		// for its season list: the summary above shows it isn't used.
+		if !c.series && net.count("api4.thetvdb.com/v4/series/500/translations/eng") > 0 {
+			t.Errorf("%s: a later entry fetched the series overview", c.name)
+		}
+	}
+}
+
+// Whether an /anidb entry starts its series is decided per site: TheTVDB's
+// data follows TheTVDB's placement, TheMovieDb's its own. A later entry of
+// one TheTVDB series can be the first of its own TheMovieDb show, and the
+// reverse.
+func TestFirstEntryPerSite(t *testing.T) {
+	tvdb := func(id, season int) mapping.Placement { return mapping.Placement{ID: id, Season: season, Mapped: true} }
+	for _, c := range []struct {
+		name       string
+		lists      map[int]mapping.Entry
+		tvdb, tmdb string // the summary with only that source
+	}{
+		{"later on TheTVDB, own TheMovieDb show", map[int]mapping.Entry{
+			99:  {AID: 99, TVDB: tvdb(500, 1)},
+			100: {AID: 100, TVDB: tvdb(500, 3), TMDB: tvdb(77, 1)},
+		}, "TVDB season 3.", "TMDB series."},
+		{"own TheTVDB series, later on TheMovieDb", map[int]mapping.Entry{
+			99:  {AID: 99, TVDB: tvdb(400, 1), TMDB: tvdb(77, 1)},
+			100: {AID: 100, TVDB: tvdb(500, 1), TMDB: tvdb(77, 2)},
+		}, "TVDB series.", "TMDB season 2."},
+	} {
+		for src, want := range map[string]string{"tvdb": c.tvdb, "tmdb": c.tmdb} {
+			net := &fakeNet{answer: seasonTexts}
+			p := newTestProvider(t, net)
+			p.anidb = anidbWithState(t, net, "", anidbState{}) // AniDB not configured
+			p.lists.SetForTest(c.lists)
+			p.cfg.SummarySources = []string{src}
+			s, err := p.buildShow(context.Background(), "anidb-100")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Summary != want {
+				t.Errorf("%s, %s: summary %q, want %q", c.name, src, s.Summary, want)
+			}
+		}
+	}
+}
+
+// In /anidb, TheTVDB's and TheMovieDb's TV names are the series': an entry
+// that doesn't start the series on a site (a sequel season, a special-only
+// movie like One Piece Film Red) never takes that site's name, and its
+// series' text isn't fetched for it. A TheMovieDb movie is its own entry:
+// its title is used.
+func TestLaterEntryTitle(t *testing.T) {
+	tvdb := func(season int) mapping.Placement { return mapping.Placement{ID: 500, Season: season, Mapped: true} }
+	tmdb := func(season int) mapping.Placement { return mapping.Placement{ID: 77, Season: season, Mapped: true} }
+	first := mapping.Entry{AID: 99, TVDB: tvdb(1), TMDB: tmdb(1)}
+	for _, c := range []struct {
+		name  string
+		entry mapping.Entry
+		want  string
+	}{
+		{"first entry", mapping.Entry{AID: 100, TVDB: tvdb(1), TMDB: tmdb(1)}, "TVDB Name"}, // entry 99 is on other series then
+		{"later on TheTVDB, first on TheMovieDb", mapping.Entry{AID: 100, TVDB: tvdb(3), TMDB: mapping.Placement{ID: 78, Season: 1, Mapped: true}},
+			"TMDB Name"},
+		{"sequel season", mapping.Entry{AID: 100, TVDB: tvdb(3), TMDB: tmdb(2)}, "Kizuna Test"},
+		{"special-only OVA", mapping.Entry{AID: 100, TVDB: tvdb(0), TMDB: tmdb(0)}, "Kizuna Test"},
+		{"special-only movie", mapping.Entry{AID: 100, TVDB: tvdb(0), TMDBMovie: 900}, "Film Name"},
+	} {
+		net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
+			switch path {
+			case "api4.thetvdb.com/v4/series/500/translations/eng":
+				return 200, `{"data":{"name":"TVDB Name","overview":"TVDB series."}}`
+			case "api.themoviedb.org/3/tv/77", "api.themoviedb.org/3/tv/78":
+				return 200, `{"name":"TMDB Name","overview":"TMDB series.","seasons":[{"season_number":1}]}`
+			case "api.themoviedb.org/3/movie/900":
+				return 200, `{"title":"Film Name","overview":"The film."}`
+			}
+			return seasonTexts(path, q)
+		}}
+		p := newTestProvider(t, net)
+		p.anidb = anidbWithState(t, net, "", anidbState{}) // AniDB not configured: its title is the title dump's
+		lists := map[int]mapping.Entry{99: first, 100: c.entry}
+		if c.want == "TVDB Name" {
+			lists[99] = mapping.Entry{AID: 99, TVDB: mapping.Placement{ID: 400, Season: 1, Mapped: true}}
+		}
+		p.lists.SetForTest(lists)
+		p.cfg.TitleSources = []string{"tvdb", "tmdb", "anidb"}
+		p.cfg.SummarySources = []string{"anidb"} // only the title may ask for the series' text
+		s, err := p.buildShow(context.Background(), "anidb-100")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Title != c.want {
+			t.Errorf("%s: title %q, want %q", c.name, s.Title, c.want)
+		}
+		if c.want != "TVDB Name" && net.count("api4.thetvdb.com/v4/series/500/translations/eng") > 0 {
+			t.Errorf("%s: fetched TheTVDB's series text for a later entry", c.name)
+		}
+	}
+}
+
+func TestUniqueCast(t *testing.T) {
+	got := uniqueCast([]sources.Person{
+		{Name: "Atsumi Tanezaki", Role: "Frieren", Photo: "a.jpg"},
+		{Name: "Yoji Ueda", Role: "Eisen"},
+		{Name: "Yoji Ueda ", Role: "eisen", Photo: "u.jpg"}, // same person and character
+		{Name: "Yoji Ueda", Role: "Narrator"},               // another character: kept
+	})
+	want := []sources.Person{
+		{Name: "Atsumi Tanezaki", Role: "Frieren", Photo: "a.jpg"},
+		{Name: "Yoji Ueda", Role: "Eisen", Photo: "u.jpg"},
+		{Name: "Yoji Ueda", Role: "Narrator"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// Every source list of the settings (config.Config's *Sources) is read by
+// exactly one of: a row of showFields (fill, warm and siteFields all take
+// the show fields' lists from it), an art kind (artKind.order), or the
+// episodes' code. A list added to Config and to none of them fails here,
+// so a show field's list can't be read by one of fill, warm and siteFields
+// and missed by another.
+func TestShowFieldsCoverSourceLists(t *testing.T) {
+	var c config.Config
+	cv := reflect.ValueOf(&c).Elem()
+	var lists []string
+	for i := range cv.NumField() {
+		if name := cv.Type().Field(i).Name; strings.HasSuffix(name, "Sources") && cv.Field(i).Type() == reflect.TypeFor[[]string]() {
+			cv.Field(i).Set(reflect.ValueOf([]string{name})) // each list names itself
+			lists = append(lists, name)
+		}
+	}
+	readBy := map[string][]string{}
+	read := func(order []string, by string) {
+		if len(order) != 1 {
+			t.Errorf("%s reads no source list of Config", by)
+			return
+		}
+		readBy[order[0]] = append(readBy[order[0]], by)
+	}
+	keys, names := map[string]bool{}, map[string]bool{}
+	for _, f := range showFields {
+		if keys[f.key] || names[f.name] || f.of == nil || f.has == nil || f.set == nil || f.describe == nil && f.key != castKey {
+			t.Errorf("show field %q (%s): a repeated name or key, or a function missing", f.name, f.key)
+		}
+		keys[f.key], names[f.name] = true, true
+		read(f.order(&c), "show field "+f.key)
+	}
+	ss := &showSources{p: &Provider{cfg: c}}
+	for _, k := range artKinds {
+		read(k.order(ss), "art "+k.name())
+	}
+	for _, name := range []string{"EpisodeFillSources", "EpisodeCrewSources"} { // episodes_anidb.go, episode_crew.go
+		read([]string{name}, "episodes")
+	}
+	for _, name := range lists {
+		if by := readBy[name]; len(by) != 1 {
+			t.Errorf("%s is read by %q, want exactly one of showFields, artKinds or the episodes' lists", name, by)
+		}
+	}
+	if len(readBy) != len(lists) {
+		t.Errorf("lists read %v, Config has %v", slices.Sorted(maps.Keys(readBy)), lists)
+	}
+}

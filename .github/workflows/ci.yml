@@ -1,0 +1,532 @@
+# Checks on every push, release tag and pull request. On a push to dev or a v*
+# tag this workflow also publishes the image, and only once go, fuzz, script
+# and workflows passed, so nothing reaches GHCR that failed one of them (the image build itself runs at most
+# `go test`, and for :dev not even that: the go job below already did):
+#   go         Go version in sync, no PORT in the image, gofmt, go vet (also
+#              for Windows and macOS), staticcheck, govulncheck, tests with
+#              the race detector
+#   fuzz       a short run of every fuzz target: "fuzz list" reads them from
+#              the code, each runs as its own "fuzz (<package> <target>)"
+#              job, and "fuzz" passes only when the list and all of them did
+#   script     bash syntax, ShellCheck and the behaviour tests of the scripts
+#   script (bash 4.4), script (macOS)
+#              the migration script's tests under the oldest bash it supports
+#              with busybox's tools, and on macOS: not required, and not in
+#              docker's needs (yet: see the jobs)
+#   workflows  actionlint and zizmor on the workflows and dependabot.yml
+#   gate       (dev and v* tags only, never a pull request) does this run
+#              publish an image? Fails on a v* tag that isn't a version
+#   docker     (only when gate says so) the docker workflow, publishing: shows
+#              as "docker / publish"
+# Pull requests get their "image" check (build only) from docker.yml itself.
+# The tools' versions (staticcheck, govulncheck, actionlint, zizmor) are in
+# .github/tools, where Dependabot updates them.
+#
+# Go cache: the jobs go and workflows each have their own entry, the fuzz
+# targets one per package, and fuzz list reads go's (actions/cache, not
+# setup-go's: that is one key for every job, and whichever job saved first
+# left the others' tools out). The key is the job, the exact Go version and
+# the files that decide what that job builds (go.mod, the tools' go.sum, or
+# both): a new Go patch or tool version starts a fresh entry, saved once by the first run that passes; until then
+# an entry never changes. GitHub scopes entries by branch: a run reads what
+# its own branch and the default branch (main) saved, and a pull request's
+# base branch; what a pull request's run saves (a fork's too) only that pull
+# request can read, so nothing a pull request runs reaches dev's or main's
+# runs. Tag runs, which publish a release, use no cache at all, and docker /
+# publish never reads a Go cache.
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"] # path filters don't apply to tags: every release tag runs
+    # docs only: nothing here checks them, and the image doesn't contain them.
+    # Not on pull requests, where go and script are required checks. A push
+    # to dev doesn't wait for checks (the ruleset's admin bypass), so a
+    # skipped run leaves nothing pending there.
+    paths-ignore: ["**.md", "assets/**", ".github/ISSUE_TEMPLATE/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "On dev or a v* tag: publish the image once the checks pass (unticked on dev: only when :dev is missing a change)"
+        type: boolean
+        default: true
+
+permissions: {}
+
+# A new push to a pull request cancels the run for the old one. Push and tag
+# runs are never cancelled once started, but GitHub keeps only one waiting run
+# per group: a newer push to the same branch replaces a waiting one. Three
+# quick pushes to dev therefore run the first and the last; the middle commit
+# gets no checks and no :sha-<short> image. :dev still ends on the newest: the
+# gate job compares with the commit :dev was built from, not with the push
+# before, so the last run also publishes what a replaced run would have.
+# One run per branch at a time, so two runs never push :dev at once. A re-run
+# of an older run can't move it back either (docker.yml, "moving tags").
+# Every tag is its own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # check-latest: the newest patch release, not an older one from the
+      # runner's cache (govulncheck below checks that version's stdlib).
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: false
+
+      # No Go cache for a tag: that run publishes a release, and it
+      # shouldn't depend on cache entries other runs wrote (here and below).
+      # The key: see the top of this file. "fuzz list" reads this entry too
+      # (same paths and key), so change them together.
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: ci-go-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod', '.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # the Dockerfile's GO_VERSION default is what a local docker build uses
+      - name: Go version in sync
+        run: |
+          mod=$(awk '$1 == "go" {print $2}' go.mod)
+          docker=$(sed -n 's/^ARG GO_VERSION=//p' Dockerfile)
+          if [ "$mod" != "$docker" ]; then
+            echo "::error file=Dockerfile::ARG GO_VERSION=$docker, but go.mod says go $mod: make them match"
+            exit 1
+          fi
+          # PORT set in the image would override PORT in kizuna.env
+          if grep -Eq '^ENV .*\bPORT=' Dockerfile; then
+            echo "::error file=Dockerfile::the image must not set PORT (it would override PORT in kizuna.env)"
+            exit 1
+          fi
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files need gofmt -w:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # the image is Linux only, but Kizuna also builds for Windows and macOS
+      # (diskfree_windows.go, diskfree_unix.go): catch a break there too
+      - name: go vet (windows, darwin)
+        run: |
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=darwin GOARCH=arm64 go vet ./...
+
+      # The tools' versions are in .github/tools/go.mod. GOTOOLCHAIN=local:
+      # should a tool ever need a newer Go than go.mod's, fail instead of
+      # fetching one (govulncheck would then check that Go's stdlib)
+      - name: staticcheck
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod staticcheck ./...
+
+      # known vulnerabilities in the code paths Kizuna actually calls, for the
+      # newest patch release of the Go version in go.mod. The weekly vulncheck
+      # workflow checks the binaries in the published images.
+      - name: govulncheck
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod govulncheck ./...
+
+      # TestReportsOffAllocs skips itself under -race (the race detector
+      # allocates on its own), so it runs here without it
+      - name: allocation budgets (not measurable under -race)
+        run: go test -count=1 -run '^TestReportsOffAllocs$' ./internal/provider
+
+      - name: go test (race detector)
+        run: go test -race -count=1 ./...
+
+  # go test fuzzes only one target at a time, so each target gets its own
+  # job (and runner): every target still fuzzes for 20 s on all the cores
+  # of a runner, side by side instead of one after the other. The seeds of
+  # every target already run as plain tests in the go job.
+  fuzz-list:
+    name: fuzz list
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # check-latest: the go job's Go, so the key below is the same
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: false
+
+      # the go job's entry (the same paths and key), read only: this job
+      # builds the tests but never saves
+      - name: Go cache (read only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
+          key: ci-go-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod', '.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # The targets are read from the code, so a new one is fuzzed without a
+      # change here.
+      - name: fuzz targets
+        id: list
+        run: |
+          set -e
+          rows=()
+          # on its own line: a package list that fails stops the step
+          pkgs=$(go list ./...)
+          for pkg in $pkgs; do
+            # on its own line, not in a pipe: a package that doesn't build
+            # stops the step
+            list=$(go test -list '^Fuzz' "$pkg")
+            # the names only: the list ends with an "ok <package>" line
+            for target in $(grep '^Fuzz' <<< "$list" || true); do
+              echo "$pkg $target"
+              rows+=("$pkg $target")
+            done
+          done
+          echo "${#rows[@]} targets"
+          # the code has fuzz targets: none found means the listing broke
+          if [ "${#rows[@]}" -eq 0 ]; then
+            echo "::error::no fuzz target found"
+            exit 1
+          fi
+          # [{"pkg":"kizuna/internal/anidb","target":"FuzzSearch","name":"anidb FuzzSearch"},...]
+          targets=$(printf '%s\n' "${rows[@]}" |
+            jq -Rnc '[inputs | split(" ") | {pkg: .[0], target: .[1], name: "\(.[0] | split("/") | last) \(.[1])"}]')
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
+  fuzz-run:
+    name: fuzz (${{ matrix.name }})
+    needs: fuzz-list
+    runs-on: ubuntu-latest
+    # 20 s of fuzzing plus the instrumented build
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      # every target runs to the end, so one run shows every crash
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.fuzz-list.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # One entry per package: its targets share the instrumented build (the
+      # first to finish saves it; the others log that the key is taken).
+      # Without the corpus go test -fuzz keeps in the build cache (fuzz/):
+      # every run starts from the seeds, as before. The folder's entries are
+      # listed (/*) because an exclusion only takes away from what a pattern
+      # matched, and the folder alone would be archived whole.
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build/*
+            !~/.cache/go-build/fuzz
+          key: ci-fuzz-${{ matrix.pkg }}-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go.mod') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # A crash leaves the failing input in the log: add it under
+      # testdata/fuzz/<target>/ to keep it.
+      - name: fuzz (20s)
+        env:
+          PKG: ${{ matrix.pkg }}
+          TARGET: ${{ matrix.target }}
+        run: go test -run='^$' -fuzz="^$TARGET\$" -fuzztime=20s "$PKG"
+
+  # The check the job docker needs and a ruleset can require: one name
+  # however many targets there are. It fails when the list or any target
+  # failed, or was skipped because of an earlier failure.
+  fuzz:
+    name: fuzz
+    needs: [fuzz-list, fuzz-run]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: every target fuzzed
+        env:
+          LIST: ${{ needs.fuzz-list.result }}
+          RUN: ${{ needs.fuzz-run.result }}
+        run: |
+          echo "fuzz list: $LIST, fuzz runs: $RUN"
+          if [ "$LIST" != success ] || [ "$RUN" != success ]; then
+            echo "::error::the fuzz list or a fuzz target didn't pass (see those jobs)"
+            exit 1
+          fi
+
+  script:
+    name: script
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: bash syntax
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
+      - name: ShellCheck
+        run: shellcheck --severity=warning scripts/*.sh
+
+      # The migration suite's Turkish-locale checks (I and i are no case pair
+      # there) skip where no tr_TR.UTF-8 locale exists, as on every runner by
+      # default. The runner image has the locales package; generate the locale (no
+      # download), and fail here if the suite still skipped them. Elsewhere
+      # (bash 4.4, macOS, a contributor's machine) they may skip.
+      - name: Turkish locale
+        run: |
+          sudo locale-gen tr_TR.UTF-8
+          locale -a
+
+      - name: script tests
+        shell: bash # with pipefail: a failed suite fails the tee too
+        run: |
+          log=$RUNNER_TEMP/kizuna-migrate_test.log
+          bash scripts/kizuna-migrate_test.sh | tee "$log"
+          if grep -q '^SKIP Turkish locale checks' "$log"; then
+            echo "::error::the Turkish locale checks were skipped: tr_TR.UTF-8 is missing or bash doesn't follow it (see locale -a in the Turkish locale step)"
+            exit 1
+          fi
+          bash scripts/ghcr-cleanup_test.sh
+          bash scripts/dev-image_test.sh
+
+      # the match report page's script (internal/report/page.html), on the
+      # runner's own Node: the test uses no packages
+      - name: report page test
+        run: node scripts/report-page_test.js
+
+  # MIGRATION.md says the migration script runs on bash 4.4 and up, on macOS
+  # and with busybox's tools (Unraid, Synology...), and script only tests it on
+  # Ubuntu's bash and GNU tools. These two runs cover the rest. They aren't in
+  # docker's needs, so they don't hold back :dev or a release: add them there
+  # (and as required checks) once they have run a while without failing for
+  # reasons of their own.
+  script-bash44:
+    name: script (bash 4.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The official bash image, by digest: bash 4.4.23 on Alpine 3.22, whose
+      # tools are busybox's. jq and curl are the current ones of the Alpine
+      # branch the image is built on (an exact apk version breaks as soon as
+      # Alpine ships a fix: it keeps only the newest). The checkout is mounted
+      # read-only: the tests write only in their own temp folder.
+      - name: script tests (bash 4.4, busybox)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src \
+            bash:4.4@sha256:2ae8e461b944ae9b7cb036aabc93bb5d1e6c9fc324c943efded4403db252cfe9 \
+            bash -euc 'apk add --no-cache jq curl; bash --version; bash scripts/kizuna-migrate_test.sh'
+
+  script-macos:
+    name: script (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # macOS's own bash is 3.2, which the script refuses: Homebrew's bash
+      # and jq, started the way MIGRATION.md tells macOS users to (Homebrew
+      # installs its current versions; it has no pins)
+      - name: install bash and jq
+        run: brew install bash jq
+
+      - name: script tests (Homebrew bash)
+        run: |
+          bash=$(brew --prefix)/bin/bash
+          "$bash" --version
+          "$bash" scripts/kizuna-migrate_test.sh
+
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # only actionlint is built here: the tools' go.sum is the key
+      - name: Go cache
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ci-workflows-${{ runner.os }}-${{ runner.arch }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('.github/tools/go.sum') }}
+          # never true while the if above holds; it is what zizmor reads, and
+          # still no restore should the if go
+          lookup-only: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+      # syntax, expressions and (with the runner's shellcheck) every run:
+      # script. The version is in .github/tools/go.mod
+      - name: actionlint
+        env:
+          GOTOOLCHAIN: local
+        run: go tool -modfile=.github/tools/go.mod actionlint
+
+      # the version and its hashes are in .github/tools/requirements.txt
+      - name: install zizmor
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --disable-pip-version-check \
+            --require-hashes --only-binary=:all: -r .github/tools/requirements.txt
+
+      # security: permissions, credential leaks, template injection, dangerous
+      # triggers, and (online) pinned SHAs that don't belong to the action's repo
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --format=github .'
+
+  # Publishes: a version tag (v1.2.3, v1.2.3-beta.1); dev, when something that
+  # goes into the image changed since the commit :dev was built from; a manual
+  # run on dev or a tag with "publish" ticked. Never a pull request, main or
+  # any other branch. "Changes the image" is .dockerignore's allowlist plus
+  # the files that define the build (scripts/dev-image.sh): commits that touch
+  # nothing else would build the same image again and only add another sha-*
+  # version.
+  gate:
+    name: gate
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      # v1.2 or vtest would otherwise count as a stable release and move
+      # :latest. docker.yml checks again before it pushes.
+      - name: a tag is a version
+        if: github.ref_type == 'tag'
+        run: |
+          if ! [[ $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::$GITHUB_REF_NAME isn't a version: a release tag is v1.2.3, or v1.2.3-beta.1 for a pre-release. Nothing is published"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # all of it: the next step compares with an older commit of dev
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: publish?
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          PUBLISH_INPUT: ${{ inputs.publish }}
+        run: |
+          want=true
+          [ "$EVENT" = workflow_dispatch ] && want=$PUBLISH_INPUT
+          publish=false
+          case $GITHUB_REF in # only dev and v* tags get here (the job's if)
+            refs/tags/v*) publish=$want ;;
+            refs/heads/dev)
+              if [ "$EVENT" = workflow_dispatch ] && [ "$want" = true ]; then
+                publish=true
+              else
+                # compares with the commit :dev was built from, says why,
+                # and writes publish=true|false itself; whenever the answer
+                # isn't certain: publish
+                bash scripts/dev-image.sh publish
+                exit 0
+              fi
+              ;;
+          esac
+          echo "publish: $publish"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  # the docker workflow's publish job, with the only write scopes in this file
+  docker:
+    name: docker
+    needs: [go, fuzz, script, workflows, gate]
+    if: needs.gate.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write     # push the image to GHCR
+      id-token: write     # attestation: sign with the workflow's identity (Sigstore)
+      attestations: write # attestation: store it on GitHub
+    # ./ and not the newer $/ form zizmor asks for: the pinned actionlint doesn't know
+    # it. A reusable workflow is read from this commit either way, never from
+    # the workspace.
+    uses: ./.github/workflows/docker.yml # zizmor: ignore[self-repository]
+    with:
+      publish: true

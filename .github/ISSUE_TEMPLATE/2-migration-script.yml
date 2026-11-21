@@ -7,8 +7,8 @@ body:
     attributes:
       value: |
         Anime libraries are named in thousands of ways, so examples from yours are what makes the script better.
-        Please paste **dry-run** output (no `-a`). If you already applied a plan, `kizuna-migrate.sh -U <library>`
-        removes its hints again.
+        Please paste **dry-run** output (no `-a`). If you already applied a plan, its `ep:` lines are in your
+        `.plexmatch` files: the script doesn't track them, so fix or remove wrong ones by hand.
 
   - type: dropdown
     id: mode
@@ -25,7 +25,7 @@ body:
     id: command
     attributes:
       label: The exact command you ran
-      placeholder: "./scripts/kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime"
+      placeholder: "./kizuna-migrate.sh -m auto -u http://192.168.1.10:32600 /mnt/media/Anime"
     validations:
       required: true
 
@@ -50,8 +50,8 @@ body:
     attributes:
       label: Dry-run output for those shows
       description: |
-        The planned hints and every `WARNING` line for them:
-        `./scripts/kizuna-migrate.sh -m <mode> /mnt/media/Anime > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
+        The planned hints and every `WARNING` line for them. Your command above, without `-a`:
+        `<your command> > plan.txt 2>&1; grep -F "<show folder>" plan.txt`
       render: text
     validations:
       required: true
@@ -63,7 +63,7 @@ body:
       description: For the wrong lines, the episode number you expected, and why if it's not obvious (e.g. *AniDB lists Opening 1b as C3*).
       render: text
       placeholder: |
-        ep: SP103: NCOP2.mkv   (AniDB has Opening 1a, 1b, 2)
+        NCOP2.mkv: S00E103   (AniDB has Opening 1a, 1b, 2)
     validations:
       required: true
 
@@ -72,11 +72,15 @@ body:
     attributes:
       label: "tvdb / auto mode, or openings & endings: Kizuna's view of the show"
       description: |
-        The script asks Kizuna for seasons and opening/ending numbers. Replace the folder, file and key:
+        The script asks Kizuna for seasons and opening/ending numbers. Replace the mode (`tvdb` or `anidb`, as
+        the script used for the show), folder and file; the first answer's `ratingKey` is the `<key>`:
         ```
-        curl -s -X POST http://<host>:32600/auto/library/metadata/matches \
-          -d '{"type":2,"title":"<show folder>","filename":"Anime/<show folder>/<one file>","manual":1}'
-        curl -s -H 'X-Plex-Container-Size: 1000' http://<host>:32600/auto/library/metadata/<key>-s0/children
+        curl -s -X POST http://<host>:32600/<mode>/library/metadata/matches \
+          -d '{"type":2,"title":"<show folder>","filename":"Anime/<show folder>/<one file>"}'
+        # seasons:
+        curl -s -H 'X-Plex-Container-Size: 100000' http://<host>:32600/<mode>/library/metadata/<key>/grandchildren
+        # openings and endings:
+        curl -s -H 'X-Plex-Container-Size: 100000' http://<host>:32600/<mode>/library/metadata/<key>-s0/children
         ```
       render: json
 
