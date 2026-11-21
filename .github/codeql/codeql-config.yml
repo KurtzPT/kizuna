@@ -1,0 +1,12 @@
+# CodeQL settings, read by the codeql workflow (codeql-action/init).
+#
+# go/log-injection is off: every log line goes through slog's text handler
+# (newLogHandler, cmd/kizuna/main.go), which quotes a message, key or value
+# holding a line break, so text from a request can't start a line that reads
+# like another entry. TestLogLinesCantBeForged pins that. The rule can't see
+# the handler, so it flagged every log line with a request value in it: 11
+# alerts dismissed as false positives by v0.1.0, and a new one each time such
+# a line moved. If Kizuna ever logs another way, turn the rule back on.
+query-filters:
+  - exclude:
+      id: go/log-injection
