@@ -5,7 +5,7 @@
 (* client's (c.mu in internal/sources/anidb_fairuse.go) and the fetch      *)
 (* client's (c.mu and the host queue in internal/fetch).                   *)
 (*                                                                         *)
-(* Checked against the code at ec08217: anidb_fairuse.go, AniDB.ask in     *)
+(* Checked against the code at 774f46c: anidb_fairuse.go, AniDB.ask in     *)
 (* anidb.go, download, run and before in fetch.go, ticket.wait and sent in *)
 (* throttle.go. A change there means walking the model against it again.   *)
 (*                                                                         *)
@@ -324,11 +324,14 @@ Leave(d) ==
 \* parse may not be AniDB's.
 \* PanicInDone: the slog.Error for a new ban or for a client error while
 \* nothing is paused panics. run's recover logs it, and the rest of result
-\* never runs. Today each comes after the pause it reports is set (and
-\* result's save is deferred), as every other log line there comes after
-\* the state writes the model has, so a panic changes nothing here. Before
-\* 849da65 (PauseBeforeLog) these two came before BannedUntil and
-\* ClientRejected were set.
+\* never runs. Today each comes after the pause it reports is set, as
+\* every other log line there comes after the state writes the model has:
+\* result's one save, whose failure is logged too, is deferred from its
+\* top (since 774f46c), so a panic changes nothing here. Before 849da65
+\* (PauseBeforeLog) these two came before BannedUntil and ClientRejected
+\* were set. Before 774f46c the joiner's give-back saved at once, so a
+\* panic in that save's log line skipped the backoff; the model has no
+\* panic there, and no replay of it.
 Done(d) ==
     LET a == dl[d].aid
         i == dl[d].call
@@ -343,9 +346,9 @@ Done(d) ==
                     /\ (err = "notSent" \/ AnyErrorGivesBack)
                     /\ joined # 0
                     /\ ~calls[joined].sent
-        cgLeft == IF giveBack THEN [cg EXCEPT ![a] = 0] ELSE cg
-        csLeft == IF giveBack THEN Uncount(calls, joined) ELSE calls
-        cs == IF i # 0 THEN Uncount(csLeft, i) ELSE csLeft
+        callingAfterGiveBack == IF giveBack THEN [cg EXCEPT ![a] = 0] ELSE cg
+        callsAfterGiveBack == IF giveBack THEN Uncount(calls, joined) ELSE calls
+        cs == IF i # 0 THEN Uncount(callsAfterGiveBack, i) ELSE callsAfterGiveBack
         \* "a slow answer, 4 s behind it: the same outage"
         sameOutage == i # 0 /\ calls[i].stale
         newOutage == /\ err \in {"netErr", "panic"}
@@ -359,25 +362,25 @@ Done(d) ==
        /\ backoffOwed' = IF newOutage THEN TRUE
                          ELSE IF err \in AnswerKinds \ {"badXML"} THEN FALSE
                          ELSE backoffOwed
-       /\ calling' = cgLeft
+       /\ calling' = callingAfterGiveBack
        /\ CASE err = "notSent" ->
                \* sending gave its count back
-               /\ calls' = csLeft
+               /\ calls' = callsAfterGiveBack
                /\ UNCHANGED <<fetched, failed, banned, rejected, backoff>>
             [] err = "ok" ->
-               /\ calls' = csLeft
+               /\ calls' = callsAfterGiveBack
                /\ failed' = [failed EXCEPT ![a] = FALSE]
                /\ backoff' = FALSE
                /\ UNCHANGED <<fetched, banned, rejected>>
             [] err = "ban" ->
-               /\ calls' = csLeft
+               /\ calls' = callsAfterGiveBack
                /\ failed' = [failed EXCEPT ![a] = TRUE]
                /\ \/ banned' = TRUE
                   \/ PanicInDone /\ ~PauseBeforeLog /\ ~banned /\ UNCHANGED banned
                /\ UNCHANGED <<fetched, rejected, backoff>>
             [] err = "client" /\ ClientErrorPauses ->
                \* not this anime's fault: every call would get the same answer
-               /\ calls' = csLeft
+               /\ calls' = callsAfterGiveBack
                /\ \/ rejected' = TRUE
                   \/ PanicInDone /\ ~PauseBeforeLog /\ ~Paused /\ UNCHANGED rejected
                /\ UNCHANGED <<fetched, failed, banned, backoff>>
@@ -385,7 +388,7 @@ Done(d) ==
                \* no usable entry ("client" only with ClientErrorPauses off).
                \* XML that doesn't parse may be a cut-off answer or some
                \* other server's page: the outage may go on.
-               /\ calls' = csLeft
+               /\ calls' = callsAfterGiveBack
                /\ failed' = [failed EXCEPT ![a] = TRUE]
                /\ IF err = "badXML" /\ OnlyAnswerEndsBackoff
                   THEN UNCHANGED backoff
