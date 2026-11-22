@@ -89,6 +89,7 @@ func newModule(goos string) *module {
 			Defs:       map[*ast.Ident]types.Object{},
 			Uses:       map[*ast.Ident]types.Object{},
 			Selections: map[*ast.SelectorExpr]*types.Selection{},
+			Types:      map[ast.Expr]types.TypeAndValue{},
 		},
 		funcs: map[*types.Func]*ast.FuncDecl{},
 		pkgs:  map[string]*pkg{},
