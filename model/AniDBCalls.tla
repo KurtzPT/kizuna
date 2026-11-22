@@ -5,7 +5,7 @@
 (* client's (c.mu in internal/sources/anidb_fairuse.go) and the fetch      *)
 (* client's (c.mu and the host queue in internal/fetch).                   *)
 (*                                                                         *)
-(* Checked against the code at ebc210a: anidb_fairuse.go, AniDB.ask in     *)
+(* Checked against the code at ec08217: anidb_fairuse.go, AniDB.ask in     *)
 (* anidb.go, download, run and before in fetch.go, ticket.wait and sent in *)
 (* throttle.go. A change there means walking the model against it again.   *)
 (*                                                                         *)
@@ -40,7 +40,9 @@ CONSTANTS
     TakeBackFetched,       \* 0ac517c: result takes the Fetched mark back
     OnlyAnswerEndsBackoff, \* defence: bad XML keeps the backoff
     SendingCleansUp,       \* defence: sending's deferred cleanup on a panic
-    SentDeferred           \* defence: before's deferred t.sent()
+    SentDeferred,          \* defence: before's deferred t.sent()
+    PauseBeforeLog,        \* 849da65: result sets a ban or a client pause before it logs it
+    AnyErrorGivesBack      \* ec08217: result gives back a joiner's call whatever the error
 
 \* The scenario: three callers of AniDB.anime. Caller 1 is a background
 \* prefetch (prefetchWorker) and caller 2 a show build Plex waits for, both
@@ -320,11 +322,13 @@ Leave(d) ==
 \* outage stamp is older: a slow answer to the outage under way). Only the
 \* backoff's end or AniDB's own answer ends an outage; XML that doesn't
 \* parse may not be AniDB's.
-\* PanicInDone: the slog.Error for a new ban (between Failed and
-\* BannedUntil) or for a client error while nothing is paused (before
-\* ClientRejected) panics. run's recover logs it, and the rest of result
-\* never runs. result's other log lines come after every state write the
-\* model has, so a panic there changes nothing here.
+\* PanicInDone: the slog.Error for a new ban or for a client error while
+\* nothing is paused panics. run's recover logs it, and the rest of result
+\* never runs. Today each comes after the pause it reports is set (and
+\* result's save is deferred), as every other log line there comes after
+\* the state writes the model has, so a panic changes nothing here. Before
+\* 849da65 (PauseBeforeLog) these two came before BannedUntil and
+\* ClientRejected were set.
 Done(d) ==
     LET a == dl[d].aid
         i == dl[d].call
@@ -332,7 +336,16 @@ Done(d) ==
         cg == IF i # 0 /\ calling[a] = i THEN [calling EXCEPT ![a] = 0]
               ELSE calling
         joined == cg[a]
-        cs == IF i # 0 THEN Uncount(calls, i) ELSE calls
+        \* a caller that came in after sending ended this download's call
+        \* (stopped it, or panicked), and joined the download, left a new
+        \* call counted that no download sends: it is given back
+        giveBack == /\ ResultGivesBackJoined
+                    /\ (err = "notSent" \/ AnyErrorGivesBack)
+                    /\ joined # 0
+                    /\ ~calls[joined].sent
+        cgLeft == IF giveBack THEN [cg EXCEPT ![a] = 0] ELSE cg
+        csLeft == IF giveBack THEN Uncount(calls, joined) ELSE calls
+        cs == IF i # 0 THEN Uncount(csLeft, i) ELSE csLeft
         \* "a slow answer, 4 s behind it: the same outage"
         sameOutage == i # 0 /\ calls[i].stale
         newOutage == /\ err \in {"netErr", "panic"}
@@ -346,44 +359,39 @@ Done(d) ==
        /\ backoffOwed' = IF newOutage THEN TRUE
                          ELSE IF err \in AnswerKinds \ {"badXML"} THEN FALSE
                          ELSE backoffOwed
+       /\ calling' = cgLeft
        /\ CASE err = "notSent" ->
-               \* sending gave its count back; a caller that joined since
-               \* left a new call counted that no download sends
-               /\ IF ResultGivesBackJoined /\ joined # 0 /\ ~calls[joined].sent
-                  THEN /\ calls' = Uncount(calls, joined)
-                       /\ calling' = [cg EXCEPT ![a] = 0]
-                  ELSE /\ calling' = cg
-                       /\ UNCHANGED calls
+               \* sending gave its count back
+               /\ calls' = csLeft
                /\ UNCHANGED <<fetched, failed, banned, rejected, backoff>>
             [] err = "ok" ->
-               /\ calling' = cg
+               /\ calls' = csLeft
                /\ failed' = [failed EXCEPT ![a] = FALSE]
                /\ backoff' = FALSE
-               /\ UNCHANGED <<calls, fetched, banned, rejected>>
+               /\ UNCHANGED <<fetched, banned, rejected>>
             [] err = "ban" ->
-               /\ calling' = cg
+               /\ calls' = csLeft
                /\ failed' = [failed EXCEPT ![a] = TRUE]
                /\ \/ banned' = TRUE
-                  \/ PanicInDone /\ ~banned /\ UNCHANGED banned
-               /\ UNCHANGED <<calls, fetched, rejected, backoff>>
+                  \/ PanicInDone /\ ~PauseBeforeLog /\ ~banned /\ UNCHANGED banned
+               /\ UNCHANGED <<fetched, rejected, backoff>>
             [] err = "client" /\ ClientErrorPauses ->
                \* not this anime's fault: every call would get the same answer
-               /\ calling' = cg
+               /\ calls' = csLeft
                /\ \/ rejected' = TRUE
-                  \/ PanicInDone /\ ~Paused /\ UNCHANGED rejected
-               /\ UNCHANGED <<calls, fetched, failed, banned, backoff>>
+                  \/ PanicInDone /\ ~PauseBeforeLog /\ ~Paused /\ UNCHANGED rejected
+               /\ UNCHANGED <<fetched, failed, banned, backoff>>
             [] err \in {"entryErr", "badXML"} \/ (err = "client" /\ ~ClientErrorPauses) ->
                \* no usable entry ("client" only with ClientErrorPauses off).
                \* XML that doesn't parse may be a cut-off answer or some
                \* other server's page: the outage may go on.
-               /\ calling' = cg
+               /\ calls' = csLeft
                /\ failed' = [failed EXCEPT ![a] = TRUE]
                /\ IF err = "badXML" /\ OnlyAnswerEndsBackoff
                   THEN UNCHANGED backoff
                   ELSE backoff' = FALSE
-               /\ UNCHANGED <<calls, fetched, banned, rejected>>
+               /\ UNCHANGED <<fetched, banned, rejected>>
             [] OTHER -> \* "netErr", "panic": no answer about the anime
-               /\ calling' = cg
                /\ fetched' = IF TakeBackFetched /\ i # 0 /\ calls[i].answered
                              THEN [fetched EXCEPT ![a] = FALSE] ELSE fetched
                /\ failed' = IF NoAnswerBlocksNoAnime THEN failed
