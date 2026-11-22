@@ -241,8 +241,8 @@ func TestFinishCrewShowAnswers(t *testing.T) {
 	if fetched != 0 || s.crew["Kamegaki Hajime"].src != srcNone || p.crewMemory.photo(nameKey("Writer Person")) != "" {
 		t.Fatalf("answers not read: %d fetched, crew %+v; want none fetched, no photo", fetched, s.crew)
 	}
-	ss.tmdbDetails.get() // read for a field
-	ss.plexShow.get()
+	ss.tmdbDetails.get(&ss.miss) // read for a field
+	ss.plexShow.get(&ss.miss)
 	fetched = 0
 	p.finishCrew(s, ss, &cp)
 	it := p.episodeItem(Modes["tvdb"], s, &s.Episodes[1][0])

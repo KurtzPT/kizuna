@@ -24,19 +24,22 @@ type episodeLists struct {
 	// for episode crew (plexCrewRead), or as the main one for titles or fill
 	// values (TheTVDB's isn't fetched).
 	plexEarly bool
+	// miss: what fillEpisodes read that did not come. Its goroutine is the
+	// one writer.
+	miss misses
 }
 
 func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) *episodeLists {
 	l := &episodeLists{}
 	tvdbOn := p.tvdbEpisodesListed(entry)
-	l.tvdb.from(entry.TVDB.ID, tvdbOn && entry.TVDB.ID > 0, func() (episodeIndex[tvdbSite], error) {
+	l.tvdb.from(missTVDBEpisodes, entry.TVDB.ID, tvdbOn && entry.TVDB.ID > 0, func() (episodeIndex[tvdbSite], error) {
 		return p.tvdbEpisodeIndex(ctx, entry.TVDB.ID)
 	})
-	l.tmdb.from(entry.TMDB.ID, p.tmdbEpisodesListed(false) && entry.TMDB.ID > 0, func() (episodeIndex[tmdbSite], error) {
+	l.tmdb.from(missTMDBEpisodes, entry.TMDB.ID, p.tmdbEpisodesListed(false) && entry.TMDB.ID > 0, func() (episodeIndex[tmdbSite], error) {
 		return p.tmdbEpisodeIndex(ctx, entry.TMDB.ID)
 	})
 	if p.plexEpisodesListed(entry.TVDB.ID, true) {
-		l.plex.x.from(entry.TVDB.ID, true, func() (episodeIndex[tvdbSite], error) {
+		l.plex.x.from(missPlexEpisodes, entry.TVDB.ID, true, func() (episodeIndex[tvdbSite], error) {
 			return p.plexEpisodeIndex(ctx, entry.TVDB.ID)
 		})
 		l.plex.crew = p.plexCrewRead(entry.TVDB.ID)
@@ -112,10 +115,10 @@ type plexEpisodes struct {
 	list pairedList[tvdbSite] // empty until read
 }
 
-// read reads the list into list (again: the same list). Returns false when
-// it failed or came back partial.
-func (l *plexEpisodes) read() bool {
-	l.list = pairedList[tvdbSite]{l.x.get(), l.at}
+// read reads the list into list (again: the same list), recording in m that
+// it failed or came back partial. Returns false then.
+func (l *plexEpisodes) read(m *misses) bool {
+	l.list = pairedList[tvdbSite]{l.x.get(m), l.at}
 	return !l.x.failed()
 }
 
@@ -223,7 +226,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	lists.tvdb.start(&wg) // both at once (started ahead: these wait for it)
 	lists.tmdb.start(&wg)
 	wg.Wait()
-	tv, tm := lists.tvdb.get(), lists.tmdb.get()
+	tv, tm := lists.tvdb.get(&lists.miss), lists.tmdb.get(&lists.miss)
 	tvOK, tmOK := !lists.tvdb.failed(), !lists.tmdb.failed()
 
 	es := p.spotsOf(entry)
@@ -248,7 +251,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	// EPISODE_FILL_SOURCES in order: each fills what is still blank. Plex's
 	// list is read, once, when its turn comes and it can add something.
 	lists.plex.at = tvList.at // Plex's list is placed by its spots: its order is TheTVDB's
-	px := plexFill{l: &lists.plex, tvdbOK: lists.tvdb.fetches() && tvOK, record: record}
+	px := plexFill{l: &lists.plex, miss: &lists.miss, tvdbOK: lists.tvdb.fetches() && tvOK, record: record}
 	fillFrom := func(l pairedList[tvdbSite], code srcCode) {
 		eachAniDBEpisode(s, func(ep *Ep) {
 			if e, ok := l.of(ep); ok {
@@ -276,7 +279,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			"exceptions", len(entry.TVDB.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
 			"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB, "paired_plex", px.paired)
 	}
-	crewOK := p.episodeCrew(ctx, s, tmList, &lists.plex, nil, photos)
+	crewOK := p.episodeCrew(ctx, s, tmList, &lists.plex, nil, photos, &lists.miss)
 	return tvOK && tmOK && !lists.plex.x.failed() && crewOK
 }
 
@@ -284,10 +287,11 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 // fillEpisodes. A plain value, so with Plex off it costs nothing.
 type plexFill struct {
 	l      *plexEpisodes
-	tvdbOK bool // TheTVDB's list is there (plexListNeeded)
-	record bool // pairs are for the match report only
-	asked  bool // read decided
-	paired int  // episodes it gave a title
+	miss   *misses // the ledger read records in: the episode lists'
+	tvdbOK bool    // TheTVDB's list is there (plexListNeeded)
+	record bool    // pairs are for the match report only
+	asked  bool    // read decided
+	paired int     // episodes it gave a title
 }
 
 // read reads the list the first time it is called, if it can add something
@@ -303,7 +307,7 @@ func (px *plexFill) read(p *Provider, s *Show) {
 	if !p.plexListNeeded(s, px.tvdbOK, true, px.l.on) {
 		return
 	}
-	px.l.read()
+	px.l.read(px.miss)
 	eachAniDBEpisode(s, func(ep *Ep) {
 		if _, ok := px.l.list.title(ep, "plex", px.record); ok {
 			px.paired++

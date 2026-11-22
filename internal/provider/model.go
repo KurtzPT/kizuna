@@ -677,14 +677,14 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 		var pr tvdbPairing
 		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
 		plexOK = p.tvdbPlexTitles(ctx, s, b)
-		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(), pr)
+		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(&b.miss), pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(), pr.otherAt}, &b.plex, &b.crew, &b.photos)
+		crewReady = p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(&b.miss), pr.otherAt}, &b.plex, &b.crew, &b.photos, &b.miss)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
 	p.finishCrew(s, ss, &b.photos) // the fields and the episodes are in
-	ss.pairTMDB(pairs, b.tmdbEps.get().posters)
+	ss.pairTMDB(pairs, b.tmdbEps.get(&b.miss).posters)
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)
 	return tmdbOK && titlesReady && plexOK && crewReady && sourcesOK

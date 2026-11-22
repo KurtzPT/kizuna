@@ -647,7 +647,7 @@ func (ss *showSources) recordShowField(f *showField, order []string, used string
 	}
 	cfg := &ss.p.cfg
 	ss.recordField(f.name, order, used, func(src string) string {
-		v, _ := f.of(ss, src, false)
+		v, _ := f.of(ss, src, &ss.miss)
 		return f.describe(v, cfg)
 	})
 }
@@ -702,7 +702,7 @@ func (ss *showSources) recordCast(order []string, used string, roles []sources.P
 		if src == used && photos >= 0 {
 			return describeCast(roles) + fmt.Sprintf(" · photos from Plex: %d of %d", photos, len(roles))
 		}
-		return describeCast(ss.details(src).Cast)
+		return describeCast(ss.details(src, &ss.miss).Cast)
 	})
 }
 

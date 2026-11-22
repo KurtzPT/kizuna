@@ -1,12 +1,10 @@
 package provider
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
-	"kizuna/internal/fetch"
 	"kizuna/internal/mapping"
 	"kizuna/internal/sources"
 )
@@ -188,18 +186,18 @@ func (ss *showSources) seasonKind(src string, k artKind) bool {
 // SEASON_ART_FALLBACK allows: when the season has none, or with every image
 // listed (ART_ALL_SOURCES). The entry that starts its series gets the
 // series' art, then season 1's. Any other source, or a target without a
-// season on the site, gives the series' art.
-func (ss *showSources) artParts(src string, k artKind, t artTarget) (first, then []string) {
+// season on the site, gives the series' art. A miss is recorded in m.
+func (ss *showSources) artParts(src string, k artKind, t artTarget, m *misses) (first, then []string) {
 	n := t.on(src)
 	if n == noSeason || !ss.seasonKind(src, k) {
-		return k.of(ss.art(src)), nil
+		return k.of(ss.art(src, m)), nil
 	}
-	season := k.of(ss.seasonArt(src, n))
+	season := k.of(ss.seasonArt(src, n, m))
 	if t.seriesFirst(src) && n == 1 {
-		return k.of(ss.art(src)), season
+		return k.of(ss.art(src, m)), season
 	}
 	if cfg := ss.p.cfg; cfg.SeasonArtFallback && (cfg.ArtAllSources || len(season) == 0) {
-		return season, k.of(ss.art(src))
+		return season, k.of(ss.art(src, m))
 	}
 	return season, nil
 }
@@ -207,8 +205,8 @@ func (ss *showSources) artParts(src string, k artKind, t artTarget) (first, then
 // describeArt says, for the match report, what a source offered:
 // "season 3: 4 posters, series: 12 posters". Only reads what artParts
 // fetched.
-func (ss *showSources) describeArt(src string, k artKind, t artTarget) string {
-	first, then := ss.artParts(src, k, t)
+func (ss *showSources) describeArt(src string, k artKind, t artTarget, m *misses) string {
+	first, then := ss.artParts(src, k, t, m)
 	what := strings.ToLower(k.name())
 	n := t.on(src)
 	if n == noSeason || !ss.seasonKind(src, k) {
@@ -237,14 +235,14 @@ type seasonFetch struct {
 	once sync.Once
 	art  sources.Art
 	err  error
-	read bool // asked for since the last unread (seasonsFailed); under seasonMu
 }
 
 // seasonArt returns a TheTVDB, TheMovieDb or Plex season's art, fetched
-// once, on first use (Plex's with its season list).
-func (ss *showSources) seasonArt(src string, n int) sources.Art {
+// once, on first use (Plex's with its season list), and records in m that
+// it failed.
+func (ss *showSources) seasonArt(src string, n int, m *misses) sources.Art {
 	if src == "plex" {
-		return ss.plexSeasonOf(n).Art
+		return ss.plexSeasonOf(n, m).Art
 	}
 	id, on := ss.tvdb, ss.p.tvdb.Enabled()
 	if src == "tmdb" {
@@ -260,7 +258,7 @@ func (ss *showSources) seasonArt(src string, n int) sources.Art {
 	if src == "tvdb" && ss.p.tvdb.API() == "v4" {
 		// The season ids come with the series record's details: a season it
 		// doesn't list (or no record) has no art, and no fetch.
-		if ss.tvdbDetails.get(); ss.tvdbSeasonIDs[n] == 0 {
+		if ss.tvdbDetails.get(m); ss.tvdbSeasonIDs[n] == 0 {
 			return sources.Art{}
 		}
 		sid = ss.tvdbSeasonIDs[n]
@@ -272,26 +270,10 @@ func (ss *showSources) seasonArt(src string, n int) sources.Art {
 		ss.seasonArts = append(ss.seasonArts, &seasonFetch{src: src, n: n})
 	}
 	f := ss.seasonArts[i]
-	f.read = true
 	ss.seasonMu.Unlock()
 	f.once.Do(func() { f.art, f.err = ss.seasonArtOf(src, n, sid) })
+	m.seasonFailed(src, n, f.err)
 	return f.art
-}
-
-// seasonsFailed names the season art fetches that failed (not with a 404)
-// and were read since the last unread, sorted. Call it only after the
-// fetches are done.
-func (ss *showSources) seasonsFailed() []string {
-	ss.seasonMu.Lock()
-	defer ss.seasonMu.Unlock()
-	var out []string
-	for _, f := range ss.seasonArts {
-		if f.read && f.err != nil && !fetch.IsNotFound(f.err) {
-			out = append(out, fmt.Sprintf("%s season %d art", f.src, f.n))
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // pickArt picks one target's posters, backgrounds and logos, each kind
@@ -303,7 +285,7 @@ func (ss *showSources) pickArt(t artTarget, season string, count bool) (a source
 	all := ss.p.cfg.ArtAllSources
 	for _, k := range artKinds {
 		order := k.order(ss)
-		urls, counts := images(order, all, count, func(src string) ([]string, []string) { return ss.artParts(src, k, t) })
+		urls, counts := images(order, all, count, func(src string) ([]string, []string) { return ss.artParts(src, k, t, &ss.miss) })
 		switch k {
 		case posterArt:
 			a.Posters = urls
@@ -318,7 +300,7 @@ func (ss *showSources) pickArt(t artTarget, season string, count bool) (a source
 			if season != "" {
 				name = season + " " + strings.ToLower(name)
 			}
-			ss.recordArt(name, order, counts, all && len(counts) > 0, func(src string) string { return ss.describeArt(src, k, t) })
+			ss.recordArt(name, order, counts, all && len(counts) > 0, func(src string) string { return ss.describeArt(src, k, t, &ss.miss) })
 		}
 	}
 	return a, used
@@ -422,7 +404,7 @@ func (ss *showSources) warmArt(jobs []func(), take func(src string) bool, settle
 			jobs = append(jobs, func() {
 				for _, k := range artKinds {
 					if asks(k, src) {
-						ss.artParts(src, k, t)
+						ss.artParts(src, k, t, ahead)
 					}
 				}
 			})
@@ -467,11 +449,11 @@ func (ss *showSources) artAsked(src string, k artKind, settled bool) bool {
 }
 
 // plexSeasonOf: Plex's season n (noSeason: none), from its season list.
-func (ss *showSources) plexSeasonOf(n int) sources.PlexSeason {
+func (ss *showSources) plexSeasonOf(n int, m *misses) sources.PlexSeason {
 	if n == noSeason {
 		return sources.PlexSeason{}
 	}
-	for _, s := range ss.plexSeasonList.get() {
+	for _, s := range ss.plexSeasonList.get(m) {
 		if s.Number == n {
 			return s
 		}
@@ -485,13 +467,13 @@ func (ss *showSources) plexSeasonOf(n int) sources.PlexSeason {
 // addresses, plus TheMovieDb posters in languages Kizuna leaves out on
 // purpose. What stays is what only Plex has (fanart.tv, Gracenote, IMDb).
 // The lists are made once: every kind and target asks for them.
-func (ss *showSources) plexArt() sources.Art {
+func (ss *showSources) plexArt(m *misses) sources.Art {
 	if !ss.plexImages.fetches() {
-		return ss.plexShow.get().Art
+		return ss.plexShow.get(m).Art
 	}
 	// Read at every call, not only in the once: when warm made the lists,
-	// fill's reads must still count (failed).
-	a, im := ss.plexShow.get().Art, ss.plexImages.get()
+	// fill's reads must still record their misses.
+	a, im := ss.plexShow.get(m).Art, ss.plexImages.get(m)
 	ss.plexAllArtOnce.Do(func() {
 		only := func(own []string, pics []sources.PlexPicture, k artKind) []string {
 			out := slices.Clone(own) // the lazy's own list stays as it is
