@@ -41,6 +41,8 @@ const (
 	ownLater      = "later entry" // AniDB 200, the series' second entry, isn't cached yet
 	ownSecondPage = "second page" // TheTVDB's episode list has two pages
 	ownAgain      = "asked again" // a build after one whose TheTVDB text failed
+	ownAllArt     = "all art"     // ART_ALL_SOURCES: Plex's image list is read
+	ownSeasonIDs  = "season ids"  // TheTVDB's series record lists its seasons: their art is fetched
 )
 
 // sourceFailure is how a request fails: code 0 is no answer at all (a
@@ -128,6 +130,15 @@ var sourceRequests = []sourceRequest{
 	}, nothingThere: by404},
 	{name: "mal", src: "mal", is: pathFrom("api.myanimelist.net/"), nothingThere: by404},
 	{name: "ann", src: "ann", is: pathFrom("cdn.animenewsnetwork.com/"), nothingThere: by404},
+	{name: "plex images", src: "plex", is: func(path string, _ map[string][]string) bool {
+		return strings.HasPrefix(path, plexHost+"/library/metadata/") && strings.HasSuffix(path, "/images")
+	}, nothingThere: by404, own: ownAllArt},
+	{name: "tvdb season art", src: "tvdb", own: ownSeasonIDs, nothingThere: by404,
+		is: pathIn("api4.thetvdb.com/v4/seasons/601/extended", "api4.thetvdb.com/v4/seasons/602/extended")},
+	{name: "tvdb season text", src: "tvdb", own: ownSeasonIDs, is: func(path string, _ map[string][]string) bool {
+		return strings.HasPrefix(path, "api4.thetvdb.com/v4/seasons/") && strings.Contains(path, "/translations/")
+	}, nothingThere: []sourceFailure{notThere, {name: "400 no English text", code: 400,
+		body: `{"status":"failure","message":"Translation not found"}`}}},
 }
 
 func srcFirst(src string, l []string) []string { return append([]string{src}, withoutSrc(l, src)...) }
@@ -211,7 +222,13 @@ var completeSetups = []completeSetup{
 	// The earlier build is complete: that text is fetched ahead and no
 	// field needs it. It is the one request asked again, so nothing else
 	// meets the cancelled context.
-	{name: "default, built before with TheTVDB's text failing", src: "tvdb", roots: []string{"anidb-100"}, own: ownAgain},
+	{name: "default, built before with TheTVDB's text failing", src: "tvdb", roots: []string{"anidb-100", "tvdb-500"},
+		own: ownAgain},
+	{name: "default, every source's art", src: "plex", needed: true, own: ownAllArt,
+		set: func(c *config.Config) { c.ArtAllSources = true }},
+	{name: "default, TheTVDB season art", src: "tvdb", needed: true, own: ownSeasonIDs},
+	{name: "tmdb first in episode crew only", kind: "tvdb crew records", needed: true, roots: tvdbRoot,
+		set: func(c *config.Config) { c.EpisodeCrewSources = srcFirst("tmdb", c.EpisodeCrewSources) }},
 }
 
 // completeWorld is a build of root under a setup, with ANIDB_CLIENT set or
@@ -309,6 +326,11 @@ func buildComplete(t *testing.T, w completeWorld, req int, fail sourceFailure) c
 					cancel()
 				}
 				return fail.code, fail.body
+			case w.setup.own == ownSeasonIDs && path == "api4.thetvdb.com/v4/series/500/extended":
+				return 200, strings.Replace(tvdbSeriesRecord(false), `{"data":{`, `{"data":{"seasons":[`+
+					`{"id":601,"number":1,"type":{"type":"official"}},{"id":602,"number":2,"type":{"type":"official"}}],`, 1)
+			case w.setup.own == ownSeasonIDs && strings.HasPrefix(path, "api4.thetvdb.com/v4/seasons/"):
+				return 200, `{"data":{"artwork":[{"type":7,"image":"/tvdb-season-poster","score":1}]}}`
 			case w.setup.own == ownLater && anidbSecond(path, q):
 				<-buildOver // the build sees it still loading
 			case w.setup.own == ownAgain && !armed.Load() && tvdbText(path, q):
@@ -392,7 +414,10 @@ func buildComplete(t *testing.T, w completeWorld, req int, fail sourceFailure) c
 // default lists and with that source first (in every list, or in one of
 // those reading a shared fetch), in /anidb and /tvdb, with and without
 // ANIDB_CLIENT. Also: a later /tvdb entry still loading, a second page of
-// TheTVDB's episode list failing, and the build running out of time.
+// TheTVDB's episode list failing, the build running out of time (both
+// modes), Plex's image list with every source's art on, TheTVDB's season
+// art and text when its series record lists seasons, and TheTVDB's crew
+// records with TheMovieDb first in the episode crew list.
 //
 // The rules are the owner's: a failure counts when a value read needed
 // its answer; "nothing there" (a 404, AniDB's error about the anime,

@@ -1599,3 +1599,155 @@ complete true
 == tvdb text again out of time / default, built before with TheTVDB's text failing / anidb-100 / ANIDB_CLIENT set
 asked true
 complete false
+== nothing fails / default, built before with TheTVDB's text failing / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb text again out of time / default, built before with TheTVDB's text failing / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, every source's art / anidb-100 / ANIDB_CLIENT set
+complete true
+== plex images no answer / default, every source's art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 500 / default, every source's art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 404 / default, every source's art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, every source's art / anidb-200 / ANIDB_CLIENT set
+complete true
+== plex images no answer / default, every source's art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 500 / default, every source's art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 404 / default, every source's art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, every source's art / anidb-300 / ANIDB_CLIENT set
+complete true
+== plex images no answer / default, every source's art / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 500 / default, every source's art / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 404 / default, every source's art / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, every source's art / tvdb-500 / ANIDB_CLIENT set
+complete true
+== plex images no answer / default, every source's art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 500 / default, every source's art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex images 404 / default, every source's art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+complete true
+== tvdb season art no answer / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 500 / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 404 / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb season text no answer / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 500 / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 404 / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 400 no English text / default, TheTVDB season art / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+complete true
+== tvdb season art no answer / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 500 / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 404 / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb season text no answer / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season text 500 / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season text 404 / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb season text 400 no English text / default, TheTVDB season art / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+complete true
+== tvdb season art no answer / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season art 500 / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season art 404 / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text no answer / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 500 / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 404 / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 400 no English text / default, TheTVDB season art / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb season art no answer / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 500 / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb season art 404 / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb season text no answer / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 500 / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 404 / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb season text 400 no English text / default, TheTVDB season art / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / tmdb first in episode crew only / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb crew records no answer / tmdb first in episode crew only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / tmdb first in episode crew only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records 404 / tmdb first in episode crew only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
