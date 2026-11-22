@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -573,6 +576,58 @@ func TestDownloadEndedWhileLooking(t *testing.T) {
 				}
 			} else if !IsNotFound(firstErr) || !IsNotFound(secondErr) {
 				t.Errorf("first %v, second %v; want both the 404", firstErr, secondErr)
+			}
+		})
+	}
+}
+
+// A call that looks in the cache again runs ready once. What ready checked,
+// a login or a rejected key, may have changed since, and the call's answer
+// must not. ready holds the call while another download ends. If that download
+// is of the same key, it stored the answer, so the cache answers and nothing
+// more is sent. If it is of another key, the cache still has nothing, so the
+// request ready returned goes out once.
+func TestLookAgainRunsReadyOnce(t *testing.T) {
+	for _, other := range []string{"a", "b"} {
+		t.Run("download of "+other+" ended", func(t *testing.T) {
+			c := New(t.TempDir())
+			var mu sync.Mutex
+			sent := map[string][]string{} // path: the Authorization header of each request
+			c.SetTransport(roundTrip(func(r *http.Request) (*http.Response, error) {
+				mu.Lock()
+				sent[r.URL.Path] = append(sent[r.URL.Path], r.Header.Get("Authorization"))
+				mu.Unlock()
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"A": 1}`)),
+					Header: http.Header{}, Request: r}, nil
+			}))
+			request := func(name string) Request {
+				return Request{URL: "https://api.example/" + name, Key: name + ".json", TTL: time.Hour}
+			}
+			readies := 0
+			ready := func(r Request) (Request, error) {
+				readies++
+				if readies == 1 {
+					var out struct{ A int }
+					if err := c.GetJSON(context.Background(), request(other), &out, nil); err != nil {
+						t.Errorf("download of %s: %v", other, err)
+					}
+				}
+				r.Headers = map[string]string{"Authorization": "token " + strconv.Itoa(readies)}
+				return r, nil
+			}
+			var out struct{ A int }
+			if err := c.GetJSON(context.Background(), request("a"), &out, ready); err != nil || out.A != 1 {
+				t.Errorf("got %+v %v, want the answer", out, err)
+			}
+			if readies != 1 {
+				t.Errorf("ready ran %d times, want 1", readies)
+			}
+			want := map[string][]string{"/a": {""}} // the other call's, which has no ready
+			if other == "b" {
+				want = map[string][]string{"/b": {""}, "/a": {"token 1"}}
+			}
+			if !maps.EqualFunc(sent, want, slices.Equal[[]string]) {
+				t.Errorf("sent %v, want %v", sent, want)
 			}
 		})
 	}
