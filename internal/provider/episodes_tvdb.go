@@ -17,8 +17,8 @@ import (
 // differently (One Piece: TVDB S2E1 is AniDB episode 9, TMDB S2E1 is
 // episode 62).
 type tvdbPairing struct {
-	titles  map[spot]anidbTitles
-	other   map[spot]otherPlace
+	titles  map[tvdbSpot]anidbTitles
+	other   map[tvdbSpot]otherPlace
 	loading []int // AniDB entries not cached yet, fetched in the background
 }
 
@@ -26,7 +26,7 @@ type tvdbPairing struct {
 // mapping puts its AniDB entry on another show there, or a TMDB exception
 // says the episode has no counterpart: it pairs with nothing.
 type otherPlace struct {
-	at spot
+	at tmdbSpot
 	on bool
 }
 
@@ -38,10 +38,10 @@ type anidbTitles struct {
 
 // atListed looks up an episode by its place on the list, else (regular
 // episodes) by its absolute number, for entries mapped in absolute order.
-func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
+func atListed[V any](m map[tvdbSpot]V, ep *Ep) (V, bool) {
 	v, ok := m[ep.listed]
 	if !ok && ep.Season > 0 {
-		v, ok = m[spot{-1, ep.Index}]
+		v, ok = m[tvdbSpot{season: -1, number: ep.Index}]
 	}
 	return v, ok
 }
@@ -55,14 +55,15 @@ func atListed[V any](m map[spot]V, ep *Ep) (V, bool) {
 // splits seasons (an absolute number the other site doesn't have pairs with
 // nothing). A special has no absolute number: it keeps its number in season
 // 0, as unlisted specials do everywhere else.
-func (pr tvdbPairing) otherAt(ep *Ep) (spot, bool) {
+func (pr tvdbPairing) otherAt(ep *Ep) (tmdbSpot, bool) {
 	if o, ok := atListed(pr.other, ep); ok {
 		return o.at, o.on
 	}
 	if ep.Season > 0 {
-		return spot{-1, ep.Index}, true
+		// Absolute order: the one place TheTVDB's number is TheMovieDb's key.
+		return tmdbSpot{season: -1, number: ep.Index}, true
 	}
-	return ep.listed, true
+	return tmdbSpotAtSameNumbers(ep.listed), true
 }
 
 // tvdbBuild is what the steps of a /tvdb build share.
@@ -75,7 +76,7 @@ type tvdbBuild struct {
 	// season posters; fetched from the build's start (startTMDB; empty when
 	// the show isn't there, or no setting asks the list for anything:
 	// tmdbOn, with tmdbListed).
-	tmdbEps    lazy[episodeIndex]
+	tmdbEps    lazy[episodeIndex[tmdbSite]]
 	tmdbListed bool
 	// crew: TheTVDB's crew records of every episode, fetched from start when
 	// tvdb is first in EPISODE_CREW_SOURCES (no f otherwise: they are asked
@@ -121,11 +122,11 @@ type crewRecords struct {
 // on a long show.
 func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() (int, error)) {
 	b.tmdbListed = p.tmdbEpisodesListed(true)
-	b.tmdbEps.from(1, true, func() (episodeIndex, error) {
+	b.tmdbEps.from(1, true, func() (episodeIndex[tmdbSite], error) {
 		if id, _ := tmdbShow(); id > 0 && b.tmdbListed { // tmdbOn, once the build has set tmdbID from the same lookup
-			return p.seriesEpisodes(ctx, "tmdb", id)
+			return p.tmdbEpisodeIndex(ctx, id)
 		}
-		return episodeIndex{}, nil
+		return episodeIndex[tmdbSite]{}, nil
 	})
 	b.tmdbEps.start(&b.started)
 }
@@ -139,8 +140,10 @@ func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() 
 // the records are kept (lastAired).
 func (b *tvdbBuild) start(ctx context.Context, p *Provider, s *Show) {
 	if p.plexEpisodesListed(b.tvdbID, false) { // the closure only when used: it allocates
-		b.plex.at = func(ep *Ep) (spot, bool) { return ep.listed, true } // each at its own TheTVDB spot
-		b.plex.x.from(b.tvdbID, true, func() (episodeIndex, error) { return p.seriesEpisodes(ctx, "plex", b.tvdbID) })
+		b.plex.at = func(ep *Ep) (tvdbSpot, bool) { return ep.listed, true } // each at its own TheTVDB spot
+		b.plex.x.from(b.tvdbID, true, func() (episodeIndex[tvdbSite], error) {
+			return p.plexEpisodeIndex(ctx, b.tvdbID)
+		})
 		if b.plex.crew = p.plexCrewRead(b.tvdbID); b.plex.crew {
 			b.plex.x.start(&b.started)
 		}
@@ -183,7 +186,7 @@ func (b *tvdbBuild) onTMDBShow(e mapping.Entry) bool {
 // entry in its 24 h block after an AniDB error: no build before then gets
 // it). record notes those missing entries in pr.loading, for the match report.
 func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready bool) {
-	pr = tvdbPairing{titles: map[spot]anidbTitles{}, other: map[spot]otherPlace{}}
+	pr = tvdbPairing{titles: map[tvdbSpot]anidbTitles{}, other: map[tvdbSpot]otherPlace{}}
 	ready = true
 	for _, aid := range p.lists.AIDsForTVDB(b.tvdbID) {
 		a := b.first
@@ -205,7 +208,7 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 		e := p.lists.ByAID(aid)
 		es, otherOK := p.spotsOf(e), b.onTMDBShow(e)
 		for _, ae := range a.Episodes {
-			sp, ok := es.at("tvdb", ae.Season, ae.ListIndex())
+			sp, ok := es.tvdbAt(ae.Season, ae.ListIndex())
 			if !ok {
 				continue
 			}
@@ -226,7 +229,7 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 				// by absolute number, as before the entry was cached.
 				continue
 			}
-			if o, ok := es.at("tmdb", ae.Season, ae.ListIndex()); ok {
+			if o, ok := es.tmdbAt(ae.Season, ae.ListIndex()); ok {
 				pr.other[sp] = otherPlace{o, true}
 			} else if es.tmdb.HasException(ae.Season, ae.ListIndex()) { // the mapping says it has none there
 				pr.other[sp] = otherPlace{}
@@ -262,7 +265,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 		}
 	}
 	if tmdbOn && slices.Contains(order, "tmdb") {
-		tm := pairedList{b.tmdbEps.get(), pr.otherAt}
+		tm := pairedList[tmdbSite]{b.tmdbEps.get(), pr.otherAt}
 		s.eachEpisode(func(ep *Ep) { tm.title(ep, "tmdb", rec != nil) })
 	}
 	if slices.Contains(order, "anidb") {

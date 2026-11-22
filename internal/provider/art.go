@@ -140,7 +140,7 @@ func (ss *showSources) pairTMDB(pairs map[int]int, posters map[int][]string) {
 // TheMovieDb's where that is clear: every episode of the season found on
 // TheMovieDb is in one season there, which holds no other TheTVDB season's
 // episodes. Seasons that are split or merged differently have no pair.
-func tmdbSeasonPairs(s *Show, x episodeIndex, pr tvdbPairing) map[int]int {
+func tmdbSeasonPairs(s *Show, x episodeIndex[tmdbSite], pr tvdbPairing) map[int]int {
 	const mixed = -2
 	to, from := map[int]int{}, map[int]int{} // TVDB -> TMDB season, and back
 	join := func(m map[int]int, k, v int) {

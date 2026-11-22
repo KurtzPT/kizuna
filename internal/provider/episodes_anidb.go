@@ -17,8 +17,9 @@ import (
 // plexEpisodesListed). Plex's is found by the TheTVDB id: its episodes are
 // in TheTVDB's order.
 type episodeLists struct {
-	tvdb, tmdb lazy[episodeIndex]
-	plex       plexEpisodes
+	tvdb lazy[episodeIndex[tvdbSite]]
+	tmdb lazy[episodeIndex[tmdbSite]]
+	plex plexEpisodes
 	// plexEarly: Plex's list is read anyway, so it starts with the others:
 	// for episode crew (plexCrewRead), or as the main one for titles or fill
 	// values (TheTVDB's isn't fetched).
@@ -27,14 +28,17 @@ type episodeLists struct {
 
 func (p *Provider) episodeLists(ctx context.Context, entry mapping.Entry) *episodeLists {
 	l := &episodeLists{}
-	list := func(x *lazy[episodeIndex], src string, id int, on bool) {
-		x.from(id, on && id > 0, func() (episodeIndex, error) { return p.seriesEpisodes(ctx, src, id) })
-	}
 	tvdbOn := p.tvdbEpisodesListed(entry)
-	list(&l.tvdb, "tvdb", entry.TVDB.ID, tvdbOn)
-	list(&l.tmdb, "tmdb", entry.TMDB.ID, p.tmdbEpisodesListed(false))
+	l.tvdb.from(entry.TVDB.ID, tvdbOn && entry.TVDB.ID > 0, func() (episodeIndex[tvdbSite], error) {
+		return p.tvdbEpisodeIndex(ctx, entry.TVDB.ID)
+	})
+	l.tmdb.from(entry.TMDB.ID, p.tmdbEpisodesListed(false) && entry.TMDB.ID > 0, func() (episodeIndex[tmdbSite], error) {
+		return p.tmdbEpisodeIndex(ctx, entry.TMDB.ID)
+	})
 	if p.plexEpisodesListed(entry.TVDB.ID, true) {
-		list(&l.plex.x, "plex", entry.TVDB.ID, true)
+		l.plex.x.from(entry.TVDB.ID, true, func() (episodeIndex[tvdbSite], error) {
+			return p.plexEpisodeIndex(ctx, entry.TVDB.ID)
+		})
 		l.plex.crew = p.plexCrewRead(entry.TVDB.ID)
 		l.plexEarly = l.plex.crew ||
 			!tvdbOn && (slices.Contains(p.cfg.EpisodeTitles, "plex") || slices.Contains(p.cfg.EpisodeFillSources, "plex"))
@@ -73,6 +77,23 @@ func (l *episodeLists) start(g *group) {
 	}
 }
 
+// anidbTMDBList pairs TheMovieDb's list with the show's episodes. Only
+// /anidb lets an episode the mapping doesn't place keep TheTVDB's numbers: both
+// its lists are the entry's own series, split the same way.
+func anidbTMDBList(tm episodeIndex[tmdbSite], es entrySpots) pairedList[tmdbSite] {
+	return pairedList[tmdbSite]{tm, func(ep *Ep) (tmdbSpot, bool) {
+		if ep.Season != 0 && ep.Season != 1 {
+			return tmdbSpot{}, false
+		}
+		idx := ep.mapIndex()
+		if es.tmdbPlaces(ep.Season, idx) {
+			return es.tmdbAt(ep.Season, idx)
+		}
+		sp, ok := es.tvdbAt(ep.Season, idx)
+		return tmdbSpotAtSameNumbers(sp), ok
+	}}
+}
+
 // plexEpisodesListed: Plex's episode list may be read for a series (by its
 // TheTVDB id): Plex is set up, and listed in EPISODE_TITLES or (fill, in
 // /anidb) EPISODE_FILL_SOURCES, or read for episode crew (plexCrewRead).
@@ -85,16 +106,16 @@ func (p *Provider) plexEpisodesListed(tvdb int, fill bool) bool {
 // whole, at most once, for titles, fill values (/anidb) or crew. at places
 // each of the show's episodes on it: its order is TheTVDB's.
 type plexEpisodes struct {
-	x    lazy[episodeIndex] // no f: not to be read (plexEpisodesListed)
-	at   func(*Ep) (spot, bool)
-	crew bool       // read for episode crew, whatever the gaps (plexCrewRead)
-	list pairedList // empty until read
+	x    lazy[episodeIndex[tvdbSite]] // no f: not to be read (plexEpisodesListed)
+	at   func(*Ep) (tvdbSpot, bool)
+	crew bool                 // read for episode crew, whatever the gaps (plexCrewRead)
+	list pairedList[tvdbSite] // empty until read
 }
 
 // read reads the list into list (again: the same list). Returns false when
 // it failed or came back partial.
 func (l *plexEpisodes) read() bool {
-	l.list = pairedList{l.x.get(), l.at}
+	l.list = pairedList[tvdbSite]{l.x.get(), l.at}
 	return !l.x.failed()
 }
 
@@ -206,15 +227,13 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	tvOK, tmOK := !lists.tvdb.failed(), !lists.tmdb.failed()
 
 	es := p.spotsOf(entry)
-	on := func(site string, x episodeIndex) pairedList {
-		return pairedList{x, func(ep *Ep) (spot, bool) {
-			if ep.Season != 0 && ep.Season != 1 {
-				return spot{}, false
-			}
-			return es.at(site, ep.Season, ep.mapIndex())
-		}}
-	}
-	tvList, tmList := on("tvdb", tv), on("tmdb", tm)
+	tvList := pairedList[tvdbSite]{tv, func(ep *Ep) (tvdbSpot, bool) {
+		if ep.Season != 0 && ep.Season != 1 {
+			return tvdbSpot{}, false
+		}
+		return es.tvdbAt(ep.Season, ep.mapIndex())
+	}}
+	tmList := anidbTMDBList(tm, es)
 	record := report.RecorderFrom(ctx) != nil // pairs are for the match report only
 	paired, pairedTMDB := 0, 0
 	eachAniDBEpisode(s, func(ep *Ep) {
@@ -230,7 +249,7 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	// list is read, once, when its turn comes and it can add something.
 	lists.plex.at = tvList.at // Plex's list is placed by its spots: its order is TheTVDB's
 	px := plexFill{l: &lists.plex, tvdbOK: lists.tvdb.fetches() && tvOK, record: record}
-	fillFrom := func(l pairedList, code srcCode) {
+	fillFrom := func(l pairedList[tvdbSite], code srcCode) {
 		eachAniDBEpisode(s, func(ep *Ep) {
 			if e, ok := l.of(ep); ok {
 				fillValue(&ep.Thumb, e.Thumb, &ep.src.thumb, code)
