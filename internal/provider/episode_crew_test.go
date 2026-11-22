@@ -805,3 +805,23 @@ func TestCrewRecordLifeBySeriesEnd(t *testing.T) {
 		}
 	}
 }
+
+// A list is asked for only with a real series id: Anime-Lists has
+// tvdbid="-1" and tmdbtvid="-1" for entries with no series there, and
+// TheTVDB and TheMovieDb would be asked for series -1.
+func TestEpisodeListsNeedASeriesID(t *testing.T) {
+	defaultLists(t)
+	p := newTestProvider(t, &fakeNet{answer: testSeries})
+	p.cfg.EpisodeTitles = []string{"tvdb", "tmdb"}
+	for _, c := range []struct {
+		id   int
+		want bool
+	}{{500, true}, {-1, false}, {0, false}} {
+		var e mapping.Entry
+		e.TVDB.ID, e.TMDB.ID = c.id, c.id
+		l := p.episodeLists(context.Background(), e)
+		if l.tvdb.fetches() != c.want || l.tmdb.fetches() != c.want {
+			t.Errorf("series id %d: tvdb, tmdb fetched %v, %v; want %v", c.id, l.tvdb.fetches(), l.tmdb.fetches(), c.want)
+		}
+	}
+}

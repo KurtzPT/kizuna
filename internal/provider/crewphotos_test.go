@@ -167,8 +167,8 @@ func TestCrewPhotoRule(t *testing.T) {
 
 // listAt is an episode list paired with a show by each episode's own
 // season and number.
-func listAt(eps ...sources.Episode) pairedList {
-	return pairedList{indexEpisodes(eps), func(ep *Ep) (spot, bool) { return spot{ep.Season, ep.Index}, true }}
+func listAt[S site](eps ...sources.Episode) pairedList[S] {
+	return pairedList[S]{indexEpisodes[S](eps), func(ep *Ep) (spot[S], bool) { return spot[S]{season: ep.Season, number: ep.Index}, true }}
 }
 
 // Producers are picked like directors and writers, on their own: from a
@@ -176,8 +176,8 @@ func listAt(eps ...sources.Episode) pairedList {
 func TestPickCrewProducers(t *testing.T) {
 	ep := &Ep{Season: 1, Index: 1, tvdbEp: 11}
 	records := map[int]sources.Crew{11: {Directors: []string{"TVDB Director"}, Writers: []string{"TVDB Writer"}}}
-	tm := listAt(sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"TMDB Director"}}})
-	px := listAt(sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"Plex Director"}, Producers: []string{"Plex Producer"}}})
+	tm := listAt[tmdbSite](sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"TMDB Director"}}})
+	px := listAt[tvdbSite](sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"Plex Director"}, Producers: []string{"Plex Producer"}}})
 	c := pickCrew(ep, []string{"tvdb", "tmdb", "plex"}, records, tm, px)
 	if strings.Join(c.directors, ",") != "TVDB Director" || c.dSrc != srcTVDB || strings.Join(c.producers, ",") != "Plex Producer" || c.pSrc != srcPlex {
 		t.Errorf("tvdb,tmdb,plex: %+v, want TheTVDB's directors and Plex's producers", c)
@@ -210,11 +210,11 @@ func TestLacksCrew(t *testing.T) {
 		{"Plex has the photos, the setting on", full, withPhotos.Photos, true, false},
 		{"Plex has the photos, the setting off", full, withPhotos.Photos, false, true},
 	} {
-		tm := listAt(sources.Episode{Season: 1, Number: 1, Crew: c.tmdb})
+		tm := listAt[tmdbSite](sources.Episode{Season: 1, Number: 1, Crew: c.tmdb})
 		var cp crewPhotos
-		cp.addList(srcTMDB, tm)
+		cp.addList(srcTMDB, tm.x.eps)
 		cp.add(srcPlex, c.plex)
-		if got := lacksCrew(ep, []string{"tmdb"}, &cp, c.plexPhotos, tm, pairedList{}); got != c.want {
+		if got := lacksCrew(ep, []string{"tmdb"}, &cp, c.plexPhotos, tm, pairedList[tvdbSite]{}); got != c.want {
 			t.Errorf("%s: lacks crew %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -424,7 +424,7 @@ func TestCrewPhotosPlexRequests(t *testing.T) {
 // worked out), and the build sends no crew and remembers no photo. Both
 // modes.
 func TestCrewPhotosNoCrewListPlexRead(t *testing.T) {
-	px := listAt(sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"Kamegaki Hajime"},
+	px := listAt[tvdbSite](sources.Episode{Season: 1, Number: 1, Crew: sources.Crew{Directors: []string{"Kamegaki Hajime"},
 		Photos: []sources.Person{{Name: "Kamegaki Hajime", Photo: plexKamegaki}}}})
 	noRecords := func([]string) (map[int]sources.Crew, bool) { return nil, false }
 	for _, c := range []struct {
@@ -438,7 +438,7 @@ func TestCrewPhotosNoCrewListPlexRead(t *testing.T) {
 		p := &Provider{}
 		p.cfg.EpisodeCrewSources, p.cfg.CrewPhotosFromPlex = c.order, true
 		var cp crewPhotos
-		p.walkCrew(&cp, pairedList{}, px, noRecords)
+		p.walkCrew(&cp, pairedList[tmdbSite]{}, px, noRecords)
 		if got := cp.by[srcPlex] != nil || cp.keys != nil; got != c.want {
 			t.Errorf("%s: Plex photos %v, keys %v; want taken %v", c.name, cp.by[srcPlex], cp.keys, c.want)
 		}

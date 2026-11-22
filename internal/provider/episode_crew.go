@@ -45,7 +45,7 @@ func (p *Provider) plexCrewRead(tvdb int) bool {
 // when its read for titles or fill values didn't happen: plexCrewRead).
 // Returns false while TheTVDB's records are still being fetched, or when a
 // record's request (TVDB.EpisodeCrew's pending) or Plex's list failed.
-func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *plexEpisodes, records *lazy[crewRecords], cp *crewPhotos) bool {
+func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList[tmdbSite], px *plexEpisodes, records *lazy[crewRecords], cp *crewPhotos) bool {
 	plexOK := true
 	if px.crew {
 		plexOK = px.read()
@@ -66,11 +66,11 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList, px *
 // in TheTVDB's gap test then). records gives TheTVDB's crew records, once
 // the photos of the sources before tvdb (prior) are in cp; pending: some are
 // still on their way, or their request failed (TVDB.EpisodeCrew).
-func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
+func (p *Provider) walkCrew(cp *crewPhotos, tm pairedList[tmdbSite], px pairedList[tvdbSite],
 	records func(prior []string) (map[int]sources.Crew, bool)) (crew map[int]sources.Crew, pending bool) {
 	order := p.cfg.EpisodeCrewSources
 	if p.cfg.CrewPhotosFromPlex && len(order) > 0 { // no crew list: no crew to put a photo on
-		cp.addList(srcPlex, px)
+		cp.addList(srcPlex, px.x.eps)
 	}
 	for i, src := range order {
 		switch src {
@@ -80,10 +80,10 @@ func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
 				cp.add(srcTVDB, c.Photos)
 			}
 		case "tmdb":
-			cp.addList(srcTMDB, tm)
+			cp.addList(srcTMDB, tm.x.eps)
 		case "plex":
 			if !p.cfg.CrewPhotosFromPlex {
-				cp.addList(srcPlex, px)
+				cp.addList(srcPlex, px.x.eps)
 			}
 		}
 	}
@@ -96,7 +96,7 @@ func (p *Provider) walkCrew(cp *crewPhotos, tm, px pairedList,
 // A record is a request per episode: none is asked for an episode those
 // filled. With tvdb first, every paired episode is asked for. pending: some
 // are still on their way, or their request failed (TVDB.EpisodeCrew).
-func (p *Provider) tvdbCrew(ctx context.Context, s *Show, prior []string, cp *crewPhotos, tm, px pairedList) (crew map[int]sources.Crew, pending bool) {
+func (p *Provider) tvdbCrew(ctx context.Context, s *Show, prior []string, cp *crewPhotos, tm pairedList[tmdbSite], px pairedList[tvdbSite]) (crew map[int]sources.Crew, pending bool) {
 	var ids []int
 	plexPhotos := p.cfg.CrewPhotosFromPlex
 	s.eachEpisode(func(ep *Ep) {
@@ -129,7 +129,7 @@ func lastAired(s *Show) time.Time {
 // still lacks directors, writers or producers, or names a person none of
 // those sources has a photo of (cp; Plex's too with plexPhotos). The memory
 // doesn't count: it never stops a source being asked.
-func lacksCrew(ep *Ep, order []string, cp *crewPhotos, plexPhotos bool, tm, px pairedList) bool {
+func lacksCrew(ep *Ep, order []string, cp *crewPhotos, plexPhotos bool, tm pairedList[tmdbSite], px pairedList[tvdbSite]) bool {
 	c := pickCrew(ep, order, nil, tm, px)
 	if len(c.directors) == 0 || len(c.writers) == 0 || len(c.producers) == 0 {
 		return true
@@ -150,7 +150,7 @@ func lacksCrew(ep *Ep, order []string, cp *crewPhotos, plexPhotos bool, tm, px p
 // read). TheTVDB's list's crew is taken off the episodes as TheTVDB's
 // value, so it is dropped when tvdb isn't listed. Called once per build,
 // last: a second call would take what the first one set for TheTVDB's.
-func applyCrew(s *Show, order []string, crew map[int]sources.Crew, tm, px pairedList) {
+func applyCrew(s *Show, order []string, crew map[int]sources.Crew, tm pairedList[tmdbSite], px pairedList[tvdbSite]) {
 	s.eachEpisode(func(ep *Ep) {
 		c := pickCrew(ep, order, crew, tm, px)
 		ep.Directors, ep.Writers, ep.Producers = c.directors, c.writers, c.producers
@@ -182,7 +182,7 @@ func (c *crewPick) take(d, w, pr []string, code srcCode) {
 // are its record in crew, else what its list gave (still on ep: pickCrew
 // reads it, applyCrew replaces it); TheMovieDb's and Plex's are their lists'
 // episodes at ep's spots.
-func pickCrew(ep *Ep, order []string, crew map[int]sources.Crew, tm, px pairedList) crewPick {
+func pickCrew(ep *Ep, order []string, crew map[int]sources.Crew, tm pairedList[tmdbSite], px pairedList[tvdbSite]) crewPick {
 	var c crewPick
 	for _, o := range order {
 		if len(c.directors) > 0 && len(c.writers) > 0 && len(c.producers) > 0 {
@@ -195,13 +195,13 @@ func pickCrew(ep *Ep, order []string, crew map[int]sources.Crew, tm, px pairedLi
 			} else {
 				c.take(ep.Directors, ep.Writers, ep.Producers, srcTVDB)
 			}
-		case "tmdb", "plex":
-			l, code := tm, srcTMDB
-			if o == "plex" {
-				l, code = px, srcPlex
+		case "tmdb":
+			if e, ok := tm.of(ep); ok {
+				c.take(e.Directors, e.Writers, e.Producers, srcTMDB)
 			}
-			if e, ok := l.of(ep); ok {
-				c.take(e.Directors, e.Writers, e.Producers, code)
+		case "plex":
+			if e, ok := px.of(ep); ok {
+				c.take(e.Directors, e.Writers, e.Producers, srcPlex)
 			}
 		}
 	}
@@ -253,8 +253,8 @@ func (cp *crewPhotos) add(src srcCode, people []sources.Person) {
 
 // addList adds the photos of every episode on a list as src's: a person
 // with a photo on one episode has it on all.
-func (cp *crewPhotos) addList(src srcCode, l pairedList) {
-	for _, e := range l.x.eps {
+func (cp *crewPhotos) addList(src srcCode, eps []sources.Episode) {
+	for _, e := range eps {
 		cp.add(src, e.Photos)
 	}
 }

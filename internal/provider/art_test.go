@@ -504,12 +504,12 @@ func TestTMDBSeasonPairs(t *testing.T) {
 		s := &Show{Episodes: map[int][]Ep{}}
 		for n, abs := range tvdb {
 			for i, a := range abs {
-				s.Episodes[n] = append(s.Episodes[n], Ep{Season: n, Index: a, listed: spot{n, i + 1}})
+				s.Episodes[n] = append(s.Episodes[n], Ep{Season: n, Index: a, listed: tvdbSpot{season: n, number: i + 1}})
 			}
 		}
 		return s
 	}
-	index := func(tmdb list) episodeIndex {
+	index := func(tmdb list) episodeIndex[tmdbSite] {
 		var eps []sources.Episode
 		for n, abs := range tmdb {
 			for i, a := range abs {
@@ -520,7 +520,7 @@ func TestTMDBSeasonPairs(t *testing.T) {
 				eps = append(eps, e)
 			}
 		}
-		return indexEpisodes(eps)
+		return indexEpisodes[tmdbSite](eps)
 	}
 	none := tvdbPairing{}
 	cases := []struct {
@@ -535,9 +535,9 @@ func TestTMDBSeasonPairs(t *testing.T) {
 		{"specials", list{0: {1, 2}, 1: {1}}, list{0: {1, 2}, 1: {1}}, none, map[int]int{0: 0, 1: 1}},
 		{"no TMDB counterpart", list{1: {1, 2}, 2: {3}}, list{1: {1, 2}}, none, map[int]int{1: 1}},
 		{"on another TMDB show", list{1: {1, 2}, 2: {3}}, list{1: {1, 2}, 2: {3}},
-			tvdbPairing{other: map[spot]otherPlace{{2, 1}: {}}}, map[int]int{1: 1}},
+			tvdbPairing{other: map[tvdbSpot]otherPlace{{season: 2, number: 1}: {}}}, map[int]int{1: 1}},
 		{"paired through AniDB, not by number", list{1: {1, 2}, 2: {3}}, list{1: {1}, 2: {2, 3}},
-			tvdbPairing{other: map[spot]otherPlace{{1, 2}: {spot{1, 1}, true}}}, map[int]int{1: 1, 2: 2}},
+			tvdbPairing{other: map[tvdbSpot]otherPlace{{season: 1, number: 2}: {tmdbSpot{season: 1, number: 1}, true}}}, map[int]int{1: 1, 2: 2}},
 	}
 	for _, c := range cases {
 		if got := tmdbSeasonPairs(show(c.tvdb), index(c.tmdb), c.pr); !maps.Equal(got, c.want) {

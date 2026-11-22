@@ -335,19 +335,19 @@ func TestTVDBSpotSpecials(t *testing.T) {
 	p := &Provider{lists: l}
 	cases := []struct {
 		aid, season, index int
-		want               spot
+		want               tvdbSpot
 		ok                 bool
 	}{
-		{4196, 0, 1, spot{0, 1}, true}, // first entry: S1 -> S00E01
-		{4196, 0, 101, spot{}, false},  // an opening has no TVDB number
-		{4196, 1, 3, spot{1, 3}, true}, // regular episodes unchanged
-		{4197, 0, 1, spot{}, false},    // later entry: would be the first entry's special
-		{7669, 0, 1, spot{}, false},    // lives in TVDB season 0: its numbers are taken
-		{7669, 1, 1, spot{0, 2}, true}, // its own episodes still follow the mapping
-		{7670, 0, 1, spot{0, 9}, true}, // an exception always wins
+		{4196, 0, 1, tvdbSpot{season: 0, number: 1}, true}, // first entry: S1 -> S00E01
+		{4196, 0, 101, tvdbSpot{}, false},                  // an opening has no TVDB number
+		{4196, 1, 3, tvdbSpot{season: 1, number: 3}, true}, // regular episodes unchanged
+		{4197, 0, 1, tvdbSpot{}, false},                    // later entry: would be the first entry's special
+		{7669, 0, 1, tvdbSpot{}, false},                    // lives in TVDB season 0: its numbers are taken
+		{7669, 1, 1, tvdbSpot{season: 0, number: 2}, true}, // its own episodes still follow the mapping
+		{7670, 0, 1, tvdbSpot{season: 0, number: 9}, true}, // an exception always wins
 	}
 	for _, c := range cases {
-		got, ok := p.spotsOf(l.ByAID(c.aid)).at("tvdb", c.season, c.index)
+		got, ok := p.spotsOf(l.ByAID(c.aid)).tvdbAt(c.season, c.index)
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
 		}
@@ -375,22 +375,22 @@ func TestTMDBSpot(t *testing.T) {
 	p := &Provider{lists: l}
 	cases := []struct {
 		aid, season, index int
-		want               spot
+		want               tmdbSpot
 		ok                 bool
 	}{
-		{11370, 0, 1, spot{0, 1}, true},  // first entry: S1 -> S00E01
-		{14792, 1, 1, spot{1, 27}, true}, // TMDB's own season and offset
-		{14792, 0, 1, spot{}, false},     // later entry: would be the first entry's special
-		{13430, 1, 1, spot{0, 1}, true},  // lives in TMDB season 0
-		{13430, 0, 1, spot{}, false},     // so its unlisted specials have no number
-		{13430, 0, 2, spot{0, 5}, true},  // an exception always wins
-		{16000, 1, 1, spot{}, false},     // absolute from 1 on a later entry
-		{500, 1, 1, spot{2, 4}, true},    // no TMDB season: TheTVDB's spot
-		{600, 1, 3, spot{2, 3}, true},    // TMDB only
-		{600, 0, 1, spot{0, 1}, true},    // the show's only entry starts it, as on TheTVDB
+		{11370, 0, 1, tmdbSpot{season: 0, number: 1}, true},  // first entry: S1 -> S00E01
+		{14792, 1, 1, tmdbSpot{season: 1, number: 27}, true}, // TMDB's own season and offset
+		{14792, 0, 1, tmdbSpot{}, false},                     // later entry: would be the first entry's special
+		{13430, 1, 1, tmdbSpot{season: 0, number: 1}, true},  // lives in TMDB season 0
+		{13430, 0, 1, tmdbSpot{}, false},                     // so its unlisted specials have no number
+		{13430, 0, 2, tmdbSpot{season: 0, number: 5}, true},  // an exception always wins
+		{16000, 1, 1, tmdbSpot{}, false},                     // absolute from 1 on a later entry
+		{500, 1, 1, tmdbSpot{season: 2, number: 4}, true},    // no TMDB season: TheTVDB's spot
+		{600, 1, 3, tmdbSpot{season: 2, number: 3}, true},    // TMDB only
+		{600, 0, 1, tmdbSpot{season: 0, number: 1}, true},    // the show's only entry starts it, as on TheTVDB
 	}
 	for _, c := range cases {
-		got, ok := p.spotsOf(l.ByAID(c.aid)).at("tmdb", c.season, c.index)
+		got, ok := anidbTMDBList(episodeIndex[tmdbSite]{}, p.spotsOf(l.ByAID(c.aid))).at(&Ep{Season: c.season, Index: c.index})
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("aid %d %d/%d: got %v ok=%v, want %v ok=%v", c.aid, c.season, c.index, got, ok, c.want, c.ok)
 		}
@@ -456,9 +456,9 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 		{Season: 1, Index: 1, Titles: []anidb.Title{{Lang: "x-jat", Text: "Hajimari"}}}, // no English title
 	}}
 	s := &Show{Root: "tvdb-500", Episodes: map[int][]Ep{
-		1: {{Season: 1, Index: 1, listed: spot{1, 1}}},
-		2: {{Season: 2, Index: 13, listed: spot{2, 1}}},
-		0: {{Season: 0, Index: 1, listed: spot{0, 1}}},
+		1: {{Season: 1, Index: 1, listed: tvdbSpot{season: 1, number: 1}}},
+		2: {{Season: 2, Index: 13, listed: tvdbSpot{season: 2, number: 1}}},
+		0: {{Season: 0, Index: 1, listed: tvdbSpot{season: 0, number: 1}}},
 	}}
 	s.eachEpisode(func(ep *Ep) { ep.setTitle("tvdb", fmt.Sprintf("TVDB S%dE%d", ep.listed.season, ep.listed.number)) })
 
@@ -511,10 +511,10 @@ func TestTVDBPairingPerSite(t *testing.T) {
 	first := &sources.AniDBAnime{AID: 100, Episodes: []sources.AniDBEpisode{
 		{Season: 1, Index: 1, Titles: []anidb.Title{{Lang: "en", Text: "Entry 100"}}}}}
 
-	titles := map[spot]string{{1, 1}: "Entry 100", {2, 1}: "Entry 200", {3, 1}: "Entry 300"}
+	titles := map[tvdbSpot]string{{season: 1, number: 1}: "Entry 100", {season: 2, number: 1}: "Entry 200", {season: 3, number: 1}: "Entry 300"}
 	// 200 is on another TMDB show: no pairing, not the absolute-number fallback.
 	// 300 has no TMDB season: TheTVDB's spot would be a guess, so none.
-	other := map[spot]otherPlace{{1, 1}: {spot{1, 2}, true}, {2, 1}: {}}
+	other := map[tvdbSpot]otherPlace{{season: 1, number: 1}: {tmdbSpot{season: 1, number: 2}, true}, {season: 2, number: 1}: {}}
 
 	b := newTVDBBuild(500, 100)
 	b.first, b.tmdbID = first, 77

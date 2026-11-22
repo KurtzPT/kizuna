@@ -99,7 +99,7 @@ type Ep struct {
 	titleSrc string            // source of Title, for the match report
 	pairs    map[string]string // source -> the episode there ("S01E05", "15207 · 3"), for the match report
 	anyTitle string            // AniDB title in any language: last resort
-	listed   spot              // /tvdb: season and in-season number on the episode list
+	listed   tvdbSpot          // /tvdb: season and in-season number on the episode list
 	tvdbEp   int               // the TheTVDB episode it is paired with (0 = none): its crew record's id
 	// listIndex: /anidb: the episode's number in Anime-Lists' mapping
 	// (sources.AniDBEpisode.ListIndex); 0 = Index.
@@ -562,7 +562,7 @@ func episodesFromList(s *Show, b *tvdbBuild) {
 	for _, e := range b.eps {
 		ep := Ep{Season: e.Season, Index: e.Absolute, Summary: e.Summary, Date: e.Aired,
 			Thumb: e.Thumb, Minutes: e.Minutes, Directors: e.Directors, Writers: e.Writers, Producers: e.Producers,
-			listed: spot{e.Season, e.Number}, tvdbEp: e.ID,
+			listed: tvdbSpot{season: e.Season, number: e.Number}, tvdbEp: e.ID,
 			src: epSources{summary: srcTVDB, date: srcTVDB, thumb: srcTVDB, minutes: srcTVDB}}
 		if e.Season == 0 {
 			ep.Index = e.Number
@@ -683,7 +683,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 		plexOK = p.tvdbPlexTitles(ctx, s, b)
 		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(), pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.episodeCrew(ctx, s, pairedList{b.tmdbEps.get(), pr.otherAt}, &b.plex, &b.crew, &b.photos)
+		crewReady = p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(), pr.otherAt}, &b.plex, &b.crew, &b.photos)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
