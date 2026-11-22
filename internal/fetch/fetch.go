@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,6 +41,9 @@ type Client struct {
 	mu       sync.Mutex
 	inflight map[string]*call      // cache key -> running download
 	limits   map[string]*hostLimit // host -> throttle
+	// ended counts the downloads that have left inflight, of every key. It
+	// changes under mu, with inflight; it is read without it.
+	ended atomic.Uint64
 }
 
 type call struct {
@@ -231,6 +235,7 @@ func modTime(path string) (time.Time, bool) {
 // a stale cached copy is returned instead (sources go down; old data beats none).
 func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 	start := time.Now()
+	looked := c.ended.Load() // before the cache is read: see download
 	data, at, ok, _ := c.freshKnown(ctx, r, nil)
 	if ok {
 		observe(ctx, r, start, KindCache, nil)
@@ -240,7 +245,10 @@ func (c *Client) Get(ctx context.Context, r Request) ([]byte, error) {
 		observe(ctx, r, start, KindCache, err)
 		return nil, err
 	}
-	data, err := c.download(ctx, r)
+	data, err := c.download(ctx, r, looked)
+	if errors.Is(err, errLookAgain) {
+		return c.Get(ctx, r)
+	}
 	if err != nil {
 		if r.NoStale {
 			observe(ctx, r, start, KindFail, err)
@@ -305,16 +313,32 @@ func (c *Client) freshKnown(ctx context.Context, r Request, known func(time.Time
 	return data, at, ok, hit
 }
 
+// errLookAgain: download didn't start, because a download that may have
+// stored the answer ended after the caller read the cache. The caller reads
+// it again. Never returned by Get or GetJSON.
+var errLookAgain = errors.New("look in the cache again")
+
 // download runs at most one network request per key at a time; concurrent
 // callers wait for the same result. The download itself is not cancelled when
 // a caller gives up (ctx), so a slow AniDB answer still lands in the cache.
-func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
+//
+// looked is c.ended as it was before the caller read the cache. A download
+// that ended since then may have stored r's answer (a copy, a remembered
+// 404) after the caller found none: starting another would ask the source
+// twice. So a request the cache can answer gets errLookAgain instead. One
+// count for all keys: a download of another key costs a needless second
+// look, not a request.
+func (c *Client) download(ctx context.Context, r Request, looked uint64) ([]byte, error) {
 	id := r.Key
 	if id == "" {
 		id = cmp.Or(r.Method, http.MethodGet) + " " + r.URL
 	}
 	c.mu.Lock()
 	cl, running := c.inflight[id]
+	if !running && r.Key != "" && r.TTL > 0 && c.ended.Load() != looked {
+		c.mu.Unlock()
+		return nil, errLookAgain
+	}
 	if running && !r.Background {
 		cl.ticket.promote()
 	}
@@ -346,6 +370,7 @@ func (c *Client) run(id string, r Request, cl *call) {
 	// call in Done's caller).
 	c.mu.Lock()
 	delete(c.inflight, id)
+	c.ended.Add(1) // with the delete: a caller that finds the download gone sees the count changed
 	c.mu.Unlock()
 	if r.Done != nil {
 		defer func() {
