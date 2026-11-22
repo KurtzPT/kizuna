@@ -227,7 +227,7 @@ func (t *TVDB) fetchCrew(ctx context.Context, id int, life time.Duration, backgr
 // a switch to the legacy key or a network error says nothing about the record.
 func crewAnswer(err error) bool {
 	var se *fetch.StatusError
-	return errors.As(err, &se) && !errors.Is(err, errTVDBLogin)
+	return errors.As(err, &se)
 }
 
 func (t *TVDB) crewFail(id int, err error) {

@@ -194,14 +194,24 @@ func cacheFolder(legacy bool) string {
 // rejected: TheTVDB refused the key or PIN (400 is its answer to a missing
 // PIN). Trying again won't help.
 func rejected(err error) bool {
-	var se *fetch.StatusError
-	return errors.As(err, &se) &&
-		(se.Code == http.StatusBadRequest || se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden)
+	var le *loginStatusError
+	return errors.As(err, &le) &&
+		(le.code == http.StatusBadRequest || le.code == http.StatusUnauthorized || le.code == http.StatusForbidden)
 }
 
 // errTVDBLogin marks login errors: they say nothing about the record a call
 // asked for.
 var errTVDBLogin = errors.New("tvdb login")
+
+// loginStatusError is TheTVDB's non-200 answer to a login. It isn't a
+// fetch.StatusError, so callers never read a login's 404 as TheTVDB having
+// no such record, nor its 400 as a missing translation.
+type loginStatusError struct {
+	code int
+	msg  string
+}
+
+func (e *loginStatusError) Error() string { return e.msg }
 
 // login returns a bearer token and whether it's for the legacy (v3) API. A
 // v4 token is valid a month (renewed weekly), a v3 token a day (renewed after
@@ -335,6 +345,9 @@ func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
 	body, _ := json.Marshal(creds)
 	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + "/login", Method: "POST", Body: body, Quiet: true})
 	if err != nil {
+		if se := (*fetch.StatusError)(nil); errors.As(err, &se) {
+			err = &loginStatusError{code: se.Code, msg: err.Error()}
+		}
 		return "", fmt.Errorf("%w: %w", errTVDBLogin, err)
 	}
 	var r struct {
@@ -655,14 +668,14 @@ func (t *TVDB) seasonID(ctx context.Context, id, season int) (int, error) {
 // a missing language with 400 ("language not found"), a missing season with
 // 404.
 func noTranslation(err error) bool {
-	return noLanguage(err) || (fetch.IsNotFound(err) && !errors.Is(err, errTVDBLogin))
+	return noLanguage(err) || fetch.IsNotFound(err)
 }
 
 // noLanguage: TheTVDB answered 400 ("language not found") for a
-// translation; a 400 from the login (a missing PIN) isn't one.
+// translation.
 func noLanguage(err error) bool {
 	var se *fetch.StatusError
-	return errors.As(err, &se) && se.Code == http.StatusBadRequest && !errors.Is(err, errTVDBLogin)
+	return errors.As(err, &se) && se.Code == http.StatusBadRequest
 }
 
 // DetailsAndSeasons returns genres, people, studio, content rating and first
