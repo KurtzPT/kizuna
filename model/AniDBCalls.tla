@@ -5,7 +5,7 @@
 (* client's (c.mu in internal/sources/anidb_fairuse.go) and the fetch      *)
 (* client's (c.mu and the host queue in internal/fetch).                   *)
 (*                                                                         *)
-(* Checked against the code at 774f46c: anidb_fairuse.go, AniDB.ask in     *)
+(* Checked against the code at e7bcf2b: anidb_fairuse.go, AniDB.ask in     *)
 (* anidb.go, download, run and before in fetch.go, ticket.wait and sent in *)
 (* throttle.go. A change there means walking the model against it again.   *)
 (*                                                                         *)
@@ -41,8 +41,8 @@ CONSTANTS
     OnlyAnswerEndsBackoff, \* defence: bad XML keeps the backoff
     SendingCleansUp,       \* defence: sending's deferred cleanup on a panic
     SentDeferred,          \* defence: before's deferred t.sent()
-    PauseBeforeLog,        \* 849da65: result sets a ban or a client pause before it logs it
-    AnyErrorGivesBack      \* ec08217: result gives back a joiner's call whatever the error
+    PauseBeforeLog,        \* e7bcf2b: result sets a ban or a client pause before it logs it
+    AnyErrorGivesBack      \* e7bcf2b: result gives back a joiner's call whatever the error
 
 \* The scenario: three callers of AniDB.anime. Caller 1 is a background
 \* prefetch (prefetchWorker) and caller 2 a show build Plex waits for, both
@@ -327,11 +327,10 @@ Leave(d) ==
 \* never runs. Today each comes after the pause it reports is set, as
 \* every other log line there comes after the state writes the model has:
 \* result's one save, whose failure is logged too, is deferred from its
-\* top (since 774f46c), so a panic changes nothing here. Before 849da65
+\* top (since e7bcf2b), so a panic changes nothing here. Before e7bcf2b
 \* (PauseBeforeLog) these two came before BannedUntil and ClientRejected
-\* were set. Before 774f46c the joiner's give-back saved at once, so a
-\* panic in that save's log line skipped the backoff; the model has no
-\* panic there, and no replay of it.
+\* were set. The model has no panic in that save's own log line; a Go
+\* test covers it.
 Done(d) ==
     LET a == dl[d].aid
         i == dl[d].call
