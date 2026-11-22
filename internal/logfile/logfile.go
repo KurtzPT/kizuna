@@ -94,7 +94,6 @@ func (l *File) dated(day string) string {
 	return filepath.Join(l.dir, fmt.Sprintf("%s-%s.log", l.base, day))
 }
 
-// setDay makes t's day the day of kizuna.log's lines.
 func (l *File) setDay(t time.Time) { l.day, l.dayNum = t.Format(dateLayout), dayNum(t) }
 
 func (l *File) openCurrent() error {

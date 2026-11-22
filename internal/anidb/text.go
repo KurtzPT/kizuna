@@ -64,7 +64,7 @@ func PickTitle(titles []Title, langs []string, officialOnly bool) string {
 			return apostrophes(t.Text)
 		}
 	}
-	for _, t := range titles { // anything at all
+	for _, t := range titles {
 		if t.Text != "" {
 			return apostrophes(t.Text)
 		}
@@ -72,7 +72,6 @@ func PickTitle(titles []Title, langs []string, officialOnly bool) string {
 	return ""
 }
 
-// apostrophes turns AniDB's backtick apostrophes into plain ones.
 func apostrophes(s string) string { return strings.ReplaceAll(s, "`", "'") }
 
 func rank(typ string) int {

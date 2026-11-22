@@ -55,7 +55,6 @@ type snapshot struct {
 // empty answers lookups before anything loaded.
 var empty = &snapshot{}
 
-// get returns the current snapshot (empty before the first load).
 func (l *Lists) get() *snapshot {
 	if s := l.cur.Load(); s != nil {
 		return s
@@ -80,7 +79,6 @@ var listSources = []listSource{
 	{"fribb", getFribb, parseFribb},
 }
 
-// nonEmpty parses a list and rejects one without entries.
 func nonEmpty(parse func([]byte) (map[int]Entry, error)) func([]byte) (map[int]Entry, error) {
 	return func(b []byte) (map[int]Entry, error) {
 		list, err := parse(b)
@@ -359,9 +357,6 @@ func (l *Lists) Missing() []string {
 
 // SetForTest replaces the mapping (for tests in other packages).
 func (l *Lists) SetForTest(entries map[int]Entry) { l.set(&snapshot{byAID: entries}) }
-
-// --- lookups ----------------------------------------------------------------
-// Each one reads a single snapshot and does all its work on it.
 
 // ByAID returns the entry for an AniDB id (zero Entry when unknown).
 func (l *Lists) ByAID(aid int) Entry { return l.get().byAID[aid] }
