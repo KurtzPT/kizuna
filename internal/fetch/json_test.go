@@ -532,6 +532,57 @@ func TestNotFoundRemembered(t *testing.T) {
 	}
 }
 
+// A caller that found nothing in the cache, but reaches the download only
+// once another caller's download of the same key has stored its answer (a
+// copy, or a remembered 404) and ended, gets that answer: one request, not
+// two. The second caller's ready holds it in that gap, as a slow goroutine
+// would (a movie's text and details, read side by side in one build).
+func TestDownloadEndedWhileLooking(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"copy", http.StatusOK, `{"A": 1}`},
+		{"not found", http.StatusNotFound, `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(t.TempDir())
+			net := &bodyNet{status: tc.status, body: tc.body}
+			c.SetTransport(net)
+			r := Request{URL: "https://api.example/a", Key: "a.json", TTL: time.Hour,
+				NotFoundTTL: 24 * time.Hour, NotFound: []int{http.StatusNotFound}}
+			inReady, goOn := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			hold := func(req Request) (Request, error) {
+				once.Do(func() { close(inReady); <-goOn })
+				return req, nil
+			}
+			second := make(chan error, 1)
+			var a, b struct{ A int }
+			ctx, events := traced()
+			go func() { second <- c.GetJSON(ctx, r, &b, hold) }()
+			<-inReady
+			firstErr := c.GetJSON(context.Background(), r, &a, nil) // its download has ended when it returns
+			close(goOn)
+			secondErr := <-second
+			if n := net.sent.Load(); n != 1 {
+				t.Errorf("%d requests sent, want 1", n)
+			}
+			if got := kinds(events()); !slices.Equal(got, []Kind{KindCache}) {
+				t.Errorf("second caller's reads %v, want one cache hit", got)
+			}
+			if tc.status == http.StatusOK {
+				if firstErr != nil || secondErr != nil || a.A != 1 || b.A != 1 {
+					t.Errorf("first %+v %v, second %+v %v; want both the copy", a, firstErr, b, secondErr)
+				}
+			} else if !IsNotFound(firstErr) || !IsNotFound(secondErr) {
+				t.Errorf("first %v, second %v; want both the 404", firstErr, secondErr)
+			}
+		})
+	}
+}
+
 // Only the listed statuses are remembered, and only with NotFoundTTL, Key
 // and TTL.
 func TestNotFoundOnlyListed(t *testing.T) {

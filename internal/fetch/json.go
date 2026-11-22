@@ -28,8 +28,10 @@ var errNotJSON = errors.New("not JSON")
 // stand in for a failed download. The file is never removed: it stays for
 // the next try.
 //
-// ready, if set, runs once the cache has no fresh answer, before the
-// download: it returns the request to send (TheTVDB adds its login's token).
+// ready, if set, runs when the cache has no fresh answer, before the
+// download. It may run more than once per call (the call looks in the cache
+// again when a download of the key has just ended), so it must be safe to
+// repeat. It returns the request to send (TheTVDB adds its login's token).
 // Its error fails the call as a failed download would, with nothing sent:
 // a stale copy answers unless the request it returned has NoStale.
 func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error)) error {
@@ -71,7 +73,9 @@ func GetShared[T any](ctx context.Context, c *Client, m *Memo[string, *T], r Req
 // answered (known, or decoded into out); zero when anything else did.
 func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error), known func(time.Time) bool) (time.Time, error) {
 	start := time.Now()
-	broken := false // the fresh copy doesn't decode: no stale copy to fall back on either
+	asked := r               // ready and the Validate below change r
+	looked := c.ended.Load() // before the cache is read: see download
+	broken := false          // the fresh copy doesn't decode: no stale copy to fall back on either
 	data, at, ok, hit := c.freshKnown(ctx, r, known)
 	if ok {
 		if hit {
@@ -133,7 +137,10 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 		decoded = v
 		return nil
 	}
-	data, err := c.download(ctx, r)
+	data, err := c.download(ctx, r, looked)
+	if errors.Is(err, errLookAgain) {
+		return c.getJSON(ctx, asked, out, ready, known)
+	}
 	if err != nil {
 		if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
 			return time.Time{}, nil
