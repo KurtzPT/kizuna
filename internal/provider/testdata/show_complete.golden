@@ -21,6 +21,9 @@ complete false
 == tvdb login 500 / default / anidb-100 / ANIDB_CLIENT set
 asked true
 complete false
+== tvdb login 404 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
 == tvdb login 401 key rejected / default / anidb-100 / ANIDB_CLIENT set
 asked true
 complete false
@@ -135,6 +138,9 @@ complete true
 asked true
 complete false
 == tvdb login 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 404 / default / anidb-200 / ANIDB_CLIENT set
 asked true
 complete false
 == tvdb login 401 key rejected / default / anidb-200 / ANIDB_CLIENT set
@@ -253,6 +259,9 @@ complete true
 == tvdb login 500 / default / anidb-300 / ANIDB_CLIENT set
 asked false
 complete true
+== tvdb login 404 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
 == tvdb login 401 key rejected / default / anidb-300 / ANIDB_CLIENT set
 asked false
 complete true
@@ -367,6 +376,9 @@ complete true
 asked false
 complete true
 == tvdb login 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb login 404 / default / anidb-300 / no ANIDB_CLIENT
 asked false
 complete true
 == tvdb login 401 key rejected / default / anidb-300 / no ANIDB_CLIENT
@@ -485,6 +497,9 @@ error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Po
 == tvdb login 500 / default / tvdb-500 / ANIDB_CLIENT set
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 404 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 404 from https://api4.thetvdb.com/v4/login
 == tvdb login 401 key rejected / default / tvdb-500 / ANIDB_CLIENT set
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login
@@ -601,6 +616,9 @@ error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Po
 == tvdb login 500 / default / tvdb-500 / no ANIDB_CLIENT
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 404 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 404 from https://api4.thetvdb.com/v4/login
 == tvdb login 401 key rejected / default / tvdb-500 / no ANIDB_CLIENT
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login
@@ -702,6 +720,9 @@ complete false
 == tvdb login 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
 asked true
 complete false
+== tvdb login 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
 == tvdb login 401 key rejected / tvdb first / anidb-100 / ANIDB_CLIENT set
 asked true
 complete false
@@ -759,6 +780,9 @@ complete true
 asked true
 complete false
 == tvdb login 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
 asked true
 complete false
 == tvdb login 401 key rejected / tvdb first / anidb-200 / ANIDB_CLIENT set
@@ -820,6 +844,9 @@ complete true
 == tvdb login 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
 asked false
 complete true
+== tvdb login 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
 == tvdb login 401 key rejected / tvdb first / anidb-300 / ANIDB_CLIENT set
 asked false
 complete true
@@ -879,6 +906,9 @@ error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Po
 == tvdb login 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 404 from https://api4.thetvdb.com/v4/login
 == tvdb login 401 key rejected / tvdb first / tvdb-500 / ANIDB_CLIENT set
 asked true
 error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login

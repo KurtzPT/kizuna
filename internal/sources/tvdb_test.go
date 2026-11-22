@@ -542,6 +542,40 @@ func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 	}
 }
 
+// A login TheTVDB answers 404 is a failed login, not TheTVDB having no such
+// record: callers read a 404 as "nothing there". The same holds for a
+// renewal's 404, which a call gets once the old token is no longer valid.
+func TestTVDBLogin404IsNotNotFound(t *testing.T) {
+	answers := map[string]string{
+		v4 + "/login":                     `404 {}`,
+		v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
+	}
+	check := func(what string, err error) {
+		t.Helper()
+		if !errors.Is(err, errTVDBLogin) || fetch.IsNotFound(err) {
+			t.Errorf("%s 404: err %v, not found %v; want a failed login, not a not-found", what, err, fetch.IsNotFound(err))
+		}
+	}
+	ctx := context.Background()
+	tv, _ := newTVDBTest(t, answers, "v4key", "", "")
+	_, _, err := tv.Overview(ctx, 9)
+	check("login", err)
+
+	tv, _ = newTVDBTest(t, answers, "v4key", "", "")
+	tv.mu.Lock()
+	tv.token, tv.tokenAt = "t-old", time.Now().Add(-8*24*time.Hour) // due for renewal, valid for weeks
+	tv.mu.Unlock()
+	if _, _, err := tv.Overview(ctx, 9); err != nil {
+		t.Fatalf("token due for renewal: %v, want the old token used", err)
+	}
+	tv.WaitIdle() // the renewal's outcome is recorded
+	tv.mu.Lock()
+	tv.tokenAt = time.Now().Add(-29 * 24 * time.Hour) // past its month
+	tv.mu.Unlock()
+	_, _, err = tv.Overview(ctx, 8)
+	check("renewal", err)
+}
+
 // A renewal that ends between a call's login and its download makes fetch
 // look in the cache again (a download ended). The call keeps the token it
 // got: the renewal's outcome, a rejected key included, is for the calls

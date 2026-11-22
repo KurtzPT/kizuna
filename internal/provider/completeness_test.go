@@ -98,7 +98,7 @@ var sourceRequests = []sourceRequest{
 	// until the build is over, and fails only in its own cells.
 	{name: "anidb later entry", src: "anidb", is: anidbSecond, own: ownLater},
 	{name: "tvdb login", src: "tvdb", is: pathIn("api4.thetvdb.com/v4/login"),
-		more: []sourceFailure{{name: "401 key rejected", code: 401, body: `{}`}}},
+		more: []sourceFailure{notThere, {name: "401 key rejected", code: 401, body: `{}`}}},
 	{name: "tvdb series record", src: "tvdb", is: pathIn("api4.thetvdb.com/v4/series/500/extended"), nothingThere: by404},
 	{name: "tvdb text", src: "tvdb", is: tvdbText, nothingThere: []sourceFailure{notThere,
 		{name: "400 no English text", code: 400, body: `{"status":"failure","message":"Translation not found"}`}}},
@@ -388,11 +388,11 @@ func buildComplete(t *testing.T, w completeWorld, req int, fail sourceFailure) c
 // source fails in turn, without an answer and with a 500 (and where it is
 // the source saying it has nothing there a 404, TheTVDB's 400 for no
 // English text and TheMovieDb's empty lookup, AniDB's error and ban
-// answers, TheTVDB rejecting the key), under the default lists and with
-// that source first (in every list, or in one of those reading a shared
-// fetch), in /anidb and /tvdb, with and without ANIDB_CLIENT. Also: a
-// later /tvdb entry still loading, a second page of TheTVDB's episode list
-// failing, and the build running out of time.
+// answers, TheTVDB's login answering 404 or rejecting the key), under the
+// default lists and with that source first (in every list, or in one of
+// those reading a shared fetch), in /anidb and /tvdb, with and without
+// ANIDB_CLIENT. Also: a later /tvdb entry still loading, a second page of
+// TheTVDB's episode list failing, and the build running out of time.
 //
 // The rules are the owner's: a failure counts when a value read needed
 // its answer; "nothing there" (a 404, AniDB's error about the anime,
