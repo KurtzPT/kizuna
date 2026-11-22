@@ -18,7 +18,7 @@ import (
 func TestPickFallsBack(t *testing.T) {
 	vals := map[string]string{"anidb": "", "tvdb": "from tvdb", "tmdb": "from tmdb"}
 	var asked []string
-	f := &showField{has: hasText, of: func(_ *showSources, src string, _ bool) (fieldValue, warmer) {
+	f := &showField{has: hasText, of: func(_ *showSources, src string, _ *misses) (fieldValue, warmer) {
 		asked = append(asked, src)
 		return fieldValue{text: vals[src]}, nil
 	}}
@@ -134,13 +134,13 @@ func TestWarmSkipsAniDBWithoutDetails(t *testing.T) {
 func TestAniDBDetailsBuiltOnce(t *testing.T) {
 	a := &sources.AniDBAnime{Characters: []sources.AniDBCharacter{{Name: "Frieren", Seiyuu: "Atsumi Tanezaki"}}}
 	ss := &showSources{a: a}
-	if cast := ss.details("anidb").Cast; len(cast) != 1 || cast[0].Role != "Frieren" {
+	if cast := ss.details("anidb", &ss.miss).Cast; len(cast) != 1 || cast[0].Role != "Frieren" {
 		t.Fatalf("cast %+v", cast)
 	}
-	if n := testing.AllocsPerRun(10, func() { ss.details("anidb") }); n != 0 {
+	if n := testing.AllocsPerRun(10, func() { ss.details("anidb", &ss.miss) }); n != 0 {
 		t.Errorf("%.0f allocations per later call, want 0", n)
 	}
-	if d := (&showSources{}).details("anidb"); len(d.Cast) != 0 { // no AniDB details
+	if d := (&showSources{}).details("anidb", ahead); len(d.Cast) != 0 { // no AniDB details
 		t.Errorf("without AniDB: %+v", d)
 	}
 }

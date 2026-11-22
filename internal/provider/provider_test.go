@@ -464,7 +464,7 @@ func TestTVDBEpisodeTitlesFromEveryEntry(t *testing.T) {
 
 	b := newTVDBBuild(500, 100)
 	b.first = first
-	if _, ready := p.tvdbEpisodeTitles(context.Background(), s, b); !ready {
+	if p.tvdbEpisodeTitles(context.Background(), s, b); !b.miss.empty() {
 		t.Error("no AniDB client: nothing can be fetched, so nothing to wait for")
 	}
 	p.pickEpisodeTitles(s)

@@ -72,7 +72,7 @@ func TestKeepStackThroughAOnce(t *testing.T) {
 // empty value.
 func TestLazyPanicsForEveryReader(t *testing.T) {
 	var l lazy[int]
-	l.from(1, true, func() (int, error) {
+	l.from(missTVDBText, 1, true, func() (int, error) {
 		panicsInGroup()
 		return 0, nil
 	})
@@ -89,7 +89,10 @@ func TestLazyPanicsForEveryReader(t *testing.T) {
 	}
 	for _, reader := range []string{"first", "later"} {
 		var g group
-		g.Go(func() { l.get() })
+		g.Go(func() {
+			var m misses
+			l.get(&m)
+		})
 		if p := waitPanic(&g); p != first {
 			t.Errorf("%s reader: got %+v, want the fetch's own panic", reader, p)
 		}

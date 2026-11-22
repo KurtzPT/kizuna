@@ -341,7 +341,7 @@ func prefetchFieldCase(t *testing.T, c fieldCase, sh showPrefetch) string {
 	ss.fillSeasons(s)
 	writeAsked(&b, "later", taken())
 	fmt.Fprintf(&b, "title %q summary %q studio %q rating %q date %q failed %q\n",
-		s.Title, s.Summary, s.Studio, s.ContentRating, s.Date, ss.failed())
+		s.Title, s.Summary, s.Studio, s.ContentRating, s.Date, ss.miss.names())
 	return b.String()
 }
 

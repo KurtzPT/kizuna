@@ -89,6 +89,7 @@ func newModule(goos string) *module {
 			Defs:       map[*ast.Ident]types.Object{},
 			Uses:       map[*ast.Ident]types.Object{},
 			Selections: map[*ast.SelectorExpr]*types.Selection{},
+			Types:      map[ast.Expr]types.TypeAndValue{},
 		},
 		funcs: map[*types.Func]*ast.FuncDecl{},
 		pkgs:  map[string]*pkg{},
@@ -229,6 +230,7 @@ func (p *pkg) allowed(rule string, n ast.Node) bool {
 
 // rules maps a rule's name (the one `//lint:allow` takes) to its check.
 var rules = map[string]func(*pkg) []string{
+	"complete":  completeWrites,
 	"goroutine": bareGoroutines,
 	"sleep":     sleeps,
 	"writes":    rawWrites,
@@ -316,7 +318,9 @@ func TestRulesCatchWindowsFiles(t *testing.T) {
 
 import "os"
 
-func a(b []byte) { os.WriteFile("s", b, 0o644); go a(nil) }
+type Show struct{ Complete bool }
+
+func a(b []byte) { os.WriteFile("s", b, 0o644); go a(nil); (&Show{}).Complete = true }
 `
 	const test = `package x
 

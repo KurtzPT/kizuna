@@ -512,33 +512,34 @@ func TestTVDBCrewRecordNetworkError(t *testing.T) {
 func TestWarmedFailureCountsOnlyWhenRead(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
 	ss := &showSources{p: p}
-	ss.tmdbText.from(77, true, func() (text, error) { return text{}, errors.New("TheMovieDb is down") })
+	ss.tmdbText.from(missTMDBText, 77, true, func() (text, error) { return text{}, errors.New("TheMovieDb is down") })
 	ss.tmdbText.warm()
-	ss.unread() // what warm read doesn't count
-	if f := ss.failed(); len(f) != 0 {
+	ss.tmdbText.get(ahead) // warm's read
+	if f := ss.miss.names(); len(f) != 0 {
 		t.Errorf("fetched ahead, not read: failed %v, want none", f)
 	}
-	ss.tmdbText.get() // fill reaches it
-	if f := ss.failed(); !slices.Equal(f, []string{"tmdb text"}) {
+	ss.tmdbText.get(&ss.miss) // fill reaches it
+	if f := ss.miss.names(); !slices.Equal(f, []string{"tmdb text"}) {
 		t.Errorf("read: failed %v, want [tmdb text]", f)
 	}
 }
 
 // Plex's pictures with ART_ALL_SOURCES are made once, from its show and
-// its /images: when warm made them, fill's read still counts both as read.
+// its /images: when warm made them, fill's read still records both.
 func TestPlexAllArtCountsWhenRead(t *testing.T) {
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
 	p.cfg.ArtAllSources = true
 	ss := &showSources{p: p}
-	ss.plexShow.from(1, true, func() (sources.PlexShow, error) { return sources.PlexShow{}, nil })
-	ss.plexImages.from(1, true, func() (sources.PlexImages, error) { return sources.PlexImages{}, errors.New("Plex is down") })
-	ss.plexArt() // warm
-	ss.unread()
-	if f := ss.failed(); len(f) != 0 {
+	ss.plexShow.from(missPlexShow, 1, true, func() (sources.PlexShow, error) { return sources.PlexShow{}, nil })
+	ss.plexImages.from(missPlexImages, 1, true, func() (sources.PlexImages, error) {
+		return sources.PlexImages{}, errors.New("Plex is down")
+	})
+	ss.plexArt(ahead) // warm
+	if f := ss.miss.names(); len(f) != 0 {
 		t.Errorf("fetched ahead, not read: failed %v, want none", f)
 	}
-	ss.plexArt() // fill
-	if f := ss.failed(); !slices.Equal(f, []string{"plex images"}) {
+	ss.plexArt(&ss.miss) // fill
+	if f := ss.miss.names(); !slices.Equal(f, []string{"plex images"}) {
 		t.Errorf("read: failed %v, want [plex images]", f)
 	}
 }

@@ -81,6 +81,10 @@ type showSources struct {
 
 	rec *report.Recorder // match report of the build; nil = none
 
+	// miss: what fill and fillSeasons read that did not come. The build's
+	// goroutine writes it; warm's jobs read with ahead instead.
+	miss misses
+
 	// early: warmEarly started TheTVDB's and TheMovieDb's show fields and
 	// art, and Plex's art (in earlyWG), so warm leaves them out.
 	early   bool
@@ -99,23 +103,23 @@ type firstEntry struct{ tvdb, tmdb bool }
 func (p *Provider) newSources(ctx context.Context, aid int, entry mapping.Entry, tvdb, tmdb int, movie bool, first firstEntry) *showSources {
 	ss := &showSources{p: p, aid: aid, tvdb: tvdb, tmdb: tmdb, movie: movie, first: first, rec: report.RecorderFrom(ctx),
 		show: seriesTarget}
-	ss.tvdbDetails.from(tvdb, p.tvdb.Enabled(), func() (sources.Details, error) {
+	ss.tvdbDetails.from(missTVDBDetails, tvdb, p.tvdb.Enabled(), func() (sources.Details, error) {
 		d, ids, err := p.tvdb.DetailsAndSeasons(ctx, tvdb)
 		ss.tvdbSeasonIDs = ids
 		return d, err
 	})
-	ss.tmdbDetails.from(tmdb, p.tmdb.Enabled(), func() (sources.Details, error) { return p.tmdb.Details(ctx, tmdb, movie) })
-	ss.tvdbText.from(tvdb, p.tvdb.Enabled(), func() (text, error) {
+	ss.tmdbDetails.from(missTMDBDetails, tmdb, p.tmdb.Enabled(), func() (sources.Details, error) { return p.tmdb.Details(ctx, tmdb, movie) })
+	ss.tvdbText.from(missTVDBText, tvdb, p.tvdb.Enabled(), func() (text, error) {
 		n, o, err := p.tvdb.Overview(ctx, tvdb)
 		return text{n, o}, err
 	})
-	ss.tmdbText.from(tmdb, p.tmdb.Enabled(), func() (text, error) {
+	ss.tmdbText.from(missTMDBText, tmdb, p.tmdb.Enabled(), func() (text, error) {
 		n, o, err := p.tmdb.Text(ctx, tmdb, movie)
 		return text{n, o}, err
 	})
 	ss.seasonSummaries(ctx, entry)
-	ss.tvdbArt.from(tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
-	ss.tmdbArt.from(tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
+	ss.tvdbArt.from(missTVDBArt, tvdb, p.tvdb.Enabled(), func() (sources.Art, error) { return p.tvdb.Art(ctx, tvdb) })
+	ss.tmdbArt.from(missTMDBArt, tmdb, p.tmdb.Enabled(), func() (sources.Art, error) { return p.tmdb.Art(ctx, tmdb, movie) })
 	ss.seasonArtOf = func(src string, n, sid int) (sources.Art, error) {
 		if src == "tvdb" {
 			return p.tvdb.SeasonArt(ctx, tvdb, n, sid)
@@ -146,12 +150,12 @@ func (ss *showSources) setPlex(ctx context.Context, r sources.PlexRef) {
 	}
 	ss.plexRef = r
 	ss.plexShow, ss.plexSeasonList, ss.plexImages = lazy[sources.PlexShow]{}, lazy[[]sources.PlexSeason]{}, lazy[sources.PlexImages]{}
-	ss.plexShow.from(1, true, func() (sources.PlexShow, error) { return p.plex.Show(ctx, r) })
+	ss.plexShow.from(missPlexShow, 1, true, func() (sources.PlexShow, error) { return p.plex.Show(ctx, r) })
 	if !r.Movie {
-		ss.plexSeasonList.from(1, true, func() ([]sources.PlexSeason, error) { return p.plex.Seasons(ctx, r) })
+		ss.plexSeasonList.from(missPlexSeasons, 1, true, func() ([]sources.PlexSeason, error) { return p.plex.Seasons(ctx, r) })
 	}
 	if p.cfg.ArtAllSources {
-		ss.plexImages.from(1, true, func() (sources.PlexImages, error) { return p.plex.Images(ctx, r) })
+		ss.plexImages.from(missPlexImages, 1, true, func() (sources.PlexImages, error) { return p.plex.Images(ctx, r) })
 	}
 }
 
@@ -175,10 +179,10 @@ func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entr
 		malID = a.MALIDs[0]
 	}
 	if annID != 0 { // the closures only when used: they allocate
-		ss.ann.from(annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
+		ss.ann.from(missANN, annID, true, func() (sources.ANNAnime, error) { return p.ann.Anime(ctx, annID) })
 	}
 	if malID != 0 {
-		ss.mal.from(malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
+		ss.mal.from(missMAL, malID, p.mal.Enabled(), func() (sources.MALAnime, error) { return p.mal.Anime(ctx, malID) })
 	}
 	// A movie only AniDB's type says is one (no TheMovieDb movie id) is
 	// asked for as a movie, by its IMDb id: known only now. Not in a /tvdb
@@ -194,10 +198,10 @@ func (ss *showSources) setAniDB(ctx context.Context, a *sources.AniDBAnime, entr
 func (ss *showSources) seasonSummaries(ctx context.Context, entry mapping.Entry) {
 	p := ss.p
 	if n, ok := mappedSeason(entry.TVDB); ok && !ss.first.tvdb {
-		ss.tvdbSeason.from(ss.tvdb, p.tvdb.Enabled(), func() (string, error) { return p.tvdb.SeasonOverview(ctx, ss.tvdb, n) })
+		ss.tvdbSeason.from(missTVDBSeason, ss.tvdb, p.tvdb.Enabled(), func() (string, error) { return p.tvdb.SeasonOverview(ctx, ss.tvdb, n) })
 	}
 	if n, ok := mappedSeason(entry.TMDB); ok && !ss.first.tmdb && !ss.movie {
-		ss.tmdbSeason.from(ss.tmdb, p.tmdb.Enabled(), func() (string, error) { return p.tmdb.SeasonOverview(ctx, ss.tmdb, n) })
+		ss.tmdbSeason.from(missTMDBSeason, ss.tmdb, p.tmdb.Enabled(), func() (string, error) { return p.tmdb.SeasonOverview(ctx, ss.tmdb, n) })
 	}
 }
 
@@ -205,54 +209,16 @@ func mappedSeason(pl mapping.Placement) (int, bool) {
 	return pl.Season, pl.Mapped && pl.Season > 0
 }
 
-// failed names the sources fill and fillSeasons read that failed. A source
-// that doesn't have the show (404) or isn't configured hasn't failed, nor
-// has one only fetched ahead (warm: TheTVDB's and TheMovieDb's) whose value
-// no field reached: nothing is missing without it, so the show is not
-// rebuilt for it.
-func (ss *showSources) failed() []string {
-	var out []string
-	ss.eachLazy(func(name string, l lazyState) {
-		if l.failed() {
-			out = append(out, name)
-		}
-	})
-	return append(out, ss.seasonsFailed()...)
-}
-
-// lazyState is what failed and unread ask of a lazy value, whatever its
-// type.
-type lazyState interface {
-	failed() bool
-	unread()
-}
-
-// eachLazy calls f with each lazy value and its name. An array: failed runs
-// at every build, with the reports off too.
-func (ss *showSources) eachLazy(f func(name string, l lazyState)) {
-	for _, l := range [...]struct {
-		name string
-		lazy lazyState
-	}{
-		{"tvdb text", &ss.tvdbText}, {"tmdb text", &ss.tmdbText}, {"tvdb art", &ss.tvdbArt}, {"tmdb art", &ss.tmdbArt},
-		{"tvdb details", &ss.tvdbDetails}, {"tmdb details", &ss.tmdbDetails}, {"tvdb season", &ss.tvdbSeason},
-		{"tmdb season", &ss.tmdbSeason}, {"mal", &ss.mal}, {"ann", &ss.ann}, {"plex", &ss.plexShow},
-		{"plex seasons", &ss.plexSeasonList}, {"plex images", &ss.plexImages},
-	} {
-		f(l.name, l.lazy)
-	}
-}
-
 // title, summary and detailsOf give src's value for the show, and the lazy
-// value it is read from (nil: none, or at hand, as AniDB's are). With
-// ahead (warm) they fetch nothing: the value only when it is at hand, so
-// warm can fetch that lazy value ahead. One function for both, so warm
-// fetches exactly what fill reads.
+// value it is read from (nil: none, or at hand, as AniDB's are), recording
+// a miss in m. With ahead (warm) they fetch nothing: the value only when it
+// is at hand, so warm can fetch that lazy value ahead. One function for
+// both, so warm fetches exactly what fill reads.
 //
 // title: TVDB and TMDB TV names are the series' ("One Piece" for Film Red),
 // so each is skipped unless this show starts the series on that site; a
 // TMDB movie is its own entry. Sites have no per-season name to stand in.
-func (ss *showSources) title(src string, ahead bool) (string, warmer) {
+func (ss *showSources) title(src string, m *misses) (string, warmer) {
 	switch src {
 	case "anidb":
 		if titles := ss.p.showTitles(ss.aid, ss.a); len(titles) > 0 {
@@ -260,25 +226,25 @@ func (ss *showSources) title(src string, ahead bool) (string, warmer) {
 		}
 	case "tvdb":
 		if ss.first.tvdb {
-			return ss.tvdbText.value(ahead).title, &ss.tvdbText
+			return ss.tvdbText.value(m).title, &ss.tvdbText
 		}
 	case "tmdb":
 		if ss.first.tmdb {
-			return ss.tmdbText.value(ahead).title, &ss.tmdbText
+			return ss.tmdbText.value(m).title, &ss.tmdbText
 		}
 	case "plex":
 		if ss.plexFirst() {
-			return ss.plexShow.value(ahead).Title, &ss.plexShow
+			return ss.plexShow.value(m).Title, &ss.plexShow
 		}
 	case "ann":
-		return ss.ann.value(ahead).Title, &ss.ann
+		return ss.ann.value(m).Title, &ss.ann
 	}
 	return "", nil
 }
 
 // summary: TVDB and TMDB TV overviews describe the whole series (its first
 // season, mostly), so a later entry there gets its own season's instead.
-func (ss *showSources) summary(src string, ahead bool) (string, warmer) {
+func (ss *showSources) summary(src string, m *misses) (string, warmer) {
 	switch src {
 	case "anidb":
 		if ss.a != nil {
@@ -286,59 +252,59 @@ func (ss *showSources) summary(src string, ahead bool) (string, warmer) {
 		}
 	case "tvdb":
 		if !ss.first.tvdb {
-			return ss.tvdbSeason.value(ahead), &ss.tvdbSeason
+			return ss.tvdbSeason.value(m), &ss.tvdbSeason
 		}
-		return ss.tvdbText.value(ahead).summary, &ss.tvdbText
+		return ss.tvdbText.value(m).summary, &ss.tvdbText
 	case "tmdb":
 		if !ss.first.tmdb {
-			return ss.tmdbSeason.value(ahead), &ss.tmdbSeason
+			return ss.tmdbSeason.value(m), &ss.tmdbSeason
 		}
-		return ss.tmdbText.value(ahead).summary, &ss.tmdbText
+		return ss.tmdbText.value(m).summary, &ss.tmdbText
 	case "mal":
-		return ss.mal.value(ahead).Synopsis, &ss.mal
+		return ss.mal.value(m).Synopsis, &ss.mal
 	case "plex":
 		if !ss.plexFirst() { // its season's, from the season list
 			if ss.plexSeasonAt == noSeason {
 				return "", nil
 			}
-			if ahead {
+			if m.isAhead() {
 				return "", &ss.plexSeasonList
 			}
-			return ss.plexSeasonOf(ss.plexSeasonAt).Summary, &ss.plexSeasonList
+			return ss.plexSeasonOf(ss.plexSeasonAt, m).Summary, &ss.plexSeasonList
 		}
-		return ss.plexShow.value(ahead).Summary, &ss.plexShow
+		return ss.plexShow.value(m).Summary, &ss.plexShow
 	case "ann":
-		return ss.ann.value(ahead).Summary, &ss.ann
+		return ss.ann.value(m).Summary, &ss.ann
 	}
 	return "", nil
 }
 
-func (ss *showSources) art(src string) sources.Art {
+func (ss *showSources) art(src string, m *misses) sources.Art {
 	switch src {
 	case "anidb":
 		if ss.a != nil && ss.a.Picture != "" {
 			return sources.Art{Posters: []string{ss.a.Picture}}
 		}
 	case "tvdb":
-		return ss.tvdbArt.get()
+		return ss.tvdbArt.get(m)
 	case "tmdb":
-		return ss.tmdbArt.get()
+		return ss.tmdbArt.get(m)
 	case "mal":
-		if m := ss.mal.get(); m.Poster != "" {
-			return sources.Art{Posters: []string{m.Poster}}
+		if a := ss.mal.get(m); a.Poster != "" {
+			return sources.Art{Posters: []string{a.Poster}}
 		}
 	case "ann":
-		if n := ss.ann.get(); n.Poster != "" {
+		if n := ss.ann.get(m); n.Poster != "" {
 			return sources.Art{Posters: []string{n.Poster}}
 		}
 	case "plex":
-		return ss.plexArt()
+		return ss.plexArt(m)
 	}
 	return sources.Art{}
 }
 
-func (ss *showSources) details(src string) sources.Details {
-	d, _ := ss.detailsOf(src, false)
+func (ss *showSources) details(src string, m *misses) sources.Details {
+	d, _ := ss.detailsOf(src, m)
 	return d
 }
 
@@ -346,26 +312,26 @@ func (ss *showSources) details(src string) sources.Details {
 // TVDB and TMDB TV data describe the whole series, so each is skipped
 // unless this show starts it on that site; a TMDB movie is always its own
 // entry.
-func (ss *showSources) detailsOf(src string, ahead bool) (sources.Details, warmer) {
+func (ss *showSources) detailsOf(src string, m *misses) (sources.Details, warmer) {
 	switch src {
 	case "anidb":
 		return ss.anidbDetails(), nil
 	case "tvdb":
 		if ss.first.tvdb {
-			return ss.tvdbDetails.value(ahead), &ss.tvdbDetails
+			return ss.tvdbDetails.value(m), &ss.tvdbDetails
 		}
 	case "tmdb":
 		if ss.first.tmdb {
-			return ss.tmdbDetails.value(ahead), &ss.tmdbDetails
+			return ss.tmdbDetails.value(m), &ss.tmdbDetails
 		}
 	case "mal":
-		return ss.mal.value(ahead).Details, &ss.mal
+		return ss.mal.value(m).Details, &ss.mal
 	case "plex":
 		if ss.plexFirst() {
-			return ss.plexShow.value(ahead).Details, &ss.plexShow
+			return ss.plexShow.value(m).Details, &ss.plexShow
 		}
 	case "ann": // per entry, like AniDB: no first-entry guard needed
-		return ss.ann.value(ahead).Details, &ss.ann
+		return ss.ann.value(m).Details, &ss.ann
 	}
 	return sources.Details{}, nil
 }
@@ -389,7 +355,7 @@ type showField struct {
 	name, key string // in the match report; in the debug line
 	order     func(c *config.Config) []string
 	// of gives src's value and the lazy value it is read from (title).
-	of  func(ss *showSources, src string, ahead bool) (fieldValue, warmer)
+	of  func(ss *showSources, src string, m *misses) (fieldValue, warmer)
 	has func(v fieldValue, c *config.Config) bool
 	set func(s *Show, v fieldValue, c *config.Config)
 	// describe: what v offers, for the match report (the cast's is
@@ -404,18 +370,18 @@ type fieldValue struct {
 	d    sources.Details
 }
 
-func titleValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
-	t, l := ss.title(src, ahead)
+func titleValue(ss *showSources, src string, m *misses) (fieldValue, warmer) {
+	t, l := ss.title(src, m)
 	return fieldValue{text: t}, l
 }
 
-func summaryValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
-	t, l := ss.summary(src, ahead)
+func summaryValue(ss *showSources, src string, m *misses) (fieldValue, warmer) {
+	t, l := ss.summary(src, m)
 	return fieldValue{text: t}, l
 }
 
-func detailsValue(ss *showSources, src string, ahead bool) (fieldValue, warmer) {
-	d, l := ss.detailsOf(src, ahead)
+func detailsValue(ss *showSources, src string, m *misses) (fieldValue, warmer) {
+	d, l := ss.detailsOf(src, m)
 	return fieldValue{d: d}, l
 }
 
@@ -479,7 +445,7 @@ var showFields = [...]showField{
 // and its source ("" = none).
 func (ss *showSources) pick(f *showField, order []string, has func(fieldValue, *config.Config) bool) (fieldValue, string) {
 	for _, src := range order {
-		if v, _ := f.of(ss, src, false); has(v, &ss.p.cfg) {
+		if v, _ := f.of(ss, src, &ss.miss); has(v, &ss.p.cfg) {
 			return v, src
 		}
 	}
@@ -520,7 +486,7 @@ func (ss *showSources) fill(s *Show) {
 			// directly, not through details: the photos apply to later
 			// entries too (plexFirst).
 			if cfg.CastPhotosFromPlex && len(s.Roles) > 0 && src != "plex" && ss.plexShow.fetches() {
-				photos = castPhotos(s.Roles, ss.plexShow.get().People)
+				photos = castPhotos(s.Roles, ss.plexShow.get(&ss.miss).People)
 			}
 		case ratingKey:
 			// Content rating: a listed country (or a country-less rating)
@@ -552,28 +518,27 @@ func (ss *showSources) fill(s *Show) {
 	}
 	why := ""
 	if ss.rec != nil { // the step notes what failed so far; finish tells the rest
-		if failed := ss.failed(); len(failed) > 0 {
+		if failed := ss.miss.names(); len(failed) > 0 {
 			why = "failed: " + strings.Join(failed, ", ")
 		}
 	}
 	done(why)
 }
 
-// finish reports whether every source fill and fillSeasons asked answered.
-// When one failed (an error or the build's time running out), it is logged
-// and noted in the match report, and the show is rebuilt soon instead of
-// being kept an hour without it. Call it after fillSeasons.
-func (ss *showSources) finish(s *Show) bool {
-	failed := ss.failed()
+// finish logs the sources fill and fillSeasons read that failed (an error
+// or the build's time running out) and notes them in the match report. Their
+// misses, in ss.miss, make the show incomplete: it is rebuilt soon instead of
+// being kept an hour without them. Call it after fillSeasons.
+func (ss *showSources) finish(s *Show) {
+	failed := ss.miss.names()
 	if len(failed) == 0 {
-		return true
+		return
 	}
 	slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
 	if ss.rec != nil {
 		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
 			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
 	}
-	return false
 }
 
 // warm fetches, in parallel, everything fill may ask for. TheTVDB's and
@@ -585,9 +550,9 @@ func (ss *showSources) finish(s *Show) bool {
 // which fill passes over too: they are slower or stricter services, asked
 // later only when fill reaches them. The artwork likewise (warmArt), the
 // Plex seasons' too. Each value is warmed once. The lazy values make fill's
-// and fillSeasons' own calls free afterwards. What warm read doesn't count
-// as read (unread): failed tells only what fill and fillSeasons read, so a
-// value fetched ahead that no field needed can't fail the show.
+// and fillSeasons' own calls free afterwards. Warm reads with ahead, which
+// records nothing: the ledger holds only what fill and fillSeasons read, so
+// a value fetched ahead that no field needed can't fail the show.
 func (ss *showSources) warm() {
 	cfg := &ss.p.cfg
 	var w warmSet
@@ -600,7 +565,7 @@ func (ss *showSources) warm() {
 	for i := range showFields {
 		f := &showFields[i]
 		for _, src := range f.order(cfg) {
-			v, l := f.of(ss, src, true)
+			v, l := f.of(ss, src, ahead)
 			if l != nil && l.fetches() {
 				if !siteSource(src) {
 					w.add(l)
@@ -619,7 +584,6 @@ func (ss *showSources) warm() {
 	}
 	wg.Wait()
 	ss.earlyWG.Wait()
-	ss.unread()
 }
 
 // siteFields adds TheTVDB's and TheMovieDb's values that some field lists
@@ -640,7 +604,7 @@ func (ss *showSources) siteFields(w *warmSet) {
 	for _, src := range [...]string{"tvdb", "tmdb"} {
 		for i := range showFields {
 			if f := &showFields[i]; slices.Contains(f.order(cfg), src) {
-				_, l := f.of(ss, src, true)
+				_, l := f.of(ss, src, ahead)
 				w.add(l) // the details' fields share one: added once
 			}
 		}
@@ -664,17 +628,6 @@ func (w *warmSet) add(l warmer) {
 		w.n++
 	}
 	w.jobs = append(w.jobs, l.warm)
-}
-
-// unread forgets which values were read so far: after warm, failed counts
-// only what fill and fillSeasons read.
-func (ss *showSources) unread() {
-	ss.eachLazy(func(_ string, l lazyState) { l.unread() })
-	ss.seasonMu.Lock()
-	for _, f := range ss.seasonArts {
-		f.read = false
-	}
-	ss.seasonMu.Unlock()
 }
 
 // warmEarly starts warming what doesn't depend on AniDB's details, before
@@ -759,31 +712,33 @@ func countsText(counts []sourceCount) string {
 type lazy[T any] struct {
 	once sync.Once
 	f    func() (T, error)
+	miss miss // what a read records when f failed
 	v    T
 	err  error
-	read atomic.Bool // get was called since the last unread (failed)
 	ran  atomic.Bool // f ran: v is set (done)
 	// panicked: the panic f ended with. Every later caller panics with it
 	// too: f may have run on another goroutine than the one reading (start).
 	panicked *fetch.GoroutinePanic
 }
 
-func (l *lazy[T]) get() T {
-	l.read.Store(true)
+// get gives the value, fetched once, and records in m that it failed. The
+// once orders the fetch's error before the record.
+func (l *lazy[T]) get(m *misses) T {
 	l.fetch()
+	m.failed(l.miss, l.err)
 	return l.v
 }
 
 // value is get, or with ahead the zero value, fetching nothing (title).
-func (l *lazy[T]) value(ahead bool) T {
-	if ahead {
+func (l *lazy[T]) value(m *misses) T {
+	if m.isAhead() {
 		var zero T
 		return zero
 	}
-	return l.get()
+	return l.get(m)
 }
 
-// fetch runs f, once, without counting as a read.
+// fetch runs f, once: the fetch alone, never a read.
 func (l *lazy[T]) fetch() {
 	l.once.Do(func() {
 		if l.f != nil {
@@ -807,7 +762,7 @@ func (l *lazy[T]) keepPanic() {
 }
 
 // start fetches the value ahead, in g, before anything reads it: a fetch
-// alone isn't a read (failed). Nothing to fetch: nothing starts.
+// alone records nothing. Nothing to fetch: nothing starts.
 func (l *lazy[T]) start(g *group) {
 	if l.f != nil {
 		g.goFetch(l)
@@ -815,7 +770,7 @@ func (l *lazy[T]) start(g *group) {
 }
 
 // done gives the value only when get has fetched it already: it never
-// fetches, and doesn't count as a read (failed).
+// fetches, and records nothing.
 func (l *lazy[T]) done() (T, bool) {
 	if !l.ran.Load() {
 		var zero T
@@ -825,21 +780,16 @@ func (l *lazy[T]) done() (T, bool) {
 }
 
 func (l *lazy[T]) fetches() bool { return l.f != nil }
-func (l *lazy[T]) warm()         { l.get() }
+func (l *lazy[T]) warm()         { l.fetch() }
 
 // from sets f, unless the source can't have the show: no id for it (0), or
-// not configured (on false).
-func (l *lazy[T]) from(id int, on bool, f func() (T, error)) {
+// not configured (on false). x is what a read records when f fails.
+func (l *lazy[T]) from(x miss, id int, on bool, f func() (T, error)) {
+	l.miss = x
 	if id != 0 && on {
 		l.f = f
 	}
 }
-
-// failed: f ran and failed, other than with a 404, and the value was read
-// since the last unread. Call it only after the get calls are done.
-func (l *lazy[T]) failed() bool { return l.read.Load() && l.err != nil && !fetch.IsNotFound(l.err) }
-
-func (l *lazy[T]) unread() { l.read.Store(false) }
 
 // uniqueCast drops repeated cast entries (same person, same character, as
 // sources sometimes list them twice), keeping the first one's place and the

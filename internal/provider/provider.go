@@ -460,19 +460,21 @@ func noShow(err error) bool {
 }
 
 // buildShow builds a show and sorts its failures: a show that doesn't exist
-// is a noShowError, see there.
+// is a noShowError, see there. It alone decides whether the show is
+// complete: when the build's ledger is empty.
 func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 	site, id, ok := parseRoot(root)
 	if !ok {
 		return nil, noShowError{fmt.Errorf("bad key %q", root)}
 	}
 	var s *Show
+	var m misses
 	var err error
 	switch {
 	case site == "anidb":
 		// Its one failure: neither the title list nor AniDB knows the id.
 		// Without the title list (it failed to load) that says nothing.
-		if s, err = p.buildAniDB(ctx, id); errors.Is(err, errUnknownAID) && p.titles.Ready() {
+		if s, m, err = p.buildAniDB(ctx, id); errors.Is(err, errUnknownAID) && p.titles.Ready() {
 			err = noShowError{err}
 		}
 	default:
@@ -483,16 +485,17 @@ func (p *Provider) buildShow(ctx context.Context, root string) (*Show, error) {
 		}
 		// TheTVDB answered without episodes: the show doesn't exist. Any
 		// other failure is TheTVDB not answering now.
-		if s, err = p.buildTVDB(ctx, id); errors.Is(err, errNoEpisodes) {
+		if s, m, err = p.buildTVDB(ctx, id); errors.Is(err, errNoEpisodes) {
 			err = noShowError{err}
 		}
 	}
 	if s != nil && ctx.Err() != nil {
 		// Out of time: some source may have been skipped without saying so.
-		s.Complete = false
+		m.add(missOutOfTime)
 		slog.Info("show build ran out of time; using what came back, rebuilt in 2 min", "root", root)
 	}
 	if s != nil {
+		s.Complete = m.empty()
 		s.setShared()
 	}
 	return s, err

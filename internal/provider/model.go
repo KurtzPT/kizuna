@@ -47,7 +47,8 @@ type Show struct {
 	// Complete: false when something was missing (AniDB details, a failed or
 	// partial TVDB/TMDB episode list, a failed show-level source, the build's
 	// time running out): the model is cached briefly and rebuilt. Without
-	// ANIDB_CLIENT, AniDB details are nothing to wait for.
+	// ANIDB_CLIENT, AniDB details are nothing to wait for. Set only by
+	// buildShow, from the build's ledger (misses).
 	Complete bool
 	// Placeholders: the episode list is unknown (an /anidb show built without
 	// AniDB details), so any S01/S00 episode Plex asks for is a bare
@@ -226,10 +227,11 @@ func (d anidbDetails) logMissing(aid int, w *missingWords) {
 
 // buildAniDB: season 1 holds every regular episode (1..n, absolute); season 0
 // holds specials, openings (101+), endings (151+), trailers (201+)...
-// An AniDB movie is a one-episode entry, so it becomes S01E01.
-func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
+// An AniDB movie is a one-episode entry, so it becomes S01E01. The ledger
+// returned holds what the build missed.
+func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, misses, error) {
 	if p.unknownAID(aid) {
-		return nil, fmt.Errorf("anidb %d %w: not in AniDB's title list", aid, errUnknownAID)
+		return nil, misses{}, fmt.Errorf("anidb %d %w: not in AniDB's title list", aid, errUnknownAID)
 	}
 	entry := p.lists.ByAID(aid)
 	lists := p.episodeLists(ctx, entry)
@@ -242,9 +244,10 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	a := d.a
 	titles := p.showTitles(aid, a)
 	if len(titles) == 0 {
-		return nil, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, d.err)
+		return nil, misses{}, fmt.Errorf("anidb %d %w: %v", aid, errUnknownAID, d.err)
 	}
-	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, Complete: d.final(), anidbBlocked: d.blocked}
+	var m misses
+	s := &Show{Root: fmt.Sprintf("anidb-%d", aid), Episodes: map[int][]Ep{}, anidbBlocked: d.blocked}
 	s.Title, s.OriginalTitle = p.showTitle(titles), p.originalTitle(titles)
 	// movie: TheMovieDb's movie, by the mapping alone (mapping.Entry.Movie),
 	// so the GUIDs and TheMovieDb id are the same with and without AniDB
@@ -265,6 +268,9 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 
 	if a == nil {
 		d.logMissing(aid, &anidbShowMissing)
+		if !d.final() {
+			m.add(missAniDBDetails)
+		}
 		s.Episodes[1] = nil
 		if special { // at their spots in TheTVDB's specials, filled from there (fillEpisodes)
 			s.Episodes[1] = p.specialEpisodes(entry, isMovie)
@@ -292,18 +298,16 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 	ss.anidbTargets(entry, plexSeasons(s)) // before fillEpisodes runs: it doesn't add seasons
 	var wg group
 	defer wg.Wait() // when a panic skips the Wait below (group)
-	episodesOK := true
 	var photos crewPhotos
 	if a != nil && !a.IsMovie() || special { // a special-only movie is paired too: it is a TheTVDB special
-		wg.Go(func() { episodesOK = p.fillEpisodes(ctx, s, entry, lists, &photos) })
+		wg.Go(func() { p.fillEpisodes(ctx, s, entry, lists, &photos) })
 	}
 	ss.fill(s)
 	ss.fillSeasons(s)
-	sourcesOK := ss.finish(s)
+	ss.finish(s)
 	wg.Wait()
-	if !episodesOK || !sourcesOK {
-		s.Complete = false // thumbnails, titles, art or details missing: rebuild soon
-	}
+	m.merge(&ss.miss)
+	m.merge(&lists.miss)
 	if special && a == nil {
 		finishSpecial(s)
 	}
@@ -328,7 +332,7 @@ func (p *Provider) buildAniDB(ctx context.Context, aid int) (*Show, error) {
 			s.Summary = firstOf(s.Summary, ep.Summary) // what no source gave: TheTVDB's special's
 		}
 	}
-	return s, nil
+	return s, m, nil
 }
 
 // unknownAID: neither the loaded title list nor AniDB's cache knows the aid,
@@ -462,10 +466,11 @@ func listRuntime(eps []sources.Episode) int {
 // Show texts come from AniDB (first entry of the series) when known. The
 // episode list always comes from TheTVDB: the mapping places AniDB entries
 // on TheTVDB's seasons, and TheMovieDb often splits them differently.
-// buildShow calls it only with TheTVDB set up.
-func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
-	s := &Show{Root: fmt.Sprintf("tvdb-%d", tvdbID), Episodes: map[int][]Ep{}, Complete: true,
-		Guids: []string{fmt.Sprintf("tvdb://%d", tvdbID)}}
+// buildShow calls it only with TheTVDB set up. The ledger returned holds
+// what the build missed.
+func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, misses, error) {
+	var m misses
+	s := &Show{Root: fmt.Sprintf("tvdb-%d", tvdbID), Episodes: map[int][]Ep{}, Guids: []string{fmt.Sprintf("tvdb://%d", tvdbID)}}
 	aid := p.lists.FirstAID(tvdbID)
 	entry := p.lists.ByAID(aid)
 	tmdbShow := p.tmdbShowOf(ctx, tvdbID, entry)
@@ -485,18 +490,18 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 	eps, epsErr := p.tvdb.Episodes(ctx, tvdbID)
 	tmdbID, findErr := tmdbShow()
 	if findErr != nil && !fetch.IsNotFound(findErr) {
-		s.Complete = false // the TMDB lookup failed: rebuild soon
+		m.add(missTMDBLookup)
 		slog.Info("TMDB show for the TVDB id not available; rebuilt in 2 min", "root", s.Root, "err", findErr)
 	}
 	if errors.Is(epsErr, sources.ErrIncomplete) {
-		s.Complete = false // part of the episode list is missing: rebuild soon
+		m.add(missTVDBEpisodes) // part of the episode list is missing
 		slog.Info("episode list incomplete; using what came back, rebuilt in 2 min", "root", s.Root, "err", epsErr)
 	}
 	if len(eps) == 0 {
 		if epsErr == nil || fetch.IsNotFound(epsErr) {
-			return nil, fmt.Errorf("tvdb %d: %w; use /anidb for it (or /auto)", tvdbID, errNoEpisodes)
+			return nil, misses{}, fmt.Errorf("tvdb %d: %w; use /anidb for it (or /auto)", tvdbID, errNoEpisodes)
 		}
-		return nil, fmt.Errorf("tvdb %d: no episode list from TheTVDB: %w", tvdbID, epsErr)
+		return nil, misses{}, fmt.Errorf("tvdb %d: no episode list from TheTVDB: %w", tvdbID, epsErr)
 	}
 	s.addGuids(tmdbID, entry.IMDB)
 
@@ -525,16 +530,16 @@ func (p *Provider) buildTVDB(ctx context.Context, tvdbID int) (*Show, error) {
 		// AniDB details missing: rebuild soon (anidbDetails.final). Also for
 		// an entry the title dump doesn't list yet: a new one, which AniDB
 		// has before the next dump.
-		s.Complete = false
+		m.add(missAniDBDetails)
 	}
 	if s.Minutes == 0 { // no AniDB details, or no runtimes there
 		s.Minutes = listRuntime(b.eps)
 	}
-	if !p.enrichTVDB(ctx, s, b, ss) {
-		s.Complete = false // other AniDB entries or episode crew still being fetched, or a source failed: rebuild soon
-	}
+	p.enrichTVDB(ctx, s, b, ss)
+	m.merge(&ss.miss)
+	m.merge(&b.miss)
 	finishTVDB(s, b)
-	return s, nil
+	return s, m, nil
 }
 
 // tmdbShowOf returns, once, a /tvdb show's TMDB show: from the mapping, else
@@ -665,29 +670,27 @@ func (p *Provider) warnSharedAbsolute(tvdbID int, eps []sources.Episode, own abs
 // the show's sources, its targets set). They touch different parts of s, so
 // both are fetched at once. TheMovieDb's episode list is fetched once, for
 // the titles, the crew and the season posters, when a setting asks it for
-// one of them (tvdbBuild.tmdbOn). Returns false while other AniDB entries
-// or episode crew are still being fetched, or when a source failed.
-func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) bool {
+// one of them (tvdbBuild.tmdbOn). What the episodes miss (other AniDB
+// entries or episode crew still being fetched, a list that failed) is
+// recorded in b.miss, what the show fields miss in ss.miss.
+func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) {
 	var wg group
 	defer wg.Wait() // when a panic skips the Wait below (group)
-	var tmdbOK, titlesReady, plexOK, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
-		tmdbOK = b.loadTMDB()
-		var pr tvdbPairing
-		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
-		plexOK = p.tvdbPlexTitles(ctx, s, b)
-		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(), pr)
+		b.tmdbEps.get(&b.miss) // waits for TheMovieDb's episode list (startTMDB fetches it)
+		pr := p.tvdbEpisodeTitles(ctx, s, b)
+		p.tvdbPlexTitles(ctx, s, b)
+		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(&b.miss), pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(), pr.otherAt}, &b.plex, &b.crew, &b.photos)
+		p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(&b.miss), pr.otherAt}, &b.plex, &b.crew, &b.photos, &b.miss)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
 	p.finishCrew(s, ss, &b.photos) // the fields and the episodes are in
-	ss.pairTMDB(pairs, b.tmdbEps.get().posters)
+	ss.pairTMDB(pairs, b.tmdbEps.get(&b.miss).posters)
 	ss.fillSeasons(s)
-	sourcesOK := ss.finish(s)
-	return tmdbOK && titlesReady && plexOK && crewReady && sourcesOK
+	ss.finish(s)
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular
