@@ -196,7 +196,20 @@ func fieldProvider(t *testing.T, c fieldCase) (p *Provider, taken func() []strin
 		}
 		return fieldWorld(path, q)
 	}}
-	p = newTestProvider(t, net)
+	p = fieldProviderOn(t, c.keys, c.set, net)
+	return p, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		out := slices.Sorted(maps.Keys(asked))
+		clear(asked)
+		return out
+	}
+}
+
+// fieldProviderOn is fieldProvider's provider on net, with fieldWorld's
+// titles and mapping, the keys and set's settings.
+func fieldProviderOn(t *testing.T, keys fieldKeys, set func(c *config.Config), net *fakeNet) *Provider {
+	p := newTestProvider(t, net)
 	p.titles.SetForTest(map[int][]anidb.Title{100: {{Type: "main", Lang: "x-jat", Text: "Kizuna Test"}},
 		200: {{Type: "main", Lang: "x-jat", Text: "Kizuna Two"}}, 300: {{Type: "main", Lang: "x-jat", Text: "Kizuna Film"}}})
 	p.lists.SetForTest(map[int]mapping.Entry{
@@ -208,26 +221,20 @@ func fieldProvider(t *testing.T, c fieldCase) (p *Provider, taken func() []strin
 	})
 	f := fetch.New(t.TempDir())
 	f.SetTransport(net)
-	if c.keys.mal {
+	if keys.mal {
 		p.mal = sources.NewMAL(f, "client")
 	}
-	if !c.keys.tmdb {
+	if !keys.tmdb {
 		p.tmdb = sources.NewTMDB(f, "")
 	}
 	f.ThrottleAll(0)
-	if c.keys.plex {
+	if keys.plex {
 		withPlex(t, p, net)
 	}
-	if c.set != nil {
-		c.set(&p.cfg)
+	if set != nil {
+		set(&p.cfg)
 	}
-	return p, func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		out := slices.Sorted(maps.Keys(asked))
-		clear(asked)
-		return out
-	}
+	return p
 }
 
 func writeAsked(b *strings.Builder, label string, asked []string) {
@@ -350,19 +357,15 @@ func goldenEnv(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 }
 
-// runGolden runs n cases, a few at once (they mostly wait on the cache's
-// files), and compares what each says with its block of testdata/name.
-// -update rewrites the file without comparing: review the update as a
-// diff, since a changed ask, early, ahead or later line is a behaviour
-// change (a source asked, or no longer asked, for a value).
-func runGolden(t *testing.T, name string, n int, run func(i int) string) {
-	out := make([]string, n)
+// fewAtOnce runs f for 0..n-1, a few at once, and returns when all are
+// done.
+func fewAtOnce(n int, f func(i int)) {
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for range 6 {
 		wg.Go(func() {
 			for i := range next {
-				out[i] = run(i)
+				f(i)
 			}
 		})
 	}
@@ -371,6 +374,16 @@ func runGolden(t *testing.T, name string, n int, run func(i int) string) {
 	}
 	close(next)
 	wg.Wait()
+}
+
+// runGolden runs n cases, a few at once (they mostly wait on the cache's
+// files), and compares what each says with its block of testdata/name.
+// -update rewrites the file without comparing: review the update as a
+// diff, since a changed ask, early, ahead or later line is a behaviour
+// change (a source asked, or no longer asked, for a value).
+func runGolden(t *testing.T, name string, n int, run func(i int) string) {
+	out := make([]string, n)
+	fewAtOnce(n, func(i int) { out[i] = run(i) })
 	golden := filepath.Join("testdata", name)
 	if *updateGolden {
 		if err := os.MkdirAll("testdata", 0o755); err != nil {
