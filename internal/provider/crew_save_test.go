@@ -309,7 +309,7 @@ func TestCrewMemoryDelayedUnreadable(t *testing.T) {
 func TestCrewMemorySavesBesideBuilds(t *testing.T) {
 	dir := crewDir(t)
 	m := loadCrewMemory(dir)
-	m.after = func(_ time.Duration, f func()) crewTimer { return time.AfterFunc(0, f) }
+	m.after = func(_ time.Duration, f func()) crewTimer { return time.AfterFunc(0, f) } //lint:allow sleep: a real timer with no delay, so no wait
 	var wg sync.WaitGroup
 	for b := range 4 {
 		wg.Go(func() {

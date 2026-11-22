@@ -136,9 +136,9 @@ func TestGetJSONJoined(t *testing.T) {
 		bg.Background = true
 		first <- c.GetJSON(context.Background(), bg, &a, nil)
 	}()
-	l.waitQueue(func() bool { return len(l.bg) == 1 })
+	waitQueue(t, l, "the background download to queue", func() bool { return len(l.bg) == 1 })
 	go func() { second <- c.GetJSON(context.Background(), r, &b, nil) }()
-	l.waitQueue(func() bool { return len(l.fg) == 1 }) // joined: the download moved up
+	waitQueue(t, l, "the second caller to move the download up", func() bool { return len(l.fg) == 1 }) // joined: the download moved up
 	c.Throttle(host, 0)
 	if err := <-first; err != nil || a.A != 3 {
 		t.Errorf("first caller: %+v, %v", a, err)

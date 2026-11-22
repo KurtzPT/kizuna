@@ -326,6 +326,9 @@ func (a admissions) Handle(_ context.Context, r slog.Record) error {
 // through at least gap after that, reaches the server at least gap after
 // the moment noted just before the write ends. Both times are read from
 // this process's monotonic clock, one causally after the other: no margin.
+// The write is held for real time, longer than the gap: the throttle reads
+// the wall clock itself, and the bug (the second call let through a gap
+// after the first was let through) only shows once that time has passed.
 func TestAniDBGapCountsFromSend(t *testing.T) {
 	var mu sync.Mutex
 	var at []time.Time
@@ -346,12 +349,10 @@ func TestAniDBGapCountsFromSend(t *testing.T) {
 	for aid := 1; aid <= 2; aid++ {
 		wg.Go(func() { _, _ = c.Anime(context.Background(), aid) })
 	}
-	for fg, _ := c.f.Waiting(u.Host); fg < 2; fg, _ = c.f.Waiting(u.Host) {
-		time.Sleep(time.Millisecond)
-	}
+	waitQueue(t, c.f, u.Host, "both calls to queue", func(fg, _ int) bool { return fg == 2 })
 	c.mu.Lock() // the slow write
 	c.f.ThrottleFrom(u.Host, gap, time.Now())
-	time.Sleep(4 * gap)
+	time.Sleep(4 * gap)   //lint:allow sleep: the slow write, longer than the gap
 	written := time.Now() // before the first call can go out
 	c.mu.Unlock()
 	wg.Wait()
@@ -524,6 +525,18 @@ func (l *logBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.buf.String()
+}
+
+// waitQueue waits until done says the queue to host is as wanted. The time
+// limit only ends a hang: a wait that never finishes fails naming what it
+// waited for, instead of running until go test's timeout.
+func waitQueue(t *testing.T, f *fetch.Client, host, what string, done func(fg, bg int) bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := f.WaitQueue(ctx, host, done); err != nil {
+		t.Fatalf("waiting for %s: %v", what, err)
+	}
 }
 
 // captureLogs sends info and above to the returned buffer until the test ends.
@@ -825,15 +838,9 @@ func TestAniDBStopEndsBackgroundCalls(t *testing.T) {
 		}
 		joined <- err
 	}()
-	for {
-		c.mu.Lock()
-		fg := c.calling[1] != nil && c.calling[1].fg
-		c.mu.Unlock()
-		if fg {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	// Plex's caller is marked on the call before its download moves up to
+	// the foreground queue.
+	waitQueue(t, c.f, u.Host, "the joined call to move up to the foreground queue", func(fg, _ int) bool { return fg == 1 })
 	c.Stop()
 	c.Prefetch(4) // after Stop: not taken
 	slog.SetDefault(old)

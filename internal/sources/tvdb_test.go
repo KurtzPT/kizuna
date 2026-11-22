@@ -465,15 +465,10 @@ func TestTVDBBackgroundCrewYields(t *testing.T) {
 	}
 	tv.f.Throttle(host, time.Hour) // the record waits until the test opens the gap
 	tv.queueCrew([]int{7}, crewTTL)
-	for {
-		fg, bg := tv.f.Waiting(host)
-		if fg+bg > 0 {
-			if fg != 0 || bg != 1 {
-				t.Errorf("%d foreground, %d background requests waiting; want 0, 1", fg, bg)
-			}
-			break
-		}
-		time.Sleep(time.Millisecond)
+	var fg, bg int
+	waitQueue(t, tv.f, host, "the crew record to queue", func(f, b int) bool { fg, bg = f, b; return f+b > 0 })
+	if fg != 0 || bg != 1 {
+		t.Errorf("%d foreground, %d background requests waiting; want 0, 1", fg, bg)
 	}
 	tv.f.Throttle(host, 0)
 	tv.crewQueue.Wait()

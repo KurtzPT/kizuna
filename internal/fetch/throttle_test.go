@@ -91,8 +91,11 @@ func TestThrottleSpacingHolds(t *testing.T) {
 		if i%4 == 1 {
 			tk.promote()
 		}
-		if i%5 == 0 {
-			time.Sleep(gap / 2) // some arrive while others wait
+		if i%5 == 0 { // the next ones arrive after a let-through, while others wait
+			l.mu.Lock()
+			want := len(at) + min(1, len(l.fg)+len(l.bg))
+			l.mu.Unlock()
+			waitQueue(t, l, "the next let-through", func() bool { return len(at) >= want })
 		}
 	}
 	wg.Wait()
@@ -106,10 +109,24 @@ func TestThrottleSpacingHolds(t *testing.T) {
 	}
 }
 
+// waitQueue waits until done says l's queues are as wanted. The time limit
+// only ends a hang: a wait that never finishes fails naming what it waited
+// for, instead of running until go test's timeout.
+func waitQueue(t *testing.T, l *hostLimit, what string, done func() bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := l.waitQueue(ctx, done); err != nil {
+		t.Fatalf("waiting for %s: %v", what, err)
+	}
+}
+
 // The next request isn't let through while the one let through before it
 // hasn't gone out (its Before is slow), and the gap counts from when it
 // went out. Only a lower bound is checked; the pause only gives a wrong
-// release its chance.
+// release its chance. It is real time: the throttle reads the wall clock
+// itself, and a wrong release comes a gap after a was let through, which
+// no event stands in for.
 func TestThrottleGapFromSent(t *testing.T) {
 	const gap = 30 * time.Millisecond
 	l := newHostLimit(gap)
@@ -123,7 +140,7 @@ func TestThrottleGapFromSent(t *testing.T) {
 	a.wait()
 	done := make(chan struct{})
 	go func() { send(b); close(done) }()
-	time.Sleep(3 * gap) // a's Before takes its time
+	time.Sleep(3 * gap) //lint:allow sleep: a's Before takes its time, longer than the gap
 	sentAt := time.Now()
 	a.sent()
 	<-done
@@ -182,7 +199,7 @@ func TestBackgroundRequestsYield(t *testing.T) {
 				t.Error(err)
 			}
 		})
-		l.waitQueue(func() bool { return len(l.fg)+len(l.bg) > n })
+		waitQueue(t, l, "the request to join the queue", func() bool { return len(l.fg)+len(l.bg) > n })
 		c.mu.Lock()
 		names[c.inflight[path].ticket] = path
 		c.mu.Unlock()
@@ -208,19 +225,6 @@ func (l *hostLimit) queued() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.fg) + len(l.bg)
-}
-
-// waitQueue blocks until done, called with l.mu held, says l's queues are as
-// wanted (every change to them signals).
-func (l *hostLimit) waitQueue(done func() bool) {
-	l.mu.Lock()
-	for !done() {
-		changed := l.changed
-		l.mu.Unlock()
-		<-changed
-		l.mu.Lock()
-	}
-	l.mu.Unlock()
 }
 
 type roundTrip func(*http.Request) (*http.Response, error)

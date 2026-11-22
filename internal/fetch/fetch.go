@@ -157,18 +157,15 @@ func (c *Client) ThrottleFrom(host string, gap time.Duration, last time.Time) {
 	l.sentAt(last)
 }
 
-// Waiting says how many requests to host wait for their turn, foreground
-// and background (tests wait on it).
-func (c *Client) Waiting(host string) (fg, bg int) {
+// WaitQueue waits until done says the queue to host is as wanted. Tests
+// use it instead of polling. done gets the number of foreground and
+// background requests waiting for their turn. It returns ctx's error if ctx
+// ends first. host must be throttled.
+func (c *Client) WaitQueue(ctx context.Context, host string, done func(fg, bg int) bool) error {
 	c.mu.Lock()
 	l := c.limits[host]
 	c.mu.Unlock()
-	if l == nil {
-		return 0, 0
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.fg), len(l.bg)
+	return l.waitQueue(ctx, func() bool { return done(len(l.fg), len(l.bg)) })
 }
 
 // Cached returns a cached file and its age, without any network access.
