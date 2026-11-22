@@ -120,7 +120,7 @@ type crewRecords struct {
 }
 
 // startTMDB looks up TheMovieDb's show (tmdbShow: tmdbShowOf's) and
-// fetches its episode list (loadTMDB), as soon as the build starts: it
+// fetches its episode list into b.tmdbEps, as soon as the build starts: it
 // needs only the show's id, not TheTVDB's list, and both can take a while
 // on a long show.
 func (b *tvdbBuild) startTMDB(ctx context.Context, p *Provider, tmdbShow func() (int, error)) {
