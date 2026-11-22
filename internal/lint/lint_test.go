@@ -9,6 +9,8 @@
 // failing, and add it to rules.
 // A deliberate exception is a comment on the offending line:
 // `//lint:allow <rule>: <why>`.
+// One rule reads text, not Go: localfiles (localfiles_test.go) checks the
+// committed text files for a citation of a file the repository doesn't ship.
 package lint
 
 import (

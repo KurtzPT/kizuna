@@ -280,10 +280,9 @@ func (c *AniDB) endBackoff() {
 }
 
 // A panic in an AniDB call's download (here its transport; it could come
-// after AniDB answered) is handled as a network error is (DECISIONS.md,
-// "AniDB fair use"): the call isn't counted, the anime isn't blocked, the
-// backoff steps up. The process goes on, and the next call goes out once
-// the backoff allows it.
+// after AniDB answered) is handled as a network error is: the call isn't
+// counted, the anime isn't blocked, the backoff steps up. The process goes
+// on, and the next call goes out once the backoff allows it.
 func TestAniDBCallPanicIsANetworkFailure(t *testing.T) {
 	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
 	_ = captureLogs(t)
