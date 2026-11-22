@@ -399,10 +399,13 @@ func TestAniDBPauseKeptWhenItsLogPanics(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c, requests := fakeAniDB(t, [2]string{"200", tc.answer}, [2]string{"200", anidbSample})
-			_ = panicLogs(t, tc.msg)
+			logs := panicLogs(t, tc.msg)
 			ctx := context.Background()
 			if _, err := c.Anime(ctx, 1); err == nil {
 				t.Fatal("want an error")
+			}
+			if !strings.Contains(logs.String(), "download's Done panicked") {
+				t.Fatalf("the line did not panic; logs:\n%s", logs)
 			}
 			for _, aid := range []int{1, 69} {
 				if _, err := c.Anime(ctx, aid); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 1 {
