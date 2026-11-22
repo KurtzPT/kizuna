@@ -14,6 +14,9 @@
 #              with busybox's tools, and on macOS: not required, and not in
 #              docker's needs (yet: see the jobs)
 #   workflows  actionlint and zizmor on the workflows and dependabot.yml
+#   model      the TLA+ model of AniDB's calls (model/): today's code passes;
+#              every past bug replayed there, every defence dropped and every
+#              open finding fails. Not required, and not in docker's needs
 #   gate       (dev and v* tags only, never a pull request) does this run
 #              publish an image? Fails on a v* tag that isn't a version
 #   docker     (only when gate says so) the docker workflow, publishing: shows
@@ -452,6 +455,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --format=github .'
+
+  # AniDB's fair use rules over every order of the call's steps (TLC, on the
+  # runner's Java; scripts/model.sh pins TLC by version and SHA-256). Not in
+  # docker's needs: a model that drifts from the code must not hold back
+  # :dev or a release.
+  model:
+    name: model
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: TLC
+        run: bash scripts/model.sh
 
   # Publishes: a version tag (v1.2.3, v1.2.3-beta.1); dev, when something that
   # goes into the image changed since the commit :dev was built from; a manual

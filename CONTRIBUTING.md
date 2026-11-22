@@ -32,8 +32,8 @@ already `***` in the logs, but remove any paths you don't want public.
 
 ## 🛠️ Development setup
 
-**You need:** Go (the version in [`go.mod`](go.mod) or newer). Docker and
-[ShellCheck](https://www.shellcheck.net) are optional.
+**You need:** Go (the version in [`go.mod`](go.mod) or newer). Docker, [ShellCheck](https://www.shellcheck.net) and
+Java 8 or newer (for the AniDB model check) are optional.
 
 Fork the repository, then work from the **`dev`** branch, where all new work lands:
 
@@ -104,6 +104,7 @@ bash scripts/kizuna-migrate_test.sh   # the migration script's behaviour tests (
 bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, needs jq)
 bash scripts/dev-image_test.sh        # when :dev is published, and the image's file list (offline, needs jq)
 node scripts/report-page_test.js      # the match report page's script (offline, plain Node)
+bash scripts/model.sh                 # the AniDB call model (about 1 min; downloads TLC once)
 ```
 
 `go test` includes `internal/lint`, the repository's own rules. A failure there names the fix, and
@@ -148,6 +149,9 @@ scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not in 
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library
 scripts/ghcr-cleanup.sh         deletes old image builds from the registry (run by a workflow)
 scripts/dev-image.sh            whether a push to dev publishes :dev (run by ci and docker)
+model/AniDBCalls.tla            TLA+ model of an AniDB call, from the fair use check to its outcome
+scripts/model.sh                checks it with TLC: today's code passes; past bugs (model/replay), dropped defences
+                                (model/defence) and open findings (model/findings) fail
 .dockerignore                   what goes into the image: an allowlist, also read by dev-image.sh
 ```
 
@@ -156,6 +160,7 @@ scripts/dev-image.sh            whether a push to dev publishes :dev (run by ci 
 | a setting | `internal/config`, then [`.env.sample`](.env.sample) (a test checks that it lists every setting) and [SETTINGS.md](SETTINGS.md) |
 | a matching or metadata rule | `internal/provider`, then [README.md](README.md) (the summary), [GUIDE.md](GUIDE.md) (matching in detail, what a user sees), [MAPPING.md](MAPPING.md#-how-episodes-are-paired) (pairing) or [SETTINGS.md](SETTINGS.md) (what a user sets) |
 | a metadata source | `internal/sources`, then the per-field source order in `internal/provider/fields.go` |
+| a change to when AniDB is called | `internal/sources/anidb_fairuse.go`, then the action that stands for that code in `model/AniDBCalls.tla` (`bash scripts/model.sh`) |
 | an id prefix like `[anidb-…]` | `internal/provider/match.go` |
 | something to the match reports | what is recorded: `internal/provider/report.go` (the source of an episode's values is noted where they are set, an image's in `art.go`, a show item value's at the end of the build); the page: `internal/report/page.html`, one file with its styles and script, tested by `scripts/report-page_test.js` |
 | a migration rule | `scripts/kizuna-migrate.sh`, then [MIGRATION.md](MIGRATION.md) |
