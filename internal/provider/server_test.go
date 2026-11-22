@@ -548,47 +548,97 @@ func TestRequestNotesTheAnswer(t *testing.T) {
 	}
 }
 
-// The names an episode gives its season and show are made once per build
-// (setShared) and shared by every request, in every mode that serves the
-// show: each episode's item is the one made without them, specials
-// included.
-func TestSharedNamesAsBefore(t *testing.T) {
+// Plex names a show's seasons and episodes by the keys and titles of the
+// answers: the show's children, its grandchildren and one episode, asked
+// through the routes as Plex asks. The expected values are spelled out
+// from testSeries: each season's rating key, path and title (the specials
+// among them) and the show's path in every episode.
+func TestServedNames(t *testing.T) {
 	defaultLists(t)
 	p := newTestProvider(t, &fakeNet{answer: testSeries})
-	s, err := p.buildShow(context.Background(), "tvdb-500")
-	if err != nil {
-		t.Fatal(err)
+	items := func(path string) []Item {
+		t.Helper()
+		c, _ := getContainer(t, p, path, nil)
+		return c.MediaContainer.Metadata
 	}
-	if len(s.seasons) != len(s.Episodes) || s.path != "/library/metadata/tvdb-500" || len(s.Episodes[0]) == 0 {
-		t.Fatalf("shared names %q %+v for seasons %d; want one per season, and specials", s.path, s.seasons, len(s.Episodes))
+	const show = "/tvdb/library/metadata/tvdb-500"
+	type season struct{ ratingKey, key, title string }
+	var seasons []season
+	for _, it := range items(show + "/children") {
+		seasons = append(seasons, season{it.RatingKey, it.Key, it.Title})
 	}
-	bare := *s
-	bare.path, bare.seasons = "", nil // made per episode, as before
-	for _, mode := range []string{"tvdb", "auto"} {
-		s.eachEpisode(func(ep *Ep) {
-			got, _ := json.Marshal(p.episodeItem(Modes[mode], s, ep))
-			want, _ := json.Marshal(p.episodeItem(Modes[mode], &bare, ep))
-			if string(got) != string(want) {
-				t.Errorf("/%s S%02dE%02d:\n%s\nwant\n%s", mode, ep.Season, ep.Index, got, want)
+	wantSeasons := []season{
+		{"tvdb-500-s0", "/library/metadata/tvdb-500-s0/children", "Specials"},
+		{"tvdb-500-s1", "/library/metadata/tvdb-500-s1/children", "Season 1"},
+		{"tvdb-500-s2", "/library/metadata/tvdb-500-s2/children", "Season 2"},
+	}
+	if !slices.Equal(seasons, wantSeasons) {
+		t.Errorf("seasons of %s:\n%q\nwant\n%q", show, seasons, wantSeasons)
+	}
+	type episode struct{ ratingKey, key, parentRatingKey, parentKey, parentTitle, grandparentRatingKey, grandparentKey string }
+	named := func(it Item) episode {
+		return episode{it.RatingKey, it.Key, it.ParentRatingKey, it.ParentKey, it.ParentTitle, it.GrandparentRatingKey, it.GrandparentKey}
+	}
+	wantEpisodes := []episode{
+		{"tvdb-500-s0-e1", "/library/metadata/tvdb-500-s0-e1", "tvdb-500-s0", "/library/metadata/tvdb-500-s0", "Specials", "tvdb-500", "/library/metadata/tvdb-500"},
+		{"tvdb-500-s1-e1", "/library/metadata/tvdb-500-s1-e1", "tvdb-500-s1", "/library/metadata/tvdb-500-s1", "Season 1", "tvdb-500", "/library/metadata/tvdb-500"},
+		{"tvdb-500-s1-e2", "/library/metadata/tvdb-500-s1-e2", "tvdb-500-s1", "/library/metadata/tvdb-500-s1", "Season 1", "tvdb-500", "/library/metadata/tvdb-500"},
+		{"tvdb-500-s2-e3", "/library/metadata/tvdb-500-s2-e3", "tvdb-500-s2", "/library/metadata/tvdb-500-s2", "Season 2", "tvdb-500", "/library/metadata/tvdb-500"},
+	}
+	var episodes []episode
+	for _, it := range items(show + "/grandchildren") {
+		episodes = append(episodes, named(it))
+	}
+	if !slices.Equal(episodes, wantEpisodes) {
+		t.Errorf("episodes of %s:\n%q\nwant\n%q", show, episodes, wantEpisodes)
+	}
+	one := items(show + "-s2-e3")
+	if len(one) != 1 || named(one[0]) != wantEpisodes[3] {
+		t.Errorf("episode tvdb-500-s2-e3: %+v, want %q", one, wantEpisodes[3])
+	}
+	// The same names under /auto, which serves a TVDB show's ids too.
+	var auto []episode
+	for _, it := range items("/auto/library/metadata/tvdb-500/grandchildren") {
+		auto = append(auto, named(it))
+	}
+	if !slices.Equal(auto, wantEpisodes) {
+		t.Errorf("episodes of %s under /auto:\n%q\nwant\n%q", show, auto, wantEpisodes)
+	}
+}
+
+// An episode is served with its writer, one tag, from the first of
+// EPISODE_CREW_SOURCES that has one: with the default order TheTVDB's where
+// it has one, else TheTMDB's. Season 2's episode has a writer in both
+// sources, so reversing the order shows.
+func TestServedEpisodeWriters(t *testing.T) {
+	defaultLists(t)
+	bothWrite := func(path string, q map[string][]string) (int, string) {
+		switch path {
+		case "api4.thetvdb.com/v4/episodes/13/extended":
+			return 200, `{"data":{"characters":[{"personName":"TVDB Writer 3","peopleType":"Writer"}]}}`
+		case "api.themoviedb.org/3/tv/77/season/2":
+			return 200, `{"episodes":[{"episode_number":1,"name":"TMDB Three","crew":[{"job":"Screenplay","department":"Writing","name":"TMDB Writer 3"}]}]}`
+		}
+		return testSeries(path, q)
+	}
+	for _, order := range []struct {
+		sources string
+		writers map[string]string // episode key: its writer
+	}{
+		{"", map[string]string{"tvdb-500-s1-e1": "TVDB Writer", "tvdb-500-s1-e2": "TMDB Writer", "tvdb-500-s2-e3": "TVDB Writer 3"}},
+		{"tmdb,tvdb", map[string]string{"tvdb-500-s1-e1": "TVDB Writer", "tvdb-500-s1-e2": "TMDB Writer", "tvdb-500-s2-e3": "TMDB Writer 3"}},
+	} {
+		if order.sources != "" {
+			t.Setenv("EPISODE_CREW_SOURCES", order.sources)
+		}
+		p := newTestProvider(t, &fakeNet{answer: bothWrite})
+		for key, writer := range order.writers {
+			got, _ := getContainer(t, p, "/tvdb/library/metadata/"+key, nil)
+			items := got.MediaContainer.Metadata
+			if len(items) != 1 || len(items[0].Writer) != 1 || items[0].Writer[0].Tag != writer {
+				t.Errorf("EPISODE_CREW_SOURCES=%q %s: writers of %+v, want one, %q", order.sources, key, items, writer)
 			}
-		})
-	}
-	if it := p.episodeItem(Modes["tvdb"], s, &s.Episodes[0][0]); it.ParentTitle != "Specials" || it.ParentKey != "/library/metadata/tvdb-500-s0" {
-		t.Errorf("a special: parent %q %q, want Specials, /library/metadata/tvdb-500-s0", it.ParentTitle, it.ParentKey)
-	}
-	// A numbered season's names, spelled out: the comparison above can't see
-	// a wrong name that both ways make alike.
-	if len(s.Episodes[2]) == 0 {
-		t.Fatalf("no season 2 in %v", s.Episodes)
-	}
-	ep := &s.Episodes[2][0]
-	it := p.episodeItem(Modes["tvdb"], s, ep)
-	got := []string{it.RatingKey, it.Key, it.ParentRatingKey, it.ParentKey, it.ParentTitle, it.GrandparentRatingKey, it.GrandparentKey}
-	e := strconv.Itoa(ep.Index) // the episode's own number is not what this pins
-	want := []string{"tvdb-500-s2-e" + e, "/library/metadata/tvdb-500-s2-e" + e, "tvdb-500-s2", "/library/metadata/tvdb-500-s2",
-		"Season 2", "tvdb-500", "/library/metadata/tvdb-500"}
-	if !slices.Equal(got, want) {
-		t.Errorf("season 2: rating key, key, parent rating key, key, title, grandparent rating key, key\n%q\nwant\n%q", got, want)
+		}
 	}
 }
 
