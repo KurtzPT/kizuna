@@ -542,6 +542,44 @@ func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 	}
 }
 
+// A renewal that ends between a call's login and its download makes fetch
+// look in the cache again (a download ended). The call keeps the token it
+// got: the renewal's outcome, a rejected key included, is for the calls
+// after it. The test holds the call inside its ready until the renewal is
+// over. CI's race run once failed TestTVDBFailedRenewalKeepsToken this way,
+// when fetch ran ready again on a look-again.
+func TestTVDBRenewalEndsDuringCall(t *testing.T) {
+	for _, login := range []string{`401 {"status":"failure"}`, `503 {}`, `{"data":{"token":"t-new"}}`} {
+		tv, _ := newTVDBTest(t, map[string]string{
+			v4 + "/login":                     login,
+			v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
+		}, "v4key", "", "")
+		tv.mu.Lock()
+		tv.token, tv.tokenAt = "t-old", time.Now().Add(-8*24*time.Hour) // due for renewal, valid for weeks
+		tv.mu.Unlock()
+		ctx := context.Background()
+		r, ready := tv.request(ctx, false, getOpts{}, "/series/9/translations/eng", "9/eng.json", seriesFilesTTL)
+		readies := 0
+		var out struct {
+			Data struct {
+				Name string `json:"name"`
+			} `json:"data"`
+		}
+		err := tv.f.GetJSON(ctx, r, &out, func(req fetch.Request) (fetch.Request, error) {
+			readies++
+			req, err := ready(req) // starts the renewal
+			tv.WaitIdle()          // the renewal's login ended and its outcome is recorded
+			return req, err
+		})
+		if err != nil || out.Data.Name != "Show" {
+			t.Errorf("login %s: %q %v, want Show", login, out.Data.Name, err)
+		}
+		if readies != 1 {
+			t.Errorf("login %s: ready ran %d times, want 1", login, readies)
+		}
+	}
+}
+
 // A renewal still waiting on the network doesn't hold up calls: the old
 // token is still valid, so they go ahead with it.
 func TestTVDBRenewalDoesNotBlock(t *testing.T) {

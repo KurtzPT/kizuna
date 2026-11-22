@@ -29,9 +29,9 @@ var errNotJSON = errors.New("not JSON")
 // the next try.
 //
 // ready, if set, runs when the cache has no fresh answer, before the
-// download. It may run more than once per call (the call looks in the cache
-// again when a download of the key has just ended), so it must be safe to
-// repeat. It returns the request to send (TheTVDB adds its login's token).
+// download, and at most once per call: it returns the request to send
+// (TheTVDB adds its login's token). When the call looks in the cache again
+// (see download) and still finds no answer, it sends that same request.
 // Its error fails the call as a failed download would, with nothing sent:
 // a stale copy answers unless the request it returned has NoStale.
 func (c *Client) GetJSON(ctx context.Context, r Request, out any, ready func(Request) (Request, error)) error {
@@ -75,36 +75,13 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 	start := time.Now()
 	asked := r               // ready and the Validate below change r
 	looked := c.ended.Load() // before the cache is read: see download
-	broken := false          // the fresh copy doesn't decode: no stale copy to fall back on either
-	data, at, ok, hit := c.freshKnown(ctx, r, known)
-	if ok {
-		if hit {
-			observe(ctx, r, start, KindCache, nil)
-			return at, nil
-		}
-		err := decode(data, out)
-		if err == nil {
-			observe(ctx, r, start, KindCache, nil)
-			return at, nil
-		}
-		if ie := (*json.InvalidUnmarshalError)(nil); errors.As(err, &ie) {
-			return time.Time{}, err // the caller's out is wrong (nil, not a pointer), not the copy
-		}
-		broken = true
-		slog.Warn("cached copy doesn't decode; downloading it again", "key", r.Key, "err", err)
-		if r.Revalidate {
-			// Its ETag goes first, so no 304 can vouch for the broken copy: the
-			// download is a full one, and saves the new ETag with the new bytes.
-			_ = os.Remove(c.etagPath(r.Key))
-		}
-	}
-	// Before ready: a remembered "nothing there" needs no login either.
-	if err := c.knownNotFound(ctx, r, at); err != nil {
-		observe(ctx, r, start, KindCache, err)
-		return time.Time{}, err
+	// On the first look, a remembered "nothing there" answers before ready runs:
+	// it needs no login either.
+	at, broken, answered, err := c.lookJSON(ctx, r, out, known, start)
+	if answered {
+		return at, err
 	}
 	if ready != nil {
-		var err error
 		if r, err = ready(r); err != nil {
 			if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
 				return time.Time{}, nil
@@ -138,8 +115,14 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 		return nil
 	}
 	data, err := c.download(ctx, r, looked)
-	if errors.Is(err, errLookAgain) {
-		return c.getJSON(ctx, asked, out, ready, known)
+	for errors.Is(err, errLookAgain) {
+		looked = c.ended.Load()
+		if at, broken, answered, err = c.lookJSON(ctx, asked, out, known, start); answered {
+			return at, err
+		}
+		// ready doesn't run again: a login renewed or a key rejected since
+		// must not change this call's answer.
+		data, err = c.download(ctx, r, looked)
 	}
 	if err != nil {
 		if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
@@ -157,6 +140,40 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 		return time.Time{}, nil
 	}
 	return time.Time{}, decode(data, out)
+}
+
+// lookJSON is getJSON's look in the cache. It sets answered when a fresh copy
+// or a remembered "nothing there" is the call's answer. A fresh copy is decoded
+// into out, or is known and at is its time. It sets broken when the fresh copy
+// doesn't decode, so no stale copy can stand in for a failed download either.
+func (c *Client) lookJSON(ctx context.Context, r Request, out any, known func(time.Time) bool, start time.Time) (at time.Time, broken, answered bool, err error) {
+	data, at, ok, hit := c.freshKnown(ctx, r, known)
+	if ok {
+		if hit {
+			observe(ctx, r, start, KindCache, nil)
+			return at, false, true, nil
+		}
+		err = decode(data, out)
+		if err == nil {
+			observe(ctx, r, start, KindCache, nil)
+			return at, false, true, nil
+		}
+		if ie := (*json.InvalidUnmarshalError)(nil); errors.As(err, &ie) {
+			return time.Time{}, false, true, err // the caller's out is wrong (nil, not a pointer), not the copy
+		}
+		broken = true
+		slog.Warn("cached copy doesn't decode; downloading it again", "key", r.Key, "err", err)
+		if r.Revalidate {
+			// Its ETag goes first, so no 304 can vouch for the broken copy: the
+			// download is a full one, and saves the new ETag with the new bytes.
+			_ = os.Remove(c.etagPath(r.Key))
+		}
+	}
+	if err = c.knownNotFound(ctx, r, at); err != nil {
+		observe(ctx, r, start, KindCache, err)
+		return time.Time{}, broken, true, err
+	}
+	return time.Time{}, broken, false, nil
 }
 
 // staleJSON decodes key's cached copy, however old, into out, for a call
