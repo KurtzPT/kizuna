@@ -1518,7 +1518,7 @@ func TestFetchesDontWaitForAniDB(t *testing.T) {
 			if path == "api.anidb.net/httpapi" {
 				select {
 				case <-all:
-				case <-time.After(20 * time.Second): // only when they wait for AniDB
+				case <-time.After(20 * time.Second): //lint:allow sleep: a hang guard, reached only when they wait for AniDB, and late fails the test
 					mu.Lock()
 					for _, p := range c.early {
 						if !seen[p] {
