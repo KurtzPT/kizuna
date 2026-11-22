@@ -461,13 +461,7 @@ func (s *Store) flush(all bool, now time.Time) {
 	}
 	slices.Sort(keys)
 	for _, key := range keys {
-		var err error
-		if strings.HasPrefix(key, "unmatched-") {
-			err = s.writeUnmatched(key, work[key])
-		} else {
-			err = s.writeShow(key, work[key])
-		}
-		if err != nil {
+		if err := s.write(key, work[key]); err != nil {
 			s.retry(key, work[key], err)
 		}
 	}
@@ -504,6 +498,22 @@ func (s *Store) flush(all bool, now time.Time) {
 		s.indexDirty = true
 		s.mu.Unlock()
 	}
+}
+
+// write writes one page's updates. A panic there is logged and drops them:
+// Run writes every show's page, so one show's panic must not end Kizuna,
+// and written again they would panic again.
+func (s *Store) write(key string, p *pending) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fetch.LogPanic("reports: writing a report page panicked; dropping its updates", r, "page", key)
+			err = nil
+		}
+	}()
+	if strings.HasPrefix(key, "unmatched-") {
+		return s.writeUnmatched(key, p)
+	}
+	return s.writeShow(key, p)
 }
 
 // retry queues updates that failed to write again, ahead of any queued
