@@ -387,3 +387,111 @@ func TestAniDBSendingPanicBeforeSent(t *testing.T) {
 			st, requests.Load())
 	}
 }
+
+// A log handler that panics on the line about AniDB's ban, or about its
+// error with the client, leaves the pause in place all the same: no call for
+// any anime goes out, and a restart keeps it.
+func TestAniDBPauseKeptWhenItsLogPanics(t *testing.T) {
+	for name, tc := range map[string]struct{ answer, msg string }{
+		"ban": {"<error>Banned</error>", "AniDB banned this IP; AniDB API paused for 24 h (cache only)"},
+		"client": {"<error>Client Values Missing or Invalid</error>", "AniDB rejected the client: check ANIDB_CLIENT and ANIDB_CLIENTVER " +
+			"(the client name and version registered at anidb.net, protocol HTTP), then restart. AniDB API paused for 24 h or until they change (cache only)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, requests := fakeAniDB(t, [2]string{"200", tc.answer}, [2]string{"200", anidbSample})
+			logs := panicLogs(t, tc.msg)
+			ctx := context.Background()
+			if _, err := c.Anime(ctx, 1); err == nil {
+				t.Fatal("want an error")
+			}
+			if !strings.Contains(logs.String(), "download's Done panicked") {
+				t.Fatalf("the line did not panic; logs:\n%s", logs)
+			}
+			for _, aid := range []int{1, 69} {
+				if _, err := c.Anime(ctx, aid); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 1 {
+					t.Fatalf("anime %d: %v, %d requests; want it refused, AniDB asked once", aid, err, requests.Load())
+				}
+			}
+			dir := filepath.Dir(c.statePath)
+			if ok, _ := NewAniDB(fetch.New(dir), dir, "test", "1").allowed(69, false); ok {
+				t.Error("after a restart: allowed")
+			}
+		})
+	}
+}
+
+// runOn is a log handler that runs do when msg is logged, on the goroutine
+// that logs it, before the line goes on to the next handler.
+type runOn struct {
+	msg string
+	do  func()
+	slog.Handler
+}
+
+func (h runOn) Handle(ctx context.Context, r slog.Record) error {
+	if r.Message == h.msg {
+		h.do()
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+// A panic in sending ends its call. A caller that comes in before the
+// download leaves fetch's calls under way (here while fetch logs the panic)
+// is counted for a new call and joins that download, which sends nothing:
+// that call is given back too. Kept, it would hold one of the day's calls,
+// and the next caller would join it and skip admit's checks. The backoff
+// the panic starts holds even when result's state write fails too, and its
+// log line panics.
+func TestAniDBSendingPanicGivesBackAJoinersCall(t *testing.T) {
+	const notSaved = "AniDB state not saved; a restart now would forget the latest calls"
+	for name, resultSaveFails := range map[string]bool{"result saves": false, "result's save panics": true} {
+		t.Run(name, func(t *testing.T) {
+			c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
+			notDir := filepath.Join(t.TempDir(), "file")
+			if err := os.WriteFile(notDir, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			good, bad := c.statePath, filepath.Join(notDir, "anidb-state.json") // every state write to bad fails
+			setStatePath := func(path string) {
+				c.mu.Lock()
+				c.statePath = path
+				c.mu.Unlock()
+			}
+			setStatePath(bad)
+			gaveUp, cancel := context.WithCancel(context.Background())
+			cancel() // the second caller joins the download and returns at once
+			var joined error
+			logs := &logBuffer{}
+			old := slog.Default()
+			slog.SetDefault(slog.New(runOn{"download panicked", func() {
+				setStatePath(good)
+				_, joined = c.Anime(gaveUp, 1)
+				if resultSaveFails {
+					setStatePath(bad)
+				}
+			}, panicOn{notSaved, "(*AniDB).sending", panicOn{notSaved, "(*AniDB).result", slog.NewTextHandler(logs, nil)}}}))
+			t.Cleanup(func() { slog.SetDefault(old) })
+			ctx := context.Background()
+			if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
+				t.Fatalf("err %v, want the panic", err)
+			}
+			setStatePath(good)
+			if !errors.Is(joined, context.Canceled) {
+				t.Fatalf("second caller: %v, want it to join the download and give up", joined)
+			}
+			if panicked := strings.Contains(logs.String(), "download's Done panicked"); panicked != resultSaveFails {
+				t.Fatalf("result panicked: %v, want %v; logs:\n%s", panicked, resultSaveFails, logs)
+			}
+			if _, err := c.Anime(ctx, 69); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 0 {
+				t.Fatalf("another anime: %v, %d requests; want it refused in the backoff, nothing sent", err, requests.Load())
+			}
+			if st := c.stateOf(1); st.calls != 0 || st.calling != nil {
+				t.Fatalf("state %+v; want no call counted or under way", st)
+			}
+			c.endBackoff()
+			if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 || c.stateOf(1).calls != 1 {
+				t.Errorf("after the backoff: %v, %d requests, %d counted; want the entry, asked and counted once", err, requests.Load(), c.stateOf(1).calls)
+			}
+		})
+	}
+}
