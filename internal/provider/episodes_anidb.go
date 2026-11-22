@@ -116,10 +116,9 @@ type plexEpisodes struct {
 }
 
 // read reads the list into list (again: the same list), recording in m that
-// it failed or came back partial. Returns false then.
-func (l *plexEpisodes) read(m *misses) bool {
+// it failed or came back partial.
+func (l *plexEpisodes) read(m *misses) {
 	l.list = pairedList[tvdbSite]{l.x.get(m), l.at}
-	return !l.x.failed()
 }
 
 // on: the list has a place for ep (plexListNeeded).
@@ -215,19 +214,19 @@ func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 // directors, writers and producers in EPISODE_CREW_SOURCES' order
 // (episodeCrew, which adds their photos to photos; AniDB has none per
 // episode). For titles and fill values, Plex's list is read only when it can
-// add something (plexListNeeded); for crew, always (plexCrewRead). Returns
-// false when a list it needed failed or came back partial, or episode crew
-// is still being fetched or a record's request failed.
+// add something (plexListNeeded); for crew, always (plexCrewRead). A list it
+// needed that failed or came back partial, and episode crew still being
+// fetched or whose request failed, are recorded in lists.miss. Returns
+// whether that ledger is empty.
 func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists *episodeLists, photos *crewPhotos) bool {
 	if !lists.tvdb.fetches() && !lists.tmdb.fetches() && !lists.plex.x.fetches() {
-		return true
+		return lists.miss.empty()
 	}
 	var wg group
 	lists.tvdb.start(&wg) // both at once (started ahead: these wait for it)
 	lists.tmdb.start(&wg)
 	wg.Wait()
 	tv, tm := lists.tvdb.get(&lists.miss), lists.tmdb.get(&lists.miss)
-	tvOK, tmOK := !lists.tvdb.failed(), !lists.tmdb.failed()
 
 	es := p.spotsOf(entry)
 	tvList := pairedList[tvdbSite]{tv, func(ep *Ep) (tvdbSpot, bool) {
@@ -251,7 +250,8 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 	// EPISODE_FILL_SOURCES in order: each fills what is still blank. Plex's
 	// list is read, once, when its turn comes and it can add something.
 	lists.plex.at = tvList.at // Plex's list is placed by its spots: its order is TheTVDB's
-	px := plexFill{l: &lists.plex, miss: &lists.miss, tvdbOK: lists.tvdb.fetches() && tvOK, record: record}
+	tvdbOK := lists.tvdb.fetches() && !lists.miss.has(missTVDBEpisodes)
+	px := plexFill{l: &lists.plex, miss: &lists.miss, tvdbOK: tvdbOK, record: record}
 	fillFrom := func(l pairedList[tvdbSite], code srcCode) {
 		eachAniDBEpisode(s, func(ep *Ep) {
 			if e, ok := l.of(ep); ok {
@@ -279,8 +279,8 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			"exceptions", len(entry.TVDB.Episodes), "episodes", len(s.Episodes[1])+len(s.Episodes[0]), "paired_tvdb", paired,
 			"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB, "paired_plex", px.paired)
 	}
-	crewOK := p.episodeCrew(ctx, s, tmList, &lists.plex, nil, photos, &lists.miss)
-	return tvOK && tmOK && !lists.plex.x.failed() && crewOK
+	p.episodeCrew(ctx, s, tmList, &lists.plex, nil, photos, &lists.miss)
+	return lists.miss.empty()
 }
 
 // plexFill is Plex's episode list's read for titles and fill values in

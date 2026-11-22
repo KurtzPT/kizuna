@@ -43,14 +43,13 @@ func (p *Provider) plexCrewRead(tvdb int) bool {
 // /tvdb with tvdb first; nil or without f, asked here for the episodes with
 // a gap: tvdbCrew), TheMovieDb's list (tm) and Plex's (px, read here for crew
 // when its read for titles or fill values didn't happen: plexCrewRead).
-// Returns false while TheTVDB's records are still being fetched, or when a
-// record's request (TVDB.EpisodeCrew's pending) or Plex's list failed. m is
+// TheTVDB's records still being fetched, or a record's request that failed
+// (TVDB.EpisodeCrew's pending), and Plex's list failing are recorded in m,
 // the episodes' ledger.
 func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList[tmdbSite], px *plexEpisodes, records *lazy[crewRecords],
-	cp *crewPhotos, m *misses) bool {
-	plexOK := true
+	cp *crewPhotos, m *misses) {
 	if px.crew {
-		plexOK = px.read(m)
+		px.read(m)
 	}
 	crew, pending := p.walkCrew(cp, tm, px.list, func(prior []string) (map[int]sources.Crew, bool) {
 		if records != nil && records.fetches() {
@@ -60,7 +59,9 @@ func (p *Provider) episodeCrew(ctx context.Context, s *Show, tm pairedList[tmdbS
 		return p.tvdbCrew(ctx, s, prior, cp, tm, px.list)
 	})
 	applyCrew(s, p.cfg.EpisodeCrewSources, crew, tm, px.list)
-	return !pending && plexOK
+	if pending {
+		m.add(missCrewRecords)
+	}
 }
 
 // walkCrew walks EPISODE_CREW_SOURCES once, adding each source's photos to

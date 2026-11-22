@@ -716,7 +716,6 @@ type lazy[T any] struct {
 	miss miss // what a read records when f failed
 	v    T
 	err  error
-	read atomic.Bool // get was called (failed)
 	ran  atomic.Bool // f ran: v is set (done)
 	// panicked: the panic f ended with. Every later caller panics with it
 	// too: f may have run on another goroutine than the one reading (start).
@@ -726,7 +725,6 @@ type lazy[T any] struct {
 // get gives the value, fetched once, and records in m that it failed. The
 // once orders the fetch's error before the record.
 func (l *lazy[T]) get(m *misses) T {
-	l.read.Store(true)
 	l.fetch()
 	m.failed(l.miss, l.err)
 	return l.v
@@ -793,10 +791,6 @@ func (l *lazy[T]) from(x miss, id int, on bool, f func() (T, error)) {
 		l.f = f
 	}
 }
-
-// failed: f ran and failed, other than with a 404, and the value was read.
-// Call it only after the get calls are done.
-func (l *lazy[T]) failed() bool { return l.read.Load() && l.err != nil && !fetch.IsNotFound(l.err) }
 
 // uniqueCast drops repeated cast entries (same person, same character, as
 // sources sometimes list them twice), keeping the first one's place and the

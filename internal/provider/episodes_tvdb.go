@@ -168,13 +168,6 @@ func (b *tvdbBuild) start(ctx context.Context, p *Provider, s *Show) {
 	b.crew.start(&b.started)
 }
 
-// loadTMDB waits for TheMovieDb's episode list (startTMDB fetches it).
-// Returns false when it failed or came back partial.
-func (b *tvdbBuild) loadTMDB() bool {
-	b.tmdbEps.get(&b.miss)
-	return !b.tmdbEps.failed()
-}
-
 // onTMDBShow reports whether an entry has a place on the show on TheMovieDb.
 // Every entry walked is on the TVDB series; an entry of another TMDB show
 // has no place on this one.
@@ -245,17 +238,18 @@ func (p *Provider) tvdbPairing(b *tvdbBuild, record bool) (pr tvdbPairing, ready
 // tvdbEpisodeTitles adds every title EPISODE_TITLES may pick to a /tvdb show:
 // TheMovieDb's (TheTVDB's, from the episode list, is already set), paired
 // through AniDB (tvdbPairing), and AniDB's, through every AniDB entry of the
-// series. TheMovieDb's list is b.tmdbEps (loadTMDB). Returns the pairing for
-// the crew (episodeCrew), and false while some AniDB entries are still
-// missing.
-func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild) (tvdbPairing, bool) {
+// series. TheMovieDb's list is b.tmdbEps. Returns the pairing for the crew
+// (episodeCrew). Some AniDB entries still missing are recorded in b.miss.
+func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild) tvdbPairing {
 	order := p.cfg.EpisodeTitles
 	tmdbOn := b.tmdbOn()
 	rec := report.RecorderFrom(ctx)
 	var pr tvdbPairing
-	ready := true
 	if tmdbOn || slices.Contains(order, "anidb") { // TheMovieDb's list needs the pairing: its crew, its season posters
-		pr, ready = p.tvdbPairing(b, rec != nil)
+		var ready bool
+		if pr, ready = p.tvdbPairing(b, rec != nil); !ready {
+			b.miss.add(missLaterEntries)
+		}
 		if len(pr.loading) > 0 { // only when recording
 			ids := make([]string, len(pr.loading))
 			for i, aid := range pr.loading {
@@ -282,7 +276,7 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 			}
 		})
 	}
-	return pr, ready
+	return pr
 }
 
 // tvdbPlexTitles adds Plex's episode titles to a /tvdb show, when its list
@@ -290,14 +284,13 @@ func (p *Provider) tvdbEpisodeTitles(ctx context.Context, s *Show, b *tvdbBuild)
 // episodes' other values come only from TheTVDB). It reuses the list start
 // read for crew. Plex's episodes are in TheTVDB's aired order: each lands at
 // its own TheTVDB spot (Ep.listed), not TheMovieDb's. They set no TheTVDB
-// episode (Ep.tvdbEp). Returns false when the list failed or came back
-// partial.
-func (p *Provider) tvdbPlexTitles(ctx context.Context, s *Show, b *tvdbBuild) bool {
+// episode (Ep.tvdbEp). The list failing or coming back partial is recorded
+// in b.miss.
+func (p *Provider) tvdbPlexTitles(ctx context.Context, s *Show, b *tvdbBuild) {
 	if !b.plex.x.fetches() || !p.plexListNeeded(s, !b.partial, false, b.plex.on) {
-		return true
+		return
 	}
-	ok := b.plex.read(&b.miss)
+	b.plex.read(&b.miss)
 	record := report.RecorderFrom(ctx) != nil
 	s.eachEpisode(func(ep *Ep) { b.plex.list.title(ep, "plex", record) })
-	return ok
 }

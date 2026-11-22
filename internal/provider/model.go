@@ -665,21 +665,21 @@ func (p *Provider) warnSharedAbsolute(tvdbID int, eps []sources.Episode, own abs
 // the show's sources, its targets set). They touch different parts of s, so
 // both are fetched at once. TheMovieDb's episode list is fetched once, for
 // the titles, the crew and the season posters, when a setting asks it for
-// one of them (tvdbBuild.tmdbOn). Returns false while other AniDB entries
-// or episode crew are still being fetched, or when a source failed.
+// one of them (tvdbBuild.tmdbOn). What the episodes miss (other AniDB
+// entries or episode crew still being fetched, a list that failed) is
+// recorded in b.miss. Returns false when b.miss holds something or a source
+// failed.
 func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *showSources) bool {
 	var wg group
 	defer wg.Wait() // when a panic skips the Wait below (group)
-	var tmdbOK, titlesReady, plexOK, crewReady bool
 	var pairs map[int]int
 	wg.Go(func() {
-		tmdbOK = b.loadTMDB()
-		var pr tvdbPairing
-		pr, titlesReady = p.tvdbEpisodeTitles(ctx, s, b)
-		plexOK = p.tvdbPlexTitles(ctx, s, b)
+		b.tmdbEps.get(&b.miss) // waits for TheMovieDb's episode list (startTMDB fetches it)
+		pr := p.tvdbEpisodeTitles(ctx, s, b)
+		p.tvdbPlexTitles(ctx, s, b)
 		pairs = tmdbSeasonPairs(s, b.tmdbEps.get(&b.miss), pr)
 		p.pickEpisodeTitles(s)
-		crewReady = p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(&b.miss), pr.otherAt}, &b.plex, &b.crew, &b.photos, &b.miss)
+		p.episodeCrew(ctx, s, pairedList[tmdbSite]{b.tmdbEps.get(&b.miss), pr.otherAt}, &b.plex, &b.crew, &b.photos, &b.miss)
 	})
 	ss.fill(s) // the seasons' TheTVDB art is fetched with the show's
 	wg.Wait()
@@ -687,7 +687,7 @@ func (p *Provider) enrichTVDB(ctx context.Context, s *Show, b *tvdbBuild, ss *sh
 	ss.pairTMDB(pairs, b.tmdbEps.get(&b.miss).posters)
 	ss.fillSeasons(s)
 	sourcesOK := ss.finish(s)
-	return tmdbOK && titlesReady && plexOK && crewReady && sourcesOK
+	return b.miss.empty() && sourcesOK
 }
 
 // finishTVDB fills what no source gave: a title, and the first regular
