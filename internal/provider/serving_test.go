@@ -93,7 +93,6 @@ func TestReadMatchManyQueryKeys(t *testing.T) {
 	}
 }
 
-// countingReader counts the bytes read from r.
 type countingReader struct {
 	r    io.Reader
 	read int

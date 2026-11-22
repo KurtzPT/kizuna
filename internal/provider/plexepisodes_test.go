@@ -25,7 +25,6 @@ func fullTVDB(path string, q map[string][]string) (int, string) {
 	return testSeries(path, q)
 }
 
-// tvdbOff: TheTVDB not set up.
 func tvdbOff(t *testing.T) func(p *Provider) {
 	return func(p *Provider) { p.tvdb = sources.NewTVDB(fetch.New(t.TempDir()), "", "", "") }
 }
@@ -203,7 +202,6 @@ type crewWant struct {
 	dSrc, wSrc         string
 }
 
-// checkCrew compares a show's episodes with wants.
 func checkCrew(t *testing.T, name string, s *Show, wants []crewWant) {
 	t.Helper()
 	for _, w := range wants {

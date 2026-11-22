@@ -248,7 +248,6 @@ func completeWorlds() []completeWorld {
 	return out
 }
 
-// failures: how req fails in w.
 func (w completeWorld) failures(req *sourceRequest) []sourceFailure {
 	switch {
 	case req.own != w.setup.own,

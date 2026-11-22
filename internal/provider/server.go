@@ -350,8 +350,6 @@ func (p *Provider) metadata(w http.ResponseWriter, r *http.Request, mode Mode) {
 	writeJSON(w, http.StatusOK, container(mode, []Item{*item}, 0, 1))
 }
 
-// --- helpers ---------------------------------------------------------------
-
 func container(mode Mode, items []Item, offset, total int) Container {
 	return Container{MediaContainer{Offset: offset, TotalSize: total, Size: len(items),
 		Identifier: mode.Identifier(), Metadata: items}}

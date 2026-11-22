@@ -88,7 +88,6 @@ func TestGetJSONRejectsWrongShape(t *testing.T) {
 	}
 }
 
-// decodes counts how often a counted is decoded.
 var decodes atomic.Int32
 
 type counted struct{ A int }
@@ -161,7 +160,6 @@ func brokenCopy(t *testing.T, c *Client, key string) string {
 	return body
 }
 
-// cachedBody returns key's cached bytes.
 func cachedBody(t *testing.T, c *Client, key string) string {
 	t.Helper()
 	data, _, ok := c.Cached(key)
@@ -188,7 +186,6 @@ func traced() (context.Context, func() []Event) {
 	}
 }
 
-// kinds lists events' kinds.
 func kinds(events []Event) []Kind {
 	var k []Kind
 	for _, e := range events {
@@ -216,14 +213,12 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
-// count says how many times msg was logged.
 func (l *lockedBuffer) count(msg string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return strings.Count(l.b.String(), "msg=\""+msg+"\"")
 }
 
-// captureLogs sends the default logger to a buffer for the test.
 func captureLogs(t *testing.T) *lockedBuffer {
 	logs := &lockedBuffer{}
 	old := slog.Default()

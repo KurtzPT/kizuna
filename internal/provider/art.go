@@ -16,7 +16,6 @@ import (
 // have art of the kind for seasons (SEASON_ART_FALLBACK: their series' art
 // when the season has none); every other source gives its series' art.
 
-// artKind is one of the image kinds Kizuna sends Plex.
 type artKind int
 
 const (

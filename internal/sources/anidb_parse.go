@@ -40,7 +40,6 @@ func (c *AniDB) validate(b []byte) (*AniDBAnime, error) {
 // bytes; looking only there skips the rest of a big answer.
 const headSize = 300
 
-// inHead reports whether tag appears in the first headSize bytes of b.
 func inHead(b []byte, tag string) bool {
 	return bytes.Contains(b[:min(len(b), headSize)], []byte(tag))
 }

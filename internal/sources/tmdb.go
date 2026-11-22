@@ -54,7 +54,6 @@ func tmdbSharedAs[T any](ctx context.Context, t *TMDB, m *fetch.Memo[string, *T]
 	return sharedJSON(ctx, t.keys, t.f, m, r)
 }
 
-// request is the request for path, kept under key for ttl.
 func (t *TMDB) request(path, query, key string, ttl time.Duration) fetch.Request {
 	return fetch.Request{URL: fmt.Sprintf("%s%s?api_key=%s%s", tmdbAPI, path, t.key, query), Key: key, TTL: ttl}
 }

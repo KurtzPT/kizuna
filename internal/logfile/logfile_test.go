@@ -331,7 +331,6 @@ func TestOldFileIsAppendedToAnExistingDatedFile(t *testing.T) {
 	}
 }
 
-// failingFile is a file whose write or close fails.
 type failingFile struct {
 	wrote              strings.Builder // not embedded: io.Copy would use its WriteString and skip Write
 	writeErr, closeErr error

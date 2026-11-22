@@ -600,7 +600,6 @@ func crewLogged(logs, dir, msg string) bool {
 	return false
 }
 
-// loadLogged loads the memory from dir and returns the log it wrote.
 func loadLogged(dir string) (*crewMemory, string) {
 	var logs strings.Builder
 	restore := captureLogs(&logs)
@@ -608,7 +607,6 @@ func loadLogged(dir string) (*crewMemory, string) {
 	return loadCrewMemory(dir), logs.String()
 }
 
-// saveLogged learns photo for key, saves, and returns the log it wrote.
 func saveLogged(m *crewMemory, key, photo string) string {
 	var logs strings.Builder
 	restore := captureLogs(&logs)

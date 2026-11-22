@@ -261,8 +261,6 @@ func (r *Recorder) snapshot(requeue func()) (Build, ShowHead) {
 	return b, r.head
 }
 
-// --- context ---------------------------------------------------------------
-
 type recorderKey struct{}
 type matchKey struct{}
 type requestKey struct{}

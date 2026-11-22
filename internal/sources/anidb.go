@@ -417,7 +417,6 @@ func newAniDBMemo() *fetch.Memo[int, anidbMemo] {
 	return fetch.NewMemo[int, anidbMemo](time.Hour, 5*time.Minute)
 }
 
-// anidbKey is the cache file of an anime's entry.
 func anidbKey(aid int) string { return fmt.Sprintf("anidb/anime/%d.xml", aid) }
 
 // endedFor: a series that ended this long ago is finished, and its data

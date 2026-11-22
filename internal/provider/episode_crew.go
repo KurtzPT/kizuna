@@ -240,7 +240,6 @@ func (cp *crewPhotos) lastKey(name string) string {
 	return nameKey(name)
 }
 
-// add adds people's photos as src's.
 func (cp *crewPhotos) add(src srcCode, people []sources.Person) {
 	if len(people) == 0 {
 		return

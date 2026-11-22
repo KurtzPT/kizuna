@@ -535,7 +535,6 @@ func expired(r IndexRow) bool {
 	return time.Since(r.Last) > showMaxAge
 }
 
-// remove deletes a page and its data.
 func (s *Store) remove(key string) error {
 	for _, path := range []string{s.pagePath(key), s.dataPath(key)} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -641,7 +640,6 @@ func (s *Store) writeUnmatched(key string, p *pending) error {
 	return nil
 }
 
-// showRow is a show page's index row.
 func showRow(doc showFile) IndexRow {
 	row := IndexRow{Schema: doc.Schema, Key: doc.Key, Kind: "show", Title: doc.Title, Orig: doc.Orig, Builds: len(doc.Builds), Requests: len(doc.Requests)}
 	for _, b := range doc.Builds {
@@ -667,7 +665,6 @@ func showRow(doc showFile) IndexRow {
 	return row
 }
 
-// unmatchedRow is an unmatched title's index row.
 func unmatchedRow(doc UnmatchedDoc) IndexRow {
 	row := IndexRow{Schema: doc.Schema, Key: doc.Key, Kind: "unmatched", Title: doc.Match.Title, Year: doc.Match.Year, Last: doc.Last,
 		Requests: len(doc.Requests), MinScore: doc.Match.MinScore, Modes: []string{doc.Match.Mode}}

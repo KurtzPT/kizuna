@@ -58,7 +58,6 @@ type TVDB struct {
 
 const seriesMemoFor = time.Minute
 
-// seriesTTL: how long the extended series record is cached.
 const seriesTTL = 7 * 24 * time.Hour
 
 // tvdbSeries: what DetailsAndSeasons and seasonID read of the extended
@@ -328,7 +327,6 @@ func (t *TVDB) requestTokenNow(ctx context.Context, legacy bool, done chan struc
 // tvdbRenewTimeout bounds a background renewal, like a request's HTTP timeout.
 const tvdbRenewTimeout = 30 * time.Second
 
-// requestToken logs in with the v4 or the legacy key.
 func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
 	creds := map[string]string{"apikey": t.key, "pin": t.pin}
 	if legacy {
@@ -446,7 +444,6 @@ func tvdbShared[T any](ctx context.Context, t *TVDB, m *fetch.Memo[string, *T], 
 func (t *TVDB) request(ctx context.Context, legacy bool, o getOpts, path, key string, ttl time.Duration) (fetch.Request, func(fetch.Request) (fetch.Request, error)) {
 	r := fetch.Request{Key: cacheFolder(legacy) + key, TTL: ttl, Quiet: o.quiet, NoStale: o.noStale, Background: o.background,
 		NotFound: o.notFound, NotFoundTTL: o.notFoundTTL}
-	// The login runs only when the cache has no fresh answer.
 	ready := func(req fetch.Request) (fetch.Request, error) {
 		token, tokenLegacy, err := t.login(ctx)
 		if err != nil {
@@ -545,7 +542,6 @@ type tvdbEpisode struct {
 	Runtime  int    `json:"runtime"`
 }
 
-// episodesTTL: how long a page of an episode list is cached.
 const episodesTTL = 2 * 24 * time.Hour
 
 func episodesKey(id, page int) string { return fmt.Sprintf("%d/episodes-%d.json", id, page) }
@@ -695,7 +691,6 @@ func (t *TVDB) DetailsAndSeasons(ctx context.Context, id int) (Details, map[int]
 	return seriesDetails(r), ids, nil
 }
 
-// seriesDetails reads Details from the extended series record.
 func seriesDetails(r *tvdbSeries) Details {
 	d := Details{Date: r.FirstAired}
 	for _, g := range r.Genres {

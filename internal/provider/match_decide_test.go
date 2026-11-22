@@ -292,7 +292,6 @@ func TestDecideLogsWarning(t *testing.T) {
 	}
 }
 
-// fakePeek is cached AniDB details by aid.
 type fakePeek map[int]*sources.AniDBAnime
 
 func (f fakePeek) Peek(aid int) (*sources.AniDBAnime, bool) { return f[aid], true }

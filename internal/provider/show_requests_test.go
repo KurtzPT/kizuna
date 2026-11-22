@@ -79,7 +79,6 @@ type fieldCase struct {
 	fail []string // paths (host and path) that answer 500
 }
 
-// showFieldLists: the source lists of the show fields.
 func showFieldLists(c *config.Config) []*[]string {
 	return []*[]string{&c.TitleSources, &c.SummarySources, &c.GenreSources, &c.CastSources, &c.StudioSources,
 		&c.CrewSources, &c.RatingSources, &c.DateSources}

@@ -51,7 +51,6 @@ func main() {
 	// TZ (maybe from the file) before the log file opens: its days follow it.
 	tzErr := config.SetTimeZone()
 
-	// Two levels: info (what happened) and debug (everything needed to see why).
 	level, bad := slog.LevelInfo, ""
 	switch v := strings.ToLower(strings.TrimSpace(config.LogLevel())); v {
 	case "", "info":
@@ -61,9 +60,6 @@ func main() {
 		bad = v
 	}
 
-	// Logs go to standard output (docker logs) and, for the server, to
-	// <DATA_DIR>/logs/kizuna.log: one file per day, older days renamed
-	// kizuna-YYYY-MM-DD.log and deleted after LOG_RETENTION_DAYS.
 	// A bad LOG_RETENTION_DAYS is reported before the log file is open, so
 	// that warning is held back and written once the real logger is set.
 	out, fileErr, archiveErr := io.Writer(os.Stdout), error(nil), error(nil)
@@ -241,7 +237,6 @@ func serve(cfg config.Config) error {
 	}
 	p, tvdb, keepLoaded := setup(ctx, cfg)
 	defer p.Flush() // after the drain below: the builds it waits for may replace crew photos
-	// Match reports (MATCH_REPORTS=true): an HTML page per show in <DATA_DIR>/reports.
 	if cfg.MatchReports {
 		if reports, err := report.Open(filepath.Join(cfg.DataDir, "reports"), provider.Version); err == nil {
 			p.SetReports(reports)
@@ -251,7 +246,6 @@ func serve(cfg config.Config) error {
 			slog.Warn("can't write match reports (check the data folder's permissions)", "err", err)
 		}
 	}
-	// Opening and ending titles (PLEX_URL + PLEX_TOKEN): set through Plex's API.
 	renamer := extraTitles(cfg)
 	if renamer != nil {
 		p.OnExtrasRequest(renamer.Queue)
