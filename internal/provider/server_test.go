@@ -93,6 +93,10 @@ func TestPanickingBuildIsReleased(t *testing.T) {
 	if !strings.Contains(logs.String(), `level=ERROR msg="show build panicked"`) {
 		t.Errorf("logs:\n%s\nwant the panic logged", logs.String())
 	}
+	// The build wakes its callers before it counts itself out of running.
+	if !p.WaitBuilds(ctx) {
+		t.Fatal("a build is still running")
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if len(p.builds) != 0 || len(p.shows) != 0 || p.running != 0 {
