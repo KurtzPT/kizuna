@@ -178,6 +178,7 @@ func (c *AniDB) sending(aid int, background bool) (*anidbCall, error) {
 	return call, err
 }
 
+// sendingLocked is sending's work. Caller holds c.mu.
 func (c *AniDB) sendingLocked(aid int, background bool) (*anidbCall, error) {
 	now := time.Now()
 	call := c.calling[aid]
