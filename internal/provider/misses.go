@@ -136,8 +136,13 @@ func (m *misses) isAhead() bool { return m.state == ledgerAhead }
 // has: x is recorded.
 func (m *misses) has(x miss) bool { return m.set&(1<<x) != 0 }
 
-// merge adds o's misses to m, and marks o merged: o's actor is done.
+// merge adds o's misses to m, and marks o merged: o's actor is done. ahead
+// is shared by every build and never done: merging it panics instead of
+// marking it merged for all of them.
 func (m *misses) merge(o *misses) {
+	if o.isAhead() {
+		panic("provider: the read-ahead ledger merged into a build's")
+	}
 	if m.open() && o.open() {
 		m.set |= o.set
 		m.seasons = append(m.seasons, o.seasons...)

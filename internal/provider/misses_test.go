@@ -76,4 +76,11 @@ func TestMissesLedger(t *testing.T) {
 		panics(t, func() { actor.failed(missTVDBText, nil) })
 		panics(t, func() { build.merge(&actor) })
 	})
+	t.Run("merging ahead panics and leaves it ahead", func(t *testing.T) {
+		var build misses
+		panics(t, func() { build.merge(ahead) })
+		if !ahead.isAhead() {
+			t.Error("ahead is no longer the read-ahead ledger")
+		}
+	})
 }
