@@ -73,6 +73,7 @@ docker build -t kizuna .
 | 🔒 | **Never log or return a secret.** New keys or tokens must be redacted by `fetch.Redact` | logs get pasted into public issues |
 | 🛡️ | **Keep the access checks** (`ALLOW_FROM`, `ALLOWED_HOSTS`) on every route | Kizuna has no login, see [SECURITY.md](SECURITY.md) |
 | 🧪 | **Tests stay offline**: fixtures and `httptest`, never a real API | CI and contributors have no keys |
+| 🧯 | **Every goroutine recovers its own panic**, through the helpers the `internal/lint` failure names | a panic on any goroutine ends Kizuna for every show |
 | 📖 | **Docs and code change together.** Update the doc that describes what you change ([where](#%EF%B8%8F-code-map)) | the docs are the only manual |
 | 🔢 | **Leave the Go version alone.** Upgrades to `go.mod` and the `Dockerfile` are automated | keeps your pull request to one change |
 
@@ -103,6 +104,9 @@ bash scripts/ghcr-cleanup_test.sh     # the image cleanup script's (offline, nee
 bash scripts/dev-image_test.sh        # when :dev is published, and the image's file list (offline, needs jq)
 node scripts/report-page_test.js      # the match report page's script (offline, plain Node)
 ```
+
+`go test` includes `internal/lint`, the repository's own rules. A failure there names the fix, and
+`//lint:allow <rule>: <why>` on the line is the way to make a deliberate exception.
 
 CI also fuzzes the parsers for a few seconds each (the `Fuzz*` tests; their seeds run with `go test`), runs
 [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh) on the workflows, and CodeQL.
@@ -137,6 +141,7 @@ internal/sources                AniDB HTTP API (fair use), TheTVDB v4 + v3, TheM
 internal/provider               modes, matching, show model, Plex JSON, HTTP routes
 internal/plex                   opening and ending titles, set through Plex's API (PLEX_URL)
 internal/report                 match reports (MATCH_REPORTS): an HTML page per show
+internal/lint                   the repository's own rules, run by go test
 scripts/report-page_test.js     the report page's tests, on fixture pages in scripts/testdata/report
 scripts/kizuna-migrate.sh       .plexmatch hints for existing libraries (not in the image)
 scripts/kizuna-migrate_test.sh  its behaviour tests: sources it, runs it on a fixture library

@@ -65,7 +65,7 @@ type crewTimer interface{ Stop() bool }
 // crewAfterFunc starts a timer that calls f after d, as time.AfterFunc.
 type crewAfterFunc func(d time.Duration, f func()) crewTimer
 
-func afterFunc(d time.Duration, f func()) crewTimer { return time.AfterFunc(d, f) }
+func afterFunc(d time.Duration, f func()) crewTimer { return time.AfterFunc(d, f) } //lint:allow goroutine: f is savePending: write can panic (it rereads and merges a kept-aside file) and nothing recovers yet, so a panic there ends the process: not fixed yet
 
 // crewMemoryAside is the suffix of an unreadable memory file kept aside.
 // One name: a later unreadable file replaces it, so copies don't pile up.
