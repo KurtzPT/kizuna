@@ -323,6 +323,11 @@ func TestCrewMemoryDelayedSavePanics(t *testing.T) {
 	if !m.mu.TryLock() {
 		t.Fatal("the memory stays locked after the panic: every photo read would hang")
 	}
+	m.mu.Unlock()
+	// After a failed save, the next build's save runs in the build: the same
+	// panic there is a failed save too, not a failed show.
+	m.save()
+	m.mu.Lock()
 	m.photos = map[string]string{"a": "a.jpg"}
 	m.mu.Unlock()
 	m.flush()

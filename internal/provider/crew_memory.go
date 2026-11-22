@@ -211,28 +211,19 @@ func (m *crewMemory) saveSoon() {
 	m.pending = true
 	if m.after != nil {
 		m.timer = m.after(crewSaveDelay, m.savePending)
-	} else { // called directly, so the goroutine lint sees savePending recover
-		m.timer = time.AfterFunc(crewSaveDelay, m.savePending)
+	} else {
+		m.timer = time.AfterFunc(crewSaveDelay, m.savePending) //lint:allow goroutine: savePending's one step that can panic, write, recovers on its own
 	}
 }
 
 // savePending saves when a save is pending: the timer's call. A timer that
-// fires after flush (or save) took its photos finds nothing to do. The
-// timer runs it on a goroutine of its own, outside every build's recover:
-// a panic there is logged and the save counts as failed, so the next save
-// and the shutdown's flush try again.
+// fires after flush (or save) took its photos finds nothing to do.
 func (m *crewMemory) savePending() {
 	if m == nil || m.path == "" {
 		return
 	}
 	m.saveMu.Lock()
 	defer m.saveMu.Unlock()
-	defer func() {
-		if r := recover(); r != nil {
-			fetch.LogPanic("crew photos save panicked; the photos stay remembered, and the next save tries again", r, "path", m.path)
-			m.wrote(false)
-		}
-	}()
 	if m.takePending() {
 		m.wrote(m.write())
 	}
@@ -282,7 +273,16 @@ func (m *crewMemory) save() {
 // write writes the memory to its file (under saveMu) and reports whether
 // the file now holds it. A failed write is a warning: the memory still
 // works, and the next build that learned or replaced a photo saves again.
-func (m *crewMemory) write() bool {
+// A panic is logged and is a failed write too: write runs on the delayed
+// save's timer goroutine, outside every build's recover, and in builds,
+// where a crew file must not fail the show.
+func (m *crewMemory) write() (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			fetch.LogPanic("crew photos save panicked; the photos stay remembered, and the next save tries again", r, "path", m.path)
+			ok = false
+		}
+	}()
 	// A file not moved aside isn't overwritten: the save waits for the next.
 	if m.keepAside && !m.reread() {
 		return false
