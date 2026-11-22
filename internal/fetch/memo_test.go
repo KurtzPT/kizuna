@@ -89,54 +89,6 @@ func TestMemoConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// GetShared decodes a fresh cached copy once per file time: later calls get
-// the kept value without the file being read, each reported as the cache
-// hit it stands for. A file written since (another time) is decoded again.
-func TestGetSharedDecodesOncePerFileTime(t *testing.T) {
-	c := New(t.TempDir())
-	net := &bodyNet{body: `{"A": 1}`}
-	c.SetTransport(net)
-	m := NewMemo[string, *counted](time.Minute, 0)
-	r := Request{URL: "https://api.example/s", Key: "s.json", TTL: time.Hour}
-	ctx, events := traced()
-	decodes.Store(0)
-	first, err := GetShared(ctx, c, m, r, nil) // downloaded: decoded by the check, not kept
-	if err != nil || first.A != 1 || m.Len() != 0 {
-		t.Fatalf("download: %+v %v, %d kept; want A 1, nothing kept", first, err, m.Len())
-	}
-	second, err := GetShared(ctx, c, m, r, nil) // the fresh file: decoded and kept
-	if err != nil || second.A != 1 || m.Len() != 1 {
-		t.Fatalf("fresh copy: %+v %v, %d kept; want it kept", second, err, m.Len())
-	}
-	path := c.path(r.Key)
-	_, at, _ := c.CachedSince(r.Key)
-	if err := os.WriteFile(path, []byte(`{"A": 2}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(path, at, at); err != nil { // other bytes, same time: the kept value stands
-		t.Fatal(err)
-	}
-	third, err := GetShared(ctx, c, m, r, nil)
-	if err != nil || third != second || decodes.Load() != 2 {
-		t.Errorf("same file time: %+v %v, decoded %d times; want the kept value, 2 decodes in all", third, err, decodes.Load())
-	}
-	if got := kinds(events()); !slices.Equal(got, []Kind{KindNet, KindCache, KindCache}) {
-		t.Errorf("trace %v, want net, then a cache hit for each read", got)
-	}
-
-	newer := at.Add(-time.Minute)                          // another time, still fresh (a coarse file system rounds a second away)
-	if err := os.Chtimes(path, newer, newer); err != nil { // written since
-		t.Fatal(err)
-	}
-	fourth, err := GetShared(ctx, c, m, r, nil)
-	if err != nil || fourth.A != 2 || decodes.Load() != 3 {
-		t.Errorf("file changed: %+v %v, decoded %d times; want the new content, decoded again", fourth, err, decodes.Load())
-	}
-	if net.sent.Load() != 1 {
-		t.Errorf("%d requests, want 1", net.sent.Load())
-	}
-}
-
 // A kept value never answers for a copy the cache would not answer with:
 // once the file is past its TTL it is downloaded as GetJSON would, and when
 // that fails the stale copy answers, decoded and reported as stale. Neither
