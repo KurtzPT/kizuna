@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,7 +33,10 @@ import (
 type fakeNet struct {
 	mu     sync.Mutex
 	answer func(path string, q map[string][]string) (int, string)
-	hits   map[string]int
+	// drop: the requests it holds get no answer at all, like a network
+	// error. nil: every request is answered.
+	drop func(path string, q map[string][]string) bool
+	hits map[string]int
 	// tokenElsewhere: hosts other than Plex's service that got X-Plex-Token.
 	tokenElsewhere []string
 }
@@ -50,6 +54,9 @@ func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.mu.Lock()
 	f.hits[path]++
 	f.mu.Unlock()
+	if f.drop != nil && f.drop(path, r.URL.Query()) {
+		return nil, errNoAnswer
+	}
 	code, body := http.StatusNotFound, `{}`
 	if f.answer != nil {
 		if c, b := f.answer(path, r.URL.Query()); c != 0 {
@@ -58,6 +65,9 @@ func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
 }
+
+// errNoAnswer is fakeNet.drop's network error.
+var errNoAnswer = errors.New("no answer")
 
 func (f *fakeNet) count(path string) int {
 	f.mu.Lock()

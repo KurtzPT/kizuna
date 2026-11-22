@@ -1,0 +1,1571 @@
+== nothing fails / default / anidb-100 / ANIDB_CLIENT set
+complete true
+== anidb no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 404 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb error answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== anidb 503 ban / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb login no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 401 key rejected / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb art no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb details no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== plex show 500 / default / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== mal no answer / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / default / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== ann no answer / default / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== ann 500 / default / anidb-100 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / default / anidb-200 / ANIDB_CLIENT set
+complete true
+== anidb no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 404 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb error answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== anidb 503 ban / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb login no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 401 key rejected / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text no answer / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 500 / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb details no answer / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb details 500 / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb text no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== plex show 500 / default / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== mal no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== ann no answer / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / default / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default / anidb-300 / ANIDB_CLIENT set
+complete true
+== anidb no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 404 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb error answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== anidb 503 ban / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb login no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb login 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb login 401 key rejected / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb series record no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb series record 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb episode list no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb episode list 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb crew records no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb crew records 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb details no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb text 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb art no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb season 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex match no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists no answer / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists 500 / default / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== mal no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== ann no answer / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / default / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default / anidb-300 / no ANIDB_CLIENT
+complete true
+== anidb no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 404 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb error answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 503 ban / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb login no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb login 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb login 401 key rejected / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb series record no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb series record 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb text no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb text 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb art no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb art 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb episode list no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb episode list 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb crew records no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb crew records 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tmdb details no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb details 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb text no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tmdb text 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tmdb art no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb art 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb season no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== tmdb season 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== plex match no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== plex match 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== plex show no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== plex show 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== plex seasons no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== plex seasons 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== plex episode lists no answer / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== plex episode lists 500 / default / anidb-300 / no ANIDB_CLIENT
+asked false
+complete true
+== mal no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== mal 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== ann no answer / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== ann 500 / default / anidb-300 / no ANIDB_CLIENT
+asked true
+complete false
+== nothing fails / default / tvdb-500 / ANIDB_CLIENT set
+complete true
+== anidb no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 404 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb error answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== anidb 503 ban / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb login no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Post "https://api4.thetvdb.com/v4/login": no answer
+== tvdb login 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 401 key rejected / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login
+== tvdb series record no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb art no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: Get "https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0": no answer
+== tvdb episode list 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: HTTP 500 from https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0
+== tvdb crew records no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb details no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== plex show 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== mal no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== ann no answer / default / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== ann 500 / default / tvdb-500 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / default / tvdb-500 / no ANIDB_CLIENT
+complete true
+== anidb no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 404 / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb error answer / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 503 ban / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== tvdb login no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Post "https://api4.thetvdb.com/v4/login": no answer
+== tvdb login 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 401 key rejected / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login
+== tvdb series record no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb series record 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb text no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb text 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb art no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb art 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb episode list no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: Get "https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0": no answer
+== tvdb episode list 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: HTTP 500 from https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0
+== tvdb crew records no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tvdb crew records 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete true
+== tmdb details no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb details 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb text no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb text 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb art no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete true
+== tmdb art 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete true
+== tmdb season no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb season 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex match no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex match 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex show no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== plex show 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== plex seasons no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex seasons 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex episode lists no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== plex episode lists 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== mal no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== mal 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== ann no answer / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== ann 500 / default / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== nothing fails / tvdb first / anidb-100 / ANIDB_CLIENT set
+complete true
+== tvdb login no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 401 key rejected / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text 400 no English text / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb art no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb episode list no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records no answer / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records 404 / tvdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tvdb first / anidb-200 / ANIDB_CLIENT set
+complete true
+== tvdb login no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb login 401 key rejected / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 400 no English text / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb episode list no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records no answer / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records 404 / tvdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tvdb first / anidb-300 / ANIDB_CLIENT set
+complete true
+== tvdb login no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb login 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb login 401 key rejected / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb series record no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb series record 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb series record 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb text 400 no English text / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb art 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb episode list no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb episode list 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb episode list 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb crew records no answer / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb crew records 500 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tvdb crew records 404 / tvdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / tvdb first / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb login no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: Post "https://api4.thetvdb.com/v4/login": no answer
+== tvdb login 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 500 from https://api4.thetvdb.com/v4/login
+== tvdb login 401 key rejected / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: tvdb login: HTTP 401 from https://api4.thetvdb.com/v4/login
+== tvdb series record no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb text 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb text 400 no English text / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb art no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb art 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb episode list no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: Get "https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0": no answer
+== tvdb episode list 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, not available now: tvdb 500: no episode list from TheTVDB: HTTP 500 from https://api4.thetvdb.com/v4/series/500/episodes/official/eng?page=0
+== tvdb episode list 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+error, no such show: tvdb 500: TheTVDB has no episodes for this show; use /anidb for it (or /auto)
+== tvdb crew records no answer / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb crew records 500 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tvdb crew records 404 / tvdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tmdb first / anidb-100 / ANIDB_CLIENT set
+complete true
+== tmdb details no answer / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 404 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb text no answer / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 404 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art no answer / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 500 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 404 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 404 / tmdb first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tmdb first / anidb-200 / ANIDB_CLIENT set
+complete true
+== tmdb details no answer / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb details 500 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb details 404 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb text no answer / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 404 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art no answer / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 500 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 404 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 404 / tmdb first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tmdb first / anidb-300 / ANIDB_CLIENT set
+complete true
+== tmdb details no answer / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 404 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb text no answer / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb text 500 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb text 404 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb art no answer / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 500 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 404 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb season 500 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== tmdb season 404 / tmdb first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / tmdb first / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tmdb details no answer / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 500 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb details 404 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb text no answer / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 500 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb text 404 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb art no answer / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 500 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb art 404 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb season no answer / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 404 / tmdb first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / plex first / anidb-100 / ANIDB_CLIENT set
+complete true
+== plex match no answer / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 404 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== plex show no answer / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 404 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== plex seasons no answer / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 404 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== plex episode lists no answer / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 404 / plex first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / plex first / anidb-200 / ANIDB_CLIENT set
+complete true
+== plex match no answer / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 404 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== plex show no answer / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 404 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== plex seasons no answer / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 404 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== plex episode lists no answer / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 404 / plex first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / plex first / anidb-300 / ANIDB_CLIENT set
+complete true
+== plex match no answer / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 404 / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== plex show no answer / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 404 / plex first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== plex seasons no answer / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons 500 / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons 404 / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists no answer / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists 500 / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists 404 / plex first / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / plex first / tvdb-500 / ANIDB_CLIENT set
+complete true
+== plex match no answer / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 404 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== plex show no answer / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 404 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== plex seasons no answer / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 404 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== plex episode lists no answer / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 404 / plex first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / mal first / anidb-100 / ANIDB_CLIENT set
+complete true
+== mal no answer / mal first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / mal first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 404 / mal first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / mal first / anidb-200 / ANIDB_CLIENT set
+complete true
+== mal no answer / mal first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / mal first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 404 / mal first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / mal first / anidb-300 / ANIDB_CLIENT set
+complete true
+== mal no answer / mal first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / mal first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 404 / mal first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / mal first / tvdb-500 / ANIDB_CLIENT set
+complete true
+== mal no answer / mal first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 500 / mal first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== mal 404 / mal first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / ann first / anidb-100 / ANIDB_CLIENT set
+complete true
+== ann no answer / ann first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / ann first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 404 / ann first / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / ann first / anidb-200 / ANIDB_CLIENT set
+complete true
+== ann no answer / ann first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / ann first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 404 / ann first / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / ann first / anidb-300 / ANIDB_CLIENT set
+complete true
+== ann no answer / ann first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / ann first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 404 / ann first / anidb-300 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / ann first / tvdb-500 / ANIDB_CLIENT set
+complete true
+== ann no answer / ann first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 500 / ann first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== ann 404 / ann first / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / plex first in episode titles only / anidb-100 / ANIDB_CLIENT set
+complete true
+== plex episode lists no answer / plex first in episode titles only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / plex first in episode titles only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 404 / plex first in episode titles only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / plex first in episode titles only / tvdb-500 / ANIDB_CLIENT set
+complete true
+== plex episode lists no answer / plex first in episode titles only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / plex first in episode titles only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 404 / plex first in episode titles only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tmdb first in posters only / anidb-100 / ANIDB_CLIENT set
+complete true
+== tmdb season no answer / tmdb first in posters only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / tmdb first in posters only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 404 / tmdb first in posters only / anidb-100 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tmdb first in posters only / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tmdb season no answer / tmdb first in posters only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 500 / tmdb first in posters only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb season 404 / tmdb first in posters only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / tvdb first in genres only / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb series record no answer / tvdb first in genres only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 500 / tvdb first in genres only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb series record 404 / tvdb first in genres only / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, cast photos / anidb-100 / ANIDB_CLIENT set
+complete true
+== plex match no answer / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons no answer / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default, cast photos / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, cast photos / anidb-200 / ANIDB_CLIENT set
+complete true
+== plex match no answer / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== plex show 500 / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete true
+== plex seasons no answer / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default, cast photos / anidb-200 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, cast photos / anidb-300 / ANIDB_CLIENT set
+complete true
+== plex match no answer / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons no answer / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex seasons 500 / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists no answer / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== plex episode lists 500 / default, cast photos / anidb-300 / ANIDB_CLIENT set
+asked false
+complete true
+== nothing fails / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+complete true
+== plex match no answer / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex match 500 / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show no answer / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex show 500 / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons no answer / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex seasons 500 / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists no answer / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== plex episode lists 500 / default, cast photos / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tmdb lookup no answer / default, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb lookup 500 / default, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, TheMovieDb id looked up / tvdb-500 / no ANIDB_CLIENT
+complete true
+== tmdb lookup no answer / default, TheMovieDb id looked up / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== tmdb lookup 500 / default, TheMovieDb id looked up / tvdb-500 / no ANIDB_CLIENT
+asked true
+complete false
+== nothing fails / tmdb first, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tmdb lookup no answer / tmdb first, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb lookup 500 / tmdb first, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tmdb lookup 404 / tmdb first, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== tmdb lookup empty list / tmdb first, TheMovieDb id looked up / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+complete true
+== anidb no answer / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 500 / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb 404 / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb error answer / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== anidb 503 ban / default, first entry not in AniDB's title list / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+complete true
+== anidb no answer / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 500 / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 404 / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb error answer / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== anidb 503 ban / default, first entry not in AniDB's title list / tvdb-500 / no ANIDB_CLIENT
+asked false
+complete true
+== nothing fails / default, later entry not cached / tvdb-500 / ANIDB_CLIENT set
+complete false
+== anidb later entry no answer / default, later entry not cached / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== anidb later entry 500 / default, later entry not cached / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== nothing fails / default, episode list of two pages / tvdb-500 / ANIDB_CLIENT set
+complete true
+== tvdb episode list's second page no answer / default, episode list of two pages / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list's second page 500 / default, episode list of two pages / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete false
+== tvdb episode list's second page 404 / default, episode list of two pages / tvdb-500 / ANIDB_CLIENT set
+asked true
+complete true
+== nothing fails / default, built before with TheTVDB's text failing / anidb-100 / ANIDB_CLIENT set
+complete true
+== tvdb text again out of time / default, built before with TheTVDB's text failing / anidb-100 / ANIDB_CLIENT set
+asked true
+complete false
