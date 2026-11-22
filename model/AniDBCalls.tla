@@ -5,7 +5,7 @@
 (* client's (c.mu in internal/sources/anidb_fairuse.go) and the fetch      *)
 (* client's (c.mu and the host queue in internal/fetch).                   *)
 (*                                                                         *)
-(* Checked against the code at e7bcf2b: anidb_fairuse.go, AniDB.ask in     *)
+(* Checked against the code at ecc89a6: anidb_fairuse.go, AniDB.ask in     *)
 (* anidb.go, download, run and before in fetch.go, ticket.wait and sent in *)
 (* throttle.go. A change there means walking the model against it again.   *)
 (*                                                                         *)
@@ -149,8 +149,10 @@ Allowed(c) ==
                       outages, backoffOwed>>
 
 \* fetch.Client.download, under fetch's c.mu: join the download running for
-\* the key, or start one (enqueue a ticket, go c.run). Get reads no cache
-\* first: AniDB's Request has no TTL, so freshKnown never hits.
+\* the key, or start one (enqueue a ticket, go c.run). AniDB's Request has
+\* no TTL, so Get reads no cache first (freshKnown never hits), and download
+\* never sends it back to look in the cache again (errLookAgain needs a TTL,
+\* since 0691253): a caller takes this step once.
 Download(c) ==
     LET a == CallerAid[c]
         n == Len(dl) + 1
@@ -303,7 +305,9 @@ Response(d) ==
                       backoff, stopped, going, gapOK, outages, backoffOwed,
                       broken>>
 
-\* run: delete(c.inflight, id) under fetch's c.mu. Today before Done.
+\* run: delete(c.inflight, id) under fetch's c.mu. Today before Done. The
+\* c.ended.Add(1) under the same lock is read only by a request with a TTL
+\* (see Download), so the model has no ended.
 Leave(d) ==
     /\ d \in DOMAIN dl
     /\ dl[d].phase = "fetched"
