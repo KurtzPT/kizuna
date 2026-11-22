@@ -205,7 +205,8 @@ var errTVDBLogin = errors.New("tvdb login")
 
 // loginStatusError is TheTVDB's non-200 answer to a login. It isn't a
 // fetch.StatusError, so callers never read a login's 404 as TheTVDB having
-// no such record, nor its 400 as a missing translation.
+// no such record, nor its 400 as a missing translation. It has no Unwrap on
+// purpose: one would bring that back.
 type loginStatusError struct {
 	code int
 	msg  string

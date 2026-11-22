@@ -545,7 +545,7 @@ func TestTVDBFailedRenewalKeepsToken(t *testing.T) {
 // A login TheTVDB answers 404 is a failed login, not TheTVDB having no such
 // record: callers read a 404 as "nothing there". The same holds for a
 // renewal's 404, which a call gets once the old token is no longer valid.
-func TestTVDBLogin404IsNotNotFound(t *testing.T) {
+func TestTVDBLogin404IsAFailedLogin(t *testing.T) {
 	answers := map[string]string{
 		v4 + "/login":                     `404 {}`,
 		v4 + "/series/9/translations/eng": `{"data":{"name":"Show"}}`,
