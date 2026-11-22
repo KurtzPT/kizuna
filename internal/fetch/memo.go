@@ -21,7 +21,7 @@ type Memo[K comparable, V any] struct {
 
 	mu      sync.Mutex // never held over anything but the map
 	kept    map[K]memoEntry[V]
-	sweptAt time.Time // the last sweep of old values
+	sweptAt time.Time
 }
 
 type memoEntry[V any] struct {

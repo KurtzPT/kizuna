@@ -558,7 +558,6 @@ func (c *Client) enqueue(r Request) *ticket {
 	return nil
 }
 
-// store writes a cache file and reports whether it did.
 func (c *Client) store(key string, data []byte) bool {
 	if err := WriteFile(c.path(key), data); err != nil {
 		slog.Warn("cache write failed", "key", key, "err", err)
@@ -611,11 +610,8 @@ func (c *Client) path(key string) string {
 	return filepath.Join(c.dir, filepath.FromSlash(key))
 }
 
-// etagPath: where a Revalidate request keeps its ETag, next to the file.
 func (c *Client) etagPath(key string) string { return c.path(key) + ".etag" }
 
-// notFoundPath: where a NotFound answer of key is remembered, next to the
-// file the key's copy would be.
 func (c *Client) notFoundPath(key string) string { return c.path(key) + ".notfound" }
 
 // remembers: r's answer with this status is kept as its "nothing there".

@@ -43,14 +43,11 @@ type Crew struct {
 // Anime credit many; Plex shows them all on the episode's page.
 const maxProducers = 5
 
-// producers is people, cut to maxProducers.
 func producers(names []string) []string {
 	p := people(names)
 	return p[:min(len(p), maxProducers)]
 }
 
-// crewPhoto adds a crew person's photo to photos, when there is a name and
-// a photo.
 func crewPhoto(photos []Person, name, photo string) []Person {
 	if name = strings.TrimSpace(name); name == "" || photo == "" {
 		return photos

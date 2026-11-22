@@ -220,7 +220,6 @@ func TestBackgroundRequestsYield(t *testing.T) {
 	}
 }
 
-// queued is how many requests wait in l's queues.
 func (l *hostLimit) queued() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()

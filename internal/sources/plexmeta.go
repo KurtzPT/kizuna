@@ -121,7 +121,6 @@ type PlexImages struct {
 	Posters, Backgrounds []PlexPicture
 }
 
-// plexContainer is an answer: a MediaContainer.
 type plexContainer struct {
 	MediaContainer plexMedia `json:"MediaContainer"`
 }
@@ -573,7 +572,6 @@ func (p *Plex) seasonEpisodes(ctx context.Context, id string, season int) ([]Epi
 	}
 }
 
-// episode: an episode item of the season numbered season.
 func (it plexItem) episode(season int) Episode {
 	return Episode{Season: season, Number: it.Index, Title: it.Title, Summary: it.Summary, Aired: it.Date, Thumb: it.Thumb,
 		Minutes: max(0, (it.Duration+30_000)/60_000), Crew: Crew{Directors: tags(it.Director), Writers: tags(it.Writer),
