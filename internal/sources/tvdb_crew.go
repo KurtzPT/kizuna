@@ -149,7 +149,7 @@ func (t *TVDB) EpisodeCrew(ctx context.Context, ids []int, lastAired time.Time) 
 	)
 	jobs := make(chan int)
 	for range crewWorkers {
-		wg.Go(func() {
+		wg.Go(func() { //lint:allow goroutine: each record recovers on its own, in crewJob, for raise below
 			for id := range jobs {
 				t.crewJob(bctx, id, life, crew, &res)
 			}
@@ -264,7 +264,7 @@ func (t *TVDB) queueCrew(ids []int, life time.Duration) {
 	if len(todo) == 0 {
 		return
 	}
-	t.crewQueue.Go(func() {
+	t.crewQueue.Go(func() { //lint:allow goroutine: each record recovers on its own, in backgroundCrew, and the batch goes on
 		for _, id := range todo {
 			t.backgroundCrew(id, life)
 		}

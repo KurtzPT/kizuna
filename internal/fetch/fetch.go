@@ -321,7 +321,7 @@ func (c *Client) download(ctx context.Context, r Request) ([]byte, error) {
 	if !running {
 		cl = &call{done: make(chan struct{}), ticket: c.enqueue(r)}
 		c.inflight[id] = cl
-		go c.run(id, r, cl)
+		go c.run(id, r, cl) //lint:allow goroutine: run recovers each step that can panic itself: fetchSafe, then Done
 	}
 	c.mu.Unlock()
 	select {

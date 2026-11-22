@@ -158,7 +158,7 @@ func command(args []string, stdout, stderr io.Writer) (healthCheck bool, exit in
 // until ctx ends. It returns TheTVDB too, for the ready line.
 func setup(ctx context.Context, cfg config.Config) (p *provider.Provider, tvdb *sources.TVDB, keepLoaded func(firstDone func(titles bool))) {
 	f := fetch.New(filepath.Join(cfg.DataDir, "cache"))
-	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget)
+	go f.KeepFree(ctx, cfg.CacheMinFree, cfg.CacheFreeTarget) //lint:allow goroutine: lives as long as the process: a panic should end it, not stop the cache cleanup unseen
 	titles, lists := &anidb.Titles{}, &mapping.Lists{}
 	ad := sources.NewAniDB(f, cfg.DataDir, cfg.AniDBClient, cfg.AniDBClientVer)
 	tvdb = sources.NewTVDB(f, cfg.TVDBKey, cfg.TVDBPin, cfg.TVDBLegacyKey)
@@ -245,7 +245,7 @@ func serve(cfg config.Config) error {
 	if cfg.MatchReports {
 		if reports, err := report.Open(filepath.Join(cfg.DataDir, "reports"), provider.Version); err == nil {
 			p.SetReports(reports)
-			go reports.Run(ctx)
+			go reports.Run(ctx) //lint:allow goroutine: lives as long as the process, but Store.flush writes each show's page with no recover yet, so one show's panic ends it: not fixed yet
 			defer reports.Flush()
 		} else {
 			slog.Warn("can't write match reports (check the data folder's permissions)", "err", err)
@@ -255,12 +255,12 @@ func serve(cfg config.Config) error {
 	renamer := extraTitles(cfg)
 	if renamer != nil {
 		p.OnExtrasRequest(renamer.Queue)
-		go renamer.Run(ctx)
+		go renamer.Run(ctx) //lint:allow goroutine: lives as long as the process, but (*Renamer).look has no per-show recover yet, so one show's panic ends it: not fixed yet
 	}
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
 	loaded := p.Loading()
-	go keepLoaded(func(titles bool) {
+	go keepLoaded(func(titles bool) { //lint:allow goroutine: lives as long as the process: a panic should end it, not leave the lists unloaded unseen
 		loaded()
 		logReady(cfg, ln, tvdb, start, renamer != nil, titles)
 	})
@@ -268,7 +268,7 @@ func serve(cfg config.Config) error {
 	srv := &http.Server{Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: time.Minute, IdleTimeout: 2 * time.Minute}
 	closed := make(chan struct{})
-	go func() {
+	go func() { //lint:allow goroutine: the shutdown: a panic should end the process, not leave it waiting on closed
 		<-ctx.Done()
 		p.Stop()
 		stop() // a second Ctrl+C (or SIGTERM) during the drain stops at once

@@ -243,7 +243,7 @@ func (c *AniDB) Prefetch(aid int) {
 		// Counted in working under c.mu, with workers: once working is
 		// done, nothing is waiting or running (WaitIdle).
 		c.workers++
-		c.working.Go(c.prefetchWorker)
+		c.working.Go(c.prefetchWorker) //lint:allow goroutine: each entry recovers on its own, in prefetch, and the worker goes on
 	}
 	c.mu.Unlock()
 }
