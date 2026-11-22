@@ -185,7 +185,6 @@ func idTags(texts ...string) [][]string {
 
 var mainLang = []string{"main"}
 
-// mainTitle is an AniDB entry's main title.
 func (p *Provider) mainTitle(aid int) string { return mainTitle(p.titles, aid) }
 
 func mainTitle(titles *anidb.Titles, aid int) string {

@@ -20,8 +20,8 @@ import (
 
 // The build errors for a show that doesn't exist (buildShow sorts by them).
 var (
-	errUnknownAID = errors.New("unknown")                               // neither the title list nor AniDB knows the aid
-	errNoEpisodes = errors.New("TheTVDB has no episodes for this show") // TheTVDB answered without episodes
+	errUnknownAID = errors.New("unknown") // neither the title list nor AniDB knows the aid
+	errNoEpisodes = errors.New("TheTVDB has no episodes for this show")
 )
 
 // Show is the source-independent model of one Plex show. Both modes build
@@ -223,8 +223,6 @@ func (d anidbDetails) logMissing(aid int, w *missingWords) {
 		slog.Debug(w.off, "aid", aid)
 	}
 }
-
-// --- Mode "anidb": one AniDB entry, absolute numbering, no seasons ---------
 
 // buildAniDB: season 1 holds every regular episode (1..n, absolute); season 0
 // holds specials, openings (101+), endings (151+), trailers (201+)...
@@ -457,8 +455,6 @@ func listRuntime(eps []sources.Episode) int {
 	}
 	return total / n
 }
-
-// --- Mode "tvdb": TVDB seasons, absolute episode numbers -----------------
 
 // buildTVDB: seasons follow TheTVDB, but every regular episode keeps its
 // absolute number: if season 1 ends at 25, season 2 starts at 26

@@ -80,8 +80,6 @@ func (s *Show) setShared() {
 	}
 }
 
-// seasonRef is how a season's items name it: its rating key, its path
-// and its title.
 type seasonRef struct{ key, path, title string }
 
 func newSeasonRef(s *Show, n int) seasonRef {

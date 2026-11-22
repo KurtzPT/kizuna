@@ -90,7 +90,6 @@ func withPlex(t *testing.T, p *Provider, net *fakeNet) {
 	f.ThrottleAll(0)
 }
 
-// plexAsked: requests to Plex's service whose path ends in suffix.
 func plexAsked(net *fakeNet, suffix string) int {
 	net.mu.Lock()
 	defer net.mu.Unlock()

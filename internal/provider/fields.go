@@ -337,7 +337,6 @@ func (ss *showSources) art(src string) sources.Art {
 	return sources.Art{}
 }
 
-// details returns a source's genres, people, studio, rating and date.
 func (ss *showSources) details(src string) sources.Details {
 	d, _ := ss.detailsOf(src, false)
 	return d
@@ -391,7 +390,7 @@ type showField struct {
 	order     func(c *config.Config) []string
 	// of gives src's value and the lazy value it is read from (title).
 	of  func(ss *showSources, src string, ahead bool) (fieldValue, warmer)
-	has func(v fieldValue, c *config.Config) bool // v has the field
+	has func(v fieldValue, c *config.Config) bool
 	set func(s *Show, v fieldValue, c *config.Config)
 	// describe: what v offers, for the match report (the cast's is
 	// recordCast's: nil).
@@ -736,7 +735,6 @@ func images(order []string, all, count bool, get func(src string) (a, b []string
 	return out, counts
 }
 
-// sourceCount is how many images a source gave.
 type sourceCount struct {
 	src string
 	n   int

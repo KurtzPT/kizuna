@@ -164,8 +164,6 @@ func (p *Provider) recordMatch(mode Mode, r MatchRequest, d decision, how string
 	return m
 }
 
-// --- end of a build ----------------------------------------------------------
-
 var htmlEntity = regexp.MustCompile(`&(?:[a-zA-Z]{2,8}|#\d{1,6}|#x[0-9a-fA-F]{1,6});`)
 
 // finishReport fills in a finished build: the show's ids, the mapping, the
@@ -625,8 +623,6 @@ func plural(n int, one, many string) string {
 	}
 	return strconv.Itoa(n) + " " + many
 }
-
-// --- show fields -------------------------------------------------------------
 
 // recordField notes one field: the sources asked (in order up to the one
 // used, or all of them when none had a value), what each offered, and the

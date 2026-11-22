@@ -235,7 +235,6 @@ func unlist(t *testing.T, p *Provider, src string) {
 	}
 }
 
-// asked: requests whose host and path start with prefix.
 func asked(net *fakeNet, prefix string) int {
 	net.mu.Lock()
 	defer net.mu.Unlock()

@@ -30,7 +30,7 @@ type crewMemory struct {
 	path string // "" = not kept on disk (tests)
 
 	mu     sync.RWMutex
-	photos map[string]string // key -> photo
+	photos map[string]string
 
 	saveMu sync.Mutex // one save at a time, each with the newest photos
 	// keepAside: the file was there but not read. The first save reads it
@@ -62,7 +62,6 @@ const crewSaveDelay = 5 * time.Second
 // crewTimer is a pending save's timer: a *time.Timer, or a test's.
 type crewTimer interface{ Stop() bool }
 
-// crewAfterFunc starts a timer that calls f after d, as time.AfterFunc.
 type crewAfterFunc func(d time.Duration, f func()) crewTimer
 
 func afterFunc(d time.Duration, f func()) crewTimer { return time.AfterFunc(d, f) } //lint:allow goroutine: f is savePending: write can panic (it rereads and merges a kept-aside file) and nothing recovers yet, so a panic there ends the process: not fixed yet
