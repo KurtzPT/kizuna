@@ -320,18 +320,18 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	if call != nil && c.calling[aid] == call {
 		delete(c.calling, aid)
 	}
+	// A caller that came in after sending ended this download's call (it
+	// stopped it, or panicked), and joined the download, left a new call
+	// counted that no download sends: give that back (a download started
+	// later counts its own call).
+	if cl := c.calling[aid]; cl != nil && !cl.sent {
+		c.uncount(cl)
+		delete(c.calling, aid)
+		c.save()
+	}
 	var notSent *anidbNotSent
 	if errors.As(err, &notSent) {
-		// Nothing went out: sending already gave its count back. A caller
-		// that came in after sending stopped this call, and joined it, left
-		// a new call counted that no download sends: give that back too (a
-		// download started later counts its own call).
-		if cl := c.calling[aid]; cl != nil && !cl.sent {
-			c.uncount(cl)
-			delete(c.calling, aid)
-			c.save()
-		}
-		return
+		return // nothing went out: sending already gave its count back
 	}
 	// Deferred, with every state write below ahead of its log line: a log
 	// handler that panics leaves the ban or the pause set, and saved.
