@@ -333,6 +333,9 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		}
 		return
 	}
+	// Deferred, with every state write below ahead of its log line: a log
+	// handler that panics leaves the ban or the pause set, and saved.
+	defer c.save()
 	now := time.Now()
 	var entry *anidbEntryError
 	var status *fetch.StatusError
@@ -343,18 +346,20 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 		c.state.Failures, c.state.RetryAt = 0, time.Time{}
 	case errors.As(err, &entry) && entry.banned, errors.As(err, &status) && status.Code == 503:
 		c.state.Failed[aid] = now
-		if !now.Before(c.state.BannedUntil) { // calls already out when the ban came get the same answer
+		newBan := !now.Before(c.state.BannedUntil) // calls already out when the ban came get the same answer
+		c.state.BannedUntil = now.Add(anidbBanPause)
+		if newBan {
 			slog.Error("AniDB banned this IP; AniDB API paused for 24 h (cache only)", "err", err)
 		}
-		c.state.BannedUntil = now.Add(anidbBanPause)
 	case errors.As(err, &entry) && entry.client:
 		// Not this anime's fault: every call would get the same answer.
-		if c.paused(now) == "" {
+		wasPaused := c.paused(now) != ""
+		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID, now
+		if !wasPaused {
 			slog.Error("AniDB rejected the client: check ANIDB_CLIENT and ANIDB_CLIENTVER (the client name and version "+
 				"registered at anidb.net, protocol HTTP), then restart. AniDB API paused for 24 h or until they change (cache only)",
 				"err", err)
 		}
-		c.state.ClientRejected, c.state.ClientRejectedAt = c.clientID, now
 	case errors.As(err, &entry):
 		c.state.Failed[aid] = now
 		if entry.answered {
@@ -396,7 +401,6 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	if c.state.Failed[aid].Equal(now) {
 		c.failWhy[aid] = err.Error()
 	}
-	c.save()
 }
 
 // load reads the ban/limit state saved by an earlier run. A state file that
