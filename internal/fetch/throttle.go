@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
@@ -165,4 +166,24 @@ func (t *ticket) sent() {
 	l.last, l.going = time.Now(), false
 	l.signal()
 	l.mu.Unlock()
+}
+
+// waitQueue waits until done, called with l.mu held, says l's queues are as
+// wanted (every change to them signals). It returns ctx's error if ctx ends
+// first.
+func (l *hostLimit) waitQueue(ctx context.Context, done func() bool) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for !done() {
+		changed := l.changed
+		l.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			l.mu.Lock()
+			return ctx.Err()
+		}
+		l.mu.Lock()
+	}
+	return nil
 }
