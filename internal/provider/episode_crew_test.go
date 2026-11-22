@@ -712,9 +712,8 @@ func TestWarmedTMDBFailureOnlyWhenNeeded(t *testing.T) {
 // ended long ago and whose season 2 aired days ago is still airing in
 // /tvdb, and so is its mirror (season 1 aired days ago, season 2 long ago).
 // In /anidb the entry is season 1 alone: with only season 2 recent it has
-// ended (DECISIONS.md: a finished entry of a franchise still airing gets 30
-// days there). AniDB's own air dates win over TheTVDB's in /anidb, in both
-// directions.
+// ended (a finished entry of a franchise still airing gets 30 days there).
+// AniDB's own air dates win over TheTVDB's in /anidb, in both directions.
 func TestCrewRecordLifeBySeriesEnd(t *testing.T) {
 	defaultLists(t)
 	const day = 24 * time.Hour

@@ -1,8 +1,8 @@
 # Auto-merges Dependabot version updates against dev (squash) once the
 # required checks pass, except a new major version of anything, an update it
 # can't classify, or an update of the CI tools (.github/tools), which wait for
-# a review. Security updates open against main and are never auto-merged
-# (RELEASING.md, hotfix).
+# a review. Security updates open against main and are never auto-merged: a
+# hotfix goes to main as a pull request and is merged back into dev.
 #
 # A merge done with GITHUB_TOKEN doesn't start the push workflows, so after the
 # merge this job starts ci and codeql on dev itself. ci publishes :dev with the

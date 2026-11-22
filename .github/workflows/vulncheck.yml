@@ -6,7 +6,7 @@
 # published image needs a rebuild:
 #   :dev     push to dev, or run the ci workflow on dev by hand (it publishes
 #            :dev once its checks pass)
-#   :latest  release a patch version (RELEASING.md, hotfix)
+#   :latest  release a patch version from main (a hotfix, merged back into dev)
 # A tag that doesn't exist is skipped;
 # any other pull failure fails the run.
 #

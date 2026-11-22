@@ -372,9 +372,9 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 			c.uncount(call)
 			if call.answered {
 				// The download failed after AniDB's entry was accepted (a
-				// panic): such a call blocks no anime either (DECISIONS.md,
-				// "AniDB fair use"). A copy cached before the failure still
-				// answers the next build without a call.
+				// panic): such a call blocks no anime either, as with any
+				// failure that isn't AniDB's own answer. A copy cached before
+				// the failure still answers the next build without a call.
 				delete(c.state.Fetched, aid)
 			}
 			if call.at.Before(c.backedOffAt) {
