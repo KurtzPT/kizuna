@@ -13,7 +13,8 @@ import (
 type miss uint8
 
 const (
-	missTVDBText miss = iota // show-level sources: read by fill and fillSeasons
+	// Show-level sources, read by fill and fillSeasons: a request failed.
+	missTVDBText miss = iota
 	missTMDBText
 	missTVDBArt
 	missTMDBArt
@@ -26,43 +27,28 @@ const (
 	missPlexShow
 	missPlexSeasons
 	missPlexImages
+
 	missTVDBEpisodes // TheTVDB's episode list failed (/anidb) or came back partial (/tvdb)
-	missTMDBEpisodes
-	missPlexEpisodes
-	missTMDBLookup   // /tvdb: TheMovieDb's show by TheTVDB id
-	missAniDBDetails // not final: AniDB set up, the anime not in its 24 h block
-	missCrewRecords  // pending: TheTVDB's crew records on their way, or failed without TheTVDB's answer
-	missLaterEntries // pending: /tvdb later AniDB entries fetched in the background
+	missTMDBEpisodes // TheMovieDb's episode list failed
+	missPlexEpisodes // Plex's episode list failed
+	missTMDBLookup   // /tvdb: finding TheMovieDb's show by TheTVDB id failed
+	missAniDBDetails // AniDB's details didn't come, and a rebuild soon may bring them (anidbDetails.final)
+	missCrewRecords  // some of TheTVDB's crew records are still on their way, or their request failed
+	missLaterEntries // /tvdb: later AniDB entries of the series still being fetched in the background
 	missOutOfTime    // the build's context ran out: a source may have been skipped without saying so
 	missCount
 )
 
-// missKind: a source failed, a value is still on its way, or the build ran
-// out of time.
-type missKind uint8
-
-const (
-	kindFailed missKind = iota
-	kindPending
-	kindOutOfTime
-)
-
-// missTable: each miss's name (the log, the match report) and kind. Static:
-// no allocation.
-var missTable = [missCount]struct {
-	name string
-	kind missKind
-}{
-	missTVDBText: {"tvdb text", kindFailed}, missTMDBText: {"tmdb text", kindFailed},
-	missTVDBArt: {"tvdb art", kindFailed}, missTMDBArt: {"tmdb art", kindFailed},
-	missTVDBDetails: {"tvdb details", kindFailed}, missTMDBDetails: {"tmdb details", kindFailed},
-	missTVDBSeason: {"tvdb season", kindFailed}, missTMDBSeason: {"tmdb season", kindFailed},
-	missMAL: {"mal", kindFailed}, missANN: {"ann", kindFailed}, missPlexShow: {"plex", kindFailed},
-	missPlexSeasons: {"plex seasons", kindFailed}, missPlexImages: {"plex images", kindFailed},
-	missTVDBEpisodes: {"tvdb episodes", kindFailed}, missTMDBEpisodes: {"tmdb episodes", kindFailed},
-	missPlexEpisodes: {"plex episodes", kindFailed}, missTMDBLookup: {"tmdb lookup", kindFailed},
-	missAniDBDetails: {"anidb details", kindFailed}, missCrewRecords: {"crew records", kindPending},
-	missLaterEntries: {"later AniDB entries", kindPending}, missOutOfTime: {"out of time", kindOutOfTime},
+// missNames: each miss's name in the log and the match report. Static: no
+// allocation.
+var missNames = [missCount]string{
+	missTVDBText: "tvdb text", missTMDBText: "tmdb text", missTVDBArt: "tvdb art", missTMDBArt: "tmdb art",
+	missTVDBDetails: "tvdb details", missTMDBDetails: "tmdb details",
+	missTVDBSeason: "tvdb season", missTMDBSeason: "tmdb season",
+	missMAL: "mal", missANN: "ann", missPlexShow: "plex", missPlexSeasons: "plex seasons", missPlexImages: "plex images",
+	missTVDBEpisodes: "tvdb episodes", missTMDBEpisodes: "tmdb episodes", missPlexEpisodes: "plex episodes",
+	missTMDBLookup: "tmdb lookup", missAniDBDetails: "anidb details", missCrewRecords: "crew records",
+	missLaterEntries: "later AniDB entries", missOutOfTime: "out of time",
 }
 
 // seasonMiss: a TheTVDB or TheMovieDb season's art that failed ("tmdb season
@@ -152,13 +138,13 @@ func (m *misses) merge(o *misses) {
 
 func (m *misses) empty() bool { return m.set == 0 && len(m.seasons) == 0 }
 
-// names lists the failed sources: the kindFailed misses in table order, then
-// the season art, sorted. Nothing to list allocates nothing.
+// names lists the misses in table order, then the season art, sorted.
+// Nothing to list allocates nothing.
 func (m *misses) names() []string {
 	var out []string
 	for x := range missCount {
-		if m.has(x) && missTable[x].kind == kindFailed {
-			out = append(out, missTable[x].name)
+		if m.has(x) {
+			out = append(out, missNames[x])
 		}
 	}
 	if len(m.seasons) == 0 {

@@ -32,12 +32,11 @@ func TestMissesLedger(t *testing.T) {
 		}
 	})
 
-	t.Run("names: failures in table order, then season art sorted", func(t *testing.T) {
+	t.Run("names: misses in table order, then season art sorted", func(t *testing.T) {
 		var m misses
 		m.seasonFailed("tvdb", 2, down)
 		m.failed(missPlexImages, down)
 		m.seasonFailed("tmdb", 10, down)
-		m.add(missCrewRecords) // pending: not a failed source
 		m.failed(missTVDBText, down)
 		m.seasonFailed("tmdb", 2, down)
 		m.seasonFailed("tmdb", 2, down) // read again: named once
