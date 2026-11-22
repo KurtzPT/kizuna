@@ -681,6 +681,39 @@ func TestSecondLook(t *testing.T) {
 	})
 }
 
+// A panic while one show's look handles Plex's answer ends that look only:
+// Run's goroutine does every show's looks, so the next show still gets its
+// titles, and the show that panicked is forgotten after its last look like
+// any other. It is logged with its stack, not as a Plex failure.
+func TestLookPanicEndsOneShow(t *testing.T) {
+	out := logs(t)
+	plex := twoLibraries()
+	r, c := renamer(roundTrip(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.RawQuery, "anidb-1") {
+			panic("bad answer for one show")
+		}
+		return plex.RoundTrip(req)
+	}))
+	r.Queue("tv.plex.agents.custom.kizuna.anidb://show/anidb-1")
+	r.Queue(guid)
+	c.add(passes[0])
+	r.work(bg)
+	if !slices.Contains(plex.calls, "PUT /library/metadata/201?title.value=Opening") {
+		t.Errorf("the show after the panic got no titles; calls:\n%s", strings.Join(plex.calls, "\n"))
+	}
+	if !strings.Contains(out.String(), "bad answer for one show") || !strings.Contains(out.String(), "goroutine") {
+		t.Errorf("the panic isn't logged with its stack: %q", out)
+	}
+	if strings.Contains(out.String(), "check PLEX_URL") {
+		t.Errorf("the panic is logged as a Plex failure: %q", out)
+	}
+	c.add(passes[1])
+	r.work(bg)
+	if len(r.waiting) != 0 {
+		t.Errorf("%d shows remembered after their last look", len(r.waiting))
+	}
+}
+
 // A failure is logged at most once a minute, without the token.
 func TestWarnOncePerMinute(t *testing.T) {
 	out := logs(t)
