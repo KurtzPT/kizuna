@@ -317,6 +317,10 @@ func anidbClientID(client, clientVer string) string {
 func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Deferred, with every state write below ahead of its log line: a log
+	// handler that panics, save's own included, leaves the ban, the pause or
+	// the backoff set.
+	defer c.save()
 	if call != nil && c.calling[aid] == call {
 		delete(c.calling, aid)
 	}
@@ -327,15 +331,11 @@ func (c *AniDB) result(aid int, call *anidbCall, err error) {
 	if cl := c.calling[aid]; cl != nil && !cl.sent {
 		c.uncount(cl)
 		delete(c.calling, aid)
-		c.save()
 	}
 	var notSent *anidbNotSent
 	if errors.As(err, &notSent) {
 		return // nothing went out: sending already gave its count back
 	}
-	// Deferred, with every state write below ahead of its log line: a log
-	// handler that panics leaves the ban or the pause set, and saved.
-	defer c.save()
 	now := time.Now()
 	var entry *anidbEntryError
 	var status *fetch.StatusError
