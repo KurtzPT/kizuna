@@ -216,11 +216,10 @@ func (p *Provider) listsEarly(aid int, entry mapping.Entry) bool {
 // episode). For titles and fill values, Plex's list is read only when it can
 // add something (plexListNeeded); for crew, always (plexCrewRead). A list it
 // needed that failed or came back partial, and episode crew still being
-// fetched or whose request failed, are recorded in lists.miss. Returns
-// whether that ledger is empty.
-func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists *episodeLists, photos *crewPhotos) bool {
+// fetched or whose request failed, are recorded in lists.miss.
+func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entry, lists *episodeLists, photos *crewPhotos) {
 	if !lists.tvdb.fetches() && !lists.tmdb.fetches() && !lists.plex.x.fetches() {
-		return lists.miss.empty()
+		return
 	}
 	var wg group
 	lists.tvdb.start(&wg) // both at once (started ahead: these wait for it)
@@ -280,7 +279,6 @@ func (p *Provider) fillEpisodes(ctx context.Context, s *Show, entry mapping.Entr
 			"tmdb", entry.TMDB.ID, "tmdb_mapped", entry.TMDB.Mapped, "paired_tmdb", pairedTMDB, "paired_plex", px.paired)
 	}
 	p.episodeCrew(ctx, s, tmList, &lists.plex, nil, photos, &lists.miss)
-	return lists.miss.empty()
 }
 
 // plexFill is Plex's episode list's read for titles and fill values in

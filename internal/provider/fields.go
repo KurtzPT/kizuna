@@ -525,21 +525,20 @@ func (ss *showSources) fill(s *Show) {
 	done(why)
 }
 
-// finish reports whether every source fill and fillSeasons asked answered.
-// When one failed (an error or the build's time running out), it is logged
-// and noted in the match report, and the show is rebuilt soon instead of
-// being kept an hour without it. Call it after fillSeasons.
-func (ss *showSources) finish(s *Show) bool {
+// finish logs the sources fill and fillSeasons read that failed (an error
+// or the build's time running out) and notes them in the match report. Their
+// misses, in ss.miss, make the show incomplete: it is rebuilt soon instead of
+// being kept an hour without them. Call it after fillSeasons.
+func (ss *showSources) finish(s *Show) {
 	failed := ss.miss.names()
 	if len(failed) == 0 {
-		return true
+		return
 	}
 	slog.Info("show sources failed; using the others, rebuilt in 2 min", "root", s.Root, "failed", failed)
 	if ss.rec != nil {
 		ss.rec.Check(report.Check{Level: report.LevelWarn, Title: "A source failed: " + strings.Join(failed, ", "), Cause: true,
 			Text: "The other sources filled in. Kizuna builds the show again in 2 minutes.", Section: report.SectionFields})
 	}
-	return false
 }
 
 // warm fetches, in parallel, everything fill may ask for. TheTVDB's and

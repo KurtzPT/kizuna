@@ -358,7 +358,7 @@ func TestCastPhotosNoTVDBID(t *testing.T) {
 	if c := plexAsked(net, ""); c != 0 {
 		t.Errorf("%d requests to Plex, want none", c)
 	}
-	if !ss.finish(s) {
+	if !ss.miss.empty() {
 		t.Error("want complete")
 	}
 }

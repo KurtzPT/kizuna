@@ -160,7 +160,7 @@ func TestPlexLaterEntry(t *testing.T) {
 	if strings.Join(s.Art.Posters, " ") != "https://plex/s2.jpg" {
 		t.Errorf("posters %q, want season 2's", s.Art.Posters)
 	}
-	if !ss.finish(s) {
+	if !ss.miss.empty() {
 		t.Error("a source failed")
 	}
 }
