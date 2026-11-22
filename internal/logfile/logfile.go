@@ -196,7 +196,7 @@ func (w warnHandler) WithGroup(name string) slog.Handler {
 func (l *File) archive(day string) error {
 	target := l.dated(day)
 	if _, err := os.Stat(target); os.IsNotExist(err) {
-		return os.Rename(l.current(), target)
+		return os.Rename(l.current(), target) //lint:allow writes: a failed dating is tried again every retryDating, and waiting here would hold every log line
 	}
 	src, err := os.Open(l.current())
 	if err != nil {

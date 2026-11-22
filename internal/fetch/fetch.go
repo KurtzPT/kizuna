@@ -481,7 +481,7 @@ func (c *Client) do(r Request, t *ticket) (data []byte, status int, waited time.
 		_ = os.Remove(c.etagPath(r.Key))
 		if c.store(r.Key, data) {
 			if tag := resp.Header.Get("ETag"); tag != "" {
-				_ = os.WriteFile(c.etagPath(r.Key), []byte(tag), 0o644)
+				_ = WriteFile(c.etagPath(r.Key), []byte(tag))
 			}
 		}
 	}
@@ -558,7 +558,7 @@ func WriteFile(path string, data []byte) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //lint:allow writes: WriteFile itself: this is the temp file
 	if err != nil {
 		return err // nothing of ours to clean up
 	}
@@ -606,7 +606,7 @@ func remembers(r Request, code int) bool {
 func (c *Client) rememberNotFound(key string, se *StatusError) {
 	path := c.notFoundPath(key)
 	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
-		_ = os.WriteFile(path, []byte(strconv.Itoa(se.Code)+" "+se.URL), 0o644)
+		_ = os.WriteFile(path, []byte(strconv.Itoa(se.Code)+" "+se.URL), 0o644) //lint:allow writes: a lost or cut-short note only costs a request, so it skips the temp file and the sync
 	}
 }
 

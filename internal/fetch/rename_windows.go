@@ -19,7 +19,7 @@ var renameWaits = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 
 // to (a cache read, a virus scanner): those readers are quick, so it is
 // tried again a few times, like Go's own robustio.
 func rename(from, to string) error {
-	return retryBusy(func() error { return os.Rename(from, to) }, func(err error) bool { return busy(err, to) }, time.Sleep)
+	return retryBusy(func() error { return os.Rename(from, to) }, func(err error) bool { return busy(err, to) }, time.Sleep) //lint:allow writes: Rename itself: this is the retry
 }
 
 // retryBusy runs op again after each of renameWaits while it fails with an

@@ -32,13 +32,14 @@ import (
 // module is a module's packages, type-checked together: a call resolves to
 // the function it calls, in whichever package that is declared.
 type module struct {
+	goos  string // the build: linux, or windows for the _windows.go files
 	fset  *token.FileSet
 	info  *types.Info // of every package
 	funcs map[*types.Func]*ast.FuncDecl
 	pkgs  map[string]*pkg // by import path
 }
 
-// pkg is one package: the files the linux build compiles, type-checked.
+// pkg is one package: the files one GOOS's build compiles, type-checked.
 // Test files aren't read (type-checking them would build every test-only
 // import).
 type pkg struct {
@@ -49,22 +50,35 @@ type pkg struct {
 
 const modulePath = "kizuna"
 
-// linux sets c to the image's build: linux/amd64 without cgo, so a rule's
-// verdict doesn't depend on where the test runs.
-func linux(c *build.Context) {
-	c.GOOS, c.GOARCH, c.CgoEnabled = "linux", "amd64", false
+// goosList are the builds the rules run on: the image's, and Windows, where
+// the _windows.go files (the rename retry, the disk space) are compiled.
+var goosList = []string{"linux", "windows"}
+
+// setBuild sets c to goos/amd64 without cgo, so a rule's verdict doesn't
+// depend on where the test runs.
+func setBuild(c *build.Context, goos string) {
+	c.GOOS, c.GOARCH, c.CgoEnabled = goos, "amd64", false
 }
 
-// std imports the standard library from source. The source importer reads
-// build.Default and isn't safe for concurrent use, so this package's tests
-// don't call t.Parallel.
-var std = func() types.Importer {
-	linux(&build.Default)
-	return importer.ForCompiler(token.NewFileSet(), "source", nil)
+// std imports the standard library from source, one importer per GOOS. The
+// source importer reads build.Default and isn't safe for concurrent use, so
+// this package's tests don't call t.Parallel.
+var std = func() map[string]types.Importer {
+	out := map[string]types.Importer{}
+	for _, goos := range goosList {
+		setBuild(&build.Default, goos)
+		src := importer.ForCompiler(token.NewFileSet(), "source", nil)
+		out[goos] = importerFunc(func(path string) (*types.Package, error) {
+			setBuild(&build.Default, goos)
+			return src.Import(path)
+		})
+	}
+	return out
 }()
 
-func newModule() *module {
+func newModule(goos string) *module {
 	return &module{
+		goos: goos,
 		fset: token.NewFileSet(),
 		info: &types.Info{
 			Defs:       map[*ast.Ident]types.Object{},
@@ -93,7 +107,7 @@ func (m *module) parse(name string, src []byte) error {
 		m.pkgs[modulePath+"/"+dir] = p
 	}
 	ctx := build.Default
-	linux(&ctx)
+	setBuild(&ctx, m.goos)
 	ctx.OpenFile = func(string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(src)), nil }
 	match, err := ctx.MatchFile(dir, path.Base(name))
 	if match {
@@ -111,7 +125,7 @@ func (m *module) check(t *testing.T) {
 	conf.Importer = importerFunc(func(path string) (*types.Package, error) {
 		p := m.pkgs[path]
 		if p == nil {
-			return std.Import(path)
+			return std[m.goos].Import(path)
 		}
 		if p.types == nil {
 			p.types, _ = conf.Check(path, m.fset, p.files, m.info)
@@ -141,10 +155,23 @@ type importerFunc func(path string) (*types.Package, error)
 
 func (f importerFunc) Import(path string) (*types.Package, error) { return f(path) }
 
-// load reads the packages under cmd/ and internal/ of the module at root.
-func load(t *testing.T, root string) *module {
+// repo is the repository's own module, per GOOS, read once for all tests.
+var repo = map[string]*module{}
+
+// loadRepo returns the repository's packages for goos.
+func loadRepo(t *testing.T, goos string) *module {
 	t.Helper()
-	m := newModule()
+	if repo[goos] == nil {
+		repo[goos] = load(t, filepath.Join("..", ".."), goos)
+	}
+	return repo[goos]
+}
+
+// load reads the packages under cmd/ and internal/ of the module at root,
+// the files goos's build compiles.
+func load(t *testing.T, root, goos string) *module {
+	t.Helper()
+	m := newModule(goos)
 	for _, top := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(root, top), func(file string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || filepath.Ext(file) != ".go" {
@@ -197,6 +224,7 @@ func (p *pkg) allowed(rule string, n ast.Node) bool {
 // rules maps a rule's name (the one `//lint:allow` takes) to its check.
 var rules = map[string]func(*pkg) []string{
 	"goroutine": bareGoroutines,
+	"writes":    rawWrites,
 }
 
 // starters are the calls other than a go statement that run a function on
@@ -423,27 +451,129 @@ func (p *pkg) panics(body *ast.BlockStmt, seen map[*ast.BlockStmt]bool) bool {
 	})
 }
 
-// TestRepo runs every rule over cmd/ and internal/.
+// noAtomicWrite is the failure for a file written in place or renamed
+// without the Windows retry. Both helpers are named here, and
+// TestHelpersExist checks they are still there.
+const noAtomicWrite = " a raw os write: a file written in place is left half-written by a crash, a full disk or " +
+	"a reader mid-write, and a plain os.Rename fails on Windows while a reader holds the file. " +
+	"Replace it with fetch.WriteFile (the data goes to a temp file, is synced, then renamed over " +
+	"the old one) or, for a rename, fetch.Rename. Appending is fine: os.OpenFile with os.O_APPEND. " +
+	"A deliberate exception: `//lint:allow writes: <why>` on this line"
+
+// writers are the functions that write a file in place, or replace one
+// without the Windows retry.
+var writers = map[string]bool{
+	"os.WriteFile": true, "os.Create": true, "os.Rename": true, "os.OpenFile": true,
+	"io/ioutil.WriteFile": true,
+}
+
+// rawWrites: a call of os.WriteFile, ioutil.WriteFile, os.Create or os.Rename, or of
+// os.OpenFile that truncates, or that creates or opens for writing without
+// os.O_APPEND (the flags must be written out as os.O_* names: any other
+// expression may hide one). One of them used as a value, which hides its
+// call and flags, counts too. fetch.WriteFile and fetch.Rename are the way to write.
+func rawWrites(p *pkg) []string {
+	var out []string
+	for _, f := range p.files {
+		called := map[*ast.Ident]bool{}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				id := name(n.Fun)
+				if id == nil || !p.isWriter(id) {
+					return true
+				}
+				called[id] = true
+				if id.Name == "OpenFile" && len(n.Args) == 3 && !p.writesInPlace(n.Args[1]) {
+					return true
+				}
+				if !p.allowed("writes", n) {
+					out = append(out, p.at(n)+noAtomicWrite)
+				}
+			case *ast.Ident:
+				if p.isWriter(n) && !called[n] && !p.allowed("writes", n) {
+					out = append(out, p.at(n)+noAtomicWrite)
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// isWriter: id names one of writers.
+func (p *pkg) isWriter(id *ast.Ident) bool {
+	fn, ok := p.info.Uses[id].(*types.Func)
+	return ok && writers[fn.FullName()]
+}
+
+// writesInPlace: flag, an os.OpenFile's flags, truncates the file, or
+// creates it or opens it for writing without appending, or isn't made of
+// os.O_* names so that it can't be told.
+func (p *pkg) writesInPlace(flag ast.Expr) bool {
+	var create, write, trunc, appends, other bool
+	ast.Inspect(flag, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.Ident:
+			if _, pkgName := p.info.Uses[n].(*types.PkgName); pkgName {
+				break
+			}
+			c, ok := p.info.Uses[n].(*types.Const)
+			if !ok || c.Pkg() == nil || c.Pkg().Path() != "os" || !strings.HasPrefix(c.Name(), "O_") {
+				other = true
+				break
+			}
+			switch c.Name() {
+			case "O_CREATE":
+				create = true
+			case "O_WRONLY", "O_RDWR":
+				write = true
+			case "O_TRUNC":
+				trunc = true
+			case "O_APPEND":
+				appends = true
+			}
+		case nil, *ast.BasicLit, *ast.BinaryExpr, *ast.ParenExpr, *ast.SelectorExpr:
+		default:
+			other = true
+		}
+		return true
+	})
+	return other || trunc || !appends && (create || write)
+}
+
+// TestRepo runs every rule over cmd/ and internal/, on each of goosList's
+// builds. A file both compile is reported once.
 func TestRepo(t *testing.T) {
-	m := load(t, filepath.Join("..", ".."))
-	if m.pkgs[modulePath+"/cmd/kizuna"] == nil || len(m.pkgs) < 10 {
-		t.Fatalf("found %d packages: the walk is not reaching the code", len(m.pkgs))
+	var mods []*module
+	for _, goos := range goosList {
+		m := loadRepo(t, goos)
+		if m.pkgs[modulePath+"/cmd/kizuna"] == nil || len(m.pkgs) < 10 {
+			t.Fatalf("%s: found %d packages: the walk is not reaching the code", goos, len(m.pkgs))
+		}
+		mods = append(mods, m)
 	}
 	for _, name := range slices.Sorted(maps.Keys(rules)) {
 		t.Run(name, func(t *testing.T) {
-			for _, path := range slices.Sorted(maps.Keys(m.pkgs)) {
-				for _, msg := range rules[name](m.pkgs[path]) {
-					t.Error(msg)
+			seen := map[string]bool{}
+			for _, m := range mods {
+				for _, path := range slices.Sorted(maps.Keys(m.pkgs)) {
+					for _, msg := range rules[name](m.pkgs[path]) {
+						if !seen[msg] {
+							seen[msg] = true
+							t.Error(msg)
+						}
+					}
 				}
 			}
 		})
 	}
 }
 
-// TestHelpersExist: the failure names functions to use, so a rename must
-// not leave it naming one that is gone.
+// TestHelpersExist: the failures name functions to use, so a rename must
+// not leave one naming a function that is gone.
 func TestHelpersExist(t *testing.T) {
-	m := load(t, filepath.Join("..", ".."))
+	m := loadRepo(t, "linux")
 	have := map[string]bool{}
 	for fn := range m.funcs {
 		have[fn.FullName()] = true
@@ -454,6 +584,14 @@ func TestHelpersExist(t *testing.T) {
 		}
 		if !have[helpers[name]] {
 			t.Errorf("%s: no such function in the module", helpers[name])
+		}
+	}
+	for _, name := range []string{"WriteFile", "Rename"} {
+		if !strings.Contains(noAtomicWrite, "fetch."+name) {
+			t.Errorf("the failure doesn't name fetch.%s", name)
+		}
+		if !have[modulePath+"/internal/fetch."+name] {
+			t.Errorf("fetch.%s: no such function in the module", name)
 		}
 	}
 }
@@ -487,7 +625,7 @@ var (
 )
 
 `
-			m := newModule()
+			m := newModule("linux")
 			files := map[string]string{
 				"y/y.go":       "package y\n\nfunc Keep() { _ = recover() }\n",
 				"x/prelude.go": "package x\n\nfunc work() {}\n\nfunc keep() { _ = recover() }\n\nfunc get() int { return 1 }\n\ntype runner interface{ Run() }\n",
@@ -575,6 +713,104 @@ var (
 			{"allowed in another file", 1, []string{`func a() { go work() }`, `// //lint:allow goroutine: not here`}},
 		} {
 			t.Run(c.name, func(t *testing.T) { check(t, c.want, c.srcs...) })
+		}
+	})
+
+	t.Run("writes", func(t *testing.T) {
+		// check runs the rule on package x, made of the files srcs, each with
+		// the imports a case uses.
+		check := func(t *testing.T, want int, srcs ...string) {
+			t.Helper()
+			const imports = `package x
+
+import (
+	"io/ioutil"
+	"os"
+	osalias "os"
+	"path/filepath"
+)
+
+var (
+	_ = ioutil.ReadAll
+	_ = os.Getpid
+	_ = osalias.Getpid
+	_ = filepath.Join
+)
+
+`
+			m := newModule("linux")
+			for i, src := range srcs {
+				if err := m.parse(fmt.Sprintf("x/x%d.go", i), []byte(imports+src+"\n")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m.check(t)
+			if got := rules["writes"](m.pkgs[modulePath+"/x"]); len(got) != want {
+				t.Errorf("%d violations, want %d: %q", len(got), want, got)
+			}
+		}
+		for _, c := range []struct {
+			name string
+			want int
+			srcs []string
+		}{
+			{"os.WriteFile", 1, []string{`func a(b []byte) error { return os.WriteFile("s.json", b, 0o644) }`}},
+			{"os.WriteFile through an alias", 1, []string{`func a(b []byte) error { return osalias.WriteFile("s.json", b, 0o644) }`}},
+			{"os.WriteFile as a value", 1, []string{`var w = os.WriteFile`}},
+			{"os.WriteFile as a value, called", 1, []string{`func a(b []byte) error { w := os.WriteFile; return w("s.json", b, 0o644) }`}},
+			{"ioutil.WriteFile", 1, []string{`func a(b []byte) error { return ioutil.WriteFile("s.json", b, 0o644) }`}},
+			{"os.Create", 1, []string{`func a() { f, _ := os.Create("s.json"); f.Close() }`}},
+			{"os.Rename", 1, []string{`func a() error { return os.Rename("a", "b") }`}},
+			{"os.Rename as a value", 1, []string{`var rename = os.Rename`}},
+			{"os.OpenFile truncating", 1, []string{`func a() { f, _ := os.OpenFile("s", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); f.Close() }`}},
+			{"os.OpenFile creating", 1, []string{`func a() { f, _ := os.OpenFile("s", os.O_WRONLY|os.O_CREATE, 0o644); f.Close() }`}},
+			{"os.OpenFile truncating through an alias", 1, []string{`func a() { f, _ := osalias.OpenFile("s", osalias.O_TRUNC, 0o644); f.Close() }`}},
+			{"os.OpenFile truncating and appending", 1, []string{`func a() { f, _ := os.OpenFile("s", os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o644); f.Close() }`}},
+			{"os.OpenFile writing in place", 1, []string{`func a() { f, _ := os.OpenFile("s", os.O_WRONLY, 0); f.Close() }`}},
+			{"os.OpenFile reading and writing in place", 1, []string{`func a() { f, _ := os.OpenFile("s", os.O_RDWR, 0); f.Close() }`}},
+			{"os.OpenFile reading and appending", 0, []string{`func a() { f, _ := os.OpenFile("s", os.O_RDWR|os.O_APPEND, 0); f.Close() }`}},
+			{"os.OpenFile appending", 0, []string{`func a() { f, _ := os.OpenFile("s", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); f.Close() }`}},
+			{"os.OpenFile reading", 0, []string{`func a() { f, _ := os.OpenFile("s", os.O_RDONLY, 0); f.Close() }`}},
+			{"os.OpenFile with flags in a variable", 1, []string{`func a(flag int) { f, _ := os.OpenFile("s", flag, 0o644); f.Close() }`}},
+			{"os.OpenFile with flags in a constant", 1, []string{`const flags = os.O_APPEND; func a() { f, _ := os.OpenFile("s", flags, 0o644); f.Close() }`}},
+			{"os.OpenFile as a value", 1, []string{`var open = os.OpenFile`}},
+			{"os.ReadFile", 0, []string{`func a() { os.ReadFile("s") }`}},
+			{"os.Remove", 0, []string{`func a() { os.Remove("s") }`}},
+			{"another package's WriteFile", 0, []string{`type w struct{}; func (w) WriteFile(string, []byte) error { return nil }
+				func a() { var x w; x.WriteFile("s", nil) }`}},
+			{"allowed", 0, []string{`func a(b []byte) { os.WriteFile("s", b, 0o644) //lint:allow writes: a lost file only costs a request
+				}`}},
+			{"allowed without a reason", 1, []string{`func a(b []byte) { os.WriteFile("s", b, 0o644) //lint:allow writes:
+				}`}},
+			{"allowed for another rule", 1, []string{`func a(b []byte) { os.WriteFile("s", b, 0o644) //lint:allow goroutine: no
+				}`}},
+		} {
+			t.Run(c.name, func(t *testing.T) { check(t, c.want, c.srcs...) })
+		}
+	})
+	// A _windows.go file is compiled by the windows build only, so only the
+	// windows pass reads it.
+	t.Run("windows files", func(t *testing.T) {
+		const src = `package x
+
+import "os"
+
+func a(b []byte) { os.WriteFile("s", b, 0o644); go a(nil) }
+`
+		for _, c := range []struct {
+			goos string
+			want int
+		}{{"linux", 0}, {"windows", 1}} {
+			m := newModule(c.goos)
+			if err := m.parse("x/a_windows.go", []byte(src)); err != nil {
+				t.Fatal(err)
+			}
+			m.check(t)
+			for name, rule := range rules {
+				if got := rule(m.pkgs[modulePath+"/x"]); len(got) != c.want {
+					t.Errorf("%s on %s: %d violations, want %d: %q", name, c.goos, len(got), c.want, got)
+				}
+			}
 		}
 	})
 }

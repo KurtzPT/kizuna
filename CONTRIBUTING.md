@@ -74,6 +74,7 @@ docker build -t kizuna .
 | 🛡️ | **Keep the access checks** (`ALLOW_FROM`, `ALLOWED_HOSTS`) on every route | Kizuna has no login, see [SECURITY.md](SECURITY.md) |
 | 🧪 | **Tests stay offline**: fixtures and `httptest`, never a real API | CI and contributors have no keys |
 | 🧯 | **Every goroutine recovers its own panic**, through the helpers the `internal/lint` failure names | a panic on any goroutine ends Kizuna for every show |
+| 💾 | **Files are written through `fetch.WriteFile` / `fetch.Rename`**, as the `internal/lint` failure names | a crash or a reader mid-write leaves half a file |
 | 📖 | **Docs and code change together.** Update the doc that describes what you change ([where](#%EF%B8%8F-code-map)) | the docs are the only manual |
 | 🔢 | **Leave the Go version alone.** Upgrades to `go.mod` and the `Dockerfile` are automated | keeps your pull request to one change |
 
