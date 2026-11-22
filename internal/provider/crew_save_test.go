@@ -302,6 +302,38 @@ func TestCrewMemoryDelayedUnreadable(t *testing.T) {
 	})
 }
 
+// A panic in the timer's save is logged with its stack and doesn't end
+// Kizuna: the memory still answers photo reads, and the save counts as
+// failed, so the shutdown's flush writes the file. The panic here is the
+// merge of a file read again after all, into photos made nil.
+func TestCrewMemoryDelayedSavePanics(t *testing.T) {
+	dir := crewDir(t)
+	m := unreadableLoad(t, dir)
+	mt := manualSaves(m)
+	learnSoon(m, "a", "a.jpg")
+	healFile(t, dir, map[string]string{"old": "old.jpg"})
+	m.photos = nil
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	mt.fire()
+	restore()
+	if !crewLogged(logs.String(), dir, "panicked") || !strings.Contains(logs.String(), "goroutine") {
+		t.Errorf("the panic isn't logged with its path and stack: %q", logs.String())
+	}
+	if !m.mu.TryLock() {
+		t.Fatal("the memory stays locked after the panic: every photo read would hang")
+	}
+	m.photos = map[string]string{"a": "a.jpg"}
+	m.mu.Unlock()
+	m.flush()
+	if got := readPhotos(t, dir); len(got) != 2 || got["a"] != "a.jpg" || got["old"] != "old.jpg" {
+		t.Errorf("file %v after the flush, want a and old: the panicked save must count as failed", got)
+	}
+	if m.photo("old") != "old.jpg" {
+		t.Errorf("photo read %q, want the file's photo", m.photo("old"))
+	}
+}
+
 // Builds learning photos at the same time as the timer's saves run lose
 // none: once Flush returns, the file holds every photo. The saves run on
 // real timers here (no delay), so the race detector sees builds and saves
