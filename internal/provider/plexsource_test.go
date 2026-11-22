@@ -142,7 +142,7 @@ func TestPlexShowFields(t *testing.T) {
 // A later entry gets the summary of the Plex season it sits in, none of
 // Plex's series-wide fields, and the season's pictures.
 func TestPlexLaterEntry(t *testing.T) {
-	net := &fakeNet{answer: plexService(nil)}
+	net := &fakeNet{answer: plexService(testSeries)}
 	p := newTestProvider(t, net)
 	withPlex(t, p, net)
 	p.cfg.SummarySources, p.cfg.TitleSources, p.cfg.StudioSources = []string{"plex"}, []string{"plex"}, []string{"plex"}
