@@ -436,40 +436,59 @@ func (h runOn) Handle(ctx context.Context, r slog.Record) error {
 // download leaves fetch's calls under way (here while fetch logs the panic)
 // is counted for a new call and joins that download, which sends nothing:
 // that call is given back too. Kept, it would hold one of the day's calls,
-// and the next caller would join it and skip admit's checks.
+// and the next caller would join it and skip admit's checks. The backoff
+// the panic starts holds even when result's state write fails too, and its
+// log line panics.
 func TestAniDBSendingPanicGivesBackAJoinersCall(t *testing.T) {
-	c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
-	notDir := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(notDir, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	good := c.statePath
-	c.mu.Lock()
-	c.statePath = filepath.Join(notDir, "anidb-state.json") // every state write fails
-	c.mu.Unlock()
-	gaveUp, cancel := context.WithCancel(context.Background())
-	cancel() // the second caller joins the download and returns at once
-	var joined error
-	old := slog.Default()
-	slog.SetDefault(slog.New(runOn{"download panicked", func() {
-		c.mu.Lock()
-		c.statePath = good
-		c.mu.Unlock()
-		_, joined = c.Anime(gaveUp, 1)
-	}, panicOn{"AniDB state not saved; a restart now would forget the latest calls", "(*AniDB).sending", slog.NewTextHandler(&logBuffer{}, nil)}}))
-	t.Cleanup(func() { slog.SetDefault(old) })
-	ctx := context.Background()
-	if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
-		t.Fatalf("err %v, want the panic", err)
-	}
-	if !errors.Is(joined, context.Canceled) {
-		t.Fatalf("second caller: %v, want it to join the download and give up", joined)
-	}
-	if st := c.stateOf(1); st.calls != 0 || st.calling != nil || !st.backoff || requests.Load() != 0 {
-		t.Fatalf("state %+v, %d requests; want no call counted or under way, the backoff, nothing sent", st, requests.Load())
-	}
-	c.endBackoff()
-	if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 || c.stateOf(1).calls != 1 {
-		t.Errorf("after the backoff: %v, %d requests, %d counted; want the entry, asked and counted once", err, requests.Load(), c.stateOf(1).calls)
+	const notSaved = "AniDB state not saved; a restart now would forget the latest calls"
+	for name, resultSaveFails := range map[string]bool{"result saves": false, "result's save panics": true} {
+		t.Run(name, func(t *testing.T) {
+			c, requests := fakeAniDB(t, [2]string{"200", anidbSample})
+			notDir := filepath.Join(t.TempDir(), "file")
+			if err := os.WriteFile(notDir, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			good, bad := c.statePath, filepath.Join(notDir, "anidb-state.json") // every state write to bad fails
+			setStatePath := func(path string) {
+				c.mu.Lock()
+				c.statePath = path
+				c.mu.Unlock()
+			}
+			setStatePath(bad)
+			gaveUp, cancel := context.WithCancel(context.Background())
+			cancel() // the second caller joins the download and returns at once
+			var joined error
+			logs := &logBuffer{}
+			old := slog.Default()
+			slog.SetDefault(slog.New(runOn{"download panicked", func() {
+				setStatePath(good)
+				_, joined = c.Anime(gaveUp, 1)
+				if resultSaveFails {
+					setStatePath(bad)
+				}
+			}, panicOn{notSaved, "(*AniDB).sending", panicOn{notSaved, "(*AniDB).result", slog.NewTextHandler(logs, nil)}}}))
+			t.Cleanup(func() { slog.SetDefault(old) })
+			ctx := context.Background()
+			if _, err := c.Anime(ctx, 1); !errors.Is(err, fetch.ErrPanicked) {
+				t.Fatalf("err %v, want the panic", err)
+			}
+			setStatePath(good)
+			if !errors.Is(joined, context.Canceled) {
+				t.Fatalf("second caller: %v, want it to join the download and give up", joined)
+			}
+			if panicked := strings.Contains(logs.String(), "download's Done panicked"); panicked != resultSaveFails {
+				t.Fatalf("result panicked: %v, want %v; logs:\n%s", panicked, resultSaveFails, logs)
+			}
+			if _, err := c.Anime(ctx, 69); !errors.Is(err, errAniDBUnavailable) || requests.Load() != 0 {
+				t.Fatalf("another anime: %v, %d requests; want it refused in the backoff, nothing sent", err, requests.Load())
+			}
+			if st := c.stateOf(1); st.calls != 0 || st.calling != nil {
+				t.Fatalf("state %+v; want no call counted or under way", st)
+			}
+			c.endBackoff()
+			if a, err := c.Anime(ctx, 1); err != nil || a == nil || requests.Load() != 1 || c.stateOf(1).calls != 1 {
+				t.Errorf("after the backoff: %v, %d requests, %d counted; want the entry, asked and counted once", err, requests.Load(), c.stateOf(1).calls)
+			}
+		})
 	}
 }
