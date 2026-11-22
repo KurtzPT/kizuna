@@ -253,7 +253,7 @@ func (r *Renamer) look(ctx context.Context, w *waiting) {
 		}
 		r.failures, r.pausedUntil = 0, now.Add(pause)
 	}
-	warn := err != nil && !errors.Is(err, errPanicked) && !paused && due(&r.lastWarn, now)
+	warn := err != nil && !errors.Is(err, fetch.ErrPanicked) && !paused && due(&r.lastWarn, now)
 	r.mu.Unlock()
 	switch {
 	case paused:
@@ -267,18 +267,15 @@ func (r *Renamer) look(ctx context.Context, w *waiting) {
 	}
 }
 
-// errPanicked is a look that panicked. It was logged with its stack already,
-// and says nothing about PLEX_URL or PLEX_TOKEN.
-var errPanicked = errors.New("plex: setting the titles panicked")
-
-// renameSafe is rename with a panic logged and returned as errPanicked. Run's
+// renameSafe is rename with a panic logged and returned as fetch.ErrPanicked,
+// which says nothing about PLEX_URL or PLEX_TOKEN. Run's
 // one goroutine does the looks of every show, so a panic on Plex's answer
 // for one show must end that look, not Kizuna.
 func (r *Renamer) renameSafe(ctx context.Context, guid string, known []show) (shows []show, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			fetch.LogPanic("plex: setting the opening and ending titles panicked; this show keeps Plex's titles until its next look", p, "show", guid)
-			shows, err = nil, errPanicked
+			shows, err = nil, fetch.ErrPanicked
 		}
 	}()
 	return r.rename(ctx, guid, known)
