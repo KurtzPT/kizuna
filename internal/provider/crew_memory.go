@@ -64,8 +64,6 @@ type crewTimer interface{ Stop() bool }
 
 type crewAfterFunc func(d time.Duration, f func()) crewTimer
 
-func afterFunc(d time.Duration, f func()) crewTimer { return time.AfterFunc(d, f) } //lint:allow goroutine: f is savePending: write can panic (it rereads and merges a kept-aside file) and nothing recovers yet, so a panic there ends the process: not fixed yet
-
 // crewMemoryAside is the suffix of an unreadable memory file kept aside.
 // One name: a later unreadable file replaces it, so copies don't pile up.
 // A file is moved there only after a second read failed too (a good file
@@ -131,13 +129,7 @@ func (m *crewMemory) reread() (ok bool) {
 	photos, err := readCrewMemory(m.path)
 	switch {
 	case err == nil:
-		m.mu.Lock() // saveMu, then mu, as in save: readers see the merged photos at once
-		for k, v := range photos {
-			if _, learned := m.photos[k]; !learned {
-				m.photos[k] = v
-			}
-		}
-		m.mu.Unlock()
+		m.merge(photos)
 		slog.Info("crew photos file read after all; its photos are remembered again", "path", m.path, "photos", len(photos))
 	case errors.Is(err, fs.ErrNotExist):
 		// Gone since the start: nothing left to keep.
@@ -157,6 +149,18 @@ func (m *crewMemory) reread() (ok bool) {
 	}
 	m.keepAside = false
 	return true
+}
+
+// merge adds the photos of keys not learned since the start (under saveMu,
+// then mu, as in save: readers see them at once).
+func (m *crewMemory) merge(photos map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock() // a panic here must not leave every photo read waiting
+	for k, v := range photos {
+		if _, learned := m.photos[k]; !learned {
+			m.photos[k] = v
+		}
+	}
 }
 
 // photo is the photo remembered for key ("" = none).
@@ -205,11 +209,11 @@ func (m *crewMemory) saveSoon() {
 		return
 	}
 	m.pending = true
-	after := m.after
-	if after == nil {
-		after = afterFunc
+	if m.after != nil {
+		m.timer = m.after(crewSaveDelay, m.savePending)
+	} else {
+		m.timer = time.AfterFunc(crewSaveDelay, m.savePending) //lint:allow goroutine: savePending's one step that can panic, write, recovers on its own
 	}
-	m.timer = after(crewSaveDelay, m.savePending)
 }
 
 // savePending saves when a save is pending: the timer's call. A timer that
@@ -269,7 +273,16 @@ func (m *crewMemory) save() {
 // write writes the memory to its file (under saveMu) and reports whether
 // the file now holds it. A failed write is a warning: the memory still
 // works, and the next build that learned or replaced a photo saves again.
-func (m *crewMemory) write() bool {
+// A panic is logged and is a failed write too: write runs on the delayed
+// save's timer goroutine, outside every build's recover, and in builds,
+// where a crew file must not fail the show.
+func (m *crewMemory) write() (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			fetch.LogPanic("crew photos save panicked; the photos stay remembered, and the next save tries again", r, "path", m.path)
+			ok = false
+		}
+	}()
 	// A file not moved aside isn't overwritten: the save waits for the next.
 	if m.keepAside && !m.reread() {
 		return false

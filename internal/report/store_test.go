@@ -233,6 +233,38 @@ func TestFlushRetries(t *testing.T) {
 	}
 }
 
+// A panic while one page is written ends that page's updates only: Run
+// writes every show's page, so the other pages and the index are still
+// written, and the next flush works. The panicked updates are dropped
+// (written again, they would panic again), and the panic is logged with its
+// stack.
+func TestFlushPanicEndsOnePage(t *testing.T) {
+	var logs strings.Builder
+	defer captureLogs(&logs)()
+	dir := t.TempDir()
+	s, _ := Open(dir, "test")
+	s.AddBuild("anidb-2", finished("anidb-2"))
+	s.mu.Lock()
+	s.pending["anidb-1"] = &pending{builds: []*Recorder{nil}} // a nil build: its write panics
+	s.mu.Unlock()
+	s.Flush()
+	var doc ShowDoc
+	readDoc(t, dir, "anidb-2", &doc)
+	var rows []IndexRow
+	readDoc(t, dir, "index", &rows)
+	if len(doc.Builds) != 1 || len(rows) != 1 || rows[0].Key != "anidb-2" || len(s.pending) != 0 {
+		t.Errorf("%d builds, index %+v, %d pending: want the other page and the index written, nothing pending", len(doc.Builds), rows, len(s.pending))
+	}
+	if !strings.Contains(logs.String(), "anidb-1") || !strings.Contains(logs.String(), "goroutine") {
+		t.Errorf("the panic isn't logged with its page and stack: %q", logs.String())
+	}
+	s.AddBuild("anidb-3", finished("anidb-3"))
+	s.Flush()
+	if !pageExists(t, dir, "anidb-3") {
+		t.Error("the flush after the panic wrote nothing")
+	}
+}
+
 // A download that finishes after the page was written queues the build
 // again, which replaces its copy on the page; after lateFor it is ignored.
 func TestLateSpan(t *testing.T) {

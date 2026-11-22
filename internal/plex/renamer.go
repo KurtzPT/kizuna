@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"kizuna/internal/fetch"
 )
 
 // Plex sets an extra's title back to the name it reads from the file ("OP1")
@@ -228,7 +230,7 @@ func (r *Renamer) take() (w *waiting, wait time.Duration) {
 
 // look sets the titles of one show, and decides what a failure means.
 func (r *Renamer) look(ctx context.Context, w *waiting) {
-	shows, err := r.rename(ctx, w.guid, w.shows)
+	shows, err := r.renameSafe(ctx, w.guid, w.shows)
 	if ctx.Err() != nil {
 		return // stopping: the call was cut, nothing is wrong
 	}
@@ -251,7 +253,7 @@ func (r *Renamer) look(ctx context.Context, w *waiting) {
 		}
 		r.failures, r.pausedUntil = 0, now.Add(pause)
 	}
-	warn := err != nil && !paused && due(&r.lastWarn, now)
+	warn := err != nil && !errors.Is(err, fetch.ErrPanicked) && !paused && due(&r.lastWarn, now)
 	r.mu.Unlock()
 	switch {
 	case paused:
@@ -263,6 +265,20 @@ func (r *Renamer) look(ctx context.Context, w *waiting) {
 		slog.Warn("can't set the opening and ending titles in Plex (check PLEX_URL and PLEX_TOKEN); more failures in the next minute aren't logged",
 			"show", w.guid, "err", err)
 	}
+}
+
+// renameSafe is rename with a panic logged and returned as fetch.ErrPanicked,
+// which says nothing about PLEX_URL or PLEX_TOKEN. Run's
+// one goroutine does the looks of every show, so a panic on Plex's answer
+// for one show must end that look, not Kizuna.
+func (r *Renamer) renameSafe(ctx context.Context, guid string, known []show) (shows []show, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			fetch.LogPanic("plex: setting the opening and ending titles panicked; this show keeps Plex's titles until its next look", p, "show", guid)
+			shows, err = nil, fetch.ErrPanicked
+		}
+	}()
+	return r.rename(ctx, guid, known)
 }
 
 // due says whether a warning last logged at *last may be logged again, and

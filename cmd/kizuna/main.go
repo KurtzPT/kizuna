@@ -240,7 +240,7 @@ func serve(cfg config.Config) error {
 	if cfg.MatchReports {
 		if reports, err := report.Open(filepath.Join(cfg.DataDir, "reports"), provider.Version); err == nil {
 			p.SetReports(reports)
-			go reports.Run(ctx) //lint:allow goroutine: lives as long as the process, but Store.flush writes each show's page with no recover yet, so one show's panic ends it: not fixed yet
+			go reports.Run(ctx) //lint:allow goroutine: lives as long as the process: each show's page write recovers on its own, in Store.write; the index left is plain rows of those pages
 			defer reports.Flush()
 		} else {
 			slog.Warn("can't write match reports (check the data folder's permissions)", "err", err)
@@ -249,7 +249,7 @@ func serve(cfg config.Config) error {
 	renamer := extraTitles(cfg)
 	if renamer != nil {
 		p.OnExtrasRequest(renamer.Queue)
-		go renamer.Run(ctx) //lint:allow goroutine: lives as long as the process, but (*Renamer).look has no per-show recover yet, so one show's panic ends it: not fixed yet
+		go renamer.Run(ctx) //lint:allow goroutine: lives as long as the process: each show's calls to Plex recover on their own, in renameSafe, and the loop goes on
 	}
 	// Serve while the lists load, so /health answers "starting" (and Plex's
 	// requests wait for the load) instead of the port hanging until then.
