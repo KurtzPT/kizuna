@@ -48,22 +48,21 @@ func TestDailyRotationAndRetention(t *testing.T) {
 // zone is a time zone that follows one POSIX TZ rule for all time. The test
 // can't take its zones from the machine's zone database or from Go's copy:
 // both change when a country changes its clocks, and did for Havana in 2026.
-func zone(t *testing.T, name, rule string) *time.Location {
+func zone(t *testing.T, rule string) *time.Location {
 	t.Helper()
-	// A TZif version 2 file: a version 1 block, a version 2 block, then the
-	// rule as the footer. Neither block has transitions, so Go reads every
-	// instant from the footer. Each block holds one zone type, which nothing
-	// uses but the format requires.
-	block := func(version byte) []byte {
-		b := make([]byte, 44, 52)
-		copy(b, "TZif")
-		b[4] = version
+	// A TZif version 2 file (RFC 8536): its 32-bit block, its 64-bit block,
+	// then the rule as the footer. Both blocks have the file's version and
+	// no transitions, so Go reads every instant from the footer. Each holds
+	// one zone type, which nothing uses but the format requires.
+	block := func() []byte {
+		b := make([]byte, 44, 52) // the header, then the zone type (6 bytes) and its name "X" (2)
+		copy(b, "TZif2")
 		binary.BigEndian.PutUint32(b[36:], 1) // zone types
-		binary.BigEndian.PutUint32(b[40:], 2) // abbreviation bytes
+		binary.BigEndian.PutUint32(b[40:], 2) // name bytes
 		return append(b, 0, 0, 0, 0, 0, 0, 'X', 0)
 	}
-	data := append(append(block('2'), block('2')...), "\n"+rule+"\n"...)
-	loc, err := time.LoadLocationFromTZData(name, data)
+	data := append(append(block(), block()...), "\n"+rule+"\n"...)
+	loc, err := time.LoadLocationFromTZData(rule, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +72,7 @@ func zone(t *testing.T, name, rule string) *time.Location {
 // kizuna.log is dated once, when the local date changes, whatever the zone's
 // clock does around midnight. Each line is its own wall clock time.
 func TestOneRolloverPerLocalDay(t *testing.T) {
+	const chile = "<-04>4<-03>,M9.1.6/24,M4.1.6/24"
 	type line struct {
 		utc  string // the instant the clock gives
 		wall string // the same instant in the zone: checks the zone's rules are the ones this test is about
@@ -85,7 +85,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 		// 6 Sep 2026: 00:00 -04 doesn't exist, the clock goes from 23:59:59 to
 		// 01:00 -03. time.Date gives 5 Sep 23:00 for that midnight, and the file
 		// used to be dated again at every line of that last hour.
-		{"no midnight: summer time starts at 00:00", "<-04>4<-03>,M9.1.6/24,M4.1.6/24", []line{ // Chile
+		{"no midnight: summer time starts at 00:00", chile, []line{
 			{utc: "2026-09-06 02:59", wall: "2026-09-05 22:59 -0400"},
 			{utc: "2026-09-06 03:00", wall: "2026-09-05 23:00 -0400"},
 			{utc: "2026-09-06 03:30", wall: "2026-09-05 23:30 -0400"},
@@ -96,7 +96,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 			{utc: "2026-09-07 03:00", wall: "2026-09-07 00:00 -0300"},
 		}},
 		// 1 Nov 2026: at 01:00 -04 the clock goes back to 00:00 -05.
-		{"midnight twice: summer time ends at 01:00", "CST5CDT,M3.2.0/0,M11.1.0/1", []line{ // Cuba until 2026
+		{"midnight twice: summer time ends at 01:00", "CST5CDT,M3.2.0/0,M11.1.0/1", []line{ // Cuba's rule before tzdata 2026f
 			{utc: "2026-11-01 03:59", wall: "2026-10-31 23:59 -0400"},
 			{utc: "2026-11-01 04:00", wall: "2026-11-01 00:00 -0400"},
 			{utc: "2026-11-01 04:59", wall: "2026-11-01 00:59 -0400"},
@@ -115,7 +115,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 			{utc: "2026-10-24 22:00", wall: "2026-10-25 00:00 +0200"},
 			{utc: "2026-10-24 22:01", wall: "2026-10-25 00:01 +0200"},
 		}},
-		{"an ordinary midnight", "<-04>4<-03>,M9.1.6/24,M4.1.6/24", []line{ // Chile
+		{"an ordinary midnight", chile, []line{
 			{utc: "2026-11-02 02:59", wall: "2026-11-01 23:59 -0300"},
 			{utc: "2026-11-02 03:00", wall: "2026-11-02 00:00 -0300"},
 			{utc: "2026-11-02 03:01", wall: "2026-11-02 00:01 -0300"},
@@ -134,7 +134,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			loc := zone(t, c.name, c.rule)
+			loc := zone(t, c.rule)
 			dir := t.TempDir()
 			var clock time.Time
 			reads := 0
