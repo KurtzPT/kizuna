@@ -168,6 +168,36 @@ func TestWriteFileAtomic(t *testing.T) {
 	}
 }
 
+// WriteFile syncs by default: a cache file, the report page and AniDB's
+// state file must survive a crash whole. The check is that a count went
+// up, which a download still running from an earlier test can't undo.
+func TestWriteFileSyncs(t *testing.T) {
+	before := fileSyncs.Load()
+	if err := WriteFile(filepath.Join(t.TempDir(), "f"), []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if fileSyncs.Load() == before {
+		t.Error("WriteFile left out its sync by default")
+	}
+}
+
+// SkipSyncInTests makes WriteFile leave out the sync, and only the sync.
+func TestSkipSyncInTests(t *testing.T) {
+	t.Cleanup(func() { noSync.Store(false) }) // fetch's other tests keep syncing
+	SkipSyncInTests()
+	before := skippedSyncs.Load()
+	path := filepath.Join(t.TempDir(), "f")
+	if err := WriteFile(path, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if skippedSyncs.Load() == before {
+		t.Error("WriteFile synced after SkipSyncInTests")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "x" {
+		t.Errorf("without the sync: %q, want the data written", b)
+	}
+}
+
 // bodyNet answers every request with status (0 = 200) and body, and counts
 // them. A test changes status or body only while no request is under way.
 type bodyNet struct {

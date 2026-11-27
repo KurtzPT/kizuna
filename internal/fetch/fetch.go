@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 )
 
@@ -570,6 +571,25 @@ func (c *Client) store(key string, data []byte) bool {
 // on Windows it waits out a short sharing violation.
 func Rename(from, to string) error { return rename(from, to) }
 
+// noSync is atomic: downloads left running by earlier tests read it while
+// a test sets it.
+var noSync atomic.Bool
+
+// fileSyncs and skippedSyncs count WriteFile's syncs and the ones it left
+// out. Only fetch's tests read them: a sync leaves nothing else they can see.
+var fileSyncs, skippedSyncs atomic.Int64
+
+// SkipSyncInTests makes WriteFile leave out its sync for the rest of the
+// test binary's run. A package's TestMain calls it: on macOS each sync also
+// flushes the drive's cache, and tests never read their files back after a
+// crash. Outside a test binary it does nothing, so Kizuna itself always
+// syncs.
+func SkipSyncInTests() {
+	if testing.Testing() {
+		noSync.Store(true)
+	}
+}
+
 // WriteFile replaces path with data atomically: a reader (or the next start,
 // after a crash or with a full disk) sees the old file or the new one, never
 // half of it. The data goes to path+".tmp" in the same folder first, which
@@ -585,7 +605,12 @@ func WriteFile(path string, data []byte) error {
 	}
 	_, err = f.Write(data)
 	if err == nil {
-		err = f.Sync() // on disk before the rename makes it the file
+		if noSync.Load() {
+			skippedSyncs.Add(1)
+		} else {
+			fileSyncs.Add(1)
+			err = f.Sync() // on disk before the rename makes it the file
+		}
 	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
