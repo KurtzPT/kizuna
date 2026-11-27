@@ -1,6 +1,7 @@
 package logfile
 
 import (
+	"encoding/binary"
 	"errors"
 	"log/slog"
 	"math"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	_ "time/tzdata" // the zones below where the machine has no zone database (Windows)
 )
 
 func names(dir string) []string {
@@ -25,7 +25,7 @@ func names(dir string) []string {
 
 func TestDailyRotationAndRetention(t *testing.T) {
 	dir := t.TempDir()
-	clock := time.Date(2026, 11, 1, 23, 59, 0, 0, time.Local)
+	clock := time.Date(2026, 11, 1, 23, 59, 0, 0, time.UTC) // not Local: the machine's zone may change its clocks that week
 	l, err := open(dir, "kizuna", 3, func() time.Time { return clock })
 	if err != nil {
 		t.Fatal(err)
@@ -45,23 +45,47 @@ func TestDailyRotationAndRetention(t *testing.T) {
 	}
 }
 
+// zone is a time zone that follows one POSIX TZ rule for all time. The test
+// can't take its zones from the machine's zone database or from Go's copy:
+// both change when a country changes its clocks, and did for Havana in 2026.
+func zone(t *testing.T, name, rule string) *time.Location {
+	t.Helper()
+	// A TZif version 2 file: a version 1 block, a version 2 block, then the
+	// rule as the footer. Neither block has transitions, so Go reads every
+	// instant from the footer. Each block holds one zone type, which nothing
+	// uses but the format requires.
+	block := func(version byte) []byte {
+		b := make([]byte, 44, 52)
+		copy(b, "TZif")
+		b[4] = version
+		binary.BigEndian.PutUint32(b[36:], 1) // zone types
+		binary.BigEndian.PutUint32(b[40:], 2) // abbreviation bytes
+		return append(b, 0, 0, 0, 0, 0, 0, 'X', 0)
+	}
+	data := append(append(block('2'), block('2')...), "\n"+rule+"\n"...)
+	loc, err := time.LoadLocationFromTZData(name, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loc
+}
+
 // kizuna.log is dated once, when the local date changes, whatever the zone's
 // clock does around midnight. Each line is its own wall clock time.
 func TestOneRolloverPerLocalDay(t *testing.T) {
-	t.Setenv("ZONEINFO", "") // LoadLocation reads it
 	type line struct {
 		utc  string // the instant the clock gives
 		wall string // the same instant in the zone: checks the zone's rules are the ones this test is about
 		day  string // the day of the file the line belongs in; "" = wall's day
 	}
 	for _, c := range []struct {
-		name, zone string
+		name, rule string // rule: POSIX TZ, as at the end of a zone database file
 		lines      []line
 	}{
 		// 6 Sep 2026: 00:00 -04 doesn't exist, the clock goes from 23:59:59 to
 		// 01:00 -03. time.Date gives 5 Sep 23:00 for that midnight, and the file
 		// used to be dated again at every line of that last hour.
-		{"no midnight: summer time starts at 00:00", "America/Santiago", []line{
+		{"no midnight: summer time starts at 00:00", "<-04>4<-03>,M9.1.6/24,M4.1.6/24", []line{ // Chile
 			{utc: "2026-09-06 02:59", wall: "2026-09-05 22:59 -0400"},
 			{utc: "2026-09-06 03:00", wall: "2026-09-05 23:00 -0400"},
 			{utc: "2026-09-06 03:30", wall: "2026-09-05 23:30 -0400"},
@@ -72,7 +96,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 			{utc: "2026-09-07 03:00", wall: "2026-09-07 00:00 -0300"},
 		}},
 		// 1 Nov 2026: at 01:00 -04 the clock goes back to 00:00 -05.
-		{"midnight twice: summer time ends at 01:00", "America/Havana", []line{
+		{"midnight twice: summer time ends at 01:00", "CST5CDT,M3.2.0/0,M11.1.0/1", []line{ // Cuba until 2026
 			{utc: "2026-11-01 03:59", wall: "2026-10-31 23:59 -0400"},
 			{utc: "2026-11-01 04:00", wall: "2026-11-01 00:00 -0400"},
 			{utc: "2026-11-01 04:59", wall: "2026-11-01 00:59 -0400"},
@@ -83,7 +107,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 			{utc: "2026-11-02 05:00", wall: "2026-11-02 00:00 -0500"},
 		}},
 		// 25 Oct 2026: at 00:00 +03 the clock goes back to 24 Oct 23:00 +02.
-		{"the last hour twice: summer time ends at 00:00", "Asia/Beirut", []line{
+		{"the last hour twice: summer time ends at 00:00", "EET-2EEST,M3.5.0/0,M10.5.0/0", []line{ // Lebanon
 			{utc: "2026-10-24 20:30", wall: "2026-10-24 23:30 +0300"},
 			{utc: "2026-10-24 20:59", wall: "2026-10-24 23:59 +0300"},
 			{utc: "2026-10-24 21:00", wall: "2026-10-24 23:00 +0200"},
@@ -91,7 +115,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 			{utc: "2026-10-24 22:00", wall: "2026-10-25 00:00 +0200"},
 			{utc: "2026-10-24 22:01", wall: "2026-10-25 00:01 +0200"},
 		}},
-		{"an ordinary midnight", "America/Santiago", []line{
+		{"an ordinary midnight", "<-04>4<-03>,M9.1.6/24,M4.1.6/24", []line{ // Chile
 			{utc: "2026-11-02 02:59", wall: "2026-11-01 23:59 -0300"},
 			{utc: "2026-11-02 03:00", wall: "2026-11-02 00:00 -0300"},
 			{utc: "2026-11-02 03:01", wall: "2026-11-02 00:01 -0300"},
@@ -99,7 +123,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 		}},
 		// A clock set back over midnight (by hand, or a time correction): the
 		// line stamped yesterday goes in today's file, which is not dated early.
-		{"the clock is set back to yesterday", "UTC", []line{
+		{"the clock is set back to yesterday", "UTC0", []line{
 			{utc: "2026-11-01 23:59", wall: "2026-11-01 23:59 +0000"},
 			{utc: "2026-11-02 00:00", wall: "2026-11-02 00:00 +0000"},
 			{utc: "2026-11-01 23:58", wall: "2026-11-01 23:58 +0000", day: "2026-11-02"},
@@ -110,10 +134,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			loc, err := time.LoadLocation(c.zone)
-			if err != nil {
-				t.Fatal(err)
-			}
+			loc := zone(t, c.name, c.rule)
 			dir := t.TempDir()
 			var clock time.Time
 			reads := 0
@@ -124,7 +145,7 @@ func TestOneRolloverPerLocalDay(t *testing.T) {
 				}
 				clock = at.In(loc)
 				if got := clock.Format("2006-01-02 15:04 -0700"); got != l.wall {
-					t.Fatalf("%s UTC is %s in %s, want %s: not the zone rules this test is about", l.utc, got, c.zone, l.wall)
+					t.Fatalf("%s UTC is %s under %s, want %s: not the zone rules this test is about", l.utc, got, c.rule, l.wall)
 				}
 			}
 			set(c.lines[0])
