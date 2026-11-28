@@ -70,21 +70,24 @@ func ParseAccess(allowFrom, allowedHosts []string) (a Access, bad []string) {
 		a.Nets = privateNets
 	}
 	for _, e := range allowedHosts {
-		// a trailing dot is dropped, as from the Host (hostAllowed)
-		v := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(e)), ".")
-		if v != "*" {
-			v = strings.TrimPrefix(v, "*") // "*.example.com" = ".example.com"
-		}
-		switch {
-		case v == "any" || v == "all" || v == "*":
+		v := strings.ToLower(strings.TrimSpace(e))
+		switch v {
+		case "":
+			continue
+		case "any", "all", "*":
 			a.AnyHost = true
-		case v == "" || strings.ContainsAny(v, "/: *"): // a * past the front would be a literal that never matches
-			if v != "" {
-				bad = append(bad, "ALLOWED_HOSTS="+e)
-			}
-		default:
-			a.Hosts = append(a.Hosts, v)
+			continue
 		}
+		// a trailing dot is dropped, as from the Host (hostAllowed)
+		v = strings.TrimSuffix(v, ".")
+		if strings.HasPrefix(v, "*.") {
+			v = v[1:] // "*.example.com" = ".example.com"
+		}
+		if v == "" || v == "." || strings.ContainsAny(v, "/: *") { // any remaining * would never match
+			bad = append(bad, "ALLOWED_HOSTS="+e)
+			continue
+		}
+		a.Hosts = append(a.Hosts, v)
 	}
 	return a, bad
 }
