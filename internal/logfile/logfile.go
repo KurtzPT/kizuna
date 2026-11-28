@@ -238,11 +238,27 @@ func (l *File) cleanup() {
 		return
 	}
 	oldest := l.now().AddDate(0, 0, -l.keepDays).Format(dateLayout)
-	files, _ := filepath.Glob(filepath.Join(l.dir, l.base+"-*.log"))
-	for _, f := range files {
-		day := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), l.base+"-"), ".log")
+	// ReadDir instead of Glob: l.dir may contain glob characters such as [ and ].
+	entries, err := os.ReadDir(l.dir)
+	if err != nil {
+		return
+	}
+	prefix := l.base + "-"
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		day, ok := strings.CutPrefix(name, prefix)
+		if !ok {
+			continue
+		}
+		day, ok = strings.CutSuffix(day, ".log")
+		if !ok {
+			continue
+		}
 		if _, err := time.Parse(dateLayout, day); err == nil && day < oldest {
-			_ = os.Remove(f)
+			_ = os.Remove(filepath.Join(l.dir, name))
 		}
 	}
 }
