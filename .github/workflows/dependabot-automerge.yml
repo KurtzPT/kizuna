@@ -93,26 +93,66 @@ jobs:
 
       - name: turn on auto-merge
         if: steps.check.outputs.merge == 'true'
-        run: gh pr merge "$PR" --auto --squash
+        run: |
+          # --auto fails when all required checks already passed (e.g. on reopened)
+          if ! out=$(gh pr merge "$PR" --auto --squash 2>&1); then
+            case $out in
+              *"Pull request is in clean status"* | *"Pull request is in unstable status"*)
+                gh pr merge "$PR" --squash
+                ;;
+              *)
+                printf '%s\n' "$out" >&2
+                exit 1
+                ;;
+            esac
+          elif [ -n "$out" ]; then
+            printf '%s\n' "$out"
+          fi
 
       - name: wait for the merge, then check (and maybe publish) dev
         if: steps.check.outputs.merge == 'true'
         env:
           ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
         run: |
+          settled=false
           while :; do
-            # both in one call: a merge clears autoMergeRequest, so two calls
-            # could see OPEN and then no auto-merge. A failed gh call fails the job.
-            snap=$(gh pr view "$PR" --json state,autoMergeRequest --jq '"\(.state) \(.autoMergeRequest != null)"')
-            read -r state auto <<< "$snap"
+            # all fields in one call: a merge clears autoMergeRequest, so two
+            # calls could see OPEN and then no auto-merge. A failed gh call fails the job.
+            # shellcheck disable=SC2016 # jq variables, not shell expansions
+            snap=$(gh pr view "$PR" --json state,autoMergeRequest,statusCheckRollup --jq '
+              [(.statusCheckRollup // [])[]
+                | select((.__typename == "CheckRun" and .workflowName == "dependabot-automerge") | not)] as $checks
+              | ($checks | map(select(
+                  (.__typename == "CheckRun" and .status != "COMPLETED") or
+                  (.__typename == "StatusContext" and (.state == "PENDING" or .state == "EXPECTED"))
+                )) | length) as $pending
+              | ($checks | map(
+                  if .__typename == "CheckRun" and (.conclusion | IN("FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "CANCELLED")) then .name
+                  elif .__typename == "StatusContext" and (.state | IN("FAILURE", "ERROR")) then .context
+                  else empty end
+                ) | unique | join(", ")) as $failed
+              | "\(.state)\t\(.autoMergeRequest != null)\t\($pending)\t\($failed)"
+            ')
+            IFS=$'\t' read -r state auto pending failed <<< "$snap"
             case $state in
               MERGED) break ;;
               CLOSED) echo "closed without a merge"; exit 0 ;;
             esac
-            # auto-merge is turned off again when a check fails
             if [ "$auto" != true ]; then
-              echo "::warning::auto-merge was turned off (a check failed?): look at the pull request"
+              echo "::warning::auto-merge was turned off: look at the pull request"
               exit 0
+            fi
+            # GitHub keeps autoMergeRequest enabled when a check fails. Wait
+            # until no other check is pending, plus one poll so auto-merge can
+            # finish if only a non-required check failed.
+            if [ "$pending" -eq 0 ] && [ -n "$failed" ]; then
+              if [ "$settled" = true ]; then
+                echo "::warning::checks failed ($failed): look at the pull request"
+                exit 0
+              fi
+              settled=true
+            else
+              settled=false
             fi
             sleep 30
           done
