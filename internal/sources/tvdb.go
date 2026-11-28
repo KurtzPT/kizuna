@@ -344,7 +344,9 @@ func (t *TVDB) requestToken(ctx context.Context, legacy bool) (string, error) {
 		creds = map[string]string{"apikey": t.legacyKey}
 	}
 	body, _ := json.Marshal(creds)
-	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + "/login", Method: "POST", Body: body, Quiet: true})
+	// NoRedirect: a 307/308 redirect would replay the POST body, credentials
+	// included, to whatever host it names.
+	data, err := t.f.Get(ctx, fetch.Request{URL: apiBase(legacy) + "/login", Method: "POST", Body: body, Quiet: true, NoRedirect: true})
 	if err != nil {
 		if se := (*fetch.StatusError)(nil); errors.As(err, &se) {
 			err = &loginStatusError{code: se.Code, msg: err.Error()}

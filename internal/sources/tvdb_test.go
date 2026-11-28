@@ -780,3 +780,36 @@ func TestTVDBBothKeysNoted(t *testing.T) {
 		}
 	}
 }
+
+// A 307/308 redirect from /login would replay the credentials POST body to
+// whatever host it names: a redirect isn't followed and fails the login.
+func TestTVDBLoginNoRedirect(t *testing.T) {
+	for _, code := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		f := fetch.New(t.TempDir())
+		var mu sync.Mutex
+		var asked []string
+		f.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			mu.Lock()
+			asked = append(asked, r.URL.Host)
+			mu.Unlock()
+			h := http.Header{}
+			if r.URL.Host == "api4.thetvdb.com" {
+				h.Set("Location", "https://elsewhere.example/login")
+				return &http.Response{StatusCode: code, Header: h, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(`{"data":{"token":"stolen"}}`)), Request: r}, nil
+		}))
+		tv := NewTVDB(f, "v4key", "v4pin", "")
+		f.ThrottleAll(0)
+		token, err := tv.requestToken(context.Background(), false)
+		if token != "" || !errors.Is(err, errTVDBLogin) {
+			t.Errorf("HTTP %d: token %q err %v, want empty token and a login error", code, token, err)
+		}
+		mu.Lock()
+		got := append([]string(nil), asked...)
+		mu.Unlock()
+		if len(got) != 1 || got[0] != "api4.thetvdb.com" {
+			t.Errorf("HTTP %d: asked %q, want api4.thetvdb.com only", code, got)
+		}
+	}
+}
