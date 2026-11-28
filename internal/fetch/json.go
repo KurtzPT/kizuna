@@ -83,9 +83,10 @@ func (c *Client) getJSON(ctx context.Context, r Request, out any, ready func(Req
 	}
 	if ready != nil {
 		if r, err = ready(r); err != nil {
-			if !r.NoStale && !broken && c.staleJSON(ctx, r.Key, start, err, out) {
+			if !r.NoStale && !asked.NoStale && !broken && c.staleJSON(ctx, asked.Key, start, err, out) {
 				return time.Time{}, nil
 			}
+			observe(ctx, asked, start, KindFail, err)
 			return time.Time{}, err
 		}
 	}
