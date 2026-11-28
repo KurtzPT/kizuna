@@ -452,5 +452,24 @@ out=$(TOKEN_MAX_AGE=0 DELETE=true run "$versions" '')
 check "proactive token refresh: exit" "$?" 0
 check "proactive token refresh: refreshed before lookups" "$(($(grep -c '/token?' "$CURL_LOG") > 1))" 1
 
+# an index entry with a missing or null digest is skipped rather than
+# fetched as "null"; the real child beside it is still followed and kept
+null_versions=$(list "$(
+	version 1 sha256:idx 2026-09-01T00:00:00Z dev
+	version 2 sha256:real 2026-09-01T00:00:00Z
+	version 3 sha256:other 2026-09-01T00:00:00Z
+)")
+null_manifests='{
+  "sha256:idx": {"manifests": [{}, {"digest": null}, {"digest": "sha256:real"}]},
+  "sha256:real": {},
+  "sha256:other": {}
+}'
+: >"$CURL_LOG"
+out=$(FAKE_MANIFESTS=$null_manifests FAKE_404=null run "$null_versions" '')
+check "null child digest: exit" "$?" 0
+check "null child digest: real child kept" "$(deleted_of "$out")" "3 "
+check "null child digest: null never fetched" "$(grep -c '/manifests/null$' "$CURL_LOG")" 0
+check "null child digest: manifests read" "$(sed -n 's/^manifests read: //p' <<< "$out")" 3
+
 echo "$CHECKS checks, $FAILS failed"
 ((FAILS == 0))

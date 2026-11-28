@@ -196,7 +196,7 @@ follow() {
     keep[$d]=1
     # the per-platform images and BuildKit attestations of an index
     read_manifest "$d" "a kept version the registry can't serve?"
-    children=$(printf '%s' "$M" | "$JQ" -r '.manifests[]?.digest')
+    children=$(printf '%s' "$M" | "$JQ" -r '.manifests[]?.digest? // empty')
     while read -r child; do
       if [ -n "$child" ]; then queue+=("$child"); fi
     done <<< "$children"
