@@ -56,7 +56,18 @@ list_versions() {
 # (A manifest read tries three times, so at most about 3 minutes.)
 CURL_TIMEOUTS=(--connect-timeout 10 --max-time 60)
 
+# GHCR anonymous pull tokens expire after about 5 minutes; refresh before
+# that, and again on a 401 if a lookup hits expiry anyway (-e: no token stops here).
+TOKEN_MAX_AGE=${TOKEN_MAX_AGE:-240}
 registry_token=
+token_fetched_at=0
+fetch_token() {
+  registry_token=$(curl -fsS "${CURL_TIMEOUTS[@]}" "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
+    echo "::error::no registry token for $image: stopping (nothing deleted)" >&2
+    exit 1
+  }
+  token_fetched_at=$SECONDS
+}
 ACCEPT='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 # a manifest's JSON from the registry (the package is public: anonymous pull).
 # Call it in the main shell (m=$(manifest ...)), never in a pipe or <(...):
@@ -115,12 +126,9 @@ by_tag=$(printf '%s' "$versions" | "$JQ" -c '
   [ .[] | .name as $d | (.metadata.container.tags // [])[] | select(startswith("sha256-")) | {key: ., value: $d} ]
   | from_entries')
 
-# one registry token for every manifest lookup (-e: no token stops here)
+# initial registry token for manifest lookups
 if [ -z "${MANIFESTS_JSON:-}" ]; then
-  registry_token=$(curl -fsS "${CURL_TIMEOUTS[@]}" "https://ghcr.io/token?scope=repository:$image:pull" | "$JQ" -er .token) || {
-    echo "::error::no registry token for $image: stopping (nothing deleted)" >&2
-    exit 1
-  }
+  fetch_token
 fi
 
 # digest -> version id, for the messages (a deletion by hand needs the id)
@@ -135,19 +143,37 @@ version_of() { echo "$1 (version ${id_of[$1]:-not listed})"; }
 declare -A manifests=()
 # read_manifest DIGEST WHY [missing-ok]: sets M to the manifest, a JSON
 # object. A lookup that fails stops the run (WHY says what the version is): a
-# manifest nobody could read must not turn into a delete. The one exception,
-# with missing-ok: when the registry answers exactly 404, it returns 1 and
-# the caller decides.
+# manifest nobody could read must not turn into a delete. An expired token
+# (401) refreshes once and retries; if that still fails, the run stops. The
+# one exception, with missing-ok: when the registry answers exactly 404, it
+# returns 1 and the caller decides.
 read_manifest() {
-  local m code
+  local m code fetched
   if [ -z "${manifests[$1]+x}" ]; then
+    if [ -z "${MANIFESTS_JSON:-}" ] && [ $((SECONDS - token_fetched_at)) -ge "$TOKEN_MAX_AGE" ]; then
+      fetch_token
+    fi
     if ! m=$(manifest "$1"); then
-      if [ "${3:-}" = missing-ok ]; then
+      code=
+      fetched=false
+      if [ -z "${MANIFESTS_JSON:-}" ]; then
         code=$(manifest_status "$1") || code=
-        if [ "$code" = 404 ]; then return 1; fi
+        if [ "$code" = 401 ]; then
+          fetch_token
+          if m=$(manifest "$1"); then
+            fetched=true
+          elif [ "${3:-}" = missing-ok ]; then
+            code=$(manifest_status "$1") || code=
+          fi
+        fi
       fi
-      echo "::error::manifest $(version_of "$1"): lookup failed ($2): stopping (nothing deleted)" >&2
-      exit 1
+      if [ "$fetched" != true ]; then
+        if [ "${3:-}" = missing-ok ] && [ "$code" = 404 ]; then
+          return 1
+        fi
+        echo "::error::manifest $(version_of "$1"): lookup failed ($2): stopping (nothing deleted)" >&2
+        exit 1
+      fi
     fi
     if ! printf '%s' "$m" | "$JQ" -e 'type == "object"' > /dev/null 2>&1; then
       echo "::error::manifest $(version_of "$1"): the registry's answer is not a manifest ($2): stopping (nothing deleted)" >&2
