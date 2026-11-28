@@ -736,7 +736,7 @@ func (s *Store) readData(key string, doc saved) error {
 	if err != nil {
 		slog.Warn("reports: saved data unreadable; starting the page over", "page", key, "err", err)
 	}
-	if old {
+	if old || err != nil {
 		doc.clear()
 	}
 	return nil

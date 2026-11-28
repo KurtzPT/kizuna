@@ -842,6 +842,56 @@ func TestOldSchemaUnmatchedNotExpired(t *testing.T) {
 	}
 }
 
+// Saved data with the current schema but a type mismatch in one field leaves
+// earlier fields partially decoded: readData clears them so the page starts
+// over cleanly instead of keeping stale data.
+func TestReadDataClearsOnTypeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	un := UnmatchedKey("Stale Title")
+	const ts = "2026-01-02T03:04:05Z"
+	for key, raw := range map[string]string{
+		"anidb-1": fmt.Sprintf(`{"schema":%d,"key":"anidb-1","title":"Stale Show","orig":"Stale Orig",`+
+			`"builds":[{"id":"old","root":"anidb-1","mode":"anidb","start":%q,"tookMs":5,"complete":true,"trace":[],"epsTotal":0}],`+
+			`"lastMatch":{"time":%q,"mode":"anidb","type":"show","title":"Stale Match","how":"","by":{},"min":80},`+
+			`"requests":"not-an-array"}`, schemaVersion, ts, ts),
+		un: fmt.Sprintf(`{"schema":%d,"key":%q,"match":{"time":%q,"mode":"anidb","type":"show","title":"Stale Title","how":"","by":{},"min":80},`+
+			`"last":%q,"requests":"not-an-array"}`, schemaVersion, un, ts, ts),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "data", key+".json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var logs strings.Builder
+	restore := captureLogs(&logs)
+	now := time.Now()
+	s.AddRequest(Request{Key: "anidb-1", Time: now, Method: "GET", URL: "/new", Status: 200})
+	s.AddRequest(Request{Key: un, Time: now, Method: "POST", URL: "/alone", Status: 200})
+	s.Flush()
+	restore()
+
+	if got := logs.String(); strings.Count(got, "reports: saved data unreadable; starting the page over") != 2 {
+		t.Errorf("logs %q, want two unreadable warnings", got)
+	}
+
+	var doc ShowDoc
+	readDoc(t, dir, "anidb-1", &doc)
+	if doc.Schema != schemaVersion || doc.Title != "anidb-1" || doc.Orig != "" || len(doc.Builds) != 0 || doc.LastMatch != nil ||
+		len(doc.Requests) != 1 || doc.Requests[0].URL != "/new" {
+		t.Errorf("show page %+v, want partial fields cleared and only the new request kept", doc)
+	}
+	if _, err := os.Stat(filepath.Join(dir, un+".html")); !os.IsNotExist(err) {
+		t.Errorf("unmatched page written from stale match: %v", err)
+	}
+	if _, ok := s.index[un]; ok {
+		t.Errorf("unmatched page listed in index: %+v", s.index[un])
+	}
+}
+
 // captureLogs sends slog's output to w until the returned func is called.
 func captureLogs(w *strings.Builder) (restore func()) {
 	old := slog.Default()
