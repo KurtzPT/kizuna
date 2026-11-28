@@ -292,6 +292,82 @@ func TestLateSpan(t *testing.T) {
 	}
 }
 
+// The newest build names the show: a late download on an older build, or
+// two builds flushed newest-first, does not overwrite ShowHead.
+func TestShowHeadNewestWins(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().UTC().Truncate(time.Second)
+	oldHead := ShowHead{Title: "TVDB 123", Orig: "Old Orig", IDs: []ID{{Site: "tvdb", Value: "123"}}}
+	newHead := ShowHead{Title: "Real Title", Orig: "New Orig", IDs: []ID{{Site: "anidb", Value: "1"}, {Site: "tvdb", Value: "123"}}}
+
+	// Older build flushes, newer build flushes, then older build gets a late span.
+	older := NewRecorder("anidb-1", "tvdb")
+	older.b.Start = t0.Add(-time.Minute)
+	older.Finish(time.Second, nil, Result{Head: oldHead})
+	s.AddBuild("anidb-1", older)
+	s.Flush()
+
+	newer := NewRecorder("anidb-1", "tvdb")
+	newer.b.Start = t0
+	newer.Finish(time.Second, nil, Result{Head: newHead})
+	s.AddBuild("anidb-1", newer)
+	s.Flush()
+
+	older.Span("tvdb", "tvdb/late.json", "", SpanNet, t0, time.Millisecond)
+	if s.pending["anidb-1"] == nil {
+		t.Fatal("a late download on the older build didn't queue it again")
+	}
+	s.Flush()
+
+	var doc ShowDoc
+	readDoc(t, dir, "anidb-1", &doc)
+	if doc.Title != newHead.Title || doc.Orig != newHead.Orig || !slices.Equal(doc.IDs, newHead.IDs) {
+		t.Errorf("ShowHead %+v, want %+v", doc.ShowHead, newHead)
+	}
+	if len(doc.Builds) != 2 || doc.Builds[0].ID != newer.ID() || doc.Builds[1].ID != older.ID() ||
+		len(doc.Builds[1].Trace) != 1 || doc.Builds[1].Trace[0].Label != "tvdb/late.json" {
+		t.Errorf("builds %+v, want newer first and older's late span kept", doc.Builds)
+	}
+
+	// Both builds in the same batch, newest first.
+	b2 := NewRecorder("anidb-2", "tvdb")
+	b2.b.Start = t0
+	b2.Finish(time.Second, nil, Result{Head: newHead})
+	b1 := NewRecorder("anidb-2", "tvdb")
+	b1.b.Start = t0.Add(-time.Minute)
+	b1.Finish(time.Second, nil, Result{Head: oldHead})
+	s.AddBuild("anidb-2", b2)
+	s.AddBuild("anidb-2", b1)
+	s.Flush()
+
+	var doc2 ShowDoc
+	readDoc(t, dir, "anidb-2", &doc2)
+	if doc2.Title != newHead.Title || doc2.Orig != newHead.Orig || !slices.Equal(doc2.IDs, newHead.IDs) {
+		t.Errorf("same batch reverse order: ShowHead %+v, want %+v", doc2.ShowHead, newHead)
+	}
+
+	// A newer build without a title still lets an older build populate ShowHead.
+	noTitle := NewRecorder("anidb-3", "tvdb")
+	noTitle.b.Start = t0
+	noTitle.Finish(time.Second, errors.New("boom"), Result{})
+	withTitle := NewRecorder("anidb-3", "tvdb")
+	withTitle.b.Start = t0.Add(-time.Minute)
+	withTitle.Finish(time.Second, nil, Result{Head: oldHead})
+	s.AddBuild("anidb-3", noTitle)
+	s.AddBuild("anidb-3", withTitle)
+	s.Flush()
+
+	var doc3 ShowDoc
+	readDoc(t, dir, "anidb-3", &doc3)
+	if doc3.Title != oldHead.Title || !slices.Equal(doc3.IDs, oldHead.IDs) {
+		t.Errorf("newer build without title: ShowHead %+v, want %+v", doc3.ShowHead, oldHead)
+	}
+}
+
 // Updates queued while a write failed go after the failed ones; a match
 // in between drops them all.
 func TestPendingMerge(t *testing.T) {

@@ -571,8 +571,10 @@ func (s *Store) writeShow(key string, p *pending) error {
 		return err
 	}
 	doc.Schema, doc.Key = schemaVersion, key
+	var head ShowHead
+	var headAt time.Time
 	for _, r := range p.builds {
-		b, head := r.snapshot(func() { s.AddBuild(key, r) })
+		b, h := r.snapshot(func() { s.AddBuild(key, r) })
 		sb, err := newSavedBuild(b)
 		if err != nil {
 			return err
@@ -582,11 +584,16 @@ func (s *Store) writeShow(key string, p *pending) error {
 		} else {
 			doc.Builds = append(doc.Builds, sb)
 		}
-		if head.Title != "" {
-			doc.ShowHead = head
+		if h.Title != "" && (head.Title == "" || !b.Start.Before(headAt)) {
+			head, headAt = h, b.Start
 		}
 	}
 	slices.SortStableFunc(doc.Builds, func(a, b savedBuild) int { return b.Start.Compare(a.Start) })
+	// The newest build names the show: a late download on an older build must not overwrite it.
+	noTitle := doc.Title == "" || (doc.Title == key && doc.Orig == "" && len(doc.IDs) == 0)
+	if head.Title != "" && (noTitle || !headAt.Before(doc.Builds[0].Start)) {
+		doc.ShowHead = head
+	}
 	doc.Builds = doc.Builds[:min(len(doc.Builds), maxBuilds)]
 	for i := 1; i < len(doc.Builds); i++ { // episode and image lists are long: the newest build's only
 		if err := doc.Builds[i].lean(); err != nil {
