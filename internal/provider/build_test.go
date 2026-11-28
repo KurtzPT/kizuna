@@ -1269,13 +1269,20 @@ func TestAniDBBlockedAnimeIsComplete(t *testing.T) {
 // is fetched in the background, but not once AniDB answered with an error:
 // then it is in its 24 h block, and no rebuild before that gets it.
 func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
+	// Hold AniDB 200's error answer until after the first build checks
+	// Complete: otherwise the background fetch can finish and record the 24 h
+	// block before buildShow checks BlockedUntil(200).
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
 	net := &fakeNet{answer: func(path string, q map[string][]string) (int, string) {
 		if path == "api.anidb.net/httpapi" && q["aid"][0] == "200" {
+			<-release
 			return 200, "<error>Anime not found</error>"
 		}
 		return testSeries(path, q)
 	}}
 	p := newTestProvider(t, net)
+	t.Cleanup(unblock) // registered after newTestProvider so it runs before WaitIdle
 	p.lists.SetForTest(map[int]mapping.Entry{
 		100: {AID: 100, TVDB: mapping.Placement{ID: 500, Season: 1, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
 		200: {AID: 200, TVDB: mapping.Placement{ID: 500, Season: 2, Mapped: true}, TMDB: mapping.Placement{ID: 77}},
@@ -1287,6 +1294,7 @@ func TestTVDBBlockedLaterEntryIsComplete(t *testing.T) {
 	if s.Complete {
 		t.Error("AniDB 200 being fetched: want an incomplete show")
 	}
+	unblock()
 	p.anidb.WaitIdle()
 	if _, blocked := p.anidb.BlockedUntil(200); !blocked {
 		t.Fatal("AniDB 200's error answer didn't block it")
