@@ -47,15 +47,21 @@ func (n *ANN) Anime(ctx context.Context, id int) (ANNAnime, error) {
 	if id <= 0 {
 		return ANNAnime{}, errors.New("ann: no id")
 	}
+	// Parse in Validate so truncated or broken XML never enters the cache
+	// (or overwrites a good expired copy); reuse that parse when Get returns it.
+	checked := &fetch.Checked[ANNAnime]{Parse: parseANN}
 	data, err := n.f.Get(ctx, fetch.Request{URL: fmt.Sprintf(annAPI, id), Key: fmt.Sprintf("ann/%d.xml", id),
 		TTL: 7 * 24 * time.Hour, Validate: func(b []byte) error {
 			if !inHead(b, "<ann") {
 				return errors.New("not an ANN answer")
 			}
-			return nil
+			return checked.Validate(b)
 		}})
 	if err != nil {
 		return ANNAnime{}, err
+	}
+	if a, ok := checked.Result(data); ok {
+		return a, nil
 	}
 	return parseANN(data)
 }

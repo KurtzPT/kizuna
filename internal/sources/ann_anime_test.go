@@ -2,7 +2,10 @@ package sources
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"kizuna/internal/fetch"
 )
@@ -65,5 +68,89 @@ func TestANNAnime(t *testing.T) {
 	}
 	if c := n.count(annURL + "0"); c != 0 {
 		t.Errorf("id 0 sent %d requests, want none", c)
+	}
+}
+
+// A truncated or malformed answer that still starts with "<ann" is rejected
+// before caching, so a later request fetches fresh data instead of failing
+// from the cache.
+func TestANNBrokenXMLNotCached(t *testing.T) {
+	f := fetch.New(t.TempDir())
+	n := &tvdbNet{answers: map[string]string{
+		annURL + "13": `<ann><anime id="13"><info type="Main title">Cowboy`,
+		annURL + "14": `<ann><anime id="14"><info type="Main title">A & B</info></anime></ann>`,
+	}}
+	f.SetTransport(n)
+	ann := NewANN(f)
+	f.ThrottleAll(0)
+	ctx := context.Background()
+
+	if a, err := ann.Anime(ctx, 13); err == nil {
+		t.Fatalf("truncated XML: got %+v, want an error", a)
+	}
+	if _, _, ok := f.Cached("ann/13.xml"); ok {
+		t.Error("truncated XML was cached")
+	}
+
+	if a, err := ann.Anime(ctx, 14); err == nil {
+		t.Fatalf("malformed XML: got %+v, want an error", a)
+	}
+	if _, _, ok := f.Cached("ann/14.xml"); ok {
+		t.Error("malformed XML was cached")
+	}
+
+	n.answers[annURL+"13"] = annSample
+	a, err := ann.Anime(ctx, 13)
+	if err != nil {
+		t.Fatalf("retry after truncated XML: %v", err)
+	}
+	if a.Title != "Cowboy Bebop" {
+		t.Errorf("retry title = %q, want %q", a.Title, "Cowboy Bebop")
+	}
+	if c := n.count(annURL + "13"); c != 2 {
+		t.Errorf("entry 13 asked %d times, want 2", c)
+	}
+}
+
+// When a refresh returns truncated XML starting with "<ann", an expired
+// cached copy stays on disk and is served.
+func TestANNBrokenRefreshKeepsExpiredCache(t *testing.T) {
+	dir := t.TempDir()
+	f := fetch.New(dir)
+	n := &tvdbNet{answers: map[string]string{
+		annURL + "13": annSample,
+	}}
+	f.SetTransport(n)
+	ann := NewANN(f)
+	f.ThrottleAll(0)
+	ctx := context.Background()
+
+	a, err := ann.Anime(ctx, 13)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Title != "Cowboy Bebop" {
+		t.Fatalf("initial title = %q, want %q", a.Title, "Cowboy Bebop")
+	}
+
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "ann", "13.xml"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	n.answers[annURL+"13"] = `<ann><anime id="13"><info type="Main title">Cut`
+
+	a, err = ann.Anime(ctx, 13)
+	if err != nil {
+		t.Fatalf("refresh with truncated XML: %v", err)
+	}
+	if a.Title != "Cowboy Bebop" {
+		t.Errorf("stale fallback title = %q, want %q", a.Title, "Cowboy Bebop")
+	}
+	if c := n.count(annURL + "13"); c != 2 {
+		t.Errorf("entry 13 asked %d times, want 2", c)
+	}
+	cached, _, ok := f.Cached("ann/13.xml")
+	if !ok || string(cached) != annSample {
+		t.Errorf("cached copy was overwritten: ok=%v len=%d", ok, len(cached))
 	}
 }
