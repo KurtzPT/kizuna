@@ -45,6 +45,59 @@ func TestDailyRotationAndRetention(t *testing.T) {
 	}
 }
 
+// Cleanup still removes old logs when the log directory path contains glob
+// metacharacters, while keeping recent logs, unrelated files, and directories.
+func TestCleanupWithGlobCharsInDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "[anime]")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"kizuna-2026-11-02.log",
+		"kizuna-2026-11-03.log",
+		"kizuna-2026-11-04.log",
+		"kizuna-2026-11-06.log",
+		"other-2020-01-01.log",
+		"kizuna-2020-01-01.txt",
+		"kizuna-notadate.log",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "kizuna-2020-01-01.log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	clock := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	l, err := open(dir, "kizuna", 3, func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	want := []string{
+		"kizuna-2020-01-01.log",
+		"kizuna-2020-01-01.txt",
+		"kizuna-2026-11-04.log",
+		"kizuna-2026-11-06.log",
+		"kizuna-notadate.log",
+		"kizuna.log",
+		"other-2020-01-01.log",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("entries %v, want %v", got, want)
+	}
+}
+
 // zone is a time zone that follows one POSIX TZ rule for all time. The test
 // can't take its zones from the machine's zone database or from Go's copy:
 // both change when a country changes its clocks, and did for Havana in 2026.
