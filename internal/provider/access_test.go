@@ -125,13 +125,43 @@ func TestEveryoneWarned(t *testing.T) {
 	}
 }
 
-// An ALLOWED_HOSTS entry with a * anywhere but the front would never match:
-// it is reported as bad, like any other.
+// Only exact "*", "any", "all", or a leading "*." wildcard is valid: malformed
+// wildcards must be reported as bad and never open ALLOWED_HOSTS to every host.
 func TestBadHostWildcard(t *testing.T) {
-	a, bad := ParseAccess(nil, []string{"foo*.example.com", "**.example.com", "*.example.com", "kizuna.*"})
-	want := []string{"ALLOWED_HOSTS=foo*.example.com", "ALLOWED_HOSTS=**.example.com", "ALLOWED_HOSTS=kizuna.*"}
-	if !slices.Equal(bad, want) || !slices.Equal(a.Hosts, []string{".example.com"}) {
-		t.Errorf("bad %v hosts %v, want bad %v and only .example.com kept", bad, a.Hosts, want)
+	a, bad := ParseAccess(nil, []string{
+		"**",
+		"*.",
+		".",
+		"*..",
+		"*example.com",
+		"foo*.example.com",
+		"**.example.com",
+		"*.*.example.com",
+		"kizuna.*",
+		"*.example.com",
+		"*.example.com.",
+		".example.com",
+	})
+	wantBad := []string{
+		"ALLOWED_HOSTS=**",
+		"ALLOWED_HOSTS=*.",
+		"ALLOWED_HOSTS=.",
+		"ALLOWED_HOSTS=*..",
+		"ALLOWED_HOSTS=*example.com",
+		"ALLOWED_HOSTS=foo*.example.com",
+		"ALLOWED_HOSTS=**.example.com",
+		"ALLOWED_HOSTS=*.*.example.com",
+		"ALLOWED_HOSTS=kizuna.*",
+	}
+	wantHosts := []string{".example.com", ".example.com", ".example.com"}
+	if a.AnyHost || !slices.Equal(bad, wantBad) || !slices.Equal(a.Hosts, wantHosts) {
+		t.Errorf("any %v bad %v hosts %v, want any false, bad %v, hosts %v", a.AnyHost, bad, a.Hosts, wantBad, wantHosts)
+	}
+	for _, entry := range []string{"*", "any", "all"} {
+		got, bad := ParseAccess(nil, []string{entry})
+		if !got.AnyHost || len(bad) != 0 || len(got.Hosts) != 0 {
+			t.Errorf("ALLOWED_HOSTS=%s: any %v bad %v hosts %v, want any host only", entry, got.AnyHost, bad, got.Hosts)
+		}
 	}
 }
 
