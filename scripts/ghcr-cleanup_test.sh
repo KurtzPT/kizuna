@@ -136,8 +136,10 @@ check "defaults: newest old build" "$(sed -nE 's/^delete ([0-9]+) .*/\1/p' <<< "
 
 # The real API and registry paths, with curl and gh faked by exported
 # functions: curl answers from FAKE_MANIFESTS, needs the token, and fails for
-# the token when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken)
-# or for the manifest FAKE_FAIL names (a 500) or FAKE_404 lists (a 404, as
+# the token when FAKE_FAIL=token (answers without one when FAKE_FAIL=notoken,
+# fails a second token fetch when FAKE_FAIL=refresh, or always answers 401 when
+# FAKE_FAIL=401), expires T1 at FAKE_EXPIRE_AT (requiring T2 from then on), or
+# fails for the manifest FAKE_FAIL names (a 500) or FAKE_404 lists (a 404, as
 # the status probe says), and logs its arguments to CURL_LOG; gh
 # lists the versions in two pages, FAKE_PAGE1 and FAKE_PAGE2 (failing after
 # the first when FAKE_FAIL=list), and prints and logs every other call to
@@ -150,15 +152,31 @@ curl() {
 	echo "$*" >>"$CURL_LOG"
 	case $url in
 	*/token?*)
+		local n
+		n=$(grep -c '/token?' "$CURL_LOG")
 		[[ ${FAKE_FAIL:-} == token ]] && return 22
 		[[ ${FAKE_FAIL:-} == notoken ]] && echo '{}' && return
-		echo '{"token":"T"}'
+		[[ ${FAKE_FAIL:-} == refresh && $n -gt 1 ]] && return 22
+		if [[ -n ${FAKE_EXPIRE_AT:-} ]]; then
+			printf '{"token":"T%s"}\n' "$n"
+		else
+			echo '{"token":"T"}'
+		fi
 		;;
 	*/manifests/*)
 		local d=${url##*/} code=200
-		[[ $* == *"Bearer T"* ]] || code=401
 		[[ $d == "${FAKE_FAIL:-}" ]] && code=500
 		[[ " ${FAKE_404:-} " == *" $d "* ]] && code=404
+		if [[ -n ${FAKE_EXPIRE_AT:-} ]]; then
+			if grep -qF "/manifests/$FAKE_EXPIRE_AT" "$CURL_LOG"; then
+				[[ $* == *"Bearer T2"* ]] || code=401
+			else
+				[[ $* == *"Bearer T1"* ]] || code=401
+			fi
+		else
+			[[ $* == *"Bearer T"* ]] || code=401
+		fi
+		[[ ${FAKE_FAIL:-} == 401 && $d == "${FAKE_EXPIRE_AT:-}" ]] && code=401
 		# the status probe (-w '%{http_code}', no -f) prints the status
 		if [[ $* == *"%{http_code}"* ]]; then
 			echo "$code"
@@ -384,6 +402,55 @@ for fail in "FAKE_FAIL=sha256:rpart" "FAKE_404=sha256:rpart"; do
 	check "repeat loop fails ($fail): says why" "$(tail -n 1 <<< "$out")" \
 		"::error::manifest sha256:rpart (version 3): lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)"
 done
+
+# Token expiry mid-run: a 401 refreshes the token once and retries, and
+# subsequent lookups keep using the new token
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(FAKE_EXPIRE_AT=sha256:devatt DELETE=true run "$versions" '')
+check "token refresh: exit" "$?" 0
+check "token refresh: token fetched twice" "$(grep -c '/token?' "$CURL_LOG")" 2
+check "token refresh: deleted" "$(cat "$GH_LOG")" \
+	"$(printf 'gh api -X DELETE /users/Someone/packages/container/kizuna/versions/%s\n' 6 8 7 12)"
+check "token refresh: later lookup uses new token" \
+	"$(grep -c 'Bearer T2.*/manifests/sha256:devattimg$' "$CURL_LOG")" 1
+
+# A 401 on a 404 untagged leftover refreshes first, then sees the real 404
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(FAKE_EXPIRE_AT=sha256:gone FAKE_404=sha256:gone loop_run)
+check "token refresh on 404: exit" "$?" 0
+check "token refresh on 404: token fetched twice" "$(grep -c '/token?' "$CURL_LOG")" 2
+check "token refresh on 404: warned" "$(grep -cxF "$gone_warning" <<< "$out")" 1
+check "token refresh on 404: deleted" "$(cat "$GH_LOG")" \
+	"$(printf 'gh api -X DELETE /users/Someone/packages/container/kizuna/versions/%s\n' 5 6)"
+
+# If refreshing the token fails, stop with nothing deleted
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(FAKE_EXPIRE_AT=sha256:devatt FAKE_FAIL=refresh DELETE=true run "$versions" '')
+check "token refresh fails: stopped" "$(($? != 0))" 1
+check "token refresh fails: nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")$(cat "$GH_LOG")" 0
+check "token refresh fails: says why" "$(tail -n 1 <<< "$out")" \
+	"::error::no registry token for someone/kizuna: stopping (nothing deleted)"
+
+# If the fresh token still gets 401, stop after one refresh with nothing deleted
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(FAKE_EXPIRE_AT=sha256:devatt FAKE_FAIL=401 DELETE=true run "$versions" '')
+check "token still 401: stopped" "$(($? != 0))" 1
+check "token still 401: only one refresh" "$(grep -c '/token?' "$CURL_LOG")" 2
+check "token still 401: nothing deleted" "$(grep -cE '^(delete|deleted|gh) ' <<< "$out")$(cat "$GH_LOG")" 0
+check "token still 401: says why" "$(tail -n 1 <<< "$out")" \
+	"::error::manifest sha256:devatt (version 3): lookup failed (a kept version the registry can't serve?): stopping (nothing deleted)"
+
+# Proactive refresh: when the token reaches TOKEN_MAX_AGE, a new token is
+# fetched before the next manifest lookup without waiting for a 401
+: >"$CURL_LOG"
+: >"$GH_LOG"
+out=$(TOKEN_MAX_AGE=0 DELETE=true run "$versions" '')
+check "proactive token refresh: exit" "$?" 0
+check "proactive token refresh: refreshed before lookups" "$(($(grep -c '/token?' "$CURL_LOG") > 1))" 1
 
 echo "$CHECKS checks, $FAILS failed"
 ((FAILS == 0))
