@@ -383,6 +383,77 @@ func TestGetJSONReady(t *testing.T) {
 	}
 }
 
+// A failed ready is reported to the observer like a failed download: KindFail
+// when nothing answers (using the asked key or redacted URL, even if ready
+// returns a zero Request), and KindStale when a stale copy stands in.
+func TestGetJSONReadyObserve(t *testing.T) {
+	c := New(t.TempDir())
+	net := &bodyNet{body: `{"A": 9}`}
+	c.SetTransport(net)
+	down := errors.New("key rejected")
+	failZero := func(Request) (Request, error) { return Request{}, down }
+	failNoStale := func(r Request) (Request, error) {
+		r.NoStale = true
+		return r, down
+	}
+
+	var out struct{ A int }
+
+	// No cached copy, keyed request: KindFail with the asked key.
+	r := Request{URL: "https://api.example/r", Key: "r.json", TTL: time.Hour}
+	ctx, events := traced()
+	if err := c.GetJSON(ctx, r, &out, failZero); !errors.Is(err, down) {
+		t.Fatalf("no copy: err %v, want %v", err, down)
+	}
+	if ev := events(); !slices.Equal(kinds(ev), []Kind{KindFail}) || ev[0].Key != r.Key || !errors.Is(ev[0].Err, down) {
+		t.Errorf("no copy: trace %+v, want one fail for %q with %v", ev, r.Key, down)
+	}
+
+	// No cached copy, uncached request: KindFail with the redacted URL.
+	uncached := Request{URL: "https://api.example/u?api_key=secret"}
+	ctx, events = traced()
+	if err := c.GetJSON(ctx, uncached, &out, failZero); !errors.Is(err, down) {
+		t.Fatalf("uncached: err %v, want %v", err, down)
+	}
+	if ev := events(); !slices.Equal(kinds(ev), []Kind{KindFail}) || ev[0].Key != Redact(uncached.URL) || strings.Contains(ev[0].Key, "secret") || !errors.Is(ev[0].Err, down) {
+		t.Errorf("uncached: trace %+v, want one fail with redacted URL and %v", ev, down)
+	}
+
+	// Stale copy exists: KindStale (not KindFail), even if ready returned a zero Request.
+	if err := WriteFile(c.path(r.Key), []byte(`{"A": 1}`)); err != nil {
+		t.Fatal(err)
+	}
+	expire(t, c, r.Key)
+	ctx, events = traced()
+	if err := c.GetJSON(ctx, r, &out, failZero); err != nil || out.A != 1 {
+		t.Fatalf("stale copy: %+v, %v; want the stale copy", out, err)
+	}
+	if ev := events(); !slices.Equal(kinds(ev), []Kind{KindStale}) || ev[0].Key != r.Key || !errors.Is(ev[0].Err, down) {
+		t.Errorf("stale copy: trace %+v, want one stale for %q with %v", ev, r.Key, down)
+	}
+
+	// Stale copy exists, NoStale set by ready or by the caller: KindFail.
+	for name, tc := range map[string]struct {
+		req   Request
+		ready func(Request) (Request, error)
+	}{
+		"ready sets NoStale":  {r, failNoStale},
+		"caller sets NoStale": {Request{URL: r.URL, Key: r.Key, TTL: r.TTL, NoStale: true}, failZero},
+	} {
+		ctx, events = traced()
+		if err := c.GetJSON(ctx, tc.req, &out, tc.ready); !errors.Is(err, down) {
+			t.Errorf("%s: err %v, want %v", name, err, down)
+		}
+		if ev := events(); !slices.Equal(kinds(ev), []Kind{KindFail}) || ev[0].Key != r.Key || !errors.Is(ev[0].Err, down) {
+			t.Errorf("%s: trace %+v, want one fail for %q with %v", name, ev, r.Key, down)
+		}
+	}
+
+	if n := net.sent.Load(); n != 0 {
+		t.Errorf("%d requests sent, want none", n)
+	}
+}
+
 // out is replaced, not merged into, whichever way the answer comes: a field
 // only the first value had is gone after the second, and a copy that
 // doesn't decode leaves nothing of itself.
