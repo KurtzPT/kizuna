@@ -9,7 +9,8 @@
 # change here only takes effect once it's released to main.
 #
 # A pull request opened with GITHUB_TOKEN doesn't start other workflows, so the
-# job runs ci and docker on the branch itself; their checks show up on the PR.
+# job runs ci, docker and codeql on the branch itself; their checks show up on
+# the PR.
 # Needs: Settings -> Actions -> General -> "Allow GitHub Actions to create and
 # approve pull requests".
 name: go-update
@@ -32,7 +33,7 @@ jobs:
     permissions:
       contents: write      # push the go-update/go-X.Y branch
       pull-requests: write # open the pull request
-      actions: write       # start ci and docker on that branch
+      actions: write       # start ci, docker and codeql on that branch
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -96,7 +97,8 @@ jobs:
             --title "Go $NEW" \
             --body "Go $NEW is out ([release notes](https://go.dev/doc/go$NEW)). Bumps the \`go\` line in \`go.mod\` and \`ARG GO_VERSION\` in the \`Dockerfile\` from $CURRENT to $NEW.
 
-          Opened by the weekly \`go-update\` workflow. The \`ci\` and \`docker\` checks were started on this branch by hand; if \`docker\` fails because the \`golang:$NEW-alpine\` image isn't published yet, re-run it later."
+          Opened by the weekly \`go-update\` workflow. The \`ci\`, \`docker\` and \`codeql\` checks were started on this branch by hand; if \`docker\` fails because the \`golang:$NEW-alpine\` image isn't published yet, re-run it later."
 
           gh workflow run ci.yml --ref "$BRANCH"
           gh workflow run docker.yml --ref "$BRANCH"
+          gh workflow run codeql.yml --ref "$BRANCH"
